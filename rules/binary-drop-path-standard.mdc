@@ -1,0 +1,140 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Binary Drop Path Standard for Security Tests
+
+All security tests that drop binaries to disk must follow the standardized path requirement.
+
+## Binary Drop Requirements
+
+### Mandatory Drop Path
+- **All binaries must be dropped directly to**: `c:\F0\`
+- **Create the directory if it doesn't exist**: Use `os.MkdirAll()`
+- **No intermediate copying**: Extract directly to target location
+
+### Implementation Pattern
+
+#### Directory Setup and Extraction
+```go
+func test() {
+    // Initialize the dropper
+    if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
+        Endpoint.Say("%v", err)
+        Endpoint.Stop(Endpoint.UnexpectedTestError)
+    }
+
+    // Create target directory for dropping the binary
+    targetDir := "c:\\F0"
+    
+    if err := os.MkdirAll(targetDir, 0755); err != nil {
+        Endpoint.Say("Failed to create target directory %s: %v", targetDir, err)
+        Endpoint.Stop(Endpoint.UnexpectedTestError)
+    }
+
+    // Change to target directory for extraction
+    originalDir, err := os.Getwd()
+    if err != nil {
+        Endpoint.Say("Failed to get current directory: %v", err)
+        Endpoint.Stop(Endpoint.UnexpectedTestError)
+    }
+
+    if err := os.Chdir(targetDir); err != nil {
+        Endpoint.Say("Failed to change to target directory: %v", err)
+        Endpoint.Stop(Endpoint.UnexpectedTestError)
+    }
+    defer os.Chdir(originalDir) // Return to original directory when done
+
+    // Extract the binary directly to c:\F0 and check for quarantine
+    Endpoint.Say("Extracting binary to %s for quarantine test", targetDir)
+    Endpoint.Say("Pausing for 3 seconds to gauge defensive reaction")
+    Endpoint.Wait(3)
+
+    if Endpoint.Quarantined("binary_name.exe", malicious) {
+        Endpoint.Say("Binary was caught and quarantined!")
+        Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
+    }
+
+    Endpoint.Say("Binary was not caught, attempting execution")
+    
+    // Execute test...
+}
+```
+
+#### Execution from Target Path
+```go
+func execute() error {
+    // Define target drop path
+    targetDir := "c:\\F0"
+    targetPath := filepath.Join(targetDir, "binary_name.exe")
+
+    // Execute binary from target location
+    command := []string{
+        targetPath,
+        "arg1", "arg2", "arg3",
+    }
+    
+    output, err := Endpoint.Shell(command)
+    // ... rest of execution logic
+}
+```
+
+#### Cleanup from Target Path
+```go
+// Clean up any potential artifacts from c:\F0
+possibleArtifacts := []string{
+    filepath.Join(targetDir, "downloaded_payload.exe"),
+    filepath.Join(targetDir, "temp_file.txt"),
+    targetPath, // Clean up the main binary itself
+}
+
+for _, artifact := range possibleArtifacts {
+    if _, err := os.Stat(artifact); err == nil {
+        os.Remove(artifact)
+        Endpoint.Say("Cleaned up artifact: %s", artifact)
+    }
+}
+```
+
+## Key Principles
+
+### 1. Direct Extraction
+- **Never extract to current directory then copy**
+- **Always change working directory to target before extraction**
+- **Use `defer` to restore original working directory**
+
+### 2. Directory Management
+- **Always create `c:\F0` if it doesn't exist**
+- **Use `os.MkdirAll()` with appropriate permissions (0755)**
+- **Handle directory creation errors gracefully**
+
+### 3. Path Construction
+- **Use `filepath.Join()` for cross-platform path construction**
+- **Define `targetDir := "c:\\F0"` as a constant**
+- **Build full paths with `filepath.Join(targetDir, "binary_name.exe")`**
+
+### 4. Error Handling
+- **Check all directory operations for errors**
+- **Stop test execution on critical path failures**
+- **Log meaningful error messages with context**
+
+## Why This Standard?
+
+### Security Testing Benefits
+- **Consistent drop location** for all security tests
+- **Predictable artifact locations** for cleanup
+- **Isolated testing environment** separate from current directory
+- **Easier monitoring** of security tool reactions to specific paths
+
+### Operational Benefits
+- **Simplified cleanup** - all artifacts in one known location
+- **Better test isolation** - no interference with test runner directory
+- **Consistent behavior** across all binary drop tests
+- **Easier debugging** - known location for investigation
+
+## Reference Implementation
+See [TrollDisappearKey test](mdc:tests_source/c1f0fe6f-6907-4f95-820d-47e0a39abe54/c1f0fe6f-6907-4f95-820d-47e0a39abe54.go) for a complete example following this standard.
+
+## Non-Compliance
+Tests that do not follow this standard will be inconsistent with the established security testing framework and may interfere with proper artifact cleanup and monitoring.

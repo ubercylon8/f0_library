@@ -1,0 +1,93 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Binary Drop Test Development Best Practices
+
+> **Note**: This guide is specifically for security tests that involve dropping and executing binary files (malicious tools, security utilities, etc.) on target systems. For other test types (e.g., configuration checks, API tests, network tests), different patterns and practices may apply.
+
+## Test Type Overview
+Binary drop tests are designed to evaluate endpoint security solutions' ability to:
+- Detect malicious or suspicious binaries upon extraction
+- Prevent execution of known attack tools
+- Identify and block security tool manipulation attempts
+- Monitor for credential dumping and other malicious behaviors
+
+## Code Security Guidelines
+
+### Error Handling
+- Always handle errors explicitly and provide meaningful error messages
+- Use `fmt.Errorf()` to wrap errors with context
+- Clean up resources even when errors occur
+
+### Resource Management
+- Always clean up created files, processes, and other resources
+- Use `defer` statements where appropriate for cleanup
+- Remove any temporary files or artifacts after test completion
+
+### Binary Embedding
+- Use Go's `//go:embed` directive to embed malicious binaries
+- Name binaries with innocuous names (e.g., `library_update.exe` instead of `malicious.exe`)
+- Always check if binaries are quarantined before execution
+
+### Test Flow Pattern
+```go
+1. Initialize dropper
+2. Extract binary and check for quarantine
+3. Wait briefly to gauge defensive reaction
+4. Attempt execution
+5. Clean up artifacts
+6. Report appropriate result code
+```
+
+### Security Considerations
+- Never leave malicious binaries on the system after testing
+- Minimize the attack surface by using only necessary permissions
+- Document all potentially dangerous operations
+- Use defensive coding practices to prevent unintended consequences
+
+### MITRE ATT&CK Mapping
+Always map tests to appropriate MITRE ATT&CK techniques:
+- T1003.001 - OS Credential Dumping: LSASS Memory
+- T1562.001 - Impair Defenses: Disable or Modify Tools
+- T1055 - Process Injection
+- T1574 - Hijack Execution Flow
+
+### Documentation Requirements
+Each test must include:
+1. **README.md** - Brief overview and test steps
+2. **Info Card** - Detailed technical documentation including:
+   - Test ID and metadata
+   - Technique details and MITRE mapping
+   - Expected behaviors and detection points
+   - Success metrics and result codes
+   - References to original tools/techniques
+
+### Platform-Specific Considerations
+- Use build tags for platform-specific code: `//go:build windows`
+- Handle Windows-specific paths correctly (use `filepath` package)
+- Consider Windows security features (UAC, PPL, etc.)
+
+## Common Patterns
+
+### Executing External Binaries
+```go
+command := []string{
+    ".\\tool.exe", "-flag", "value",
+}
+_, err := Endpoint.Shell(command)
+```
+
+### Checking File Existence
+```go
+if _, err := os.Stat(filename); err == nil {
+    // File exists, clean it up
+    os.Remove(filename)
+}
+```
+
+### Disguising Artifacts
+- Use common file extensions (.docx, .txt, .log)
+- Place files in expected directories
+- Use legitimate-sounding filenames

@@ -1,0 +1,47 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Security testing artifacts
+c:/F0/
+/F0/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Code signing certificates (keep secure)
+*.pfx
+*.p12
+*.cer
+
+# Build artifacts
+build/
+dist/

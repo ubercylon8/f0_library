@@ -1,0 +1,237 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Security Test Development Patterns
+
+Comprehensive patterns and best practices for developing security tests in the F0RT1KA framework.
+
+## Test Flow Pattern
+
+### Standard Security Test Structure
+```go
+func execute() error {
+    // Define target drop path (MANDATORY)
+    targetDir := "c:\\F0"
+    targetPath := filepath.Join(targetDir, "binary_name.exe")
+    
+    // Test execution logic with proper error handling
+    command := []string{
+        targetPath,
+        "arg1", "arg2", "arg3",  // No quotes needed in Go slice
+    }
+    
+    output, err := Endpoint.Shell(command)
+    
+    // Smart error analysis - distinguish security blocking vs normal operation
+    if err != nil {
+        errorMsg := err.Error()
+        securityBlockingKeywords := []string{
+            "access denied", "access is denied", "blocked", "quarantine", 
+            "virus", "malware", "threat", "security", "permission denied",
+            "execution prevented", "policy", "restricted", "forbidden",
+        }
+        
+        isSecurityBlocked := false
+        for _, keyword := range securityBlockingKeywords {
+            if strings.Contains(strings.ToLower(errorMsg), keyword) {
+                isSecurityBlocked = true
+                break
+            }
+        }
+        
+        if isSecurityBlocked {
+            return fmt.Errorf("execution blocked by security software: %v", err)
+        }
+        
+        // Log non-security errors but continue
+        Endpoint.Say("Execution completed with error (may be normal): %v", err)
+    }
+    
+    // Process output and cleanup
+    return nil
+}
+
+func test() {
+    // Initialize dropper
+    if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
+        Endpoint.Say("%v", err)
+        Endpoint.Stop(Endpoint.UnexpectedTestError)
+    }
+    
+    // MANDATORY: Create target directory and change to it
+    targetDir := "c:\\F0"
+    if err := os.MkdirAll(targetDir, 0755); err != nil {
+        Endpoint.Say("Failed to create target directory %s: %v", targetDir, err)
+        Endpoint.Stop(Endpoint.UnexpectedTestError)
+    }
+    
+    originalDir, err := os.Getwd()
+    if err != nil {
+        Endpoint.Say("Failed to get current directory: %v", err)
+        Endpoint.Stop(Endpoint.UnexpectedTestError)
+    }
+    
+    if err := os.Chdir(targetDir); err != nil {
+        Endpoint.Say("Failed to change to target directory: %v", err)
+        Endpoint.Stop(Endpoint.UnexpectedTestError)
+    }
+    defer os.Chdir(originalDir) // Always restore original directory
+    
+    // Extract binary directly to c:\F0 and check for quarantine
+    Endpoint.Say("Extracting binary to %s for quarantine test", targetDir)
+    Endpoint.Say("Pausing for 3 seconds to gauge defensive reaction")
+    Endpoint.Wait(3)
+    
+    if Endpoint.Quarantined("binary_name.exe", malicious) {
+        Endpoint.Say("Binary was caught and quarantined!")
+        Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
+    }
+    
+    Endpoint.Say("Binary was not caught, attempting execution")
+    
+    // Try to execute - NOTE: Use = not := if err already declared
+    execErr := execute()
+    if execErr != nil {
+        Endpoint.Say("Got error \"%v\" when executing", execErr)
+        Endpoint.Stop(Endpoint.ExecutionPrevented)
+    }
+    
+    Endpoint.Say("Execution was not prevented")
+    Endpoint.Stop(Endpoint.Unprotected)
+}
+```
+
+## Key Development Principles
+
+### 1. Binary Drop Requirements
+- **MANDATORY**: All binaries must be dropped to `c:\F0\`
+- **Create directory**: Always use `os.MkdirAll(targetDir, 0755)`
+- **Direct extraction**: Change working directory before dropper extracts
+- **No copying**: Extract directly to target, don't copy after
+
+### 2. Error Handling Strategy
+- **Distinguish error types**: Security blocking vs normal operation errors
+- **Use keyword analysis**: Check error messages for security indicators
+- **Handle gracefully**: Log non-critical errors but continue test
+- **Meaningful messages**: Provide context in error messages
+
+### 3. Command Execution Best Practices
+- **No manual quoting**: Don't quote arguments in Go slices
+- **Full paths**: Always use absolute paths to binaries
+- **Handle interactive tools**: Modify source tools to be non-interactive
+- **Process output**: Analyze output to confirm successful execution
+
+### 4. Go Language Patterns
+- **Variable scope**: Use `=` for assignment, `:=` for declaration+assignment
+- **Error variables**: Don't redeclare `err` in same scope
+- **Defer cleanup**: Always restore state with `defer`
+- **Path construction**: Use `filepath.Join()` for cross-platform paths
+
+## Common Patterns
+
+### Executing Binaries with Arguments
+```go
+command := []string{
+    targetPath,
+    "https://github.com/example/tool.exe",  // No quotes needed
+    "argument",
+    "Software\\Microsoft\\Registry\\Key",
+}
+output, err := Endpoint.Shell(command)
+```
+
+### Artifact Cleanup
+```go
+possibleArtifacts := []string{
+    filepath.Join(targetDir, "downloaded_file.exe"),
+    filepath.Join(targetDir, "temp_file.txt"),
+    targetPath, // Clean up the main binary itself
+}
+
+for _, artifact := range possibleArtifacts {
+    if _, err := os.Stat(artifact); err == nil {
+        os.Remove(artifact)
+        Endpoint.Say("Cleaned up artifact: %s", artifact)
+    }
+}
+```
+
+### Interactive Tool Modification
+When dealing with interactive tools that hang waiting for input:
+
+**Problem Pattern:**
+```csharp
+while (input != "exit") {
+    method.Invoke(null, parameters);
+    input = Console.ReadLine();  // ← Hangs here
+}
+```
+
+**Solution Pattern:**
+```csharp
+// Execute once and exit - no loop
+method.Invoke(null, parameters);
+Console.WriteLine("Execution completed. Exiting...");
+```
+
+## Success Detection Strategies
+
+### Output Analysis
+```go
+outputStr := string(output)
+if len(outputStr) > 0 {
+    Endpoint.Say("Tool executed successfully - bypass worked!")
+    Endpoint.Say("Tool output: %s", outputStr)
+} else {
+    Endpoint.Say("Tool executed successfully")
+}
+```
+
+### Error vs Success Interpretation
+- **Security errors** = Protection working (ExecutionPrevented)
+- **Successful execution** = Protection bypassed (Unprotected)
+- **File quarantine** = Early detection (FileQuarantinedOnExtraction)
+
+## Common Pitfalls to Avoid
+
+### 1. Variable Redeclaration
+```go
+// ❌ WRONG - redeclaring err
+originalDir, err := os.Getwd()
+// ...
+err := execute()  // ERROR: no new variables on left side of :=
+
+// ✅ CORRECT - reusing err
+originalDir, err := os.Getwd()
+// ...
+err = execute()   // OK: assignment to existing variable
+```
+
+### 2. Quote Handling
+```go
+// ❌ WRONG - manual quotes become part of argument
+command := []string{
+    ".\\tool.exe",
+    "\"https://example.com/file.exe\"",  // Quotes included in string!
+}
+
+// ✅ CORRECT - let Go handle escaping
+command := []string{
+    targetPath,
+    "https://example.com/file.exe",     // Clean string
+}
+```
+
+### 3. Interactive Tools
+```go
+// ❌ WRONG - hanging interactive tool
+// Tool hangs waiting for user input
+
+// ✅ CORRECT - modify tool source to be non-interactive
+// Or handle timeout scenarios appropriately
+```
+
+## Reference Implementation
+See [TrollDisappearKey test](mdc:tests_source/c1f0fe6f-6907-4f95-820d-47e0a39abe54/c1f0fe6f-6907-4f95-820d-47e0a39abe54.go) for a complete working example that demonstrates all these patterns.
