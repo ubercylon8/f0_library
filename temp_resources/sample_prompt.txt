@@ -1,0 +1,10 @@
+Let's create a new security test in order to verify detection or prevention capabilities of a
+  Windows host protected with Microsoft Defender. Use the information provided in this web page to
+   create the test description card:
+  https://cybersecuritynews.com/cybereye-rat-disable-windows-defender-using-powershell/
+
+  When the test binary is run, it  should drop  a powershell script (located here:
+  @temp_resources/CyberEye-TTPs.ps1), on the host at the prestablished location.
+
+  Please make sure you understand the task, plan it, and create the new test. You don't to test it
+   at this time. Just create the test according to the repository instructions.
