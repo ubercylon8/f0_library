@@ -1,0 +1,362 @@
+#!/bin/bash
+
+# F0RT1KA Test Builder
+# Utility for building security tests with cross-platform support
+
+set -e
+
+# Default values
+DEFAULT_OS="windows"
+DEFAULT_ARCH="amd64"
+BUILD_DIR="build"
+VERBOSE=false
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Print colored output
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Show usage information
+show_usage() {
+    cat << EOF
+F0RT1KA Test Builder
+
+USAGE:
+    $(basename "$0") [OPTIONS] [COMMAND]
+
+COMMANDS:
+    build <test-path>    Build a specific test
+    build-all           Build all tests in tests_source/
+    clean               Clean build directory
+    list                List available tests
+
+OPTIONS:
+    --os <OS>           Target OS (default: windows)
+                        Supported: windows, linux, darwin
+    --arch <ARCH>       Target architecture (default: amd64)
+                        Supported: amd64, 386, arm64
+    --output <DIR>      Output directory (default: build/)
+    --verbose           Enable verbose output
+    --help              Show this help message
+
+EXAMPLES:
+    # Build a specific test for Windows
+    $(basename "$0") build tests_source/ecd2514c-512a-4251-a6f4-eb3aa834d401
+
+    # Build for Linux
+    $(basename "$0") --os linux build tests_source/ecd2514c-512a-4251-a6f4-eb3aa834d401
+
+    # Build all tests
+    $(basename "$0") build-all
+
+    # Build with custom output directory
+    $(basename "$0") --output dist/ build tests_source/ecd2514c-512a-4251-a6f4-eb3aa834d401
+
+NOTES:
+    - Tests are built from the tests_source/ directory
+    - Each test must have a go.mod file
+    - Binary names match the test UUID
+    - Cross-compilation requires Go 1.21+
+EOF
+}
+
+# Validate OS and architecture
+validate_platform() {
+    local os="$1"
+    local arch="$2"
+    
+    case "$os" in
+        windows|linux|darwin) ;;
+        *) print_error "Unsupported OS: $os"; exit 1 ;;
+    esac
+    
+    case "$arch" in
+        amd64|386|arm64) ;;
+        *) print_error "Unsupported architecture: $arch"; exit 1 ;;
+    esac
+}
+
+# Get test UUID from path
+get_test_uuid() {
+    local test_path="$1"
+    basename "$test_path"
+}
+
+# Check if test directory is valid
+validate_test_dir() {
+    local test_path="$1"
+    local uuid=$(get_test_uuid "$test_path")
+    
+    if [[ ! -d "$test_path" ]]; then
+        print_error "Test directory not found: $test_path"
+        return 1
+    fi
+    
+    if [[ ! -f "$test_path/go.mod" ]]; then
+        print_error "go.mod not found in: $test_path"
+        return 1
+    fi
+    
+    if [[ ! -f "$test_path/$uuid.go" ]]; then
+        print_error "Test file $uuid.go not found in: $test_path"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Build a single test
+build_test() {
+    local test_path="$1"
+    local target_os="$2"
+    local target_arch="$3"
+    local output_dir="$4"
+    
+    local uuid=$(get_test_uuid "$test_path")
+    local test_file="$test_path/$uuid.go"
+    local binary_name="$uuid"
+    
+    # Add .exe extension for Windows
+    if [[ "$target_os" == "windows" ]]; then
+        binary_name="${binary_name}.exe"
+    fi
+    
+    local output_path="$output_dir/$uuid/$binary_name"
+    
+    print_info "Building test: $uuid"
+    print_info "Source: $test_file"
+    print_info "Target: $target_os/$target_arch"
+    print_info "Output: $output_path"
+    
+    # Create output directory
+    mkdir -p "$output_dir/$uuid"
+    
+    # Change to test directory for build
+    pushd "$test_path" > /dev/null
+    
+    # Set environment variables for cross-compilation
+    export GOOS="$target_os"
+    export GOARCH="$target_arch"
+    export CGO_ENABLED=0
+    
+    # Build command
+    local build_cmd="go build -o ../../$output_path $uuid.go"
+    
+    if [[ "$VERBOSE" == "true" ]]; then
+        build_cmd="go build -v -o ../../$output_path $uuid.go"
+        print_info "Build command: $build_cmd"
+    fi
+    
+    # Execute build
+    if eval "$build_cmd"; then
+        popd > /dev/null
+        print_success "Built: $output_path"
+        
+        # Show binary info
+        if [[ -f "$output_path" ]]; then
+            local size=$(ls -lh "$output_path" | awk '{print $5}')
+            print_info "Binary size: $size"
+        fi
+        
+        return 0
+    else
+        popd > /dev/null
+        print_error "Build failed for: $uuid"
+        return 1
+    fi
+}
+
+# Build all tests
+build_all_tests() {
+    local target_os="$1"
+    local target_arch="$2"
+    local output_dir="$3"
+    
+    print_info "Building all tests for $target_os/$target_arch"
+    
+    local built_count=0
+    local failed_count=0
+    
+    for test_dir in tests_source/*/; do
+        if [[ -d "$test_dir" ]]; then
+            local uuid=$(get_test_uuid "$test_dir")
+            
+            if validate_test_dir "$test_dir"; then
+                if build_test "$test_dir" "$target_os" "$target_arch" "$output_dir"; then
+                    ((built_count++))
+                else
+                    ((failed_count++))
+                fi
+            else
+                print_warning "Skipping invalid test directory: $test_dir"
+                ((failed_count++))
+            fi
+        fi
+    done
+    
+    print_info "Build summary: $built_count successful, $failed_count failed"
+    
+    if [[ $failed_count -gt 0 ]]; then
+        return 1
+    fi
+    
+    return 0
+}
+
+# List available tests
+list_tests() {
+    print_info "Available tests in tests_source/:"
+    
+    local count=0
+    for test_dir in tests_source/*/; do
+        if [[ -d "$test_dir" ]]; then
+            local uuid=$(get_test_uuid "$test_dir")
+            
+            if validate_test_dir "$test_dir" &>/dev/null; then
+                echo "  ✓ $uuid"
+                ((count++))
+            else
+                echo "  ✗ $uuid (invalid)"
+            fi
+        fi
+    done
+    
+    print_info "Total: $count valid tests"
+}
+
+# Clean build directory
+clean_build() {
+    local output_dir="$1"
+    
+    if [[ -d "$output_dir" ]]; then
+        print_info "Cleaning build directory: $output_dir"
+        rm -rf "$output_dir"
+        print_success "Cleaned: $output_dir"
+    else
+        print_info "Build directory does not exist: $output_dir"
+    fi
+}
+
+# Main function
+main() {
+    local target_os="$DEFAULT_OS"
+    local target_arch="$DEFAULT_ARCH"
+    local output_dir="$BUILD_DIR"
+    local command=""
+    local test_path=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --os)
+                target_os="$2"
+                shift 2
+                ;;
+            --arch)
+                target_arch="$2"
+                shift 2
+                ;;
+            --output)
+                output_dir="$2"
+                shift 2
+                ;;
+            --verbose)
+                VERBOSE=true
+                shift
+                ;;
+            --help)
+                show_usage
+                exit 0
+                ;;
+            build)
+                command="build"
+                test_path="$2"
+                shift 2
+                ;;
+            build-all)
+                command="build-all"
+                shift
+                ;;
+            clean)
+                command="clean"
+                shift
+                ;;
+            list)
+                command="list"
+                shift
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+    
+    # Validate platform
+    validate_platform "$target_os" "$target_arch"
+    
+    # Execute command
+    case "$command" in
+        build)
+            if [[ -z "$test_path" ]]; then
+                print_error "Test path required for build command"
+                show_usage
+                exit 1
+            fi
+            
+            if validate_test_dir "$test_path"; then
+                build_test "$test_path" "$target_os" "$target_arch" "$output_dir"
+            else
+                exit 1
+            fi
+            ;;
+        build-all)
+            build_all_tests "$target_os" "$target_arch" "$output_dir"
+            ;;
+        clean)
+            clean_build "$output_dir"
+            ;;
+        list)
+            list_tests
+            ;;
+        "")
+            print_error "No command specified"
+            show_usage
+            exit 1
+            ;;
+        *)
+            print_error "Unknown command: $command"
+            show_usage
+            exit 1
+            ;;
+    esac
+}
+
+# Check if Go is installed
+if ! command -v go &> /dev/null; then
+    print_error "Go is not installed or not in PATH"
+    exit 1
+fi
+
+# Run main function
+main "$@"

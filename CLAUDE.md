@@ -14,10 +14,26 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 ## Building and Running Tests
 
 ### Build a Test
-Since the `gobuild` script is not present, use standard Go build:
+Use the `gobuild` utility for cross-platform compilation:
 ```bash
-cd tests_source/<uuid>/
-GOOS=windows GOARCH=amd64 go build -o <uuid>.exe <uuid>.go
+# Build specific test (Windows/amd64 by default)
+./utils/gobuild build tests_source/<uuid>/
+
+# Build for different platforms
+./utils/gobuild --os linux --arch amd64 build tests_source/<uuid>/
+
+# Build all tests
+./utils/gobuild build-all
+```
+
+### Sign Test Binaries
+Use the `codesign` utility for Windows executable signing:
+```bash
+# Sign specific binary
+./utils/codesign sign build/<uuid>/<uuid>.exe
+
+# Sign all binaries
+./utils/codesign sign-all
 ```
 
 ### Test Result Codes
@@ -31,6 +47,10 @@ tests_source/      # New tests go here
 sample_tests/      # Reference implementations
 rules/             # Development guidelines
 signing-certs/     # Code signing certificates
+utils/             # Build and signing utilities
+  ├── gobuild      # Cross-platform test builder
+  ├── codesign     # Code signing utility
+  └── README.md    # Utility documentation
 ```
 
 ## Creating New Tests
