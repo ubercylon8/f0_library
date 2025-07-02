@@ -1,0 +1,473 @@
+#!/bin/bash
+
+# F0RT1KA Code Signing Utility
+# Uses osslsigncode to sign Windows executables with certificates
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Print colored output
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Show usage information
+show_usage() {
+    cat << EOF
+F0RT1KA Code Signing Utility
+
+USAGE:
+    $(basename "$0") [OPTIONS] [COMMAND]
+
+COMMANDS:
+    sign <binary>           Sign a specific binary
+    sign-all [directory]    Sign all executables in directory (default: build/)
+    verify <binary>         Verify signature of a binary
+    list-certs              List available certificates in signing-certs/
+
+OPTIONS:
+    --cert <file>           Certificate file (required for signing)
+    --password <pass>       Certificate password (will prompt if not provided)
+    --timestamp-url <url>   Timestamp server URL (optional)
+    --description <desc>    Description for signature (optional)
+    --url <url>             URL for signature (optional)
+    --output <file>         Output file (default: overwrites input)
+    --verbose               Enable verbose output
+    --help                  Show this help message
+
+EXAMPLES:
+    # Sign a binary (will prompt for certificate and password)
+    $(basename "$0") sign build/test-uuid/test-uuid.exe
+
+    # Sign with specific certificate
+    $(basename "$0") --cert signing-certs/mycert.pfx sign build/test-uuid/test-uuid.exe
+
+    # Sign all binaries in build directory
+    $(basename "$0") sign-all
+
+    # Sign with description and URL
+    $(basename "$0") --cert signing-certs/mycert.pfx \\
+        --description "F0RT1KA Security Test" \\
+        --url "https://github.com/ubercylon8/f0_library" \\
+        sign build/test-uuid/test-uuid.exe
+
+    # Verify a signature
+    $(basename "$0") verify build/test-uuid/test-uuid.exe
+
+NOTES:
+    - Requires osslsigncode to be installed
+    - Certificates should be in PFX/P12 format
+    - Default certificate directory: signing-certs/
+    - Timestamping is recommended for production binaries
+EOF
+}
+
+# Check if osslsigncode is installed
+check_osslsigncode() {
+    if ! command -v osslsigncode &> /dev/null; then
+        print_error "osslsigncode is not installed or not in PATH"
+        print_info "Install with: brew install osslsigncode (macOS) or apt-get install osslsigncode (Linux)"
+        exit 1
+    fi
+}
+
+# List available certificates
+list_certificates() {
+    local cert_dir="signing-certs"
+    
+    print_info "Available certificates in $cert_dir/:"
+    
+    if [[ ! -d "$cert_dir" ]]; then
+        print_warning "Certificate directory not found: $cert_dir"
+        return 1
+    fi
+    
+    local count=0
+    for cert_file in "$cert_dir"/*.{pfx,p12}; do
+        if [[ -f "$cert_file" ]]; then
+            echo "  • $(basename "$cert_file")"
+            ((count++))
+        fi
+    done
+    
+    if [[ $count -eq 0 ]]; then
+        print_warning "No certificate files found in $cert_dir/"
+        print_info "Expected formats: .pfx, .p12"
+    else
+        print_info "Total: $count certificates"
+    fi
+}
+
+# Prompt for certificate selection
+select_certificate() {
+    local cert_dir="signing-certs"
+    local selected_cert=""
+    
+    if [[ ! -d "$cert_dir" ]]; then
+        print_error "Certificate directory not found: $cert_dir"
+        return 1
+    fi
+    
+    # Build array of certificates
+    local certs=()
+    for cert_file in "$cert_dir"/*.{pfx,p12}; do
+        if [[ -f "$cert_file" ]]; then
+            certs+=("$cert_file")
+        fi
+    done
+    
+    if [[ ${#certs[@]} -eq 0 ]]; then
+        print_error "No certificates found in $cert_dir/"
+        return 1
+    elif [[ ${#certs[@]} -eq 1 ]]; then
+        selected_cert="${certs[0]}"
+        print_info "Using certificate: $(basename "$selected_cert")"
+    else
+        echo "Available certificates:"
+        for i in "${!certs[@]}"; do
+            echo "  $((i+1)). $(basename "${certs[i]}")"
+        done
+        
+        while true; do
+            read -p "Select certificate (1-${#certs[@]}): " choice
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#certs[@]} ]]; then
+                selected_cert="${certs[$((choice-1))]}"
+                break
+            else
+                print_warning "Invalid selection. Please enter a number between 1 and ${#certs[@]}"
+            fi
+        done
+    fi
+    
+    echo "$selected_cert"
+}
+
+# Prompt for password securely
+prompt_password() {
+    local password=""
+    
+    while [[ -z "$password" ]]; do
+        read -s -p "Enter certificate password: " password
+        echo
+        if [[ -z "$password" ]]; then
+            print_warning "Password cannot be empty"
+        fi
+    done
+    
+    echo "$password"
+}
+
+# Sign a binary
+sign_binary() {
+    local binary_path="$1"
+    local cert_file="$2"
+    local password="$3"
+    local output_file="$4"
+    local description="$5"
+    local url="$6"
+    local timestamp_url="$7"
+    local verbose="$8"
+    
+    if [[ ! -f "$binary_path" ]]; then
+        print_error "Binary not found: $binary_path"
+        return 1
+    fi
+    
+    if [[ ! -f "$cert_file" ]]; then
+        print_error "Certificate not found: $cert_file"
+        return 1
+    fi
+    
+    # Use input file as output if not specified
+    if [[ -z "$output_file" ]]; then
+        output_file="$binary_path"
+    fi
+    
+    print_info "Signing binary: $(basename "$binary_path")"
+    print_info "Certificate: $(basename "$cert_file")"
+    print_info "Output: $(basename "$output_file")"
+    
+    # Build osslsigncode command
+    local sign_cmd=(
+        "osslsigncode"
+        "sign"
+        "-pkcs12" "$cert_file"
+        "-pass" "$password"
+        "-in" "$binary_path"
+        "-out" "$output_file"
+    )
+    
+    # Add optional parameters
+    if [[ -n "$description" ]]; then
+        sign_cmd+=("-n" "$description")
+    fi
+    
+    if [[ -n "$url" ]]; then
+        sign_cmd+=("-i" "$url")
+    fi
+    
+    if [[ -n "$timestamp_url" ]]; then
+        sign_cmd+=("-t" "$timestamp_url")
+    fi
+    
+    if [[ "$verbose" == "true" ]]; then
+        print_info "Command: ${sign_cmd[*]}"
+    fi
+    
+    # Execute signing
+    if "${sign_cmd[@]}" 2>/dev/null; then
+        print_success "Successfully signed: $(basename "$output_file")"
+        
+        # Show file info
+        if [[ -f "$output_file" ]]; then
+            local size=$(ls -lh "$output_file" | awk '{print $5}')
+            print_info "Signed binary size: $size"
+        fi
+        
+        return 0
+    else
+        print_error "Failed to sign: $(basename "$binary_path")"
+        return 1
+    fi
+}
+
+# Verify binary signature
+verify_signature() {
+    local binary_path="$1"
+    local verbose="$2"
+    
+    if [[ ! -f "$binary_path" ]]; then
+        print_error "Binary not found: $binary_path"
+        return 1
+    fi
+    
+    print_info "Verifying signature: $(basename "$binary_path")"
+    
+    local verify_cmd=("osslsigncode" "verify" "$binary_path")
+    
+    if [[ "$verbose" == "true" ]]; then
+        print_info "Command: ${verify_cmd[*]}"
+    fi
+    
+    # Execute verification
+    local output
+    if output=$("${verify_cmd[@]}" 2>&1); then
+        print_success "Signature verified: $(basename "$binary_path")"
+        if [[ "$verbose" == "true" ]]; then
+            echo "$output"
+        fi
+        return 0
+    else
+        print_error "Signature verification failed: $(basename "$binary_path")"
+        if [[ "$verbose" == "true" ]]; then
+            echo "$output"
+        fi
+        return 1
+    fi
+}
+
+# Sign all executables in directory
+sign_all_binaries() {
+    local directory="$1"
+    local cert_file="$2"
+    local password="$3"
+    local description="$4"
+    local url="$5"
+    local timestamp_url="$6"
+    local verbose="$7"
+    
+    if [[ ! -d "$directory" ]]; then
+        print_error "Directory not found: $directory"
+        return 1
+    fi
+    
+    print_info "Signing all executables in: $directory"
+    
+    local signed_count=0
+    local failed_count=0
+    
+    # Find all .exe files
+    while IFS= read -r -d '' exe_file; do
+        if sign_binary "$exe_file" "$cert_file" "$password" "" "$description" "$url" "$timestamp_url" "$verbose"; then
+            ((signed_count++))
+        else
+            ((failed_count++))
+        fi
+    done < <(find "$directory" -name "*.exe" -type f -print0)
+    
+    print_info "Signing summary: $signed_count successful, $failed_count failed"
+    
+    if [[ $failed_count -gt 0 ]]; then
+        return 1
+    fi
+    
+    return 0
+}
+
+# Main function
+main() {
+    local command=""
+    local binary_path=""
+    local directory="build"
+    local cert_file=""
+    local password=""
+    local output_file=""
+    local description=""
+    local url=""
+    local timestamp_url=""
+    local verbose=false
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --cert)
+                cert_file="$2"
+                shift 2
+                ;;
+            --password)
+                password="$2"
+                shift 2
+                ;;
+            --output)
+                output_file="$2"
+                shift 2
+                ;;
+            --description)
+                description="$2"
+                shift 2
+                ;;
+            --url)
+                url="$2"
+                shift 2
+                ;;
+            --timestamp-url)
+                timestamp_url="$2"
+                shift 2
+                ;;
+            --verbose)
+                verbose=true
+                shift
+                ;;
+            --help)
+                show_usage
+                exit 0
+                ;;
+            sign)
+                command="sign"
+                binary_path="$2"
+                shift 2
+                ;;
+            sign-all)
+                command="sign-all"
+                if [[ -n "$2" && ! "$2" =~ ^-- ]]; then
+                    directory="$2"
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
+            verify)
+                command="verify"
+                binary_path="$2"
+                shift 2
+                ;;
+            list-certs)
+                command="list-certs"
+                shift
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+    
+    # Check osslsigncode installation
+    check_osslsigncode
+    
+    # Execute command
+    case "$command" in
+        sign)
+            if [[ -z "$binary_path" ]]; then
+                print_error "Binary path required for sign command"
+                show_usage
+                exit 1
+            fi
+            
+            # Select certificate if not provided
+            if [[ -z "$cert_file" ]]; then
+                cert_file=$(select_certificate)
+                if [[ $? -ne 0 ]]; then
+                    exit 1
+                fi
+            fi
+            
+            # Prompt for password if not provided
+            if [[ -z "$password" ]]; then
+                password=$(prompt_password)
+            fi
+            
+            sign_binary "$binary_path" "$cert_file" "$password" "$output_file" "$description" "$url" "$timestamp_url" "$verbose"
+            ;;
+        sign-all)
+            # Select certificate if not provided
+            if [[ -z "$cert_file" ]]; then
+                cert_file=$(select_certificate)
+                if [[ $? -ne 0 ]]; then
+                    exit 1
+                fi
+            fi
+            
+            # Prompt for password if not provided
+            if [[ -z "$password" ]]; then
+                password=$(prompt_password)
+            fi
+            
+            sign_all_binaries "$directory" "$cert_file" "$password" "$description" "$url" "$timestamp_url" "$verbose"
+            ;;
+        verify)
+            if [[ -z "$binary_path" ]]; then
+                print_error "Binary path required for verify command"
+                show_usage
+                exit 1
+            fi
+            
+            verify_signature "$binary_path" "$verbose"
+            ;;
+        list-certs)
+            list_certificates
+            ;;
+        "")
+            print_error "No command specified"
+            show_usage
+            exit 1
+            ;;
+        *)
+            print_error "Unknown command: $command"
+            show_usage
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"
