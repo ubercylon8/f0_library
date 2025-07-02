@@ -20,6 +20,8 @@ F0RT1KA is a specialized testing library designed to assess the effectiveness of
 - **Execution Prevention Testing**: Validate runtime protection mechanisms
 - **Result Code System**: Clear success/failure metrics (101, 105, 126)
 - **Windows-Focused**: Optimized for Windows endpoint testing
+- **Cross-Platform Building**: Build utilities for Windows, Linux, and macOS
+- **Code Signing Support**: Integrated Windows executable signing with certificates
 
 ## Project Structure
 
@@ -29,6 +31,10 @@ f0_library/
 ├── tests_source/          # Active test development directory
 ├── rules/                 # Development guidelines and standards
 ├── signing-certs/         # Code signing certificates
+├── utils/                 # Build and signing utilities
+│   ├── gobuild           # Cross-platform test builder
+│   ├── codesign          # Code signing utility
+│   └── README.md         # Utility documentation
 ├── preludeorg-libraries/  # Prelude testing framework (setup required)
 ├── CLAUDE.md             # AI-assisted development guide
 └── README.md             # This file
@@ -42,6 +48,7 @@ f0_library/
 - **Windows Environment**: Tests are designed for Windows systems
 - **Prelude Libraries**: Must be configured in the `preludeorg-libraries/` directory
 - **Administrator Access**: Some tests require elevated privileges
+- **osslsigncode** (optional): For code signing Windows executables
 
 ### Installation
 
@@ -56,13 +63,46 @@ cd f0_library
 # Instructions for Prelude setup will be provided in future documentation
 ```
 
+3. Install osslsigncode for code signing (optional):
+```bash
+# macOS
+brew install osslsigncode
+
+# Ubuntu/Debian
+sudo apt-get install osslsigncode
+```
+
 ### Building Tests
 
-Individual tests can be built using standard Go commands:
+Use the provided `gobuild` utility for cross-platform compilation:
 
 ```bash
-cd tests_source/<test-uuid>/
-GOOS=windows GOARCH=amd64 go build -o <test-uuid>.exe <test-uuid>.go
+# Build a specific test (Windows/amd64 by default)
+./utils/gobuild build tests_source/<test-uuid>/
+
+# Build for different platforms
+./utils/gobuild --os linux --arch amd64 build tests_source/<test-uuid>/
+
+# Build all tests
+./utils/gobuild build-all
+
+# List available tests
+./utils/gobuild list
+```
+
+### Code Signing
+
+Sign Windows executables using the `codesign` utility:
+
+```bash
+# Sign a specific binary (interactive certificate selection)
+./utils/codesign sign build/<test-uuid>/<test-uuid>.exe
+
+# Sign all binaries in build directory
+./utils/codesign sign-all
+
+# Verify signature
+./utils/codesign verify build/<test-uuid>/<test-uuid>.exe
 ```
 
 ## Test Development
@@ -110,13 +150,22 @@ We welcome contributions to expand the test library. Please:
 4. Test thoroughly in isolated environments
 5. Submit pull requests for review
 
+## Development Workflow
+
+1. **Create Test**: Follow the established test structure in `tests_source/`
+2. **Build**: Use `./utils/gobuild build-all` to compile tests
+3. **Sign**: Use `./utils/codesign sign-all` to sign Windows executables
+4. **Test**: Execute in isolated Windows environments
+5. **Document**: Update test information cards and README files
+
 ## Roadmap
 
 - Expanded test coverage across MITRE ATT&CK framework
 - Enhanced reporting and analytics capabilities
-- Cross-platform support (Linux/macOS)
+- Cross-platform test execution (Linux/macOS)
 - Integration with security orchestration platforms
 - Comprehensive documentation and training materials
+- CI/CD pipeline integration for automated building and signing
 
 ## License
 
