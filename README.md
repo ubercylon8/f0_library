@@ -4,7 +4,7 @@ A comprehensive security testing framework and library for evaluating antivirus 
 
 ## Overview
 
-F0RT1KA is a specialized testing library designed to assess the effectiveness of security solutions by simulating real-world attack techniques mapped to the MITRE ATT&CK framework. This repository serves as the main tools repository for testing execution frameworks of all kinds.
+f0_library is a specialized testing library designed to assess the effectiveness of security solutions by simulating real-world attack techniques mapped to the MITRE ATT&CK framework. This repository serves as the main tools repository for testing execution frameworks of all kinds.
 
 ## Purpose
 
