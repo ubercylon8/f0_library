@@ -1,6 +1,6 @@
 # F0RT1KA Security Testing Library
 
-A comprehensive security testing framework for evaluating antivirus (AV) and endpoint detection and response (EDR) solutions against various threat tactics and techniques.
+A comprehensive security testing framework and library for evaluating antivirus (AV) and endpoint detection and response (EDR) solutions against various threat tactics and techniques.
 
 ## Overview
 
