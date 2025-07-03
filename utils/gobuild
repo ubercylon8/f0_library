@@ -153,6 +153,17 @@ build_test() {
     # Change to test directory for build
     pushd "$test_path" > /dev/null
     
+    # Clean up dependencies and download
+    print_info "Tidying Go module dependencies..."
+    if ! go mod tidy 2>/dev/null; then
+        print_warning "Failed to tidy dependencies, attempting download anyway"
+    fi
+    
+    print_info "Downloading Go module dependencies..."
+    if ! go mod download 2>/dev/null; then
+        print_warning "Failed to download some dependencies, attempting build anyway"
+    fi
+    
     # Set environment variables for cross-compilation
     export GOOS="$target_os"
     export GOARCH="$target_arch"
