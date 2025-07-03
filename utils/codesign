@@ -197,8 +197,15 @@ sign_binary() {
     fi
     
     # Use input file as output if not specified
+    local use_temp=false
+    local temp_output=""
     if [[ -z "$output_file" ]]; then
         output_file="$binary_path"
+        # If overwriting input file, use a temporary file
+        if [[ "$output_file" == "$binary_path" ]]; then
+            use_temp=true
+            temp_output="${binary_path}.tmp"
+        fi
     fi
     
     print_info "Signing binary: $(basename "$binary_path")"
@@ -206,13 +213,18 @@ sign_binary() {
     print_info "Output: $(basename "$output_file")"
     
     # Build osslsigncode command
+    local actual_output="$output_file"
+    if [[ "$use_temp" == "true" ]]; then
+        actual_output="$temp_output"
+    fi
+    
     local sign_cmd=(
         "osslsigncode"
         "sign"
         "-pkcs12" "$cert_file"
         "-pass" "$password"
         "-in" "$binary_path"
-        "-out" "$output_file"
+        "-out" "$actual_output"
     )
     
     # Add optional parameters
@@ -233,8 +245,20 @@ sign_binary() {
     fi
     
     # Execute signing
-    if "${sign_cmd[@]}" 2>/dev/null; then
-        print_success "Successfully signed: $(basename "$output_file")"
+    local error_output
+    if error_output=$("${sign_cmd[@]}" 2>&1); then
+        # If we used a temp file, move it to the final location
+        if [[ "$use_temp" == "true" ]]; then
+            if mv -f "$temp_output" "$output_file"; then
+                print_success "Successfully signed: $(basename "$output_file")"
+            else
+                print_error "Failed to move signed file to final location"
+                rm -f "$temp_output"
+                return 1
+            fi
+        else
+            print_success "Successfully signed: $(basename "$output_file")"
+        fi
         
         # Show file info
         if [[ -f "$output_file" ]]; then
@@ -245,6 +269,13 @@ sign_binary() {
         return 0
     else
         print_error "Failed to sign: $(basename "$binary_path")"
+        if [[ -n "$error_output" ]]; then
+            print_error "Error details: $error_output"
+        fi
+        # Clean up temp file if it exists
+        if [[ "$use_temp" == "true" ]] && [[ -f "$temp_output" ]]; then
+            rm -f "$temp_output"
+        fi
         return 1
     fi
 }
