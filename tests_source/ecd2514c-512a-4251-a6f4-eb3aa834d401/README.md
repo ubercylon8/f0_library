@@ -27,8 +27,9 @@ The test embeds a PowerShell script that replicates the exact registry modificat
   - Logs all modifications for verification
 
 ## Expected Results
-- **Protected**: Security solution should detect and block the PowerShell script execution or registry modifications
-- **Unprotected**: Script executes successfully and disables Windows Defender components
+- **Protected (126)**: Security solution blocks registry modifications with "Requested registry access is not allowed" or similar permission errors
+- **Unprotected (101)**: Script executes successfully and modifies registry keys to disable Windows Defender components
+- **File Quarantined (105)**: PowerShell script is quarantined before execution
 
 ## MITRE ATT&CK Mapping
 - **Technique**: T1562.001 - Impair Defenses: Disable or Modify Tools

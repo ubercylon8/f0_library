@@ -13,9 +13,11 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
@@ -56,31 +58,88 @@ func execute() error {
 	
 	// Execute the command
 	output, err := cmd.CombinedOutput()
+	outputStr := string(output)
 	
+	// Always log the output for debugging
+	Endpoint.Say("Script output: %s", outputStr)
+	
+	// Check if registry modifications were blocked (system is protected)
+	protectedIndicators := []string{
+		"Requested registry access is not allowed",
+		"Access is denied",
+		"Access denied",
+		"Failed to set TamperProtection",
+		"Failed to query Defender settings",
+		"Cannot write to the registry key",
+		"Registry access denied",
+		"Insufficient privileges",
+		"requires administrative privileges",
+	}
+	
+	systemProtected := false
+	for _, indicator := range protectedIndicators {
+		if strings.Contains(outputStr, indicator) {
+			systemProtected = true
+			Endpoint.Say("System protection detected: %s", indicator)
+			break
+		}
+	}
+	
+	// Check for successful registry modifications (system is unprotected)
+	successIndicators := []string{
+		"Registry manipulations completed successfully",
+		"Set TamperProtection to 0",
+		"Set DisableAntiSpyware to 1",
+		"Set DisableBehaviorMonitoring to 1",
+		"Set DisableOnAccessProtection to 1",
+		"Set DisableScanOnRealtimeEnable to 1",
+	}
+	
+	modificationSuccessCount := 0
+	for _, indicator := range successIndicators {
+		if strings.Contains(outputStr, indicator) {
+			modificationSuccessCount++
+		}
+	}
+	
+	// If PowerShell execution failed with an error, check if it's due to protection
 	if err != nil {
-		Endpoint.Say("PowerShell execution failed: %v", err)
-		Endpoint.Say("Output: %s", string(output))
+		Endpoint.Say("PowerShell execution returned error: %v", err)
+		if systemProtected {
+			// Error due to protection - this is good, system blocked the attack
+			return fmt.Errorf("registry modifications blocked by security controls")
+		}
+		// Other error - treat as unexpected
 		return err
 	}
-
-	Endpoint.Say("PowerShell script executed successfully")
-	Endpoint.Say("Script output: %s", string(output))
-
-	// Wait for potential detection
-	Endpoint.Wait(5)
-
-	// Check if Windows Defender is still running (basic check)
-	Endpoint.Say("Checking if Windows Defender service is affected")
-	serviceCmd := exec.Command("sc", "query", "WinDefend")
-	serviceOutput, serviceErr := serviceCmd.CombinedOutput()
 	
-	if serviceErr != nil {
-		Endpoint.Say("Failed to query Windows Defender service: %v", serviceErr)
-	} else {
-		Endpoint.Say("Windows Defender service status: %s", string(serviceOutput))
+	// If multiple registry modifications succeeded, system is unprotected
+	if modificationSuccessCount >= 3 && !systemProtected {
+		Endpoint.Say("WARNING: Multiple registry modifications succeeded - system appears unprotected")
+		// Wait for potential delayed detection
+		Endpoint.Wait(5)
+		
+		// Check if Windows Defender is still running
+		Endpoint.Say("Checking if Windows Defender service is affected")
+		serviceCmd := exec.Command("sc", "query", "WinDefend")
+		serviceOutput, serviceErr := serviceCmd.CombinedOutput()
+		
+		if serviceErr != nil {
+			Endpoint.Say("Failed to query Windows Defender service: %v", serviceErr)
+		} else {
+			Endpoint.Say("Windows Defender service status: %s", string(serviceOutput))
+		}
+		
+		return nil // Success in disabling - system unprotected
 	}
-
-	return nil
+	
+	// If we detected protection indicators, return error to indicate blocking
+	if systemProtected {
+		return fmt.Errorf("registry modifications blocked by security controls")
+	}
+	
+	// Ambiguous case - treat as potential protection
+	return fmt.Errorf("unable to determine if registry modifications succeeded")
 }
 
 func cleanup() {
