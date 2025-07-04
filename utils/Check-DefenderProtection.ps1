@@ -16,11 +16,43 @@ function Test-Admin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# Function to check and bypass execution policy
+function Bypass-ExecutionPolicy {
+    $currentPolicy = Get-ExecutionPolicy -Scope CurrentUser
+    Write-Host "Current execution policy: $currentPolicy" -ForegroundColor Gray
+    
+    if ($currentPolicy -eq "Restricted" -or $currentPolicy -eq "AllSigned") {
+        Write-Host "Restrictive execution policy detected. Attempting to bypass..." -ForegroundColor Yellow
+        try {
+            # Relaunch script with -ExecutionPolicy Bypass
+            $scriptPath = $MyInvocation.MyCommand.Path
+            if (-not $scriptPath) {
+                Write-Host "Error: Script path not found. Save this script to a .ps1 file and run it again." -ForegroundColor Red
+                exit 1
+            }
+            $bypassCommand = "powershell.exe -ExecutionPolicy Bypass -File `"$scriptPath`""
+            Write-Host "Relaunching script with bypassed execution policy..." -ForegroundColor Yellow
+            Invoke-Expression $bypassCommand
+            exit 0  # Exit current session after relaunch
+        }
+        catch {
+            Write-Host "Failed to bypass execution policy: $($_.Exception.Message)" -ForegroundColor Red
+            exit 1
+        }
+    }
+    else {
+        Write-Host "Execution policy allows script execution. Proceeding..." -ForegroundColor Gray
+    }
+}
+
 # Exit if not running as admin
 if (-not (Test-Admin)) {
     Write-Host "This script requires administrative privileges. Run PowerShell as Administrator." -ForegroundColor Red
     exit 1
 }
+
+# Check and bypass execution policy if needed
+Bypass-ExecutionPolicy
 
 Write-Host "`n=== Windows Defender Protection Status Check ===" -ForegroundColor Cyan
 Write-Host "Checking registry values targeted by CyberEye RAT...`n" -ForegroundColor Yellow
