@@ -11,6 +11,11 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 3. Always use the established test structure pattern (see sample_tests/)
 4. Map every test to specific MITRE ATT&CK techniques
 
+## PowerShell Development Guidelines
+- All created PowerShell scripts must:
+  * Include a Function to check if running with admin privileges
+  * Implement automatic execution policy bypass functionality
+
 ## Building and Running Tests
 
 ### Build a Test
