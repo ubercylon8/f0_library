@@ -93,6 +93,40 @@ sudo apt-get install osslsigncode
 sudo yum install osslsigncode
 ```
 
+### 3. Check-DefenderProtection.ps1 - Windows Defender Status Checker
+
+A PowerShell utility that verifies Windows Defender protection status by examining registry settings targeted by malware like CyberEye RAT.
+
+#### Features
+- Checks critical Windows Defender registry values
+- Determines if host is protected or vulnerable
+- Color-coded output for easy status identification
+- Verifies Tamper Protection, Anti-Spyware, and Real-Time Protection settings
+- Queries actual Defender status via PowerShell cmdlets
+
+#### Usage Examples
+```powershell
+# Run with Administrator privileges
+powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
+```
+
+#### Registry Keys Checked
+- `HKLM:\SOFTWARE\Microsoft\Windows Defender\Features\TamperProtection`
+- `HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\DisableAntiSpyware`
+- `HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableBehaviorMonitoring`
+- `HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableOnAccessProtection`
+- `HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableScanOnRealtimeEnable`
+
+#### Output Interpretation
+- **PROTECTED** (Green): Registry values indicate Defender features are enabled
+- **VULNERABLE** (Red): One or more Defender features are disabled via registry
+- **Not Set**: Registry key doesn't exist (default protection applies)
+
+#### Requirements
+- Windows PowerShell 5.0 or higher
+- Administrator privileges
+- Windows 10/11 or Windows Server 2016+
+
 ## Typical Workflow
 
 1. **Build Tests**:

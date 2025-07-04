@@ -36,6 +36,14 @@ Use the `codesign` utility for Windows executable signing:
 ./utils/codesign sign-all
 ```
 
+### Check Windows Defender Protection Status
+Use the `Check-DefenderProtection.ps1` utility to verify security posture:
+```powershell
+# Check if Windows Defender is properly configured (run as Administrator)
+powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
+```
+This utility examines registry settings targeted by malware (like CyberEye RAT) and reports whether the host is protected or vulnerable.
+
 ### Test Result Codes
 - **101** (`Endpoint.Unprotected`) - Attack succeeded, system unprotected
 - **105** (`Endpoint.FileQuarantinedOnExtraction`) - File quarantined
@@ -50,6 +58,7 @@ signing-certs/     # Code signing certificates
 utils/             # Build and signing utilities
   ├── gobuild      # Cross-platform test builder
   ├── codesign     # Code signing utility
+  ├── Check-DefenderProtection.ps1  # Windows Defender status checker
   └── README.md    # Utility documentation
 ```
 
