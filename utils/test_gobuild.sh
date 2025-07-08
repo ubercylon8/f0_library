@@ -241,6 +241,14 @@ test_directory_validation() {
 test_go_requirement() {
     test_info "Testing Go installation requirement"
     
+    # Check if Go is available
+    if command -v go &> /dev/null; then
+        test_pass "Go is available for testing"
+    else
+        test_warn "Go is not installed - skipping Go dependency test"
+        return 0
+    fi
+    
     # Save original PATH
     original_path="$PATH"
     
