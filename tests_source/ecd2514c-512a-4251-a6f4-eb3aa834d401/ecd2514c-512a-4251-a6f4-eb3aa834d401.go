@@ -26,6 +26,9 @@ import (
 //go:embed CyberEye-TTPs.ps1
 var maliciousScript []byte
 
+//go:embed Cleanup-CyberEye-TTPs.ps1
+var cleanupScript []byte
+
 func execute() error {
 	// Define paths
 	targetDir := "c:\\F0"
@@ -146,10 +149,16 @@ func cleanup() {
 	// Clean up dropped files
 	targetDir := "c:\\F0"
 	scriptPath := filepath.Join(targetDir, "CyberEye-TTPs.ps1")
+	cleanupPath := filepath.Join(targetDir, "Cleanup-CyberEye-TTPs.ps1")
 	
 	if _, err := os.Stat(scriptPath); err == nil {
 		os.Remove(scriptPath)
 		Endpoint.Say("Cleaned up PowerShell script")
+	}
+	
+	if _, err := os.Stat(cleanupPath); err == nil {
+		os.Remove(cleanupPath)
+		Endpoint.Say("Cleaned up cleanup script")
 	}
 }
 
@@ -181,6 +190,15 @@ func test() {
 	if Endpoint.Quarantined("CyberEye-TTPs.ps1", maliciousScript) {
 		Endpoint.Say("PowerShell script was quarantined during extraction!")
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
+	}
+	
+	// Also extract cleanup script (non-malicious, for restoration)
+	cleanupPath := filepath.Join(targetDir, "Cleanup-CyberEye-TTPs.ps1")
+	if err := os.WriteFile(cleanupPath, cleanupScript, 0755); err != nil {
+		Endpoint.Say("Warning: Failed to extract cleanup script: %v", err)
+		// Non-fatal - test can continue
+	} else {
+		Endpoint.Say("Cleanup script available at: %s", cleanupPath)
 	}
 
 	// Execute the test

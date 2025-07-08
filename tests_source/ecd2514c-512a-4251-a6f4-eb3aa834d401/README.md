@@ -50,3 +50,14 @@ The test embeds a PowerShell script that replicates the exact registry modificat
 - Administrative privileges
 - PowerShell execution capability
 - Access to registry modification
+
+## Cleanup
+After testing, use the included `Cleanup-CyberEye-TTPs.ps1` script to restore Windows Defender to its protected state:
+```powershell
+powershell -ExecutionPolicy Bypass -File "c:\F0\Cleanup-CyberEye-TTPs.ps1"
+```
+The cleanup script will:
+- Remove all registry modifications made by the test
+- Restore Windows Defender protection features
+- Restart the Windows Defender service
+- Verify the restoration was successful
