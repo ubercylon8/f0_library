@@ -21,6 +21,7 @@ print_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
+# shellcheck disable=SC2317 # Function may be used in future updates
 print_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }

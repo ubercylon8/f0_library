@@ -3,7 +3,7 @@
 # Unit tests for codesign utility
 # Test script for the F0RT1KA code signing tool
 
-set -e
+# Note: We don't use 'set -e' here because we want to capture test failures
 
 # Test configuration
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -186,7 +186,7 @@ test_osslsigncode_check() {
     original_path="$PATH"
     
     # Temporarily remove osslsigncode from PATH (if it exists)
-    PATH=$(echo "$PATH" | sed 's/[^:]*osslsigncode[^:]*://g')
+    PATH=${PATH//osslsigncode/}
     
     # Test any command that would check for osslsigncode
     if "$CODESIGN_CMD" list-certs > /dev/null 2>&1; then

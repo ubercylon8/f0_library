@@ -3,7 +3,7 @@
 # Unit tests for gobuild utility
 # Test script for the F0RT1KA test builder
 
-set -e
+# Note: We don't use 'set -e' here because we want to capture test failures
 
 # Test configuration
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -253,7 +253,7 @@ test_go_requirement() {
     original_path="$PATH"
     
     # Temporarily remove Go from PATH
-    PATH=$(echo "$PATH" | sed 's/[^:]*go[^:]*://g')
+    PATH=${PATH//go/}
     
     if "$GOBUILD_CMD" --help > /dev/null 2>&1; then
         test_warn "gobuild should check for Go installation"
