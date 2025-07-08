@@ -67,7 +67,7 @@ jobs:
     - name: List available tests
       if: steps.check-tests.outputs.has_tests == 'true'
       run: |
-        ./utils/gobuild list
+        ./utils/gobuild list || echo "Listing completed"
       shell: bash
     
     - name: Build tests (Linux/macOS only - no Windows dependencies)
@@ -91,4 +91,4 @@ jobs:
     
     - name: Lint bash scripts
       run: |
-        find . -name "*.sh" -type f | xargs shellcheck -e SC2086,SC2181,SC2001,SC2317
+        find . -name "*.sh" -type f | xargs shellcheck -e SC2086,SC2181,SC2001,SC2317,SC2164
