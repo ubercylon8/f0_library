@@ -1,14 +1,17 @@
 # F0RT1KA Security Testing Framework
 
-[![Build Status](https://github.com/ubercylon8/f0_library/actions/workflows/build.yml/badge.svg)](https://github.com/ubercylon8/f0_library/actions)
-[![Security](https://github.com/ubercylon8/f0_library/actions/workflows/security.yml/badge.svg)](https://github.com/ubercylon8/f0_library/actions)
+[![Build Status](https://github.com/ubercylon8/f0_library/actions/workflows/build.yml/badge.svg)](https://github.com/ubercylon8/f0_library/actions/workflows/build.yml)
+[![Security Scan](https://github.com/ubercylon8/f0_library/actions/workflows/security.yml/badge.svg)](https://github.com/ubercylon8/f0_library/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen.svg)](https://www.shellcheck.net/)
 
 A comprehensive security testing framework for evaluating endpoint detection and response (EDR) capabilities against real-world attack techniques mapped to the MITRE ATT&CK framework.
 
 ## Overview
 
-f0_library is a specialized testing library designed to assess the effectiveness of security solutions by simulating real-world attack techniques mapped to the MITRE ATT&CK framework. This repository serves as the main tools repository for testing execution frameworks of all kinds.
+F0RT1KA is a professional, open-source security testing framework designed to assess the effectiveness of endpoint detection and response (EDR) solutions. By simulating real-world attack techniques mapped to the MITRE ATT&CK framework, it provides security teams with a standardized approach to validate their defensive capabilities.
+
+This repository serves as the main tools repository for testing execution frameworks and includes comprehensive documentation, automated testing, and security scanning to ensure code quality and safety.
 
 ## Purpose
 
@@ -16,6 +19,16 @@ f0_library is a specialized testing library designed to assess the effectiveness
 - **MITRE ATT&CK Alignment**: All tests are mapped to specific MITRE ATT&CK techniques for standardized threat assessment
 - **Automated Testing**: Provide a structured approach to security testing with consistent result codes
 - **Research & Development**: Enable security teams to understand gaps in their defensive posture
+
+## 🚀 Project Status
+
+This project is **actively maintained** and **ready for community contributions**. We have:
+
+- ✅ **Comprehensive Documentation**: Architecture, development guides, and API docs
+- ✅ **Automated CI/CD**: All tests and security scans passing
+- ✅ **Community Standards**: Code of conduct, contributing guidelines, and templates
+- ✅ **Security First**: Vulnerability disclosure policy and automated security scanning
+- ✅ **Professional Structure**: Clean codebase with proper testing and versioning
 
 ## Key Features
 
@@ -145,6 +158,8 @@ Run the utility test suite to ensure everything is working:
 ./utils/test_codesign.sh
 ```
 
+**Note**: Tests are automatically run on every push via GitHub Actions. Check the [build status](https://github.com/ubercylon8/f0_library/actions) for CI results.
+
 ## Test Development
 
 ### Creating a New Test
@@ -215,10 +230,24 @@ Our development process includes automated testing and security scanning:
 
 ## CI/CD & Automation
 
-- **Automated Building**: Multi-platform builds on every push
-- **Security Scanning**: CodeQL analysis and dependency checks
-- **Test Validation**: Utility tests run automatically
-- **Code Quality**: Linting and formatting checks
+Our repository features comprehensive automated testing and security scanning:
+
+### 🔄 Continuous Integration
+- **✅ Build Workflow**: Tests utilities on Ubuntu and macOS
+- **✅ Security Workflow**: Scans for vulnerabilities and secrets
+- **✅ Code Quality**: Shell scripts validated with ShellCheck
+- **✅ PowerShell Analysis**: PSScriptAnalyzer for Windows scripts
+
+### 🛡️ Security Scanning
+- **Shell Script Analysis**: Detects security issues in bash scripts
+- **Secret Detection**: Scans for hardcoded credentials
+- **PowerShell Security**: Validates Windows PowerShell scripts
+- **Weekly Scans**: Automated security checks every Monday
+
+### 🧪 Automated Testing
+- **Utility Tests**: Unit tests for `gobuild` and `codesign`
+- **Cross-Platform**: Tests run on Linux and macOS
+- **Test Coverage**: Comprehensive test suite with detailed reporting
 
 ## Documentation
 
