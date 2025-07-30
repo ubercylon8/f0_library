@@ -45,3 +45,7 @@ c:/F0/
 # Build artifacts
 build/
 dist/
+
+# Claude-related files and folders
+CLAUDE.md
+.claude/
