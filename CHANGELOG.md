@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- SafePay ransomware security tests based on comprehensive threat intelligence
+  - SafePay UAC Bypass & Defense Evasion test (`2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11`)
+  - SafePay Ransomware Simulation & Data Staging test (`109266e2-2310-40ea-9f63-b97e4b7fda61`)
+- Technical reports directory structure (`tech-reports/`)
+- SafePay comprehensive threat intelligence report with TTPs, IOCs, and detection strategies
+- Local Prelude libraries integration for improved build reliability
+- Clickable reference links in test documentation with direct access to MITRE ATT&CK, research papers, and technical resources
 - Windows SSH setup documentation
 - MIT License file
 - Contributing guidelines (CONTRIBUTING.md)
@@ -16,10 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - This CHANGELOG file
 
 ### Changed
+- Improved project structure with dedicated tech-reports directory
+- Enhanced build reliability with local Prelude dependencies (no external setup required)
+- Updated documentation to reflect new SafePay tests and threat intelligence integration
 - Enhanced repository documentation for public release preparation
+
+### Fixed
+- Shellcheck POSIX compatibility issue in Prelude nocturnal.sh script (changed shebang from `#!/bin/sh` to `#!/bin/bash`)
+- All CI/CD pipeline issues resolved - full green build status
 
 ### Security
 - Added security policy and responsible disclosure guidelines
+- Enhanced test documentation with proper external reference validation
 
 ## [0.2.0] - 2024-01-XX
 

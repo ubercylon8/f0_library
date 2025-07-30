@@ -52,6 +52,8 @@ f0_library/
 │   ├── ARCHITECTURE.md   # System architecture overview
 │   ├── DEVELOPMENT.md    # Developer setup guide
 │   └── windows-ssh-setup.md # SSH configuration guide
+├── tech-reports/          # Technical threat intelligence reports
+│   └── SafePay-Technical-Report.md # SafePay ransomware analysis
 ├── sample_tests/          # Reference test implementations
 ├── tests_source/          # Active test development directory
 ├── rules/                 # Development guidelines and standards
@@ -62,7 +64,7 @@ f0_library/
 │   ├── test_*.sh         # Unit tests for utilities
 │   ├── run_tests.sh      # Test runner
 │   └── README.md         # Utility documentation
-├── preludeorg-libraries/  # Prelude testing framework (setup required)
+├── preludeorg-libraries/  # Prelude testing framework dependencies (local)
 ├── CLAUDE.md             # AI-assisted development guide
 ├── CONTRIBUTING.md       # Contribution guidelines
 ├── CODE_OF_CONDUCT.md    # Community standards
@@ -95,9 +97,10 @@ cd f0_library
    - [Architecture Overview](docs/ARCHITECTURE.md) - System design
    - [Contributing Guidelines](CONTRIBUTING.md) - How to contribute
 
-3. **Set up Prelude libraries** (required for test compilation):
+3. **Prelude libraries** (automatically included):
 ```bash
-# Instructions for Prelude setup will be provided in future documentation
+# Prelude libraries are now included locally for improved build reliability
+# No additional setup required - libraries are pre-configured
 ```
 
 4. **Install dependencies** (optional):
@@ -159,6 +162,25 @@ Run the utility test suite to ensure everything is working:
 ```
 
 **Note**: Tests are automatically run on every push via GitHub Actions. Check the [build status](https://github.com/ubercylon8/f0_library/actions) for CI results.
+
+## Available Security Tests
+
+### SafePay Ransomware Tests
+Recent additions based on SafePay ransomware group analysis:
+
+#### SafePay UAC Bypass & Defense Evasion (`2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11`)
+- **Purpose**: Tests CMSTPLUA COM object UAC bypass detection
+- **Techniques**: Windows Defender manipulation detection, registry persistence
+- **MITRE ATT&CK**: T1548.002, T1562.001, T1547.001
+- **Indicators**: SafePay-specific autorun value `6F22-C16F-0C71-688A`
+
+#### SafePay Ransomware Simulation & Data Staging (`109266e2-2310-40ea-9f63-b97e4b7fda61`)
+- **Purpose**: WinRAR data archiving simulation with SafePay parameters
+- **Techniques**: File encryption simulation, ransom note creation, C2 communication patterns
+- **MITRE ATT&CK**: T1486, T1560.001, T1071.001, T1490
+- **Indicators**: `.safepay` file extension, `C4 C3 C2 C1` header pattern
+
+📊 **Threat Intelligence**: See `tech-reports/SafePay-Technical-Report.md` for detailed analysis of SafePay ransomware group TTPs, IOCs, and detection strategies.
 
 ## Test Development
 

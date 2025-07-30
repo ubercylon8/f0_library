@@ -49,6 +49,31 @@ powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
 ```
 This utility examines registry settings targeted by malware (like CyberEye RAT) and reports whether the host is protected or vulnerable.
 
+## Technical Reports & Threat Intelligence
+The `tech-reports/` directory contains threat intelligence reports used for test development:
+- **SafePay-Technical-Report.md**: Comprehensive analysis of SafePay ransomware group TTPs, IOCs, and detection strategies
+- Future threat reports will be organized here for reference when developing new security tests
+
+## Latest Test Implementations
+
+### SafePay Tests (July 2025)
+Based on comprehensive threat intelligence analysis of the SafePay ransomware group:
+
+#### SafePay UAC Bypass & Defense Evasion (`2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11`)
+- **Technique**: CMSTPLUA COM object UAC bypass (GUID: {3E5FC7F9-9A51-4367-9063-A120244FBEC7})
+- **Defense Evasion**: Windows Defender GUI manipulation simulation
+- **Persistence**: Registry autorun with SafePay-specific value `6F22-C16F-0C71-688A`
+- **MITRE ATT&CK**: T1548.002, T1562.001, T1547.001
+
+#### SafePay Ransomware Simulation (`109266e2-2310-40ea-9f63-b97e4b7fda61`)
+- **Data Staging**: WinRAR archiving with SafePay's exact parameters (`-v5g -ed -r -tn1000d -m0 -mt5`)
+- **Encryption**: File simulation with `.safepay` extension and Base64 encoding
+- **C2 Simulation**: Header pattern `C4 C3 C2 C1` matching real SafePay traffic signature
+- **Ransom Note**: Authentic `readme_safepay.txt` with realistic payment instructions
+- **MITRE ATT&CK**: T1486, T1560.001, T1071.001, T1490
+
+Both tests follow F0RT1KA conventions with comprehensive PowerShell scripts, proper admin checks, and execution policy bypass functionality.
+
 ### Test Result Codes
 - **101** (`Endpoint.Unprotected`) - Attack succeeded, system unprotected
 - **105** (`Endpoint.FileQuarantinedOnExtraction`) - File quarantined
