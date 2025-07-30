@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 ca=${PRELUDE_CA:-prelude-account-us1-us-east-2.s3.amazonaws.com}
 vst=${PRELUDE_DIR:-"$PWD/.vst"}
