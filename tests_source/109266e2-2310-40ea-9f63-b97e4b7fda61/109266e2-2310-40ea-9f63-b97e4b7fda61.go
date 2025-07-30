@@ -23,7 +23,7 @@ import (
 //go:embed safepay_ransomware_sim.ps1
 var ransomwareScript []byte
 
-//go:embed winrar_placeholder.exe
+//go:embed WinRAR.exe 
 var winrarBinary []byte
 
 func executeRansomwareSimulation() error {
