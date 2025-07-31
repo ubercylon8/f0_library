@@ -49,3 +49,6 @@ dist/
 # Claude-related files and folders
 CLAUDE.md
 .claude/
+
+# AI Coding rules
+rules/
