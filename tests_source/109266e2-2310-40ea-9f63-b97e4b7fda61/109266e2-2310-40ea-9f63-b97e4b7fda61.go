@@ -3,10 +3,11 @@
 
 /*
 ID: 109266e2-2310-40ea-9f63-b97e4b7fda61
-NAME: SafePay Ransomware Simulation & Data Staging
-TECHNIQUE: T1486, T1560.001, T1071.001, T1490
+NAME: SafePay Enhanced Ransomware Simulation & Mass Data Operations
+TECHNIQUE: T1486, T1560.001, T1071.001, T1490, T1083, T1005
 UNIT: response
 CREATED: 2025-07-30 00:00:00.000000
+ENHANCED: 2025-08-06 00:00:00.000000
 */
 package main
 
@@ -58,14 +59,16 @@ func test() {
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
 
-	Endpoint.Say("Starting SafePay Ransomware Simulation & Data Staging test")
-	Endpoint.Say("Dropping WinRAR binary and PowerShell script for ransomware simulation")
-	Endpoint.Say("Pausing for 3 seconds to gauge defensive reaction")
-	Endpoint.Wait(3)
+	Endpoint.Say("Starting SafePay Enhanced Ransomware Simulation with Mass Data Operations")
+	Endpoint.Say("This test simulates realistic ransomware behavior targeting user directories")
+	Endpoint.Say("Expected behaviors: Mass file creation, compression, deletion, encryption")
+	Endpoint.Say("Dropping WinRAR binary and enhanced PowerShell script")
+	Endpoint.Say("Pausing for 5 seconds to gauge initial defensive reaction")
+	Endpoint.Wait(5)
 
 	// Check if components get quarantined
 	if Endpoint.Quarantined("safepay_ransomware_sim.ps1", ransomwareScript) {
-		Endpoint.Say("SafePay ransomware script was caught!")
+		Endpoint.Say("SafePay enhanced ransomware script was caught!")
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
 	}
 
@@ -74,16 +77,19 @@ func test() {
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
 	}
 
-	Endpoint.Say("Components were not caught, attempting ransomware simulation execution")
+	Endpoint.Say("Components were not caught, executing enhanced ransomware simulation")
+	Endpoint.Say("Target: C:\\Users\\fortika-test (realistic user directory targeting)")
+	Endpoint.Say("Expected operations: 500-1500 files, multi-phase compression, mass deletion")
 
-	// Try to execute the ransomware simulation
+	// Try to execute the enhanced ransomware simulation
 	err := executeRansomwareSimulation()
 	if err != nil {
-		Endpoint.Say("Got error \"%v\" when executing ransomware simulation", err)
+		Endpoint.Say("Got error \"%v\" when executing enhanced ransomware simulation", err)
 		Endpoint.Stop(Endpoint.ExecutionPrevented)
 	}
 
-	Endpoint.Say("Ransomware simulation execution was not prevented")
+	Endpoint.Say("Enhanced ransomware simulation execution was not prevented")
+	Endpoint.Say("Mass file operations, compression, and deletion completed successfully")
 	Endpoint.Stop(Endpoint.Unprotected)
 }
 
