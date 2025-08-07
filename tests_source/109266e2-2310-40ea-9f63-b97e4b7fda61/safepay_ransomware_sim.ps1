@@ -67,7 +67,7 @@ function New-CorporateFileTree {
             New-Item -Path $fullPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
             Write-Host "[+] Created: $dir" -ForegroundColor Green
         } catch {
-            Write-Host "[!] Failed to create $dir: $_" -ForegroundColor Red
+            Write-Host "[!] Failed to create ${dir}: $_" -ForegroundColor Red
         }
     }
 }
@@ -498,7 +498,7 @@ function New-RealisticCorporateFiles {
                     Write-Host "[+] Created $totalFiles files..." -ForegroundColor Green
                 }
             } catch {
-                Write-Host "[!] Failed to create $fileName`: $_" -ForegroundColor Red
+                Write-Host "[!] Failed to create ${fileName}: $_" -ForegroundColor Red
             }
         }
     }
@@ -550,7 +550,7 @@ function Invoke-MultiPhaseCompression {
                     Write-Host "[!] $dept archive failed with exit code: $($process.ExitCode)" -ForegroundColor Yellow
                 }
             } catch {
-                Write-Host "[!] Failed to archive $dept`: $_" -ForegroundColor Red
+                Write-Host "[!] Failed to archive ${dept}: $_" -ForegroundColor Red
             }
             
             Start-Sleep -Seconds 1  # Brief pause between operations
@@ -722,6 +722,9 @@ function Remove-OriginalFiles {
 # Main execution
 Write-Host "[*] SafePay Ransomware Simulation - Enhanced Version Starting..." -ForegroundColor Yellow
 
+# Write initial status for monitoring
+"STARTED" | Out-File "C:\F0\status.txt" -Encoding ASCII
+
 # Check admin privileges
 if (-not (Test-Administrator)) {
     Write-Host "[!] Warning: Running without administrator privileges" -ForegroundColor Yellow
@@ -753,6 +756,9 @@ New-CorporateFileTree -BasePath $targetDir
 $filesCreated = New-RealisticCorporateFiles -BasePath $targetDir -FilesPerDirectory 25 -MinSizeKB 5 -MaxSizeKB 10
 Write-Host "[+] Created $filesCreated decoy files with realistic corporate content" -ForegroundColor Green
 
+# Update status after file creation
+"FILES_CREATED:$filesCreated" | Out-File "C:\F0\status.txt" -Encoding ASCII
+
 # Wait for file generation to complete
 Write-Host "[*] Pausing for 5 seconds to allow file system to settle..." -ForegroundColor Cyan
 Start-Sleep -Seconds 5
@@ -763,8 +769,10 @@ if (Test-Path $winrarPath) {
     $compressionResult = Invoke-MultiPhaseCompression -BasePath $targetDir -WinRARPath $winrarPath
     if ($compressionResult) {
         Write-Host "[+] Multi-phase compression completed successfully" -ForegroundColor Green
+        "COMPRESSION_DONE" | Out-File "C:\F0\status.txt" -Encoding ASCII
     } else {
         Write-Host "[!] Multi-phase compression encountered errors" -ForegroundColor Yellow
+        "COMPRESSION_ERROR" | Out-File "C:\F0\status.txt" -Encoding ASCII
     }
 } else {
     Write-Host "[!] WinRAR.exe not found at $winrarPath, skipping compression" -ForegroundColor Yellow
@@ -849,6 +857,9 @@ $ransomNotePath = Join-Path $targetDir "readme_safepay.txt"
 Set-Content -Path $ransomNotePath -Value $ransomNote
 Write-Host "[+] Ransom note created: readme_safepay.txt" -ForegroundColor Green
 
+# Update status after ransom note creation
+"RANSOM_NOTE_CREATED" | Out-File "C:\F0\status.txt" -Encoding ASCII
+
 # Open ransom note (simulate ransomware behavior)
 try {
     Start-Process notepad.exe -ArgumentList $ransomNotePath -WindowStyle Normal
@@ -881,6 +892,9 @@ $totalSizeMB = [Math]::Round($totalSizeKB / 1024, 2)
 Write-Host "    Data Processed: ${totalSizeMB}MB" -ForegroundColor Green
 
 Write-Host "[*] SafePay Enhanced Ransomware Simulation completed!" -ForegroundColor Yellow
+
+# Final status update
+"COMPLETED:$encryptedFiles" | Out-File "C:\F0\status.txt" -Encoding ASCII
 Write-Host "[+] EDR Detection Opportunities:" -ForegroundColor Yellow
 Write-Host "    - Mass file creation in user directory" -ForegroundColor Cyan
 Write-Host "    - Multiple simultaneous WinRAR processes" -ForegroundColor Cyan  
