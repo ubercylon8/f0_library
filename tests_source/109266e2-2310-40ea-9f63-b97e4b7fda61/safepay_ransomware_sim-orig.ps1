@@ -1,7 +1,5 @@
 # SafePay Ransomware Simulation Script - Enhanced Version
 # Part of F0RT1KA Security Testing Framework
-# Author: James Pichardo
-# August 2025
 
 # Function to check admin privileges
 function Test-Administrator {
@@ -903,53 +901,3 @@ Write-Host "    - Multiple simultaneous WinRAR processes" -ForegroundColor Cyan
 Write-Host "    - Rapid file deletion patterns" -ForegroundColor Cyan
 Write-Host "    - File encryption with suspicious extensions" -ForegroundColor Cyan
 Write-Host "    - PowerShell execution policy bypass" -ForegroundColor Cyan
-
-# SIG # Begin signature block
-# MIIIvAYJKoZIhvcNAQcCoIIIrTCCCKkCAQExDzANBglghkgBZQMEAgEFADB5Bgor
-# BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDW7CgCgRuuii1K
-# b+V8T+jMqa+MUnUJmTPl9QaUrvorDqCCBSYwggUiMIIDCqADAgECAhAf+3Y1zDuG
-# iUby8zvhPQbOMA0GCSqGSIb3DQEBDQUAMCIxIDAeBgNVBAMMF0YwLUxvY2FsQ29k
-# ZVNpZ25pbmctQ1NUMB4XDTI1MDEyNzAyMzQ0MVoXDTI2MDEyNzAyNDQ0MFowIjEg
-# MB4GA1UEAwwXRjAtTG9jYWxDb2RlU2lnbmluZy1DU1QwggIiMA0GCSqGSIb3DQEB
-# AQUAA4ICDwAwggIKAoICAQDFJLPQGVV5cPrIfWg8AOz7iHi0V/SYVUHEs3K0G0wu
-# vPknaHvGqTr2pKL+YKjve7WcgR5cF7+Tv7hpO02TdKxZsLpjqyYnd6YhYoi6V9JZ
-# lz3tppu/XFg2dp7qrXpGjs9McCxAtL0dXjgZHJfsDyM8p6CvwTq9r2hFirmlMOYD
-# 8Zsyy6BHuPCSg7fvXIFaKPR6b5Q6C4B4nwC2w9j6QmS8oDNMkIq+qHgFgx0mvNQc
-# NtOM3i5sflnlQnQwUg9/myulkt724UubL20cVhSSyzvMaNvqOREZPHU7NZRF4R/7
-# uohOpN/+fQHrMNu+XLZONxvtbHAA3R5Y1LnQOl/4AYhXgEjbdiZD7yKZLIC3f6Pb
-# I5IYJEvPRv0xE1MErFHcCu7Zq0sNTlzERvGC1JvzikWRhWPGW+c3Y9Gn6kyaDCFK
-# RPv40wzHK8M5Dg5u5fJjqm+ebwXjv12Z/FoPqFQ5Oubi/TDoOqLS8pzaPILMPmOM
-# SnbqDAawpHslIJrSnNkz9FuWw157ME0RkhKJngnoJ3KBhzFnqYivoG3ZhhXFj/0i
-# 4ksTG7G5NKpkI0F7PeetNalRv7llZ70xMMARLM6f/vGTetumqfpqHyXVlguZ/lKy
-# 7NGEyXChpFk21rHEcwzDmsu/y1a1NBeyQ6yyWeEfc82zqBbV8HWVLHs8ruRXITGl
-# 6QIDAQABo1QwUjAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwMw
-# DAYDVR0TAQH/BAIwADAdBgNVHQ4EFgQUemxrbIkL/bJnXptoCkBWU0PlbNQwDQYJ
-# KoZIhvcNAQENBQADggIBADJgqO2FosDnM4YQ2TY0oK1aUZFE42dodxTInYouMMNH
-# C2+ifAKTCcR7QpWDqvgVBS5nZmR2mfJDXEdR5WTyryXWwBz1ltxKFUYlW3t96x4L
-# lAAo0YYzVhSAwlBzuMVrTxAp1wjmwPtclCI8JOcFdqBR+ZJq+V6VQjQGnzHlxVyx
-# sk/Zz7iaf4t4uneLg8kh4GxPCuU4Kvuc2J0Zg9qawCT3TuUwMh1VHvtKnJT2oDgn
-# nXYntM1MKSg7IGAQC9I90uC6e/tngpTb+Ur6nD3hz3vOaIuRaHR/pau0Z6mVZdQ0
-# v5VU0GutEYJz6aZy4231VkU9c+7g7CxMPU4sw3TlPZ9/XXA7FFp/YSxF0C4q+M6s
-# 23ZxL4Sa9arbHplb2HNBTvL4SWAARicHZyB0Q1tJxqMEBWLmhQyGci2YnuBgtIpo
-# ZS+WmDG6MEmicWTPqJg5/rprIcE/dBBptPGuKkWJbl5lreX7J11C2cgkxZmYGxqO
-# JlytDfqS+Q1r8dLr/6PXZfY5T0u2DEr7fUo+p9k3XfLdcZLQp41gamSvGRX73J5L
-# 509sfRYgRfSFzKrQ5uqGLG35qxZQQlgeRS90t2gfLw6psBFjYHNmPUZcUSRmTpgu
-# j3guCY8qtQxMLSWFGQ4kMyPiutnxb/B6Vp5BL/sScp2mpofPLbpZEmLXsjMLi6bT
-# MYIC7DCCAugCAQEwNjAiMSAwHgYDVQQDDBdGMC1Mb2NhbENvZGVTaWduaW5nLUNT
-# VAIQH/t2Ncw7holG8vM74T0GzjANBglghkgBZQMEAgEFAKCBiDAZBgkqhkiG9w0B
-# CQMxDAYKKwYBBAGCNwIBBDAcBgkqhkiG9w0BCQUxDxcNMjUwODE5MDAyNDU3WjAc
-# BgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQgVo9X
-# Uon1uavsS2zBPhw3EMypl4HWEssrvHnkstehZXEwDQYJKoZIhvcNAQEBBQAEggIA
-# BsnYcfuWrHchZuIh7MbtvlE817p1Ma0Cbm/VdzpPTp9gYuLvq0PbMwCzgQpRm2mt
-# y5zNdoI5v+v/ewgydVAmZmeoGModzRfCeZsOSJwUR+B+jwlP+BWkBO6gDQlsLage
-# JGfv1oDM+mhL8Exec9KInRo4vz04Lm3wnoH393BAylhzvymTVslxPW3Li3uqv6Ci
-# AR1h5tPOfMUcGH269rVhHctRy3dPC1sPnEcXjDWsg2TdoDlWE+XuY17x25BrCnx7
-# iukwJRlAyIQjNJlNkvFXCLJ/BhmGZ/MJ7CrBz550hhwzA8OeWYEBmZ2amuUQz3G5
-# g4CwgrA25bBmvJ9Ax5jqn0Qlb3b0IfvEQ6ygZLtAgXqMt0mRlKUAOlsFU/BH7oEU
-# YGeU0HpAW+iJwjN/koGnUqfLWWQ+LhK9mQrNIelB4miUdSD2qowoFsRhTm/Np+JJ
-# seQiJ3fFPqUg4wadoW7czUOcJXxgwi2WSbrxtl/2PGGR5jCFMLGIyrXXZ1TzFbCt
-# 1KXcGpJWHC4CUEK+NIJGo6+uLNuoGhIVCh22g92uhSlGsmHqhVVBe1hF+5bpkshv
-# QuDQZ7JNPfRVaXd78fanONoD8pI9EOciAFIaRC69qRrCqiBzGPjucYCvG7ZMYY2K
-# SpR5GUpJhhL7bSyyjYWCJVFfR5/ojHhseUxtIVsYtFw=
-# SIG # End signature block
