@@ -14,9 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Code of Conduct (CODE_OF_CONDUCT.md)
 - Security policy (SECURITY.md)
 - This CHANGELOG file
+- Long-running test solution for SafePay ransomware simulation
+- Enhanced PowerShell development guidelines in README.md
+- Windows Defender Protection Checker utility documentation
 
 ### Changed
 - Enhanced repository documentation for public release preparation
+- Enhanced SafePay ransomware test with aggressive mass file operations for improved EDR detection
+- Updated README.md with PowerShell security requirements and Windows Defender checker
 
 ### Security
 - Added security policy and responsible disclosure guidelines

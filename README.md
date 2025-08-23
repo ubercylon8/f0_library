@@ -59,6 +59,7 @@ f0_library/
 ├── utils/                 # Build and signing utilities
 │   ├── gobuild           # Cross-platform test builder
 │   ├── codesign          # Code signing utility
+│   ├── Check-DefenderProtection.ps1 # Windows Defender status checker
 │   ├── test_*.sh         # Unit tests for utilities
 │   ├── run_tests.sh      # Test runner
 │   └── README.md         # Utility documentation
@@ -142,6 +143,17 @@ Sign Windows executables using the `codesign` utility:
 ./utils/codesign verify build/<test-uuid>/<test-uuid>.exe
 ```
 
+### Windows Defender Protection Check
+
+Use the Windows Defender protection checker to verify security posture:
+
+```powershell
+# Check if Windows Defender is properly configured (run as Administrator)
+powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
+```
+
+This utility examines registry settings targeted by malware (like CyberEye RAT) and reports whether the host is protected or vulnerable. The script automatically handles execution policy bypass and requires administrator privileges.
+
 ### Running Tests
 
 Run the utility test suite to ensure everything is working:
@@ -162,6 +174,35 @@ Run the utility test suite to ensure everything is working:
 
 ## Test Development
 
+### PowerShell Development Guidelines
+
+All created PowerShell scripts must follow these security requirements:
+
+- **Admin Privilege Check**: Include a function to verify administrator privileges
+- **Execution Policy Bypass**: Implement automatic execution policy bypass functionality
+- **Error Handling**: Proper exception handling for security operations
+- **Logging**: Use appropriate output formatting with color coding
+
+Example pattern for PowerShell scripts:
+```powershell
+#Requires -RunAsAdministrator
+
+# Function to check if running with admin privileges
+function Test-Admin {
+    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($currentUser)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# Function to check and bypass execution policy
+function Bypass-ExecutionPolicy {
+    $currentPolicy = Get-ExecutionPolicy -Scope CurrentUser
+    if ($currentPolicy -eq "Restricted" -or $currentPolicy -eq "AllSigned") {
+        # Implement bypass logic
+    }
+}
+```
+
 ### Creating a New Test
 
 1. Generate a UUID for your test (lowercase format)
@@ -181,6 +222,31 @@ mkdir tests_source/<uuid>/
 - **101** - System unprotected (attack succeeded)
 - **105** - File quarantined on extraction
 - **126** - Execution prevented by security solution
+
+### Long-Running Test Support
+
+The framework now supports tests that require more than the standard 30-second timeout limit. For complex simulations like ransomware operations that may take several minutes, use a custom test runner pattern:
+
+```go
+func main() {
+    // Custom runner bypasses Endpoint.Start() timeout limitation
+    done := make(chan bool, 1)
+    go func() {
+        test()
+        done <- true
+    }()
+    
+    select {
+    case <-done:
+        Endpoint.Say("Test completed within timeout window")
+    case <-time.After(5 * time.Minute):  // Adjust as needed
+        Endpoint.Say("Test timed out after 5 minutes")
+        Endpoint.Stop(Endpoint.TimeoutExceeded)
+    }
+}
+```
+
+This approach is used in multi-phase attack simulations that include file creation, compression, encryption, and cleanup phases. See `tests_source/109266e2-2310-40ea-9f63-b97e4b7fda61/LONG_RUNNING_TEST_SOLUTION.md` for detailed implementation.
 
 ### Important Convention
 
