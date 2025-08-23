@@ -14,7 +14,7 @@ We take the security of F0RT1KA seriously. If you have discovered a security vul
 ### Reporting Process
 
 1. **DO NOT** create a public GitHub issue for security vulnerabilities
-2. Email your findings to [security contact email] with:
+2. Email your findings to james@fortika.io with:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact
