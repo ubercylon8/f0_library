@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
@@ -207,5 +208,24 @@ func cleanup(targetDir string) {
 }
 
 func main() {
-	Endpoint.Start(test)
+	// Standardized F0RT1KA Custom Runner - eliminates 30-second timeout limitation
+	Endpoint.Say("Starting test at: %s", time.Now().Format("2006-01-02T15:04:05"))
+	Endpoint.Say("Using F0RT1KA standardized test runner")
+	
+	done := make(chan bool, 1)
+	go func() {
+		test()
+		done <- true
+	}()
+	
+	// 3-minute timeout for this multi-phase exfiltration and encryption simulation
+	timeout := 3 * time.Minute
+	
+	select {
+	case <-done:
+		Endpoint.Say("Test completed successfully")
+	case <-time.After(timeout):
+		Endpoint.Say("Test timed out after %v", timeout)
+		Endpoint.Stop(Endpoint.TimeoutExceeded)
+	}
 }
