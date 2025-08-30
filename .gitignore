@@ -45,10 +45,12 @@ c:/F0/
 # Build artifacts
 build/
 dist/
+temp_resources/
 
 # Claude-related files and folders
 CLAUDE.md
 .claude/
+tests_source/CLAUDE.md
 
 # AI Coding rules
 rules/

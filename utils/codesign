@@ -38,7 +38,7 @@ USAGE:
     $(basename "$0") [OPTIONS] [COMMAND]
 
 COMMANDS:
-    sign <binary>           Sign a specific binary
+    sign <file(s)>          Sign one or more files (supports glob patterns)
     sign-all [directory]    Sign all executables in directory (default: build/)
     verify <binary>         Verify signature of a binary
     list-certs              List available certificates in signing-certs/
@@ -57,8 +57,11 @@ EXAMPLES:
     # Sign a binary (will prompt for certificate and password)
     $(basename "$0") sign build/test-uuid/test-uuid.exe
 
-    # Sign with specific certificate
-    $(basename "$0") --cert signing-certs/mycert.pfx sign build/test-uuid/test-uuid.exe
+    # Sign multiple PowerShell scripts with glob pattern
+    $(basename "$0") --cert signing-certs/mycert.pfx --password 'mypass' sign staging/uuid/*.ps1
+
+    # Sign multiple files explicitly
+    $(basename "$0") --cert signing-certs/mycert.pfx sign file1.exe file2.ps1 file3.exe
 
     # Sign all binaries in build directory
     $(basename "$0") sign-all
@@ -91,9 +94,11 @@ check_osslsigncode() {
 
 # List available certificates
 list_certificates() {
-    local cert_dir="signing-certs"
+    # Get the directory where this script is located
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local cert_dir="$script_dir/../signing-certs"
     
-    print_info "Available certificates in $cert_dir/:"
+    print_info "Available certificates in signing-certs/:"
     
     if [[ ! -d "$cert_dir" ]]; then
         print_warning "Certificate directory not found: $cert_dir"
@@ -118,7 +123,9 @@ list_certificates() {
 
 # Prompt for certificate selection
 select_certificate() {
-    local cert_dir="signing-certs"
+    # Get the directory where this script is located
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local cert_dir="$script_dir/../signing-certs"
     local selected_cert=""
     
     if [[ ! -d "$cert_dir" ]]; then
@@ -141,9 +148,9 @@ select_certificate() {
         selected_cert="${certs[0]}"
         print_info "Using certificate: $(basename "$selected_cert")"
     else
-        echo "Available certificates:"
+        echo "Available certificates:" >&2
         for i in "${!certs[@]}"; do
-            echo "  $((i+1)). $(basename "${certs[i]}")"
+            echo "  $((i+1)). $(basename "${certs[i]}")" >&2
         done
         
         while true; do
@@ -356,7 +363,7 @@ sign_all_binaries() {
 # Main function
 main() {
     local command=""
-    local binary_path=""
+    local binary_paths=()
     local directory="build"
     local cert_file=""
     local password=""
@@ -403,8 +410,18 @@ main() {
                 ;;
             sign)
                 command="sign"
-                binary_path="$2"
-                shift 2
+                # Handle multiple files - collect all remaining non-option arguments
+                shift
+                binary_paths=()
+                while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do
+                    # Expand glob patterns
+                    for file in $1; do
+                        if [[ -f "$file" ]]; then
+                            binary_paths+=("$file")
+                        fi
+                    done
+                    shift
+                done
                 ;;
             sign-all)
                 command="sign-all"
@@ -417,8 +434,13 @@ main() {
                 ;;
             verify)
                 command="verify"
-                binary_path="$2"
-                shift 2
+                # For verify, we only support single file for now
+                if [[ -n "$2" && ! "$2" =~ ^-- ]]; then
+                    binary_paths=("$2")
+                    shift 2
+                else
+                    shift
+                fi
                 ;;
             list-certs)
                 command="list-certs"
@@ -438,8 +460,8 @@ main() {
     # Execute command
     case "$command" in
         sign)
-            if [[ -z "$binary_path" ]]; then
-                print_error "Binary path required for sign command"
+            if [[ ${#binary_paths[@]} -eq 0 ]]; then
+                print_error "At least one file path required for sign command"
                 show_usage
                 exit 1
             fi
@@ -457,7 +479,24 @@ main() {
                 password=$(prompt_password)
             fi
             
-            sign_binary "$binary_path" "$cert_file" "$password" "$output_file" "$description" "$url" "$timestamp_url" "$verbose"
+            # Sign each file
+            local signed_count=0
+            local failed_count=0
+            
+            for binary_path in "${binary_paths[@]}"; do
+                print_info "Processing file $((signed_count + failed_count + 1)) of ${#binary_paths[@]}: $(basename "$binary_path")"
+                if sign_binary "$binary_path" "$cert_file" "$password" "$output_file" "$description" "$url" "$timestamp_url" "$verbose"; then
+                    ((signed_count++))
+                else
+                    ((failed_count++))
+                fi
+            done
+            
+            print_info "Signing summary: $signed_count successful, $failed_count failed"
+            
+            if [[ $failed_count -gt 0 ]]; then
+                exit 1
+            fi
             ;;
         sign-all)
             # Select certificate if not provided
@@ -476,13 +515,13 @@ main() {
             sign_all_binaries "$directory" "$cert_file" "$password" "$description" "$url" "$timestamp_url" "$verbose"
             ;;
         verify)
-            if [[ -z "$binary_path" ]]; then
-                print_error "Binary path required for verify command"
+            if [[ ${#binary_paths[@]} -eq 0 ]]; then
+                print_error "File path required for verify command"
                 show_usage
                 exit 1
             fi
             
-            verify_signature "$binary_path" "$verbose"
+            verify_signature "${binary_paths[0]}" "$verbose"
             ;;
         list-certs)
             list_certificates
