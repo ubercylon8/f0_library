@@ -1,0 +1,144 @@
+// Behavioral Detection Queries for SafePay Enhanced Ransomware Simulation
+// Test ID: 109266e2-2310-40ea-9f63-b97e4b7fda61
+// MITRE ATT&CK: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+
+//
+// QUERY 1: Mass File Deletion Detection
+// Purpose: Detect bulk file deletion patterns characteristic of ransomware
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileDeleted"
+| where FileName endswith_any (".docx", ".xlsx", ".pdf", ".txt", ".pptx", ".sql", ".bak", ".csv", ".ppt", ".doc", ".zip")
+| where FolderPath !startswith "C:\\F0\\"  // Exclude test directory
+| summarize DeletedCount=count(),
+    FileTypes=make_set(tostring(split(FileName, ".")[-1])),
+    FirstDeletion=min(TimeGenerated),
+    LastDeletion=max(TimeGenerated),
+    SampleFiles=take_any(FileName, 5)
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 5m)
+| where DeletedCount > 50  // Threshold for mass deletion
+| extend DeletionRate = DeletedCount / datetime_diff('second', LastDeletion, FirstDeletion)
+| where DeletionRate > 0.5  // More than 0.5 files per second
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName, 
+    DeletedCount, DeletionRate, FileTypes, FirstDeletion, LastDeletion
+
+//
+// QUERY 2: WinRAR Data Exfiltration Detection
+// Purpose: Monitor WinRAR processes for data staging and exfiltration patterns
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any ("WinRAR.exe", "rar.exe")
+| where ProcessCommandLine has_any ("EXFIL", "Archive", "-v100m", "-v500m", "-m5", "-m0")
+| extend ExfiltrationRisk = case(
+    ProcessCommandLine has "EXFIL_Master", "Critical",
+    ProcessCommandLine has_all ("-v500m", "-m0"), "High",
+    ProcessCommandLine has "-v100m", "Medium",
+    "Low"
+)
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, ExfiltrationRisk
+| summarize RarProcessCount=count(), 
+    ExfiltrationRisk=max(ExfiltrationRisk),
+    Archives=make_set(ProcessCommandLine),
+    FirstProcess=min(TimeGenerated),
+    LastProcess=max(TimeGenerated)
+    by DeviceName, AccountName, bin(TimeGenerated, 10m)
+| where RarProcessCount > 3  // Multiple RAR processes indicate staging
+| project TimeGenerated, DeviceName, AccountName, RarProcessCount, 
+    ExfiltrationRisk, FirstProcess, LastProcess
+
+//
+// QUERY 3: Ransomware File Encryption Detection
+// Purpose: Detect file encryption patterns and ransom note creation
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileRenamed")
+| where FileName endswith_any (".safepay", ".encrypted", ".locked", ".enc")
+    or FileName has_any ("readme_safepay", "HOW_TO_DECRYPT", "README_DECRYPT", "RANSOM")
+| extend IsSuspicious = case(
+    FileName has "readme_safepay", "RansomNote",
+    FileName endswith ".safepay", "Encryption",
+    "Other"
+)
+| summarize EncryptedFiles=countif(IsSuspicious == "Encryption"),
+    RansomNotes=countif(IsSuspicious == "RansomNote"),
+    FirstSeen=min(TimeGenerated),
+    LastSeen=max(TimeGenerated),
+    UniqueExtensions=make_set(tostring(split(FileName, ".")[-1])),
+    SampleFiles=make_set(FileName)
+    by DeviceName, InitiatingProcessFileName, AccountName
+| where EncryptedFiles > 10 or RansomNotes > 0
+| project TimeGenerated=FirstSeen, DeviceName, AccountName, InitiatingProcessFileName,
+    EncryptedFiles, RansomNotes, UniqueExtensions, FirstSeen, LastSeen
+
+//
+// QUERY 4: Parallel Compression Job Detection
+// Purpose: Detect multiple simultaneous compression processes (PowerShell Start-Job pattern)
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_all ("Start-Job", "WinRAR")
+    or ProcessCommandLine has_all ("powershell", "-v100m")
+    or (FileName =~ "WinRAR.exe" and ProcessCommandLine has "-mt2")
+| summarize CompressionJobs=count(),
+    ProcessCommands=make_set(ProcessCommandLine),
+    FirstJob=min(TimeGenerated),
+    LastJob=max(TimeGenerated)
+    by DeviceName, AccountName, bin(TimeGenerated, 10m)
+| where CompressionJobs > 2  // Multiple parallel compression jobs
+| extend Duration = datetime_diff('second', LastJob, FirstJob)
+| project TimeGenerated, DeviceName, AccountName, CompressionJobs, Duration, FirstJob, LastJob
+
+//
+// QUERY 5: Combined SafePay Ransomware Behavior Detection
+// Purpose: Correlate multiple ransomware indicators for high-confidence detection
+//
+let MassFileOps = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileDeleted")
+| where FolderPath !startswith "C:\\F0\\"
+| summarize FileOps=count() by DeviceName, AccountName, bin(TimeGenerated, 5m)
+| where FileOps > 100
+| distinct DeviceName, AccountName;
+let WinRARActivity = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "WinRAR.exe" or FileName =~ "rar.exe"
+| distinct DeviceName, AccountName;
+let EncryptionFiles = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FileName endswith ".safepay" or FileName contains "readme_safepay"
+| distinct DeviceName, AccountName;
+let PowerShellBypass = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_all ("powershell", "Bypass")
+| distinct DeviceName, AccountName;
+// Correlate all indicators
+MassFileOps
+| join kind=inner (WinRARActivity) on DeviceName, AccountName
+| join kind=inner (PowerShellBypass) on DeviceName, AccountName
+| join kind=leftouter (EncryptionFiles) on DeviceName, AccountName
+| extend ThreatScore = case(
+    isnotempty(DeviceName2), 100,  // All indicators present including encryption
+    95  // Mass operations + WinRAR + PowerShell bypass
+)
+| project DeviceName, AccountName, ThreatScore, 
+    Detection="SafePay Ransomware Activity - Mass File Operations + Compression + PowerShell Bypass",
+    HasEncryption=isnotempty(DeviceName2)
+
+//
+// QUERY 6: Ransomware Note Display Detection
+// Purpose: Detect automatic display of ransom notes via notepad
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "notepad.exe"
+| where ProcessCommandLine has_any ("readme_safepay", "RANSOM", "DECRYPT", "safepay")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName
+| extend Detection = "Ransom Note Display - Notepad launched with suspicious file"
+| summarize RansomNoteDisplays=count(),
+    DisplayCommands=make_set(ProcessCommandLine),
+    FirstDisplay=min(TimeGenerated)
+    by DeviceName, AccountName, InitiatingProcessFileName
