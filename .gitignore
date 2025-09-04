@@ -41,6 +41,7 @@ c:/F0/
 *.pfx
 *.p12
 *.cer
+signing-certs/
 
 # Build artifacts
 build/
