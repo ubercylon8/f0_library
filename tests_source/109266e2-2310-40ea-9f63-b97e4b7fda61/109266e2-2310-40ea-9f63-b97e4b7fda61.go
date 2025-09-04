@@ -25,7 +25,7 @@ import (
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
 )
 
-//go:embed safepay_ransomware_sim.ps1
+//go:embed safepay_ransomware_sim_v2.ps1
 var ransomwareScript []byte
 
 //go:embed WinRAR.exe 
@@ -85,8 +85,8 @@ func executeRansomwareSimulation() error {
 		return err
 	}
 	
-	// Drop PowerShell script
-	scriptPath := filepath.Join(targetDir, "safepay_ransomware_sim.ps1")
+	// Drop PowerShell script (v2 with enhanced logging)
+	scriptPath := filepath.Join(targetDir, "safepay_ransomware_sim_v2.ps1")
 	err = os.WriteFile(scriptPath, ransomwareScript, 0644)
 	if err != nil {
 		return err
@@ -98,7 +98,7 @@ func executeRansomwareSimulation() error {
 	
 	// Start PowerShell script as detached process
 	Endpoint.Say("Starting ransomware simulation as detached process...")
-	cmd := exec.Command("cmd.exe", "/C", "start", "/MIN", "powershell.exe", "-ExecutionPolicy", "Bypass", "-File", "C:\\F0\\safepay_ransomware_sim.ps1")
+	cmd := exec.Command("cmd.exe", "/C", "start", "/MIN", "powershell.exe", "-ExecutionPolicy", "Bypass", "-File", "C:\\F0\\safepay_ransomware_sim_v2.ps1")
 	cmd.Dir = targetDir
 	
 	err = cmd.Run()
@@ -183,6 +183,12 @@ func executeRansomwareSimulation() error {
 				// Verify artifacts
 				if _, err := os.Stat("C:\\Users\\fortika-test\\readme_safepay.txt"); err == nil {
 					Endpoint.Say("  - Ransom note confirmed: C:\\Users\\fortika-test\\readme_safepay.txt")
+				}
+				
+				// Check for detailed log file
+				if _, err := os.Stat("C:\\F0\\safepay_simulation.log"); err == nil {
+					Endpoint.Say("  - Detailed simulation log: C:\\F0\\safepay_simulation.log")
+					Endpoint.Say("  - Log contains all .safepay encryption events for verification")
 				}
 				
 				// Check for archive files
@@ -290,16 +296,17 @@ func test() {
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
 
-	Endpoint.Say("Starting SafePay Enhanced Ransomware Simulation with Mass Data Operations")
+	Endpoint.Say("Starting SafePay Enhanced Ransomware Simulation with Comprehensive Logging")
 	Endpoint.Say("This test simulates realistic ransomware behavior targeting user directories")
 	Endpoint.Say("Expected behaviors: Mass file creation, compression, deletion, encryption")
-	Endpoint.Say("Dropping WinRAR binary and enhanced PowerShell script")
+	Endpoint.Say("Enhanced v2: Detailed logging to C:\\F0\\safepay_simulation.log")
+	Endpoint.Say("Dropping WinRAR binary and enhanced PowerShell script v2")
 	Endpoint.Say("Checking for initial defensive reaction")
 	Endpoint.Wait(2)  // Reduced from 5 to save time
 
 	// Check if components get quarantined
-	if Endpoint.Quarantined("safepay_ransomware_sim.ps1", ransomwareScript) {
-		Endpoint.Say("SafePay enhanced ransomware script was caught!")
+	if Endpoint.Quarantined("safepay_ransomware_sim_v2.ps1", ransomwareScript) {
+		Endpoint.Say("SafePay enhanced ransomware script (v2 with logging) was caught!")
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
 	}
 
@@ -308,9 +315,10 @@ func test() {
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
 	}
 
-	Endpoint.Say("Components were not caught, executing enhanced ransomware simulation")
+	Endpoint.Say("Components were not caught, executing enhanced ransomware simulation v2")
 	Endpoint.Say("Target: C:\\Users\\fortika-test (realistic user directory targeting)")
 	Endpoint.Say("Expected operations: 500-1500 files, multi-phase compression, mass deletion")
+	Endpoint.Say("Comprehensive logging: All .safepay encryption events will be logged")
 
 	// Try to execute the enhanced ransomware simulation
 	err := executeRansomwareSimulation()
