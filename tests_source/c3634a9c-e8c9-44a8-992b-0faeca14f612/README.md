@@ -1,33 +1,40 @@
-# Akira Ransomware BYOVD Attack Chain
+# Akira Ransomware BYOVD Attack Chain (Hybrid Testing)
 
-This VST simulates the Bring Your Own Vulnerable Driver (BYOVD) attack chain used by Akira ransomware to achieve privilege escalation and disable Windows Defender. The test replicates the dual-driver technique where legitimate vulnerable drivers are abused alongside malicious drivers to evade detection and disable security controls.
+This VST simulates the Bring Your Own Vulnerable Driver (BYOVD) attack chain used by Akira ransomware to achieve privilege escalation and disable Windows Defender. The test uses a **hybrid approach**: real vulnerable driver for signature detection testing followed by safe simulated drivers for behavioral detection.
 
 ## How
 
-> Safety: This test only simulates driver operations and registry modifications without performing actual kernel-level exploitation.
+> **Hybrid Safety Model**: Uses real vulnerable driver only for signature detection (3 seconds), then switches to simulated drivers for all behavioral testing to maintain safety while maximizing detection coverage.
 
 Steps:
 
 1. Check for administrator privileges. If not running as admin, exit `NOTRELEVANT`
-2. Drop simulated driver files (`rwdrv.sys` and `hlpdrv.sys`) to the `C:\F0` directory
-3. Create Windows services (`mgdsrv` and `KMHLPSVC`) that would load these drivers
-4. Execute a PowerShell script to attempt Windows Defender registry manipulation
-5. Monitor defensive responses at each phase and determine protection status
-6. Clean up created services, files, and registry modifications
+2. **Phase 1**: Drop real `rwdrv.sys` vulnerable driver for signature detection test
+3. **Phase 2**: Remove real driver and use simulated drivers for behavioral testing
+4. **Phase 3**: Create Windows services (`mgdsrv` and `KMHLPSVC`) pointing to simulated drivers
+5. **Phase 4**: Execute PowerShell script to attempt Windows Defender registry manipulation
+6. Monitor defensive responses at each phase and determine protection status
+7. Clean up created services, files, and registry modifications (including safety check for real driver)
 
 ## Attack Phases
 
-**Phase 1: Driver Deployment**
-- Drops `rwdrv.sys` (15,360 bytes) - simulates legitimate ThrottleStop driver
-- Drops `hlpdrv.sys` (24,576 bytes) - simulates malicious helper driver
-- Monitors for file quarantine by AV/EDR solutions
+**Phase 1: Signature Detection Test**
+- Drops real `rwdrv.sys` vulnerable driver (actual malicious binary)
+- Monitors for signature-based quarantine by AV/EDR solutions
+- **Early exit on detection**: If quarantined → System is PROTECTED
+- **Safety pivot**: If not detected → Remove real driver immediately
 
-**Phase 2: Service Creation** 
-- Creates `mgdsrv` service pointing to rwdrv.sys
-- Creates `KMHLPSVC` service pointing to hlpdrv.sys
+**Phase 2: Behavioral Detection Test**
+- Drops `rwdrv.sys` (15,360 bytes) - simulated ThrottleStop driver 
+- Drops `hlpdrv.sys` (24,576 bytes) - simulated malicious helper driver
+- Monitors for behavioral-based quarantine by AV/EDR solutions
+
+**Phase 3: Service Creation** 
+- Creates `mgdsrv` service pointing to simulated rwdrv.sys
+- Creates `KMHLPSVC` service pointing to simulated hlpdrv.sys
 - Tests ability to register kernel-mode services
 
-**Phase 3: Defense Evasion**
+**Phase 4: Defense Evasion**
 - Executes PowerShell script with execution policy bypass
 - Attempts to modify Windows Defender registry keys
 - Targets `HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\DisableAntiSpyware`

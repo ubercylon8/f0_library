@@ -25,6 +25,9 @@ import (
 //go:embed defender_disable.ps1
 var defenderScript []byte
 
+//go:embed rwdrv.sys
+var realVulnerableDriver []byte
+
 func checkAdminPrivileges() bool {
 	cmd := exec.Command("net", "session")
 	err := cmd.Run()
@@ -60,6 +63,30 @@ func deleteService(serviceName string) error {
 		return fmt.Errorf("failed to delete service %s: %v", serviceName, err)
 	}
 	return nil
+}
+
+func dropRealVulnerableDriver(targetDir string) error {
+	filePath := filepath.Join(targetDir, "rwdrv.sys")
+	
+	Endpoint.Say("Dropping real vulnerable driver for signature detection: rwdrv.sys")
+	err := os.WriteFile(filePath, realVulnerableDriver, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to drop real vulnerable driver: %v", err)
+	}
+	
+	Endpoint.Say("Real vulnerable driver dropped: rwdrv.sys (%d bytes)", len(realVulnerableDriver))
+	return nil
+}
+
+func removeRealVulnerableDriver(targetDir string) {
+	filePath := filepath.Join(targetDir, "rwdrv.sys")
+	Endpoint.Say("Removing real vulnerable driver for safety")
+	
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		Endpoint.Say("Warning: Failed to remove real driver: %v", err)
+	} else {
+		Endpoint.Say("Real vulnerable driver safely removed")
+	}
 }
 
 func simulateDriverDrop(targetDir, fileName string, size int64) error {
@@ -144,30 +171,64 @@ func test() {
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
 
-	Endpoint.Say("Phase 1: Dropping vulnerable and malicious drivers")
+	// ========================================
+	// PHASE 1: SIGNATURE DETECTION TEST
+	// ========================================
+	Endpoint.Say("Phase 1: Real vulnerable driver signature detection test")
 	
+	// Drop real vulnerable driver for signature detection
+	if err := dropRealVulnerableDriver(targetDir); err != nil {
+		Endpoint.Say("Failed to drop real vulnerable driver: %v", err)
+		Endpoint.Stop(Endpoint.UnexpectedTestError)
+	}
+	
+	Endpoint.Say("Monitoring for signature-based detection (3 seconds)")
+	Endpoint.Wait(3)
+	
+	realDriverPath := filepath.Join(targetDir, "rwdrv.sys")
+	
+	// Check if real driver was quarantined by signature detection
+	if !Endpoint.Exists(realDriverPath) {
+		Endpoint.Say("Real vulnerable driver was quarantined by signature detection!")
+		Endpoint.Say("System is PROTECTED - signature detection working")
+		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
+	}
+	
+	// Real driver not quarantined - remove for safety and proceed with behavioral tests
+	Endpoint.Say("Real driver not detected by signatures - removing for safety")
+	removeRealVulnerableDriver(targetDir)
+	
+	// ========================================
+	// PHASE 2: BEHAVIORAL DETECTION TEST
+	// ========================================
+	Endpoint.Say("Phase 2: Behavioral detection test with simulated drivers")
+	
+	// Now use dummy drivers for safe behavioral testing
 	if err := simulateDriverDrop(targetDir, "rwdrv.sys", 15360); err != nil {
-		Endpoint.Say("Failed to drop rwdrv.sys: %v", err)
+		Endpoint.Say("Failed to drop simulated rwdrv.sys: %v", err)
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
 	
 	if err := simulateDriverDrop(targetDir, "hlpdrv.sys", 24576); err != nil {
-		Endpoint.Say("Failed to drop hlpdrv.sys: %v", err)
+		Endpoint.Say("Failed to drop simulated hlpdrv.sys: %v", err)
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
 
-	Endpoint.Say("Checking for defensive reactions to driver drops")
-	Endpoint.Wait(3)
+	Endpoint.Say("Checking for behavioral detection of simulated drivers")
+	Endpoint.Wait(2)
 	
 	rwdrvPath := filepath.Join(targetDir, "rwdrv.sys")
 	hlpdrvPath := filepath.Join(targetDir, "hlpdrv.sys")
 	
 	if !Endpoint.Exists(rwdrvPath) || !Endpoint.Exists(hlpdrvPath) {
-		Endpoint.Say("One or both drivers were quarantined")
+		Endpoint.Say("Simulated drivers were quarantined by behavioral detection")
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
 	}
 
-	Endpoint.Say("Phase 2: Creating malicious services")
+	// ========================================
+	// PHASE 3: SERVICE CREATION TEST
+	// ========================================
+	Endpoint.Say("Phase 3: Creating malicious services")
 	
 	if err := createService("mgdsrv", "Malicious Guard Driver Service", rwdrvPath); err != nil {
 		Endpoint.Say("Failed to create mgdsrv service: %v", err)
@@ -179,7 +240,10 @@ func test() {
 		Endpoint.Stop(Endpoint.ExecutionPrevented)
 	}
 
-	Endpoint.Say("Phase 3: Attempting Windows Defender registry manipulation")
+	// ========================================
+	// PHASE 4: REGISTRY MANIPULATION TEST
+	// ========================================
+	Endpoint.Say("Phase 4: Attempting Windows Defender registry manipulation")
 	
 	scriptPath := filepath.Join(targetDir, "defender_disable.ps1")
 	if err := os.WriteFile(scriptPath, defenderScript, 0644); err != nil {
@@ -228,24 +292,36 @@ func test() {
 func clean() {
 	Endpoint.Say("Cleaning up BYOVD test artifacts")
 	
+	// Clean up services
 	deleteService("mgdsrv")
 	deleteService("KMHLPSVC")
 	
 	targetDir := "c:\\F0"
 	filesToClean := []string{"rwdrv.sys", "hlpdrv.sys", "defender_disable.ps1", "status.txt"}
 	
+	// Clean up all test files (including both real and simulated drivers)
 	for _, fileName := range filesToClean {
 		filePath := filepath.Join(targetDir, fileName)
 		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 			Endpoint.Say("Warning: Failed to remove %s: %v", fileName, err)
+		} else {
+			Endpoint.Say("Removed: %s", fileName)
 		}
 	}
 	
+	// Ensure real vulnerable driver is definitely removed (safety check)
+	realDriverPath := filepath.Join(targetDir, "rwdrv.sys")
+	if Endpoint.Exists(realDriverPath) {
+		Endpoint.Say("Safety check: Removing any remaining real vulnerable driver")
+		removeRealVulnerableDriver(targetDir)
+	}
+	
+	// Restore registry settings
 	cmd := exec.Command("powershell.exe", "-Command", 
 		"Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue")
 	cmd.Run()
 	
-	Endpoint.Say("Cleanup completed")
+	Endpoint.Say("Cleanup completed - all artifacts removed")
 }
 
 func main() {
