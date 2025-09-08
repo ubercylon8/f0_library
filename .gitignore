@@ -47,6 +47,7 @@ signing-certs/
 build/
 dist/
 temp_resources/
+staging/
 
 # Claude-related files and folders
 CLAUDE.md
