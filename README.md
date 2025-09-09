@@ -82,6 +82,7 @@ f0_library/
 - **Prelude Libraries**: Must be configured in the `preludeorg-libraries/` directory
 - **Administrator Access**: Some tests require elevated privileges
 - **osslsigncode** (optional): For code signing Windows executables
+- **Windows SDK** (optional): Recommended for signing Windows executables in a Windows environment
 
 ### Quick Start
 
@@ -108,6 +109,9 @@ brew install osslsigncode
 
 # Ubuntu/Debian
 sudo apt-get install osslsigncode
+
+# Windows
+winget install Microsoft.WindowsSDK
 ```
 
 ### Building Tests
@@ -141,6 +145,20 @@ Sign Windows executables using the `codesign` utility:
 
 # Verify signature
 ./utils/codesign verify build/<test-uuid>/<test-uuid>.exe
+```
+
+Sign Windows executables using the `Windows SDK` utility:
+
+```bash
+# Search signtool.exe in your system (For Example)
+
+C:\Program Files (x86)\Windows Kits\<Windows Version>\bin\<SDK Version>\x64\signtool.exe
+
+# Sign a specific binary
+signtool.exe sign /f signing-certs/MyCert.pfx /p <MyCertPassword> /fd SHA256 build/<test-uuid>/<test-uuid>.exe
+
+# Verify signature
+signtool.exe verify build/<test-uuid>/<test-uuid>.exe
 ```
 
 ### Windows Defender Protection Check
