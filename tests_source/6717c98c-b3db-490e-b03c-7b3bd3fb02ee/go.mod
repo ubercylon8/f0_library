@@ -1,4 +1,4 @@
-module b83616c2-84ee-4738-b398-d2d57eebecec
+module 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
 
 go 1.21
 

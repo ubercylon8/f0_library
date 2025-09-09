@@ -1,0 +1,157 @@
+// Behavioral Detection Queries for SafePay Go-Native Ransomware Simulation
+// FOCUS: Malicious ransomware behaviors only (excludes test setup/staging)
+//
+// Test ID: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+// Test Name: SafePay Go-Native Ransomware Simulation
+// MITRE ATT&CK: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+
+// 1. Mass File Creation Detection
+// Detects rapid creation of large numbers of files in user directories
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where TimeGenerated > ago(1h)
+| where FolderPath has_any ("Users\\", "Documents\\", "Desktop\\")
+| summarize CreatedCount=count(), UniqueExtensions=dcount(tostring(split(FileName, ".")[-1])) 
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName, bin(TimeGenerated, 5m)
+| where CreatedCount > 100  // Threshold for suspicious mass file creation
+| where UniqueExtensions >= 5  // Multiple file types indicate realistic document simulation
+
+// 2. WinRAR Compression with Suspicious Arguments
+// Detects WinRAR usage with arguments typical of data staging/exfiltration
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine contains "winrar" or FileName =~ "winrar.exe"
+| where ProcessCommandLine has_any ("-r", "-m", "-ep1", "Archive", "EXFIL")
+| where ProcessCommandLine contains ".rar"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName
+
+// 3. Selective Mass File Deletion
+// Detects large-scale deletion of document files (ransomware preparation)
+DeviceFileEvents
+| where ActionType == "FileDeleted"
+| where TimeGenerated > ago(1h)
+| where FileName has_any (".docx", ".xlsx", ".pdf", ".txt", ".csv", ".sql", ".bak", ".ppt", ".doc", ".zip")
+| summarize DeletedCount=count(), DeletedExtensions=make_set(tostring(split(FileName, ".")[-1]))
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 10m)
+| where DeletedCount > 50  // Threshold for suspicious mass deletion
+| where array_length(DeletedExtensions) >= 3  // Multiple document types deleted
+
+// 4. File Extension Changes (.safepay Encryption)
+// Detects files being "encrypted" with suspicious extensions
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where TimeGenerated > ago(1h)
+| where FileName endswith ".safepay"
+| summarize EncryptedCount=count(), OriginalExtensions=make_set(tostring(split(replace_string(FileName, ".safepay", ""), ".")[-1]))
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 5m)
+| where EncryptedCount > 20  // Threshold for suspicious encryption activity
+
+// 5. Ransom Note Creation
+// Detects creation of ransom note files with typical naming patterns
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where TimeGenerated > ago(1h)
+| where FileName has_any ("readme", "ransom", "decrypt", "recovery", "safepay")
+| where FileName has_any (".txt", ".html", ".hta")
+| project TimeGenerated, DeviceName, AccountName, FolderPath, FileName, InitiatingProcessFileName
+
+// 6. Combined Behavioral Detection (High-Confidence)
+// Correlates multiple ransomware indicators for high-confidence alerts
+let MassFileCreation = 
+    DeviceFileEvents
+    | where ActionType == "FileCreated"
+    | where TimeGenerated > ago(1h)
+    | summarize CreatedFiles=count() by DeviceName, InitiatingProcessFileName, bin(TimeGenerated, 10m)
+    | where CreatedFiles > 100;
+let CompressionActivity = 
+    DeviceProcessEvents
+    | where TimeGenerated > ago(1h)
+    | where ProcessCommandLine contains "winrar" or FileName =~ "winrar.exe"
+    | summarize CompressionEvents=count() by DeviceName, InitiatingProcessFileName, bin(TimeGenerated, 10m);
+let MassDeletion = 
+    DeviceFileEvents
+    | where ActionType == "FileDeleted"
+    | where TimeGenerated > ago(1h)
+    | summarize DeletedFiles=count() by DeviceName, InitiatingProcessFileName, bin(TimeGenerated, 10m)
+    | where DeletedFiles > 50;
+let FileEncryption = 
+    DeviceFileEvents
+    | where ActionType == "FileCreated"
+    | where FileName endswith ".safepay"
+    | where TimeGenerated > ago(1h)
+    | summarize EncryptedFiles=count() by DeviceName, InitiatingProcessFileName, bin(TimeGenerated, 10m);
+// Correlate all behaviors
+MassFileCreation
+| join kind=inner CompressionActivity on DeviceName, InitiatingProcessFileName, TimeGenerated
+| join kind=inner MassDeletion on DeviceName, InitiatingProcessFileName, TimeGenerated
+| join kind=inner FileEncryption on DeviceName, InitiatingProcessFileName, TimeGenerated
+| project DeviceName, InitiatingProcessFileName, TimeGenerated, 
+    CreatedFiles, CompressionEvents, DeletedFiles, EncryptedFiles
+| extend TotalSuspiciousActivity = CreatedFiles + DeletedFiles + EncryptedFiles + CompressionEvents
+| where TotalSuspiciousActivity > 200  // High-confidence threshold
+
+// 7. Go Binary Ransomware Behavior Pattern
+// Detects Go binaries exhibiting ransomware-like file system activity
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where InitiatingProcessFileName endswith ".exe"
+| where ActionType in ("FileCreated", "FileDeleted", "FileModified")
+| summarize 
+    CreatedFiles=countif(ActionType == "FileCreated"),
+    DeletedFiles=countif(ActionType == "FileDeleted"),
+    ModifiedFiles=countif(ActionType == "FileModified"),
+    UniqueDirectories=dcount(FolderPath),
+    SuspiciousExtensions=countif(FileName has_any (".safepay", ".rar"))
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName, bin(TimeGenerated, 5m)
+| where CreatedFiles > 50 or DeletedFiles > 30 or SuspiciousExtensions > 5
+| where UniqueDirectories > 10  // Indicates directory traversal behavior
+
+// 8. Rapid Directory Traversal Detection
+// Detects systematic directory enumeration typical of ransomware reconnaissance
+DeviceFileEvents
+| where ActionType in ("FileCreated", "FileDeleted", "FileModified")
+| where TimeGenerated > ago(1h)
+| extend DirectoryDepth = array_length(split(FolderPath, "\\"))
+| summarize 
+    DirectoryCount=dcount(FolderPath),
+    MaxDepth=max(DirectoryDepth),
+    FileOperations=count()
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 2m)
+| where DirectoryCount > 20  // Indicates systematic directory traversal
+| where FileOperations > 100  // High volume of file operations
+| where MaxDepth > 5  // Deep directory traversal
+
+// 9. Archive File Staging Pattern
+// Detects creation of multiple archive files with exfiltration-like naming
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where TimeGenerated > ago(1h)
+| where FileName endswith ".rar" or FileName endswith ".zip"
+| where FileName has_any ("Archive", "Data", "EXFIL", "Finance", "HR", "Legal", "IT", "Sales")
+| summarize ArchiveCount=count(), ArchiveNames=make_set(FileName)
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 10m)
+| where ArchiveCount >= 3  // Multiple archives indicate staging behavior
+
+// 10. Notepad Ransom Note Display
+// Detects Notepad being used to display ransom notes
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "notepad.exe"
+| where ProcessCommandLine has_any ("readme", "ransom", "decrypt", "safepay")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName
+
+// Detection Summary Query
+// Provides an executive summary of ransomware activity detected
+let DetectionWindow = 1h;
+let FileCreationEvents = DeviceFileEvents | where ActionType == "FileCreated" and TimeGenerated > ago(DetectionWindow);
+let FileDeletionEvents = DeviceFileEvents | where ActionType == "FileDeleted" and TimeGenerated > ago(DetectionWindow);
+let ProcessEvents = DeviceProcessEvents | where TimeGenerated > ago(DetectionWindow);
+union 
+    (FileCreationEvents | summarize EventCount=count() | extend EventType="Mass File Creation"),
+    (FileDeletionEvents | summarize EventCount=count() | extend EventType="Mass File Deletion"),
+    (ProcessEvents | where ProcessCommandLine contains "winrar" | summarize EventCount=count() | extend EventType="Compression Activity"),
+    (FileCreationEvents | where FileName endswith ".safepay" | summarize EventCount=count() | extend EventType="File Encryption"),
+    (FileCreationEvents | where FileName endswith ".rar" | summarize EventCount=count() | extend EventType="Archive Creation"),
+    (ProcessEvents | where FileName =~ "notepad.exe" and ProcessCommandLine has "readme" | summarize EventCount=count() | extend EventType="Ransom Note Display")
+| where EventCount > 0
+| project EventType, EventCount
