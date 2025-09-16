@@ -55,7 +55,7 @@
         }
         
         /* Left Panel - Attack Flow View */
-        .architecture-panel {
+        .attack-flow-panel {
             flex: 1;
             min-width: 60%;
             padding: 30px;
@@ -112,8 +112,8 @@
             color: #ffffff;
         }
         
-        /* SVG Architecture Container */
-        .architecture-svg-container {
+        /* SVG Attack Flow Container */
+        .attack-flow-svg-container {
             background: rgba(0, 0, 0, 0.3);
             border-radius: 12px;
             padding: 20px;
@@ -121,7 +121,7 @@
             min-height: 600px;
         }
         
-        .architecture-svg {
+        .attack-flow-svg {
             width: 100%;
             height: auto;
             min-height: 550px;
@@ -502,8 +502,8 @@
     </div>
     
     <div class="dashboard-container">
-        <!-- Left Panel - Architecture View -->
-        <div class="architecture-panel">
+        <!-- Left Panel - Attack Flow View -->
+        <div class="attack-flow-panel">
             <div class="header">
                 <h1>SafePay Ransomware - Attack/Test Flow</h1>
                 <p>Click any component to explore detailed attack flow</p>
@@ -515,8 +515,8 @@
             </div>
             
             <!-- Attack Flow View -->
-            <div class="architecture-svg-container" id="architectureView">
-                <svg class="architecture-svg" viewBox="0 0 1200 650" xmlns="http://www.w3.org/2000/svg">
+            <div class="attack-flow-svg-container" id="attackFlowView">
+                <svg class="attack-flow-svg" viewBox="0 0 1200 650" xmlns="http://www.w3.org/2000/svg">
                     <defs>
                         <!-- Gradient Definitions -->
                         <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1100,12 +1100,12 @@
             event.target.classList.add('active');
             
             // Hide all views
-            document.getElementById('architectureView').style.display = 'none';
+            document.getElementById('attackFlowView').style.display = 'none';
             document.getElementById('timelineView').classList.remove('active');
             
             // Show selected view
             if (view === 'architecture') {
-                document.getElementById('architectureView').style.display = 'block';
+                document.getElementById('attackFlowView').style.display = 'block';
             } else if (view === 'timeline') {
                 document.getElementById('timelineView').classList.add('active');
             }
