@@ -127,7 +127,126 @@ powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
 - Administrator privileges
 - Windows 10/11 or Windows Server 2016+
 
+### 4. validate-attack-flow-html.sh - Attack Flow HTML Validator
+
+A validation utility for checking attack flow HTML diagrams for JavaScript syntax errors, specifically focusing on unescaped backticks that cause "Invalid or unexpected token" errors in template literals.
+
+#### Features
+- Detects unescaped backticks in JavaScript template literals
+- Validates PowerShell code block syntax
+- Checks HTML structure and required components
+- Verifies MITRE ATT&CK technique mappings
+- Color-coded output with detailed error reporting
+- Support for verbose and quiet modes
+
+#### Usage Examples
+```bash
+# Validate a single HTML file
+./utils/validate-attack-flow-html.sh sample_attack_flow.html
+
+# Verbose validation with detailed output
+./utils/validate-attack-flow-html.sh -v tests_source/akira_attack_flow.html
+
+# Quiet mode - only show errors
+./utils/validate-attack-flow-html.sh -q *.html
+
+# Validate multiple files
+find tests_source/ -name "*.html" -exec ./utils/validate-attack-flow-html.sh {} \;
+```
+
+#### Validation Checks
+- **Backtick Escaping**: Detects unescaped backticks in template literals
+- **PowerShell Syntax**: Validates PowerShell code blocks for proper escaping
+- **HTML Structure**: Verifies presence of required script tags and functions
+- **MITRE Mappings**: Checks for MITRE ATT&CK technique references
+- **CSS Classes**: Validates required CSS classes for interactive components
+- **Template Literals**: Identifies malformed JavaScript template literals
+
+#### Exit Codes
+- **0**: Validation passed (no errors)
+- **1**: Validation failed (errors found that need fixing)
+
+#### Requirements
+- Bash 4.0 or higher
+- grep, sed utilities
+
+### 5. fix-attack-flow-backticks.sh - Attack Flow HTML Backtick Fixer
+
+An automatic repair utility that fixes unescaped backticks in attack flow HTML files to prevent JavaScript syntax errors. Creates backups before making changes.
+
+#### Features
+- Automatically escapes unescaped backticks in PowerShell code snippets
+- Creates backup copies before making changes
+- Dry-run mode to preview changes without modification
+- Targeted fixing for JavaScript template literals
+- Safe processing that preserves legitimate template literals
+- Color-coded output showing changes made
+
+#### Usage Examples
+```bash
+# Fix backticks in a file (creates backup automatically)
+./utils/fix-attack-flow-backticks.sh sample_attack_flow.html
+
+# Dry run to see what would be changed
+./utils/fix-attack-flow-backticks.sh --dry-run sample_attack_flow.html
+
+# Verbose output with detailed processing
+./utils/fix-attack-flow-backticks.sh -v tests_source/akira_attack_flow.html
+
+# Custom backup directory
+./utils/fix-attack-flow-backticks.sh --backup ./backups sample_attack_flow.html
+```
+
+#### Processing Logic
+- Identifies JavaScript template literals containing PowerShell commands
+- Escapes unescaped backticks in PowerShell code snippets
+- Preserves legitimate template literal syntax
+- Handles backticks at line beginnings and within content
+- Creates automatic backups for safety
+
+#### Backup Handling
+- Default: Creates `.bak` file in same directory
+- Custom: Use `--backup` to specify backup directory
+- Automatic cleanup if no changes needed
+
+#### Requirements
+- Bash 4.0 or higher
+- sed, grep utilities
+- Write permissions in target directory
+
+### 6. example-backtick-fix.js - Backtick Escaping Demo
+
+A Node.js script that demonstrates the JavaScript template literal backtick escaping issue and shows the correct solution. This educational tool helps understand why the validation and fix utilities are necessary.
+
+#### Features
+- Shows problematic PowerShell code patterns that break JavaScript
+- Demonstrates correct backtick escaping techniques
+- Provides working code examples
+- Explains the root cause of "Invalid or unexpected token" errors
+- Lists common PowerShell patterns that need escaping
+
+#### Usage Examples
+```bash
+# Run the demo to understand the issue and solution
+node utils/example-backtick-fix.js
+
+# Use Node.js if available
+./utils/example-backtick-fix.js
+```
+
+#### Key Learning Points
+- PowerShell line continuation backticks (`) must be escaped as (\\`) inside JavaScript template literals
+- Template literal delimiters (outer backticks) should NOT be escaped
+- Only escape backticks that are CONTENT within the template literal
+- Test generated HTML in browser console to verify syntax
+
+#### Requirements
+- Node.js (any recent version)
+- No additional dependencies
+
 ## Typical Workflow
+
+### Test Development and Building
 
 1. **Build Tests**:
    ```bash
@@ -142,6 +261,32 @@ powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
 3. **Verify Signatures**:
    ```bash
    find build/ -name "*.exe" -exec ./utils/codesign verify {} \;
+   ```
+
+### Attack Flow Diagram Development
+
+1. **Validate Generated HTML**:
+   ```bash
+   ./utils/validate-attack-flow-html.sh tests_source/your_attack_flow.html
+   ```
+
+2. **Fix Backtick Issues (if needed)**:
+   ```bash
+   # Preview fixes first
+   ./utils/fix-attack-flow-backticks.sh --dry-run tests_source/your_attack_flow.html
+
+   # Apply fixes
+   ./utils/fix-attack-flow-backticks.sh tests_source/your_attack_flow.html
+   ```
+
+3. **Re-validate After Fixes**:
+   ```bash
+   ./utils/validate-attack-flow-html.sh tests_source/your_attack_flow.html
+   ```
+
+4. **Batch Validation of All HTML Files**:
+   ```bash
+   find tests_source/ -name "*attack_flow*.html" -exec ./utils/validate-attack-flow-html.sh {} \;
    ```
 
 ## Configuration
