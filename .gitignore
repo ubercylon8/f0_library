@@ -56,3 +56,9 @@ tests_source/CLAUDE.md
 
 # AI Coding rules
 rules/
+
+# Python cache files
+utils/__pycache__/
+
+# Playwright MCP cache
+.playwright-mcp/
