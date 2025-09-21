@@ -643,6 +643,61 @@ class DefenderAlertQuery:
 
         return enhanced_alerts, pagination_info
 
+    def format_hostnames_only(self, alerts: List[Dict[str, Any]]) -> str:
+        """
+        Format only the affected hostnames with alert creation times
+
+        Args:
+            alerts: List of alert dictionaries
+
+        Returns:
+            Formatted string with only hostname information
+        """
+        if not alerts:
+            return "No alerts found - no hostnames to display."
+
+        # Hostname analysis with creation times
+        hostname_alerts = {}
+        for alert in alerts:
+            created_date = alert.get('createdDateTime', '')
+            for evidence in alert.get('evidence', []):
+                if evidence.get('@odata.type') == '#microsoft.graph.security.deviceEvidence':
+                    hostname = evidence.get('deviceDnsName')
+                    if hostname:
+                        if hostname not in hostname_alerts:
+                            hostname_alerts[hostname] = []
+                        hostname_alerts[hostname].append(created_date)
+
+        if not hostname_alerts:
+            return "No hostnames found in alert evidence."
+
+        output = []
+        output.append(f"Affected Hostnames ({len(hostname_alerts)} unique hosts):")
+        output.append("-" * 50)
+
+        for hostname in sorted(hostname_alerts.keys()):
+            # Get unique alert times for this hostname and format them
+            alert_times = []
+            for created_date in hostname_alerts[hostname]:
+                if created_date:
+                    try:
+                        dt = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
+                        formatted_time = dt.strftime('%Y-%m-%d %H:%M')
+                        if formatted_time not in alert_times:
+                            alert_times.append(formatted_time)
+                    except:
+                        pass
+
+            # Sort times and display
+            if alert_times:
+                alert_times.sort()
+                times_str = ", ".join(alert_times)
+                output.append(f"{hostname} (alerts: {times_str})")
+            else:
+                output.append(f"{hostname} (no valid timestamps)")
+
+        return '\n'.join(output)
+
     def format_test_alerts(self, alerts: List[Dict[str, Any]]) -> str:
         """
         Format test alerts with enhanced information including match fields
@@ -781,14 +836,17 @@ class DefenderAlertQuery:
             for field in match_fields:
                 field_matches[field] = field_matches.get(field, 0) + 1
 
-        # Hostname analysis
-        hostnames = set()
+        # Hostname analysis with creation times
+        hostname_alerts = {}
         for alert in alerts:
+            created_date = alert.get('createdDateTime', '')
             for evidence in alert.get('evidence', []):
                 if evidence.get('@odata.type') == '#microsoft.graph.security.deviceEvidence':
                     hostname = evidence.get('deviceDnsName')
                     if hostname:
-                        hostnames.add(hostname)
+                        if hostname not in hostname_alerts:
+                            hostname_alerts[hostname] = []
+                        hostname_alerts[hostname].append(created_date)
 
         # Time range analysis
         dates = []
@@ -807,7 +865,7 @@ class DefenderAlertQuery:
         stats.append("-" * 50)
         stats.append(f"Total Alerts Found: {total_alerts}")
         stats.append(f"Total Match Instances: {total_matches}")
-        stats.append(f"Unique Hosts Affected: {len(hostnames)}")
+        stats.append(f"Unique Hosts Affected: {len(hostname_alerts)}")
 
         if dates:
             min_date = min(dates).strftime('%Y-%m-%d %H:%M')
@@ -848,11 +906,29 @@ class DefenderAlertQuery:
             percentage = (count / total_matches) * 100
             stats.append(f"  {field}: {count} matches ({percentage:.1f}%)")
 
-        if hostnames:
+        if hostname_alerts:
             stats.append("")
             stats.append("Affected Hostnames:")
-            for hostname in sorted(hostnames):
-                stats.append(f"  - {hostname}")
+            for hostname in sorted(hostname_alerts.keys()):
+                # Get unique alert times for this hostname and format them
+                alert_times = []
+                for created_date in hostname_alerts[hostname]:
+                    if created_date:
+                        try:
+                            dt = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
+                            formatted_time = dt.strftime('%Y-%m-%d %H:%M')
+                            if formatted_time not in alert_times:
+                                alert_times.append(formatted_time)
+                        except:
+                            pass
+
+                # Sort times and display
+                if alert_times:
+                    alert_times.sort()
+                    times_str = ", ".join(alert_times)
+                    stats.append(f"  - {hostname} (alerts: {times_str})")
+                else:
+                    stats.append(f"  - {hostname} (no valid timestamps)")
 
         # Add pagination information if available
         if pagination_info:
@@ -987,14 +1063,17 @@ class DefenderAlertQuery:
                 if detection_status:
                     detection_counts[detection_status] = detection_counts.get(detection_status, 0) + 1
 
-        # Host analysis
-        hostnames = set()
+        # Host analysis with creation times
+        hostname_alerts = {}
         for alert in alerts:
+            created_date = alert.get('createdDateTime', '')
             for evidence in alert.get('evidence', []):
                 if evidence.get('@odata.type') == '#microsoft.graph.security.deviceEvidence':
                     hostname = evidence.get('deviceDnsName')
                     if hostname:
-                        hostnames.add(hostname)
+                        if hostname not in hostname_alerts:
+                            hostname_alerts[hostname] = []
+                        hostname_alerts[hostname].append(created_date)
 
         # Match field analysis
         field_matches = {}
@@ -1011,13 +1090,13 @@ class DefenderAlertQuery:
             'query_params': query_params,
             'statistics': {
                 'total_alerts': total_alerts,
-                'unique_hosts': len(hostnames),
+                'unique_hosts': len(hostname_alerts),
                 'total_matches': total_matches,
                 'severity_breakdown': severity_counts,
                 'remediation_breakdown': remediation_counts,
                 'detection_breakdown': detection_counts,
                 'field_matches': field_matches,
-                'affected_hostnames': sorted(hostnames),
+                'affected_hostnames': sorted(hostname_alerts.keys()),
                 'pagination_info': pagination_info
             }
         }
@@ -1065,6 +1144,7 @@ Examples:
   %(prog)s --file-path "c:\\F0\\*"
   %(prog)s --search-term "malware" --severity high
   %(prog)s --file-path "*.exe" --days 7 --output alerts.json
+  %(prog)s --test-alerts "F0" --hostnames  # Show only hostnames
         """
     )
 
@@ -1091,6 +1171,8 @@ Examples:
                        help='Display detailed pagination statistics in output')
     parser.add_argument('--format', choices=['table', 'json', 'csv'], default='table',
                        help='Output format (default: table)')
+    parser.add_argument('--hostnames', action='store_true',
+                       help='Show only affected hostnames with alert creation times')
     parser.add_argument('--output', help='Output file path (stdout if not specified)')
 
     args = parser.parse_args()
@@ -1106,8 +1188,48 @@ Examples:
     try:
         client = DefenderAlertQuery()
 
+        # Handle hostnames-only output
+        if args.hostnames:
+            # Determine which search method to use
+            if args.test_alerts:
+                alerts, pagination_info = client.search_test_alerts(
+                    search_term=args.test_alerts,
+                    days=args.days,
+                    limit=args.limit,
+                    fetch_all=getattr(args, 'fetch_all', False),
+                    page_size=getattr(args, 'page_size', 100),
+                    max_results=getattr(args, 'max_results', None),
+                    show_progress=True
+                )
+            elif args.test_alerts_sha1:
+                alerts, pagination_info = client.search_test_alerts_sha1(
+                    sha1_hash=args.test_alerts_sha1,
+                    days=args.days,
+                    limit=args.limit,
+                    fetch_all=getattr(args, 'fetch_all', False),
+                    page_size=getattr(args, 'page_size', 100),
+                    max_results=getattr(args, 'max_results', None),
+                    show_progress=True
+                )
+            else:
+                alerts, pagination_info = client.search_alerts(
+                    file_path=args.file_path,
+                    search_term=args.search_term,
+                    alert_id=args.alert_id,
+                    severity=args.severity,
+                    status=args.status,
+                    days=args.days,
+                    limit=args.limit,
+                    fetch_all=getattr(args, 'fetch_all', False),
+                    page_size=getattr(args, 'page_size', 100),
+                    max_results=getattr(args, 'max_results', None),
+                    show_progress=True
+                )
+
+            formatted_output = client.format_hostnames_only(alerts)
+
         # Handle test-alerts workflow
-        if args.test_alerts:
+        elif args.test_alerts:
             alerts, pagination_info = client.search_test_alerts(
                 search_term=args.test_alerts,
                 days=args.days,
