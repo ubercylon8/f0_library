@@ -62,3 +62,7 @@ utils/__pycache__/
 
 # Playwright MCP cache
 .playwright-mcp/
+
+# Environment files containing sensitive credentials
+.env
+.env.*
