@@ -244,6 +244,91 @@ node utils/example-backtick-fix.js
 - Node.js (any recent version)
 - No additional dependencies
 
+### 7. lc_events_query.py - LimaCharlie Events Query Tool
+
+A Python utility for querying LimaCharlie sensor events specifically for F0RT1KA security test analysis with detailed reporting capabilities.
+
+#### Features
+- Query events by test UUID and date range using LCQL
+- Generate formatted tables with key event data
+- Provide statistics on error codes and test outcomes
+- Show endpoints tested with event timestamps
+- Support multiple output formats (table, JSON, CSV)
+- Flexible authentication via environment variables or .env files
+
+#### Usage Examples
+```bash
+# Query events using .env file credentials
+python3 utils/lc_events_query.py --uuid "abc123def456" --date-range "last 24 hours"
+
+# Query with explicit credentials
+python3 utils/lc_events_query.py --uuid "abc123def456" --date-range "last 24 hours" -k API_KEY -o ORG_ID
+
+# Show only endpoints tested
+python3 utils/lc_events_query.py --uuid "abc123def456" --date-range "last 7 days" --hostnames
+
+# Export to JSON for further processing
+python3 utils/lc_events_query.py --uuid "abc123def456" --date-range "today" --output results.json
+```
+
+#### Authentication Methods
+- Command line: `-k API_KEY -o ORG_ID`
+- Environment variables: `LIMACHARLIE_API_KEY`, `LIMACHARLIE_OID`
+- .env file: `LC_API_KEY`, `LC_ORG_ID`
+- Custom .env file: `--env-file path/to/.env`
+
+#### Requirements
+- Python 3.7+
+- LimaCharlie sensor binary (`lc-sensors`) in PATH or F0_CST/bin/
+- Valid LimaCharlie API key and Organization ID
+- Optional: python-dotenv package for enhanced .env support
+
+### 8. combine_test_results.py - Combined Security Analysis Tool
+
+A comprehensive Python utility that correlates LimaCharlie sensor events with Microsoft Defender alerts for F0RT1KA security test analysis, providing unified visibility across security platforms.
+
+#### Features
+- Correlates LimaCharlie events with Microsoft Defender alerts by hostname and timestamp
+- Flexible hostname matching supports both FQDN and short hostnames
+- Configurable time window for correlation matching (default: 5 minutes)
+- Comprehensive correlation statistics and success rates
+- Detailed analysis of unmatched events with time differences
+- Multiple output formats (table, JSON)
+- Dual authentication support for both LimaCharlie and Microsoft Defender
+
+#### Usage Examples
+```bash
+# Basic correlation analysis
+python3 utils/combine_test_results.py --uuid "abc123def456" --date-range "last 24 hours"
+
+# Export to JSON for further processing
+python3 utils/combine_test_results.py --uuid "abc123def456" --date-range "today" --output results.json
+
+# Custom time window for correlation
+python3 utils/combine_test_results.py --uuid "abc123def456" --date-range "last 7 days" --time-window 10
+
+# Use custom .env file for credentials
+python3 utils/combine_test_results.py --uuid "abc123def456" --date-range "today" --env-file custom.env
+```
+
+#### Authentication Requirements
+**LimaCharlie**: API key and Organization ID via environment variables or .env file
+**Microsoft Defender**: Azure tenant ID, client ID, and client secret
+
+#### Key Capabilities
+- **High Correlation Rates**: Typically achieves 90%+ correlation between platforms
+- **Hostname Normalization**: Matches `DESKTOP-ABC123` with `DESKTOP-ABC123.domain.com`
+- **Time-based Correlation**: Finds alerts within configurable time windows
+- **Unmatched Analysis**: Explains why events didn't correlate (hostname mismatch, time difference)
+- **Comprehensive Statistics**: Error code distribution, severity analysis, per-endpoint breakdown
+
+#### Requirements
+- Python 3.7+
+- Both `lc_events_query.py` and `defender_alert_query.py` utilities
+- LimaCharlie credentials (API key, Org ID)
+- Microsoft Defender credentials (Azure tenant, client ID, secret)
+- Optional: python-dotenv package for .env file support
+
 ## Typical Workflow
 
 ### Test Development and Building

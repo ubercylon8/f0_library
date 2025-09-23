@@ -60,6 +60,9 @@ f0_library/
 │   ├── gobuild           # Cross-platform test builder
 │   ├── codesign          # Code signing utility
 │   ├── Check-DefenderProtection.ps1 # Windows Defender status checker
+│   ├── defender_alert_query.py # Microsoft Defender alerts query tool
+│   ├── lc_events_query.py # LimaCharlie sensor events query tool
+│   ├── combine_test_results.py # Combined security analysis tool
 │   ├── test_*.sh         # Unit tests for utilities
 │   ├── run_tests.sh      # Test runner
 │   └── README.md         # Utility documentation
@@ -78,6 +81,7 @@ f0_library/
 ### Prerequisites
 
 - **Go 1.21+**: Required for building tests
+- **Python 3.7+**: Required for security analysis tools
 - **Windows Environment**: Tests are designed for Windows systems
 - **Prelude Libraries**: Must be configured in the `preludeorg-libraries/` directory
 - **Administrator Access**: Some tests require elevated privileges
@@ -171,6 +175,28 @@ powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
 ```
 
 This utility examines registry settings targeted by malware (like CyberEye RAT) and reports whether the host is protected or vulnerable. The script automatically handles execution policy bypass and requires administrator privileges.
+
+### Security Analysis Tools
+
+Query and analyze security test results across multiple platforms:
+
+```bash
+# Query LimaCharlie sensor events for a test
+python3 utils/lc_events_query.py --uuid "test-uuid" --date-range "last 24 hours"
+
+# Query Microsoft Defender alerts for a test
+python3 utils/defender_alert_query.py --test-alerts "test-uuid" --fetch-all
+
+# Correlate results from both platforms
+python3 utils/combine_test_results.py --uuid "test-uuid" --date-range "last 24 hours"
+```
+
+These tools provide comprehensive analysis of security test outcomes, including:
+- Event correlation between LimaCharlie and Microsoft Defender
+- Hostname normalization and flexible matching
+- Time-based correlation with configurable windows
+- Detailed statistics on detection rates and test outcomes
+- Analysis of unmatched events with explanations
 
 ### Running Tests
 
