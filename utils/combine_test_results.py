@@ -446,7 +446,7 @@ class CombinedTestResults:
             return "No correlations found."
 
         output = []
-        output.append("F0RT1KA Combined Security Test Results")
+        output.append("F0RT1KA - Security Test Results")
         output.append("=" * 120)
         output.append("")
 
@@ -621,6 +621,152 @@ class CombinedTestResults:
         }
         return error_meanings.get(error_code, "Unknown")
 
+    def _format_markdown(self, correlations: List[Dict[str, Any]],
+                        lc_query_info: Dict[str, Any],
+                        defender_query_info: Dict[str, Any]) -> str:
+        """Format output in markdown format with Defense Score prominently displayed"""
+        if not correlations:
+            return "# F0RT1KA Combined Security Test Results\n\nNo correlations found."
+
+        output = []
+        output.append("# F0RT1KA Combined Security Test Results\n")
+
+        # Calculate Defense Score (matched events percentage)
+        total_lc_events = len(correlations)
+        matched_events = len([c for c in correlations if c.get('defender_match') == 'Yes'])
+        defense_score = (matched_events / total_lc_events * 100) if total_lc_events > 0 else 0
+
+        # Prominent Defense Score section
+        output.append("## 🛡️ Defense Score")
+        output.append(f"### **{defense_score:.1f}%**")
+        output.append(f"*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
+
+        # Summary section
+        output.append("## Summary")
+        unique_hostnames = set(c.get('lc_hostname', 'N/A') for c in correlations if c.get('lc_hostname') != 'N/A')
+        matched_hostnames = set(c.get('lc_hostname', 'N/A') for c in correlations if c.get('defender_match') == 'Yes')
+
+        output.append(f"- **Total LC Events:** {total_lc_events}")
+        output.append(f"- **Total Defender Alerts:** {defender_query_info.get('total_alerts', 0)}")
+        output.append(f"- **Matched Events:** {matched_events} ({defense_score:.1f}%)")
+        output.append(f"- **Unique Endpoints:** {len(unique_hostnames)}")
+        output.append(f"- **Endpoints with Matches:** {len(matched_hostnames)}")
+        output.append(f"- **Test UUID:** {lc_query_info.get('uuid', 'N/A')}")
+        output.append(f"- **Date Range:** {lc_query_info.get('date_range', 'N/A')}")
+
+        # Correlation Results Table
+        output.append("\n---\n")
+        output.append("## Correlation Results\n")
+        output.append("| LC Hostname | LC Timestamp | LC Error | Defender Match | Def Timestamp | Severity | Status | Remediation | Detection |")
+        output.append("|-------------|--------------|----------|----------------|---------------|----------|--------|-------------|-----------|")
+
+        for corr in correlations:
+            # Format LC timestamp
+            lc_ts = corr.get('lc_timestamp', '')
+            if lc_ts and corr.get('lc_timestamp_parsed'):
+                try:
+                    lc_ts = corr['lc_timestamp_parsed'].strftime('%Y-%m-%d %H:%M')
+                except:
+                    lc_ts = lc_ts[:16]
+            else:
+                lc_ts = lc_ts[:16] if lc_ts else 'N/A'
+
+            # Format Defender timestamp
+            def_ts = corr.get('defender_timestamp', '')
+            if def_ts:
+                def_parsed = self.parse_timestamp(def_ts)
+                if def_parsed:
+                    def_ts = def_parsed.strftime('%Y-%m-%d %H:%M')
+                else:
+                    def_ts = def_ts[:16]
+            else:
+                def_ts = 'N/A'
+
+            # Escape pipe characters
+            hostname = corr.get('lc_hostname', 'N/A').replace('|', '\\|')[:16]
+            defender_match = corr.get('defender_match', 'No').replace('|', '\\|')
+            severity = corr.get('severity', 'N/A').replace('|', '\\|')
+            status = corr.get('status', 'N/A').replace('|', '\\|')
+            remediation = corr.get('remediation_status', 'N/A').replace('|', '\\|')[:12]
+            detection = corr.get('detection_status', 'N/A').replace('|', '\\|')[:12]
+
+            output.append(f"| {hostname} | {lc_ts} | {corr.get('lc_error_code', 0)} | {defender_match} | {def_ts} | {severity} | {status} | {remediation} | {detection} |")
+
+        # Statistics Summary
+        output.append("\n---\n")
+        output.append("## Statistics Summary\n")
+
+        # Error code distribution
+        error_counts = {}
+        for corr in correlations:
+            error_code = corr.get('lc_error_code', 0)
+            error_counts[error_code] = error_counts.get(error_code, 0) + 1
+
+        output.append("### LC Error Code Distribution")
+        for error_code, count in sorted(error_counts.items()):
+            percentage = (count / total_lc_events) * 100
+            error_meaning = self._get_error_meaning(error_code)
+            output.append(f"- **{error_code} ({error_meaning}):** {count} events ({percentage:.1f}%)")
+
+        # Severity distribution
+        severity_counts = {}
+        for corr in correlations:
+            if corr.get('defender_match') == 'Yes':
+                severity = corr.get('severity', 'unknown')
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+        if severity_counts:
+            output.append("\n### Defender Alert Severity Distribution")
+            total_matched = sum(severity_counts.values())
+            for severity, count in sorted(severity_counts.items()):
+                percentage = (count / total_matched) * 100
+                output.append(f"- **{severity.capitalize()}:** {count} alerts ({percentage:.1f}%)")
+
+        # Endpoint analysis
+        output.append("\n### Endpoint Analysis")
+        for hostname in sorted(unique_hostnames):
+            lc_events = len([c for c in correlations if c.get('lc_hostname') == hostname])
+            defender_matches = len([c for c in correlations if c.get('lc_hostname') == hostname and c.get('defender_match') == 'Yes'])
+            match_rate = (defender_matches / lc_events) * 100 if lc_events > 0 else 0
+            output.append(f"- **{hostname}:** {lc_events} events, {defender_matches} matches ({match_rate:.1f}%)")
+
+        # Unmatched Events Analysis
+        unmatched_events = [c for c in correlations if c.get('defender_match') != 'Yes']
+        if unmatched_events:
+            output.append("\n---\n")
+            output.append("## Unmatched Events Analysis\n")
+            output.append(f"*{len(unmatched_events)} events did not match with Defender alerts*\n")
+
+            for i, event in enumerate(unmatched_events[:10], 1):  # Limit to first 10 for readability
+                hostname = event.get('lc_hostname', 'N/A')
+                timestamp = event.get('lc_timestamp', 'N/A')
+                analysis = event.get('match_analysis', {})
+
+                output.append(f"### {i}. {hostname} at {timestamp}")
+                output.append(f"- **Error Code:** {event.get('lc_error_code', 'N/A')}")
+
+                hostname_matches = analysis.get('hostname_matches_found', 0)
+                if hostname_matches > 0:
+                    output.append(f"- ✓ Found {hostname_matches} hostname matches in Defender")
+                    for match in analysis.get('all_hostname_matches', [])[:3]:  # Show first 3
+                        time_diff = match.get('time_diff_minutes')
+                        if time_diff is not None:
+                            output.append(f"  - {match['defender_hostname']}: {time_diff:.1f} minutes difference")
+                else:
+                    output.append(f"- ✗ No hostname matches found in Defender alerts")
+
+                closest_time = analysis.get('closest_time_diff_minutes')
+                if closest_time is not None:
+                    output.append(f"- ⏱ Closest time match (any hostname): {closest_time:.1f} minutes")
+
+            if len(unmatched_events) > 10:
+                output.append(f"\n*Showing first 10 of {len(unmatched_events)} unmatched events*")
+
+        output.append("\n---\n")
+        output.append(f"*Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC*")
+
+        return '\n'.join(output)
+
     def format_output(self, correlations: List[Dict[str, Any]],
                      lc_query_info: Dict[str, Any],
                      defender_query_info: Dict[str, Any],
@@ -632,6 +778,9 @@ class CombinedTestResults:
                 'lc_query_info': lc_query_info,
                 'defender_query_info': defender_query_info
             }, indent=2, default=str)
+
+        elif format_type == 'markdown':
+            return self._format_markdown(correlations, lc_query_info, defender_query_info)
 
         else:  # table format
             table_output = self.format_correlations_table(correlations)
@@ -660,7 +809,7 @@ Examples:
                        help='Path to .env file for loading credentials')
     parser.add_argument('--time-window', type=int, default=5,
                        help='Time window in minutes for correlation matching (default: 5)')
-    parser.add_argument('--format', choices=['table', 'json'], default='table',
+    parser.add_argument('--format', choices=['table', 'json', 'markdown'], default='table',
                        help='Output format (default: table)')
     parser.add_argument('--output', help='Output file path (stdout if not specified)')
 

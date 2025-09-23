@@ -308,7 +308,7 @@ class LCEventsQuery:
 
         return '\n'.join(output)
 
-    def generate_statistics(self, events: List[Dict[str, Any]], query_info: Dict[str, Any]) -> str:
+    def generate_statistics(self, events: List[Dict[str, Any]], query_info: Dict[str, Any], format_type: str = 'table') -> str:
         """Generate summary statistics for events"""
         if not events:
             return "No statistics available."
@@ -344,36 +344,87 @@ class LCEventsQuery:
 
         # Build statistics output
         stats = []
-        stats.append("STATISTICS SUMMARY")
-        stats.append("-" * 50)
-        stats.append(f"Total Events Found: {total_events}")
-        stats.append(f"Unique Endpoints Tested: {len(hostnames)}")
-        stats.append(f"Test UUID: {query_info.get('uuid', 'N/A')}")
-        stats.append(f"Date Range Query: {query_info.get('date_range', 'N/A')}")
 
-        if timestamps:
-            min_time = min(timestamps).strftime('%Y-%m-%d %H:%M:%S')
-            max_time = max(timestamps).strftime('%Y-%m-%d %H:%M:%S')
-            stats.append(f"Time Range: {min_time} to {max_time}")
+        if format_type == 'markdown':
+            stats.append("\n---\n")
+            stats.append("## Statistics Summary\n")
+            stats.append(f"- **Total Events Found:** {total_events}")
+            stats.append(f"- **Unique Endpoints Tested:** {len(hostnames)}")
+            stats.append(f"- **Test UUID:** {query_info.get('uuid', 'N/A')}")
+            stats.append(f"- **Date Range Query:** {query_info.get('date_range', 'N/A')}")
 
-        stats.append("")
-        stats.append("Error Code Breakdown:")
-        for error_code, count in sorted(error_counts.items()):
-            percentage = (count / total_events) * 100
-            error_meaning = self._get_error_meaning(error_code)
-            stats.append(f"  {error_code} ({error_meaning}): {count} events ({percentage:.1f}%)")
+            if timestamps:
+                min_time = min(timestamps).strftime('%Y-%m-%d %H:%M:%S')
+                max_time = max(timestamps).strftime('%Y-%m-%d %H:%M:%S')
+                stats.append(f"- **Time Range:** {min_time} to {max_time}")
 
-        # Query statistics if available
-        query_stats = query_info.get('query_stats', {})
-        if query_stats:
+            # Query performance stats
+            query_stats = query_info.get('query_stats', {})
+            if query_stats:
+                stats.append("\n### Query Performance")
+                if 'wall_time' in query_stats:
+                    stats.append(f"- **Wall Time:** {query_stats['wall_time']}ms")
+                if 'n_proc' in query_stats:
+                    stats.append(f"- **Events Processed:** {query_stats['n_proc']}")
+                if 'n_scan' in query_stats:
+                    stats.append(f"- **Events Scanned:** {query_stats['n_scan']}")
+
+            # Endpoints tested with timestamps
+            if hostname_events:
+                stats.append("\n### Endpoints Tested")
+                for hostname in sorted(hostname_events.keys()):
+                    event_times = []
+                    for timestamp in hostname_events[hostname]:
+                        if timestamp:
+                            try:
+                                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                formatted_time = dt.strftime('%Y-%m-%d %H:%M')
+                                if formatted_time not in event_times:
+                                    event_times.append(formatted_time)
+                            except:
+                                pass
+
+                    if event_times:
+                        event_times.sort()
+                        times_str = ", ".join(event_times)
+                        stats.append(f"- **{hostname}** (events: {times_str})")
+                    else:
+                        stats.append(f"- **{hostname}** (no valid timestamps)")
+
+            stats.append("\n---\n")
+            stats.append(f"*Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC*")
+        else:
+            # Table format
+            stats.append("STATISTICS SUMMARY")
+            stats.append("-" * 50)
+            stats.append(f"Total Events Found: {total_events}")
+            stats.append(f"Unique Endpoints Tested: {len(hostnames)}")
+            stats.append(f"Test UUID: {query_info.get('uuid', 'N/A')}")
+            stats.append(f"Date Range Query: {query_info.get('date_range', 'N/A')}")
+
+            if timestamps:
+                min_time = min(timestamps).strftime('%Y-%m-%d %H:%M:%S')
+                max_time = max(timestamps).strftime('%Y-%m-%d %H:%M:%S')
+                stats.append(f"Time Range: {min_time} to {max_time}")
+
             stats.append("")
-            stats.append("Query Performance:")
-            if 'wall_time' in query_stats:
-                stats.append(f"  Wall Time: {query_stats['wall_time']}ms")
-            if 'n_proc' in query_stats:
-                stats.append(f"  Events Processed: {query_stats['n_proc']}")
-            if 'n_scan' in query_stats:
-                stats.append(f"  Events Scanned: {query_stats['n_scan']}")
+            stats.append("Error Code Breakdown:")
+            for error_code, count in sorted(error_counts.items()):
+                percentage = (count / total_events) * 100
+                error_meaning = self._get_error_meaning(error_code)
+                stats.append(f"  {error_code} ({error_meaning}): {count} events ({percentage:.1f}%)")
+
+            # Query statistics if available
+            query_stats = query_info.get('query_stats', {})
+            if query_stats:
+                stats.append("")
+                stats.append("Query Performance:")
+                if 'wall_time' in query_stats:
+                    stats.append(f"  Wall Time: {query_stats['wall_time']}ms")
+                if 'n_proc' in query_stats:
+                    stats.append(f"  Events Processed: {query_stats['n_proc']}")
+                if 'n_scan' in query_stats:
+                    stats.append(f"  Events Scanned: {query_stats['n_scan']}")
 
         return '\n'.join(stats)
 
@@ -441,6 +492,58 @@ class LCEventsQuery:
         if format_type == 'json':
             return json.dumps(events, indent=2, default=str)
 
+        elif format_type == 'markdown':
+            output = []
+            output.append("# F0RT1KA LimaCharlie Security Test Results\n")
+
+            # Summary metrics
+            output.append("## Summary")
+            output.append(f"- **Total Events Found:** {len(events)}")
+
+            # Error code breakdown for summary
+            error_counts = {}
+            for event in events:
+                error_code = event.get('error_code', 0)
+                error_counts[error_code] = error_counts.get(error_code, 0) + 1
+
+            output.append("\n### Error Code Breakdown")
+            for error_code, count in sorted(error_counts.items()):
+                percentage = (count / len(events)) * 100
+                error_meaning = self._get_error_meaning(error_code)
+                output.append(f"- **{error_code} ({error_meaning}):** {count} events ({percentage:.1f}%)")
+
+            # Endpoint summary
+            hostnames = set(event.get('hostname', 'N/A') for event in events)
+            output.append(f"\n### Endpoints Tested")
+            output.append(f"- **Unique Endpoints:** {len(hostnames)}")
+
+            # Event details table
+            output.append("\n---\n")
+            output.append("## Event Details\n")
+            output.append("| Error Code | Hostname | Timestamp | STDOUT | STDERR | File Path |")
+            output.append("|------------|----------|-----------|--------|--------|-----------|")
+
+            for event in events:
+                # Format timestamp
+                timestamp = event.get('timestamp', '')
+                if timestamp:
+                    try:
+                        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        timestamp = dt.strftime('%Y-%m-%d %H:%M')
+                    except:
+                        timestamp = timestamp[:16]
+
+                # Escape pipe characters and truncate
+                error_code = str(event.get('error_code', 0))
+                hostname = event.get('hostname', 'N/A').replace('|', '\\|')[:20]
+                stdout = (event.get('stdout', '') or '').replace('|', '\\|')[:25]
+                stderr = (event.get('stderr', '') or '').replace('|', '\\|')[:25]
+                file_path = (event.get('file_path', '') or '').replace('|', '\\|')[:35]
+
+                output.append(f"| {error_code} | {hostname} | {timestamp} | {stdout} | {stderr} | {file_path} |")
+
+            return '\n'.join(output)
+
         elif format_type == 'csv':
             import csv
             import io
@@ -493,7 +596,7 @@ Examples:
                        help='LimaCharlie Organization ID (can also use LIMACHARLIE_OID env var)')
     parser.add_argument('--env-file',
                        help='Path to .env file for loading credentials (auto-detected if not specified)')
-    parser.add_argument('--format', choices=['table', 'json', 'csv'], default='table',
+    parser.add_argument('--format', choices=['table', 'json', 'csv', 'markdown'], default='table',
                        help='Output format (default: table)')
     parser.add_argument('--hostnames', action='store_true',
                        help='Show only endpoints tested with event timestamps')
@@ -516,9 +619,9 @@ Examples:
         else:
             formatted_output = client.format_events(processed_events, args.format)
 
-            # Add statistics for table format
-            if args.format == 'table':
-                stats = client.generate_statistics(processed_events, query_info)
+            # Add statistics for table and markdown formats
+            if args.format in ['table', 'markdown']:
+                stats = client.generate_statistics(processed_events, query_info, args.format)
                 formatted_output += "\n\n" + stats
 
         # Output results

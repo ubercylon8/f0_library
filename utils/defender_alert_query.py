@@ -698,12 +698,13 @@ class DefenderAlertQuery:
 
         return '\n'.join(output)
 
-    def format_test_alerts(self, alerts: List[Dict[str, Any]]) -> str:
+    def format_test_alerts(self, alerts: List[Dict[str, Any]], format_type: str = 'table') -> str:
         """
         Format test alerts with enhanced information including match fields
 
         Args:
             alerts: List of alert dictionaries with match metadata
+            format_type: Output format ('table' or 'markdown')
 
         Returns:
             Formatted string with table and statistics
@@ -712,18 +713,52 @@ class DefenderAlertQuery:
             return "No alerts found matching the test criteria."
 
         output = []
-        output.append("F0RT1KA Test Alert Analysis")
-        output.append("=" * 80)
-        output.append("")
 
-        # Table headers
-        headers = ["Alert ID", "Title", "Severity", "Status", "Created", "Hostname", "Remediation", "Detection", "Match Fields"]
-        col_widths = [36, 26, 8, 10, 16, 18, 12, 10, 20]
+        if format_type == 'markdown':
+            output.append("# F0RT1KA Test Alert Analysis\n")
 
-        # Header row
-        header_row = "| " + " | ".join(f"{headers[i]:<{col_widths[i]}}" for i in range(len(headers))) + " |"
-        output.append(header_row)
-        output.append("|" + "|".join("-" * (w + 2) for w in col_widths) + "|")
+            # Summary metrics
+            output.append("## Summary")
+            output.append(f"- **Total Alerts Found:** {len(alerts)}")
+
+            # Calculate severity and status breakdown
+            severity_counts = {}
+            status_counts = {}
+            for alert in alerts:
+                severity = alert.get('severity', 'unknown').lower()
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+                status = alert.get('status', 'unknown')
+                status_counts[status] = status_counts.get(status, 0) + 1
+
+            output.append("\n### Severity Breakdown")
+            for severity in ['high', 'medium', 'low', 'informational']:
+                count = severity_counts.get(severity, 0)
+                if count > 0:
+                    percentage = (count / len(alerts)) * 100
+                    output.append(f"- **{severity.capitalize()}:** {count} ({percentage:.1f}%)")
+
+            output.append("\n### Status Breakdown")
+            for status, count in sorted(status_counts.items()):
+                percentage = (count / len(alerts)) * 100
+                output.append(f"- **{status}:** {count} ({percentage:.1f}%)")
+
+            output.append("\n---\n")
+            output.append("## Alert Details\n")
+            output.append("| Alert ID | Title | Severity | Status | Created | Hostname | Remediation | Detection | Match Fields |")
+            output.append("|----------|-------|----------|--------|---------|----------|-------------|-----------|--------------|")
+        else:
+            output.append("F0RT1KA Test Alert Analysis")
+            output.append("=" * 80)
+            output.append("")
+
+            # Table headers
+            headers = ["Alert ID", "Title", "Severity", "Status", "Created", "Hostname", "Remediation", "Detection", "Match Fields"]
+            col_widths = [36, 26, 8, 10, 16, 18, 12, 10, 20]
+
+            # Header row
+            header_row = "| " + " | ".join(f"{headers[i]:<{col_widths[i]}}" for i in range(len(headers))) + " |"
+            output.append(header_row)
+            output.append("|" + "|".join("-" * (w + 2) for w in col_widths) + "|")
 
         # Data rows
         for alert in alerts:
@@ -758,29 +793,146 @@ class DefenderAlertQuery:
             # Format status collections
             remediation_str = '/'.join(sorted(remediation_statuses)) if remediation_statuses else "N/A"
             detection_str = '/'.join(sorted(detection_statuses)) if detection_statuses else "N/A"
+            match_fields_str = ', '.join(alert.get('_match_fields', []))
 
-            # Prepare row data
-            row_data = [
-                alert.get('id', 'N/A')[:35],  # Truncate long IDs
-                alert.get('title', 'N/A')[:25],  # Truncate long titles
-                alert.get('severity', 'N/A').upper()[:7],
-                alert.get('status', 'N/A')[:9],
-                created_date,
-                hostname[:17],  # Truncate long hostnames
-                remediation_str[:11],  # Truncate long remediation status
-                detection_str[:9],   # Truncate long detection status
-                ', '.join(alert.get('_match_fields', []))[:19]  # Truncate long match lists
-            ]
+            if format_type == 'markdown':
+                # Escape pipe characters for markdown
+                alert_id = alert.get('id', 'N/A').replace('|', '\\|')[:36]
+                title = alert.get('title', 'N/A').replace('|', '\\|')[:40]
+                severity = alert.get('severity', 'N/A').upper()
+                status = alert.get('status', 'N/A')
+                hostname_md = hostname.replace('|', '\\|')[:20]
+                remediation_md = remediation_str.replace('|', '\\|')[:15]
+                detection_md = detection_str.replace('|', '\\|')[:12]
+                match_fields_md = match_fields_str.replace('|', '\\|')[:30]
 
-            # Create row
-            row = "| " + " | ".join(f"{row_data[i]:<{col_widths[i]}}" for i in range(len(row_data))) + " |"
-            output.append(row)
+                output.append(f"| {alert_id} | {title} | {severity} | {status} | {created_date} | {hostname_md} | {remediation_md} | {detection_md} | {match_fields_md} |")
+            else:
+                # Prepare row data for table format
+                row_data = [
+                    alert.get('id', 'N/A')[:35],  # Truncate long IDs
+                    alert.get('title', 'N/A')[:25],  # Truncate long titles
+                    alert.get('severity', 'N/A').upper()[:7],
+                    alert.get('status', 'N/A')[:9],
+                    created_date,
+                    hostname[:17],  # Truncate long hostnames
+                    remediation_str[:11],  # Truncate long remediation status
+                    detection_str[:9],   # Truncate long detection status
+                    match_fields_str[:19]  # Truncate long match lists
+                ]
 
-        output.append("")
+                # Create row
+                row = "| " + " | ".join(f"{row_data[i]:<{col_widths[i]}}" for i in range(len(row_data))) + " |"
+                output.append(row)
 
-        # Add statistics
-        stats = self.generate_statistics(alerts)
-        output.append(stats)
+        if format_type == 'markdown':
+            # Add detailed statistics in markdown format
+            output.append("\n---\n")
+            output.append("## Statistics Summary\n")
+
+            # Calculate all statistics
+            total_matches = sum(len(alert.get('_match_fields', [])) for alert in alerts)
+
+            # Get date range
+            dates = []
+            for alert in alerts:
+                created_date = alert.get('createdDateTime', '')
+                if created_date:
+                    try:
+                        dt = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
+                        dates.append(dt)
+                    except:
+                        pass
+
+            if dates:
+                min_date = min(dates).strftime('%Y-%m-%d %H:%M')
+                max_date = max(dates).strftime('%Y-%m-%d %H:%M')
+                output.append(f"- **Total Alerts Found:** {len(alerts)}")
+                output.append(f"- **Total Match Instances:** {total_matches}")
+
+                # Get unique hosts
+                hostname_alerts = {}
+                for alert in alerts:
+                    for evidence in alert.get('evidence', []):
+                        if evidence.get('@odata.type') == '#microsoft.graph.security.deviceEvidence':
+                            hostname = evidence.get('deviceDnsName')
+                            if hostname:
+                                if hostname not in hostname_alerts:
+                                    hostname_alerts[hostname] = []
+                                hostname_alerts[hostname].append(alert.get('createdDateTime', ''))
+
+                output.append(f"- **Unique Hosts Affected:** {len(hostname_alerts)}")
+                output.append(f"- **Date Range:** {min_date} to {max_date}")
+
+            # Remediation Status Breakdown
+            remediation_counts = {}
+            detection_counts = {}
+            for alert in alerts:
+                for evidence in alert.get('evidence', []):
+                    remediation_status = evidence.get('remediationStatus')
+                    if remediation_status:
+                        remediation_counts[remediation_status] = remediation_counts.get(remediation_status, 0) + 1
+
+                    detection_status = evidence.get('detectionStatus')
+                    if detection_status:
+                        detection_counts[detection_status] = detection_counts.get(detection_status, 0) + 1
+
+            if remediation_counts:
+                output.append("\n### Remediation Status Breakdown")
+                total_remediation = sum(remediation_counts.values())
+                for status, count in sorted(remediation_counts.items()):
+                    percentage = (count / total_remediation) * 100
+                    output.append(f"- **{status}:** {count} evidence items ({percentage:.1f}%)")
+
+            if detection_counts:
+                output.append("\n### Detection Status Breakdown")
+                total_detection = sum(detection_counts.values())
+                for status, count in sorted(detection_counts.items()):
+                    percentage = (count / total_detection) * 100
+                    output.append(f"- **{status}:** {count} evidence items ({percentage:.1f}%)")
+
+            # Match Field Distribution
+            field_matches = {}
+            for alert in alerts:
+                match_fields = alert.get('_match_fields', [])
+                for field in match_fields:
+                    field_matches[field] = field_matches.get(field, 0) + 1
+
+            if field_matches:
+                output.append("\n### Match Field Distribution")
+                for field, count in sorted(field_matches.items(), key=lambda x: x[1], reverse=True):
+                    percentage = (count / total_matches) * 100 if total_matches > 0 else 0
+                    output.append(f"- **{field}:** {count} matches ({percentage:.1f}%)")
+
+            # Affected Hostnames
+            if hostname_alerts:
+                output.append("\n### Affected Hostnames")
+                for hostname in sorted(hostname_alerts.keys()):
+                    alert_times = []
+                    for created_date in hostname_alerts[hostname]:
+                        if created_date:
+                            try:
+                                dt = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
+                                formatted_time = dt.strftime('%Y-%m-%d %H:%M')
+                                if formatted_time not in alert_times:
+                                    alert_times.append(formatted_time)
+                            except:
+                                pass
+
+                    if alert_times:
+                        alert_times.sort()
+                        times_str = ", ".join(alert_times)
+                        output.append(f"- **{hostname}** (alerts: {times_str})")
+                    else:
+                        output.append(f"- **{hostname}** (no valid timestamps)")
+
+            output.append("\n---\n")
+            output.append(f"*Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC*")
+        else:
+            output.append("")
+            # Add statistics for table format
+            stats = self.generate_statistics(alerts)
+            output.append(stats)
 
         return '\n'.join(output)
 
@@ -957,6 +1109,76 @@ class DefenderAlertQuery:
 
         if format_type == 'json':
             return json.dumps(alerts, indent=2, default=str)
+
+        elif format_type == 'markdown':
+            output = []
+            output.append("# Microsoft Defender 365 Alert Report\n")
+
+            # Summary metrics
+            output.append("## Summary")
+            output.append(f"- **Total Alerts Found:** {len(alerts)}")
+
+            # Calculate additional metrics
+            severity_counts = {}
+            status_counts = {}
+            for alert in alerts:
+                severity = alert.get('severity', 'unknown').lower()
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+                status = alert.get('status', 'unknown')
+                status_counts[status] = status_counts.get(status, 0) + 1
+
+            output.append("\n### Severity Breakdown")
+            for severity in ['high', 'medium', 'low', 'informational']:
+                count = severity_counts.get(severity, 0)
+                if count > 0:
+                    percentage = (count / len(alerts)) * 100
+                    output.append(f"- **{severity.capitalize()}:** {count} ({percentage:.1f}%)")
+
+            output.append("\n### Status Breakdown")
+            for status, count in sorted(status_counts.items()):
+                percentage = (count / len(alerts)) * 100
+                output.append(f"- **{status}:** {count} ({percentage:.1f}%)")
+
+            # Alert details table
+            output.append("\n---\n")
+            output.append("## Alert Details\n")
+            output.append("| Alert ID | Title | Severity | Status | Created | File Paths |")
+            output.append("|----------|-------|----------|--------|---------|------------|")
+
+            for alert in alerts:
+                # Extract file paths from evidence
+                file_paths = []
+                for evidence in alert.get('evidence', []):
+                    file_path = ""
+                    # Check fileEvidence
+                    if evidence.get('@odata.type') == '#microsoft.graph.security.fileEvidence':
+                        file_details = evidence.get('fileDetails') or {}
+                        file_path = file_details.get('filePath', '')
+                    # Check processEvidence
+                    elif evidence.get('@odata.type') == '#microsoft.graph.security.processEvidence':
+                        image_file = evidence.get('imageFile') or {}
+                        file_path = image_file.get('filePath', '')
+                        file_name = image_file.get('fileName', '')
+                        if file_path and file_name:
+                            file_path = f"{file_path}\\{file_name}"
+
+                    if file_path:
+                        file_paths.append(f"`{file_path}`")
+
+                # Escape pipe characters in data
+                alert_id = alert.get('id', 'N/A').replace('|', '\\|')[:36]
+                title = alert.get('title', 'N/A').replace('|', '\\|')[:40]
+                severity = alert.get('severity', 'N/A').upper()
+                status = alert.get('status', 'N/A')
+                created = alert.get('createdDateTime', 'N/A')[:19].replace('T', ' ')
+                paths = '<br>'.join(file_paths[:3]) if file_paths else 'N/A'  # Limit to 3 paths
+
+                output.append(f"| {alert_id} | {title} | {severity} | {status} | {created} | {paths} |")
+
+            output.append("\n---\n")
+            output.append(f"*Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC*")
+
+            return '\n'.join(output)
 
         elif format_type == 'csv':
             import csv
@@ -1169,7 +1391,7 @@ Examples:
                        help='Maximum total results to fetch when using --fetch-all (safety limit)')
     parser.add_argument('--show-pagination-info', action='store_true',
                        help='Display detailed pagination statistics in output')
-    parser.add_argument('--format', choices=['table', 'json', 'csv'], default='table',
+    parser.add_argument('--format', choices=['table', 'json', 'csv', 'markdown'], default='table',
                        help='Output format (default: table)')
     parser.add_argument('--hostnames', action='store_true',
                        help='Show only affected hostnames with alert creation times')
@@ -1241,8 +1463,10 @@ Examples:
             )
             if args.format == 'json':
                 formatted_output = client.format_alerts(alerts, 'json')
+            elif args.format == 'markdown':
+                formatted_output = client.format_test_alerts(alerts, 'markdown')
             else:
-                formatted_output = client.format_test_alerts(alerts)
+                formatted_output = client.format_test_alerts(alerts, 'table')
                 if getattr(args, 'show_pagination_info', False) and pagination_info:
                     formatted_output += "\n\n" + client.generate_statistics(alerts, pagination_info)
         # Handle test-alerts-sha1 workflow
@@ -1258,8 +1482,10 @@ Examples:
             )
             if args.format == 'json':
                 formatted_output = client.format_alerts(alerts, 'json')
+            elif args.format == 'markdown':
+                formatted_output = client.format_test_alerts(alerts, 'markdown')
             else:
-                formatted_output = client.format_test_alerts(alerts)
+                formatted_output = client.format_test_alerts(alerts, 'table')
                 if getattr(args, 'show_pagination_info', False) and pagination_info:
                     formatted_output += "\n\n" + client.generate_statistics(alerts, pagination_info)
         else:
