@@ -157,6 +157,7 @@ class CombinedTestResults:
             cmd = [
                 "python3", self.defender_script,
                 "--test-alerts", uuid,
+                "--days", "90",
                 "--fetch-all",
                 "--max-results", "800",
                 "--format", "json",
