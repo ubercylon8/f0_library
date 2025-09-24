@@ -629,7 +629,7 @@ class CombinedTestResults:
             return "# F0RT1KA Combined Security Test Results\n\nNo correlations found."
 
         output = []
-        output.append("# F0RT1KA Combined Security Test Results\n")
+        output.append("# F0RT1KA - Security Test Results\n")
 
         # Calculate Defense Score (matched events percentage)
         total_lc_events = len(correlations)
@@ -638,7 +638,7 @@ class CombinedTestResults:
 
         # Prominent Defense Score section
         output.append("## 🛡️ Defense Score")
-        output.append(f"### **{defense_score:.1f}%**")
+        output.append(f"## **{defense_score:.1f}%**")
         output.append(f"*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
 
         # Summary section
