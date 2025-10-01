@@ -161,7 +161,7 @@ class LCEventsQuery:
             Tuple of (events_list, query_info)
         """
         # Build LCQL query
-        lcql_query = f"{date_range} | * | RECEIPT | routing/investigation_id contains 'sectest-{uuid}' and event/ERROR != 1"
+        lcql_query = f"{date_range} | * | RECEIPT | routing/investigation_id contains '{uuid}' and event/ERROR != 1"
 
         # Execute lc-sensors command with authentication
         cmd = [
