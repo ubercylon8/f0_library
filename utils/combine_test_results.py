@@ -8,6 +8,7 @@ for F0RT1KA security test analysis with hostname correlation and timing analysis
 
 Features:
 - Execute both LC events query and Defender alerts query
+- Search by UUID (LC events + Defender) or SHA1 hash (Defender only)
 - Correlate results by hostname with 5-minute timestamp window
 - Generate comprehensive table with test outcomes
 - Handle authentication for both services
@@ -19,8 +20,14 @@ Requirements:
 - Both utils/lc_events_query.py and utils/defender_alert_query.py
 
 Usage Examples:
-    # Basic correlation analysis
+    # Basic correlation analysis with UUID
     python combine_test_results.py --uuid "abc123def456" --date-range "last 24 hours"
+
+    # Search Defender alerts by SHA1 hash
+    python combine_test_results.py --sha1 "1234567890abcdef1234567890abcdef12345678" --date-range "last 24 hours"
+
+    # Search by both UUID and SHA1
+    python combine_test_results.py --uuid "abc123" --sha1 "1234567890abcdef" --date-range "last 7 days"
 
     # Export to JSON for further processing
     python combine_test_results.py --uuid "abc123def456" --date-range "today" --output results.json
@@ -89,7 +96,7 @@ class CombinedTestResults:
                 load_dotenv(env_path)
                 break
 
-    def execute_lc_query(self, uuid: str, date_range: str, show_progress: bool = True) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def execute_lc_query(self, uuid: str, date_range: str, limit: int = 1000, show_progress: bool = True) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Execute LimaCharlie events query"""
         if show_progress:
             print("Executing LimaCharlie events query...")
@@ -104,6 +111,7 @@ class CombinedTestResults:
                 "python3", self.lc_script,
                 "--uuid", uuid,
                 "--date-range", date_range,
+                "--limit", str(limit),
                 "--format", "json",
                 "--output", temp_path
             ]
@@ -143,8 +151,20 @@ class CombinedTestResults:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def execute_defender_query(self, uuid: str, show_progress: bool = True) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """Execute Microsoft Defender alerts query"""
+    def execute_defender_query(self, uuid: Optional[str] = None, sha1: Optional[str] = None, show_progress: bool = True) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Execute Microsoft Defender alerts query
+
+        Args:
+            uuid: Test UUID to search for (uses --test-alerts)
+            sha1: SHA1 hash to search for (uses --test-alerts-sha1)
+            show_progress: Whether to show progress
+
+        Returns:
+            Tuple of (alerts, query_info)
+        """
+        if not uuid and not sha1:
+            raise ValueError("Either uuid or sha1 must be provided")
+
         if show_progress:
             print("Executing Microsoft Defender alerts query...")
 
@@ -153,16 +173,21 @@ class CombinedTestResults:
             temp_path = temp_file.name
 
         try:
-            # Build command
+            # Build command based on search type
             cmd = [
                 "python3", self.defender_script,
-                "--test-alerts", uuid,
                 "--days", "90",
                 "--fetch-all",
                 "--max-results", "800",
                 "--format", "json",
                 "--output", temp_path
             ]
+
+            # Add search parameter based on what's provided
+            if sha1:
+                cmd.extend(["--test-alerts-sha1", sha1])
+            else:
+                cmd.extend(["--test-alerts", uuid])
 
             if show_progress:
                 print(f"Running: {' '.join(cmd)}")
@@ -184,6 +209,8 @@ class CombinedTestResults:
             # Create query info
             query_info = {
                 'uuid': uuid,
+                'sha1': sha1,
+                'search_type': 'sha1' if sha1 else 'uuid',
                 'total_alerts': len(defender_results)
             }
 
@@ -795,18 +822,31 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Search by UUID (both LC events and Defender alerts)
   %(prog)s --uuid "abc123def456" --date-range "last 24 hours"
   %(prog)s --uuid "abc123def456" --date-range "today" --output results.json
-  %(prog)s --uuid "abc123def456" --date-range "last 7 days" --env-file custom.env
+
+  # Search by SHA1 hash (Defender alerts only)
+  %(prog)s --sha1 "1234567890abcdef1234567890abcdef12345678" --date-range "last 24 hours"
+
+  # Search by both UUID and SHA1
+  %(prog)s --uuid "abc123def456" --sha1 "1234567890abcdef1234567890abcdef12345678" --date-range "last 7 days"
+
+  # With additional options
+  %(prog)s --uuid "abc123def456" --date-range "last 30 days" --limit 5000 --env-file custom.env
         """
     )
 
-    parser.add_argument('--uuid', required=True,
-                       help='Security test UUID to analyze')
+    parser.add_argument('--uuid',
+                       help='Security test UUID to analyze (for LimaCharlie and Defender --test-alerts search)')
+    parser.add_argument('--sha1',
+                       help='SHA1 hash to search for in Defender alerts (uses --test-alerts-sha1)')
     parser.add_argument('--date-range', required=True,
                        help='Date range for LimaCharlie query (e.g., "last 24 hours", "today")')
     parser.add_argument('--env-file',
                        help='Path to .env file for loading credentials')
+    parser.add_argument('--limit', type=int, default=1000,
+                       help='Maximum number of LC events to return (default: 1000)')
     parser.add_argument('--time-window', type=int, default=5,
                        help='Time window in minutes for correlation matching (default: 5)')
     parser.add_argument('--format', choices=['table', 'json', 'markdown'], default='table',
@@ -815,12 +855,25 @@ Examples:
 
     args = parser.parse_args()
 
+    # Validate that at least one search parameter is provided
+    if not args.uuid and not args.sha1:
+        parser.error("At least one of --uuid or --sha1 must be provided")
+
     try:
         analyzer = CombinedTestResults(args.env_file)
 
-        # Execute both queries
-        lc_results, lc_query_info = analyzer.execute_lc_query(args.uuid, args.date_range)
-        defender_results, defender_query_info = analyzer.execute_defender_query(args.uuid)
+        # Execute LimaCharlie query (requires UUID)
+        if args.uuid:
+            lc_results, lc_query_info = analyzer.execute_lc_query(args.uuid, args.date_range, args.limit)
+        else:
+            # If only SHA1 is provided, skip LC query
+            lc_results, lc_query_info = [], {'uuid': None, 'date_range': args.date_range, 'total_events': 0}
+
+        # Execute Defender query (can use UUID or SHA1)
+        defender_results, defender_query_info = analyzer.execute_defender_query(
+            uuid=args.uuid,
+            sha1=args.sha1
+        )
 
         # Correlate results
         correlations = analyzer.correlate_results(lc_results, defender_results, args.time_window)
