@@ -148,6 +148,7 @@ class LCEventsQuery:
     def query_events(self,
                     uuid: str,
                     date_range: str,
+                    limit: int = 1000,
                     show_progress: bool = True) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         Query LimaCharlie sensor events for a specific test UUID
@@ -155,6 +156,7 @@ class LCEventsQuery:
         Args:
             uuid: Test UUID to search for
             date_range: Date range string for LCQL query
+            limit: Maximum number of events to return (default: 1000)
             show_progress: Whether to show progress during execution
 
         Returns:
@@ -169,6 +171,7 @@ class LCEventsQuery:
             "-o", self.org_id,
             "-k", self.api_key,
             "--lcql", lcql_query,
+            "--limit", str(limit),
             "--output", "json",
             "--no-banner"  # Clean output for parsing
         ]
@@ -581,6 +584,7 @@ Examples:
   %(prog)s --uuid "abc123def456" --date-range "last 7 days" --hostnames
   %(prog)s --uuid "abc123def456" --date-range "today" --env-file custom.env
   %(prog)s --uuid "abc123def456" --date-range "today" --output results.json
+  %(prog)s --uuid "abc123def456" --date-range "last 30 days" --limit 5000  # Increase limit
         """
     )
 
@@ -598,6 +602,8 @@ Examples:
                        help='Path to .env file for loading credentials (auto-detected if not specified)')
     parser.add_argument('--format', choices=['table', 'json', 'csv', 'markdown'], default='table',
                        help='Output format (default: table)')
+    parser.add_argument('--limit', type=int, default=1000,
+                       help='Maximum number of events to return (default: 1000)')
     parser.add_argument('--hostnames', action='store_true',
                        help='Show only endpoints tested with event timestamps')
     parser.add_argument('--output', help='Output file path (stdout if not specified)')
@@ -608,7 +614,7 @@ Examples:
         client = LCEventsQuery(args.lc_sensors_path, args.api_key, args.org_id, args.env_file)
 
         # Query events
-        events, query_info = client.query_events(args.uuid, args.date_range)
+        events, query_info = client.query_events(args.uuid, args.date_range, args.limit)
 
         # Extract and process event data
         processed_events = client.extract_event_data(events)
