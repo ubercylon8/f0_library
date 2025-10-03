@@ -163,7 +163,7 @@ class LCEventsQuery:
             Tuple of (events_list, query_info)
         """
         # Build LCQL query
-        lcql_query = f"{date_range} | * | RECEIPT | routing/investigation_id contains '{uuid}' and event/ERROR != 1" 
+        lcql_query = f"{date_range} | * | RECEIPT | routing/investigation_id contains '{uuid}' and not (event/ERROR == 1 or event/ERROR == 200)" 
 
         # Execute lc-sensors command with authentication
         cmd = [
@@ -479,10 +479,11 @@ class LCEventsQuery:
     def _get_error_meaning(self, error_code: int) -> str:
         """Get human-readable meaning of error codes"""
         error_meanings = {
-            0: "Success",
-            101: "Endpoint.Unprotected",
-            105: "Endpoint.FileQuarantinedOnExtraction",
-            126: "Endpoint.ExecutionPrevented",
+            0: "exec_error",
+            1: "NF_denied",
+            3: "Quarantined",
+            200: "Uploaded",
+            259: "exec_stop",
             # Add more error codes as needed
         }
         return error_meanings.get(error_code, "Unknown")
