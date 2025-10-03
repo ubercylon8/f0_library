@@ -29,11 +29,17 @@ Usage Examples:
     # Search by both UUID and SHA1
     python combine_test_results.py --uuid "abc123" --sha1 "1234567890abcdef" --date-range "last 7 days"
 
+    # Exclude specific error codes from analysis
+    python combine_test_results.py --uuid "abc123" --date-range "last 7 days" --exclude-error-codes "1,200"
+
     # Export to JSON for further processing
     python combine_test_results.py --uuid "abc123def456" --date-range "today" --output results.json
 
     # Use custom .env file for credentials
     python combine_test_results.py --uuid "abc123def456" --date-range "last 7 days" --env-file custom.env
+
+    # Use separate .env file for Azure Defender credentials
+    python combine_test_results.py --uuid "abc123def456" --date-range "last 7 days" --defender-env-file azure.env
 """
 
 import argparse
@@ -56,9 +62,12 @@ except ImportError:
 class CombinedTestResults:
     """Combined security test results analyzer"""
 
-    def __init__(self, env_file: Optional[str] = None):
+    def __init__(self, env_file: Optional[str] = None, defender_env_file: Optional[str] = None):
         # Load environment variables from .env file if available
         self._load_env_file(env_file)
+
+        # Store defender env file path for passing to defender_alert_query.py
+        self.defender_env_file = defender_env_file
 
         # Get script directory for relative paths
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -178,16 +187,20 @@ class CombinedTestResults:
                 "python3", self.defender_script,
                 "--days", "90",
                 "--fetch-all",
-                "--max-results", "800",
+                "--max-results", "5000",
                 "--format", "json",
                 "--output", temp_path
             ]
 
-            # Add search parameter based on what's provided
+            # Add env-file flag if specified
+            if self.defender_env_file:
+                cmd.extend(["--env-file", self.defender_env_file])
+
+            # Add search parameters - both if available for intersection search
+            if uuid:
+                cmd.extend(["--test-alerts", uuid])
             if sha1:
                 cmd.extend(["--test-alerts-sha1", sha1])
-            else:
-                cmd.extend(["--test-alerts", uuid])
 
             if show_progress:
                 print(f"Running: {' '.join(cmd)}")
@@ -529,7 +542,8 @@ class CombinedTestResults:
 
     def generate_statistics(self, correlations: List[Dict[str, Any]],
                           lc_query_info: Dict[str, Any],
-                          defender_query_info: Dict[str, Any]) -> str:
+                          defender_query_info: Dict[str, Any],
+                          time_window_minutes: int = 5) -> str:
         """Generate summary statistics"""
         if not correlations:
             return "No statistics available."
@@ -559,12 +573,20 @@ class CombinedTestResults:
         stats.append("CORRELATION STATISTICS")
         stats.append("-" * 50)
         stats.append(f"Total LC Events: {total_lc_events}")
+
+        # Show excluded events if any
+        excluded_count = lc_query_info.get('excluded_count', 0)
+        if excluded_count > 0:
+            excluded_codes = lc_query_info.get('excluded_error_codes', [])
+            stats.append(f"Excluded Events: {excluded_count} (error codes: {', '.join(map(str, excluded_codes))})")
+
         stats.append(f"Total Defender Alerts: {defender_query_info.get('total_alerts', 0)}")
         stats.append(f"Matched Events: {matched_events} ({(matched_events/total_lc_events)*100:.1f}%)")
         stats.append(f"Unique Endpoints: {len(unique_hostnames)}")
         stats.append(f"Endpoints with Matches: {len(matched_hostnames)}")
         stats.append(f"Test UUID: {lc_query_info.get('uuid', 'N/A')}")
         stats.append(f"Date Range: {lc_query_info.get('date_range', 'N/A')}")
+        stats.append(f"Time Window: {time_window_minutes} minutes")
 
         stats.append("")
         stats.append("LC Error Code Distribution:")
@@ -641,16 +663,18 @@ class CombinedTestResults:
     def _get_error_meaning(self, error_code: int) -> str:
         """Get human-readable meaning of LC error codes"""
         error_meanings = {
-            0: "Success",
-            101: "Endpoint.Unprotected",
-            105: "Endpoint.FileQuarantinedOnExtraction",
-            126: "Endpoint.ExecutionPrevented"
+            0: "exec_error",
+            1: "NF_denied",
+            3: "Quarantined",
+            200: "Uploaded",
+            259: "exec_stop"
         }
         return error_meanings.get(error_code, "Unknown")
 
     def _format_markdown(self, correlations: List[Dict[str, Any]],
                         lc_query_info: Dict[str, Any],
-                        defender_query_info: Dict[str, Any]) -> str:
+                        defender_query_info: Dict[str, Any],
+                        time_window_minutes: int = 5) -> str:
         """Format output in markdown format with Defense Score prominently displayed"""
         if not correlations:
             return "# F0RT1KA Combined Security Test Results\n\nNo correlations found."
@@ -674,12 +698,20 @@ class CombinedTestResults:
         matched_hostnames = set(c.get('lc_hostname', 'N/A') for c in correlations if c.get('defender_match') == 'Yes')
 
         output.append(f"- **Total LC Events:** {total_lc_events}")
+
+        # Show excluded events if any
+        excluded_count = lc_query_info.get('excluded_count', 0)
+        if excluded_count > 0:
+            excluded_codes = lc_query_info.get('excluded_error_codes', [])
+            output.append(f"- **Excluded Events:** {excluded_count} (error codes: {', '.join(map(str, excluded_codes))})")
+
         output.append(f"- **Total Defender Alerts:** {defender_query_info.get('total_alerts', 0)}")
         output.append(f"- **Matched Events:** {matched_events} ({defense_score:.1f}%)")
         output.append(f"- **Unique Endpoints:** {len(unique_hostnames)}")
         output.append(f"- **Endpoints with Matches:** {len(matched_hostnames)}")
         output.append(f"- **Test UUID:** {lc_query_info.get('uuid', 'N/A')}")
         output.append(f"- **Date Range:** {lc_query_info.get('date_range', 'N/A')}")
+        output.append(f"- **Time Window:** {time_window_minutes} minutes")
 
         # Correlation Results Table
         output.append("\n---\n")
@@ -797,21 +829,23 @@ class CombinedTestResults:
     def format_output(self, correlations: List[Dict[str, Any]],
                      lc_query_info: Dict[str, Any],
                      defender_query_info: Dict[str, Any],
-                     format_type: str = 'table') -> str:
+                     format_type: str = 'table',
+                     time_window_minutes: int = 5) -> str:
         """Format output in the requested format"""
         if format_type == 'json':
             return json.dumps({
                 'correlations': correlations,
                 'lc_query_info': lc_query_info,
-                'defender_query_info': defender_query_info
+                'defender_query_info': defender_query_info,
+                'time_window_minutes': time_window_minutes
             }, indent=2, default=str)
 
         elif format_type == 'markdown':
-            return self._format_markdown(correlations, lc_query_info, defender_query_info)
+            return self._format_markdown(correlations, lc_query_info, defender_query_info, time_window_minutes)
 
         else:  # table format
             table_output = self.format_correlations_table(correlations)
-            stats_output = self.generate_statistics(correlations, lc_query_info, defender_query_info)
+            stats_output = self.generate_statistics(correlations, lc_query_info, defender_query_info, time_window_minutes)
             unmatched_analysis = self.analyze_unmatched_events(correlations)
             return f"{table_output}\n\n{stats_output}\n\n{unmatched_analysis}"
 
@@ -832,8 +866,14 @@ Examples:
   # Search by both UUID and SHA1
   %(prog)s --uuid "abc123def456" --sha1 "1234567890abcdef1234567890abcdef12345678" --date-range "last 7 days"
 
+  # Exclude specific error codes from analysis
+  %(prog)s --uuid "abc123def456" --date-range "last 7 days" --exclude-error-codes "1,200"
+
   # With additional options
   %(prog)s --uuid "abc123def456" --date-range "last 30 days" --limit 5000 --env-file custom.env
+
+  # Use separate Azure credentials file for Defender
+  %(prog)s --uuid "abc123def456" --date-range "last 7 days" --defender-env-file azure.env
         """
     )
 
@@ -845,10 +885,14 @@ Examples:
                        help='Date range for LimaCharlie query (e.g., "last 24 hours", "today")')
     parser.add_argument('--env-file',
                        help='Path to .env file for loading credentials')
+    parser.add_argument('--defender-env-file',
+                       help='Path to .env file for Azure credentials (passed to defender_alert_query.py)')
     parser.add_argument('--limit', type=int, default=1000,
                        help='Maximum number of LC events to return (default: 1000)')
     parser.add_argument('--time-window', type=int, default=5,
                        help='Time window in minutes for correlation matching (default: 5)')
+    parser.add_argument('--exclude-error-codes',
+                       help='Comma-separated list of LC error codes to exclude from analysis (e.g., "1,200")')
     parser.add_argument('--format', choices=['table', 'json', 'markdown'], default='table',
                        help='Output format (default: table)')
     parser.add_argument('--output', help='Output file path (stdout if not specified)')
@@ -860,11 +904,32 @@ Examples:
         parser.error("At least one of --uuid or --sha1 must be provided")
 
     try:
-        analyzer = CombinedTestResults(args.env_file)
+        analyzer = CombinedTestResults(args.env_file, args.defender_env_file)
+
+        # Parse exclude error codes
+        exclude_error_codes = []
+        if args.exclude_error_codes:
+            try:
+                exclude_error_codes = [int(code.strip()) for code in args.exclude_error_codes.split(',')]
+                print(f"Excluding LC events with error codes: {exclude_error_codes}")
+            except ValueError:
+                parser.error(f"Invalid error codes format: {args.exclude_error_codes}. Use comma-separated integers (e.g., '1,200')")
 
         # Execute LimaCharlie query (requires UUID)
         if args.uuid:
             lc_results, lc_query_info = analyzer.execute_lc_query(args.uuid, args.date_range, args.limit)
+
+            # Filter out excluded error codes before correlation
+            if exclude_error_codes:
+                original_count = len(lc_results)
+                lc_results = [event for event in lc_results if event.get('error_code', 0) not in exclude_error_codes]
+                excluded_count = original_count - len(lc_results)
+                if excluded_count > 0:
+                    print(f"Excluded {excluded_count} LC events with error codes {exclude_error_codes}")
+                # Update query info with filtered count
+                lc_query_info['total_events'] = len(lc_results)
+                lc_query_info['excluded_count'] = excluded_count
+                lc_query_info['excluded_error_codes'] = exclude_error_codes
         else:
             # If only SHA1 is provided, skip LC query
             lc_results, lc_query_info = [], {'uuid': None, 'date_range': args.date_range, 'total_events': 0}
@@ -879,7 +944,7 @@ Examples:
         correlations = analyzer.correlate_results(lc_results, defender_results, args.time_window)
 
         # Generate output
-        formatted_output = analyzer.format_output(correlations, lc_query_info, defender_query_info, args.format)
+        formatted_output = analyzer.format_output(correlations, lc_query_info, defender_query_info, args.format, args.time_window)
 
         # Write output
         if args.output:

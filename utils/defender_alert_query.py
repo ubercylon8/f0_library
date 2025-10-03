@@ -26,16 +26,57 @@ Usage Examples:
 
     # Export to JSON for subagent processing
     python defender_alert_query.py --search-term "malware" --output alerts.json
+
+    # Use credentials from .env file
+    python defender_alert_query.py --env-file .env --test-alerts "F0"
 """
 
 import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import requests
 from urllib.parse import quote
+import re
+
+
+def load_env_file(env_file_path: str) -> None:
+    """
+    Load environment variables from a .env file, overriding existing values
+
+    Args:
+        env_file_path: Path to the .env file
+
+    Raises:
+        FileNotFoundError: If the .env file doesn't exist
+        ValueError: If the .env file has invalid format
+    """
+    if not os.path.exists(env_file_path):
+        raise FileNotFoundError(f".env file not found: {env_file_path}")
+
+    with open(env_file_path, 'r') as f:
+        for line_num, line in enumerate(f, 1):
+            # Strip whitespace and skip empty lines and comments
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            # Parse KEY=VALUE format
+            match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$', line)
+            if not match:
+                raise ValueError(f"Invalid format in {env_file_path} at line {line_num}: {line}")
+
+            key, value = match.groups()
+
+            # Remove quotes if present
+            if value and value[0] in ('"', "'") and value[-1] == value[0]:
+                value = value[1:-1]
+
+            # Set environment variable (overrides existing values)
+            os.environ[key] = value
 
 
 class DefenderAlertQuery:
@@ -82,6 +123,50 @@ class DefenderAlertQuery:
             'Content-Type': 'application/json'
         }
 
+    def _make_request_with_retry(self, url: str, headers: Dict[str, str], params: Optional[Dict[str, Any]] = None, max_retries: int = 5) -> requests.Response:
+        """
+        Make HTTP request with exponential backoff retry logic for rate limiting
+
+        Args:
+            url: URL to request
+            headers: HTTP headers
+            params: Query parameters
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            Response object
+
+        Raises:
+            requests.HTTPError: If request fails after all retries
+        """
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=headers, params=params)
+
+                # If we get 429 (rate limit), retry with backoff
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', 2 ** attempt))
+                    print(f"Rate limit hit (429), retrying after {retry_after} seconds... (attempt {attempt + 1}/{max_retries})", file=sys.stderr)
+                    time.sleep(retry_after)
+                    continue
+
+                # For other errors, raise immediately
+                response.raise_for_status()
+                return response
+
+            except requests.exceptions.HTTPError as e:
+                if attempt == max_retries - 1:
+                    raise
+                # Exponential backoff for server errors (5xx)
+                if e.response.status_code >= 500:
+                    wait_time = 2 ** attempt
+                    print(f"Server error ({e.response.status_code}), retrying after {wait_time} seconds... (attempt {attempt + 1}/{max_retries})", file=sys.stderr)
+                    time.sleep(wait_time)
+                    continue
+                raise
+
+        raise requests.HTTPError(f"Failed after {max_retries} retries")
+
     def _fetch_all_pages(self,
                         url: str,
                         params: Dict[str, Any],
@@ -114,12 +199,11 @@ class DefenderAlertQuery:
 
             if next_link:
                 # Use the full nextLink URL provided by API
-                response = requests.get(next_link, headers=self._get_headers())
+                response = self._make_request_with_retry(next_link, self._get_headers())
             else:
                 # Use base URL with parameters
-                response = requests.get(url, headers=self._get_headers(), params=params)
+                response = self._make_request_with_retry(url, self._get_headers(), params)
 
-            response.raise_for_status()
             data = response.json()
 
             results = data.get('value', [])
@@ -133,13 +217,13 @@ class DefenderAlertQuery:
             # Safety limit check
             if max_results and len(all_results) >= max_results:
                 if show_progress:
-                    print(f"\nWarning: Reached max_results limit ({max_results})")
+                    print(f"\nWarning: Reached max_results limit ({max_results})", file=sys.stderr)
                 truncated = True
                 break
 
             # Show progress
             if show_progress:
-                print(f"Fetched page {pages_fetched}, total alerts: {len(all_results)}", end='\r')
+                print(f"Fetched page {pages_fetched}, total alerts: {len(all_results)}", end='\r', file=sys.stderr)
 
             # If no nextLink provided, try manual pagination with $skip
             if not next_link:
@@ -157,7 +241,7 @@ class DefenderAlertQuery:
                 params.pop('$skip', None)
 
         if show_progress and pages_fetched > 1:
-            print()  # New line after progress indicator
+            print(file=sys.stderr)  # New line after progress indicator
 
         pagination_info = {
             'pages': pages_fetched,
@@ -203,13 +287,14 @@ class DefenderAlertQuery:
         # If searching by specific alert ID, use direct endpoint
         if alert_id:
             url = f"{self.base_url}/security/alerts_v2/{alert_id}"
-            response = requests.get(url, headers=self._get_headers())
-            if response.status_code == 200:
-                return [response.json()], None
-            elif response.status_code == 404:
-                return [], None
-            else:
-                response.raise_for_status()
+            try:
+                response = self._make_request_with_retry(url, self._get_headers())
+                if response.status_code == 200:
+                    return [response.json()], None
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 404:
+                    return [], None
+                raise
 
         url = f"{self.base_url}/security/alerts_v2"
 
@@ -259,15 +344,14 @@ class DefenderAlertQuery:
                 show_progress=show_progress
             )
         else:
-            response = requests.get(url, headers=self._get_headers(), params=params)
-            response.raise_for_status()
+            response = self._make_request_with_retry(url, self._get_headers(), params)
             data = response.json()
             alerts = data.get('value', [])
 
             # Check if more results might be available
             if len(alerts) == limit or '@odata.nextLink' in data:
                 if show_progress:
-                    print("Warning: More results may be available. Use --fetch-all to get all results.")
+                    print("Warning: More results may be available. Use --fetch-all to get all results.", file=sys.stderr)
 
         # Post-process file path and search term filtering if specified
         filtered_alerts = alerts
@@ -438,15 +522,14 @@ class DefenderAlertQuery:
                 show_progress=show_progress
             )
         else:
-            response = requests.get(url, headers=self._get_headers(), params=params)
-            response.raise_for_status()
+            response = self._make_request_with_retry(url, self._get_headers(), params)
             data = response.json()
             alerts = data.get('value', [])
 
             # Check if more results might be available
             if len(alerts) == limit or '@odata.nextLink' in data:
                 if show_progress:
-                    print("Warning: More results may be available. Use --fetch-all to get all results.")
+                    print("Warning: More results may be available. Use --fetch-all to get all results.", file=sys.stderr)
 
         # Enhanced filtering for test alerts with match tracking
         enhanced_alerts = []
@@ -582,15 +665,14 @@ class DefenderAlertQuery:
                 show_progress=show_progress
             )
         else:
-            response = requests.get(url, headers=self._get_headers(), params=params)
-            response.raise_for_status()
+            response = self._make_request_with_retry(url, self._get_headers(), params)
             data = response.json()
             alerts = data.get('value', [])
 
             # Check if more results might be available
             if len(alerts) == limit or '@odata.nextLink' in data:
                 if show_progress:
-                    print("Warning: More results may be available. Use --fetch-all to get all results.")
+                    print("Warning: More results may be available. Use --fetch-all to get all results.", file=sys.stderr)
 
         # Enhanced filtering for SHA1 hash matches with match tracking
         enhanced_alerts = []
@@ -1105,6 +1187,9 @@ class DefenderAlertQuery:
     def format_alerts(self, alerts: List[Dict[str, Any]], format_type: str = 'table') -> str:
         """Format alerts for display"""
         if not alerts:
+            # Return valid JSON for JSON format, plain text otherwise
+            if format_type == 'json':
+                return json.dumps([], indent=2)
             return "No alerts found matching the search criteria."
 
         if format_type == 'json':
@@ -1367,6 +1452,7 @@ Examples:
   %(prog)s --search-term "malware" --severity high
   %(prog)s --file-path "*.exe" --days 7 --output alerts.json
   %(prog)s --test-alerts "F0" --hostnames  # Show only hostnames
+  %(prog)s --env-file .env --test-alerts "F0"  # Use credentials from .env file
         """
     )
 
@@ -1396,6 +1482,7 @@ Examples:
     parser.add_argument('--hostnames', action='store_true',
                        help='Show only affected hostnames with alert creation times')
     parser.add_argument('--output', help='Output file path (stdout if not specified)')
+    parser.add_argument('--env-file', help='Path to .env file containing Azure credentials (overrides environment variables)')
 
     args = parser.parse_args()
 
@@ -1408,12 +1495,71 @@ Examples:
         print("Warning: --max-results is less than --limit, some results may be missed")
 
     try:
+        # Load .env file if specified (overrides existing environment variables)
+        if args.env_file:
+            load_env_file(args.env_file)
+
         client = DefenderAlertQuery()
+
+        # Determine if we should show progress (suppress for file output to avoid pollution)
+        show_progress = not args.output
 
         # Handle hostnames-only output
         if args.hostnames:
             # Determine which search method to use
-            if args.test_alerts:
+            if args.test_alerts and args.test_alerts_sha1:
+                # Union search for hostnames (alerts matching EITHER UUID or SHA1)
+                if show_progress:
+                    print("Performing union search (alerts matching UUID OR SHA1)...")
+
+                # Search by UUID
+                if show_progress:
+                    print(f"Searching by UUID: {args.test_alerts}")
+                uuid_alerts, _ = client.search_test_alerts(
+                    search_term=args.test_alerts,
+                    days=args.days,
+                    limit=args.limit,
+                    fetch_all=getattr(args, 'fetch_all', False),
+                    page_size=getattr(args, 'page_size', 100),
+                    max_results=getattr(args, 'max_results', None),
+                    show_progress=show_progress
+                )
+
+                # Brief delay between searches to avoid rate limiting
+                time.sleep(2)
+
+                # Search by SHA1
+                if show_progress:
+                    print(f"Searching by SHA1: {args.test_alerts_sha1}")
+                sha1_alerts, _ = client.search_test_alerts_sha1(
+                    sha1_hash=args.test_alerts_sha1,
+                    days=args.days,
+                    limit=args.limit,
+                    fetch_all=getattr(args, 'fetch_all', False),
+                    page_size=getattr(args, 'page_size', 100),
+                    max_results=getattr(args, 'max_results', None),
+                    show_progress=show_progress
+                )
+
+                # Compute union (combine both result sets, removing duplicates)
+                uuid_alert_ids = {alert.get('id') for alert in uuid_alerts}
+                sha1_alert_ids = {alert.get('id') for alert in sha1_alerts}
+                combined_alert_ids = uuid_alert_ids.union(sha1_alert_ids)
+
+                # Create combined alerts list from both searches (no duplicates)
+                alerts_dict = {alert.get('id'): alert for alert in uuid_alerts}
+                for alert in sha1_alerts:
+                    alert_id = alert.get('id')
+                    if alert_id not in alerts_dict:
+                        alerts_dict[alert_id] = alert
+                alerts = list(alerts_dict.values())
+
+                if show_progress:
+                    print(f"UUID search found: {len(uuid_alerts)} alerts")
+                    print(f"SHA1 search found: {len(sha1_alerts)} alerts")
+                    print(f"Union (matching EITHER): {len(alerts)} alerts")
+
+            elif args.test_alerts:
                 alerts, pagination_info = client.search_test_alerts(
                     search_term=args.test_alerts,
                     days=args.days,
@@ -1421,7 +1567,7 @@ Examples:
                     fetch_all=getattr(args, 'fetch_all', False),
                     page_size=getattr(args, 'page_size', 100),
                     max_results=getattr(args, 'max_results', None),
-                    show_progress=True
+                    show_progress=show_progress
                 )
             elif args.test_alerts_sha1:
                 alerts, pagination_info = client.search_test_alerts_sha1(
@@ -1431,7 +1577,7 @@ Examples:
                     fetch_all=getattr(args, 'fetch_all', False),
                     page_size=getattr(args, 'page_size', 100),
                     max_results=getattr(args, 'max_results', None),
-                    show_progress=True
+                    show_progress=show_progress
                 )
             else:
                 alerts, pagination_info = client.search_alerts(
@@ -1445,41 +1591,93 @@ Examples:
                     fetch_all=getattr(args, 'fetch_all', False),
                     page_size=getattr(args, 'page_size', 100),
                     max_results=getattr(args, 'max_results', None),
-                    show_progress=True
+                    show_progress=show_progress
                 )
 
             formatted_output = client.format_hostnames_only(alerts)
 
-        # Handle test-alerts workflow
-        elif args.test_alerts:
-            alerts, pagination_info = client.search_test_alerts(
-                search_term=args.test_alerts,
-                days=args.days,
-                limit=args.limit,
-                fetch_all=getattr(args, 'fetch_all', False),
-                page_size=getattr(args, 'page_size', 100),
-                max_results=getattr(args, 'max_results', None),
-                show_progress=True
-            )
-            if args.format == 'json':
-                formatted_output = client.format_alerts(alerts, 'json')
-            elif args.format == 'markdown':
-                formatted_output = client.format_test_alerts(alerts, 'markdown')
-            else:
-                formatted_output = client.format_test_alerts(alerts, 'table')
-                if getattr(args, 'show_pagination_info', False) and pagination_info:
-                    formatted_output += "\n\n" + client.generate_statistics(alerts, pagination_info)
-        # Handle test-alerts-sha1 workflow
-        elif args.test_alerts_sha1:
-            alerts, pagination_info = client.search_test_alerts_sha1(
-                sha1_hash=args.test_alerts_sha1,
-                days=args.days,
-                limit=args.limit,
-                fetch_all=getattr(args, 'fetch_all', False),
-                page_size=getattr(args, 'page_size', 100),
-                max_results=getattr(args, 'max_results', None),
-                show_progress=True
-            )
+        # Handle test-alerts workflow (with optional SHA1 union)
+        elif args.test_alerts or args.test_alerts_sha1:
+            # If both UUID and SHA1 are provided, perform union search
+            if args.test_alerts and args.test_alerts_sha1:
+                if show_progress:
+                    print("Performing union search (alerts matching UUID OR SHA1)...")
+
+                # Search by UUID
+                if show_progress:
+                    print(f"Searching by UUID: {args.test_alerts}")
+                uuid_alerts, uuid_pagination = client.search_test_alerts(
+                    search_term=args.test_alerts,
+                    days=args.days,
+                    limit=args.limit,
+                    fetch_all=getattr(args, 'fetch_all', False),
+                    page_size=getattr(args, 'page_size', 100),
+                    max_results=getattr(args, 'max_results', None),
+                    show_progress=show_progress
+                )
+
+                # Brief delay between searches to avoid rate limiting
+                time.sleep(2)
+
+                # Search by SHA1
+                if show_progress:
+                    print(f"Searching by SHA1: {args.test_alerts_sha1}")
+                sha1_alerts, sha1_pagination = client.search_test_alerts_sha1(
+                    sha1_hash=args.test_alerts_sha1,
+                    days=args.days,
+                    limit=args.limit,
+                    fetch_all=getattr(args, 'fetch_all', False),
+                    page_size=getattr(args, 'page_size', 100),
+                    max_results=getattr(args, 'max_results', None),
+                    show_progress=show_progress
+                )
+
+                # Compute union (combine both result sets, removing duplicates)
+                uuid_alert_ids = {alert.get('id') for alert in uuid_alerts}
+                sha1_alert_ids = {alert.get('id') for alert in sha1_alerts}
+                combined_alert_ids = uuid_alert_ids.union(sha1_alert_ids)
+
+                # Create combined alerts list from both searches (no duplicates)
+                alerts_dict = {alert.get('id'): alert for alert in uuid_alerts}
+                for alert in sha1_alerts:
+                    alert_id = alert.get('id')
+                    if alert_id not in alerts_dict:
+                        alerts_dict[alert_id] = alert
+                alerts = list(alerts_dict.values())
+
+                if show_progress:
+                    print(f"UUID search found: {len(uuid_alerts)} alerts")
+                    print(f"SHA1 search found: {len(sha1_alerts)} alerts")
+                    print(f"Union (matching EITHER): {len(alerts)} alerts")
+
+                # Use UUID pagination info for output
+                pagination_info = uuid_pagination
+
+            # Only UUID provided
+            elif args.test_alerts:
+                alerts, pagination_info = client.search_test_alerts(
+                    search_term=args.test_alerts,
+                    days=args.days,
+                    limit=args.limit,
+                    fetch_all=getattr(args, 'fetch_all', False),
+                    page_size=getattr(args, 'page_size', 100),
+                    max_results=getattr(args, 'max_results', None),
+                    show_progress=show_progress
+                )
+
+            # Only SHA1 provided
+            else:  # args.test_alerts_sha1
+                alerts, pagination_info = client.search_test_alerts_sha1(
+                    sha1_hash=args.test_alerts_sha1,
+                    days=args.days,
+                    limit=args.limit,
+                    fetch_all=getattr(args, 'fetch_all', False),
+                    page_size=getattr(args, 'page_size', 100),
+                    max_results=getattr(args, 'max_results', None),
+                    show_progress=show_progress
+                )
+
+            # Format output
             if args.format == 'json':
                 formatted_output = client.format_alerts(alerts, 'json')
             elif args.format == 'markdown':
@@ -1501,7 +1699,7 @@ Examples:
                 fetch_all=getattr(args, 'fetch_all', False),
                 page_size=getattr(args, 'page_size', 100),
                 max_results=getattr(args, 'max_results', None),
-                show_progress=True
+                show_progress=show_progress
             )
             formatted_output = client.format_alerts(alerts, args.format)
 
@@ -1514,7 +1712,7 @@ Examples:
         if args.output:
             with open(args.output, 'w') as f:
                 f.write(formatted_output)
-            print(f"Results written to {args.output}")
+            print(f"Results written to {args.output}", file=sys.stderr)
         else:
             print(formatted_output)
 
