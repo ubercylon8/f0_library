@@ -368,13 +368,14 @@ class DefenderAlertQuery:
 
                     # Check fileEvidence
                     if evidence.get('@odata.type') == '#microsoft.graph.security.fileEvidence':
-                        evidence_path = evidence.get('fileDetails', {}).get('filePath', '').lower()
-                        evidence_filename = evidence.get('fileDetails', {}).get('fileName', '').lower()
+                        file_details = evidence.get('fileDetails') or {}
+                        evidence_path = (file_details.get('filePath') or '').lower()
+                        evidence_filename = (file_details.get('fileName') or '').lower()
                     # Check processEvidence
                     elif evidence.get('@odata.type') == '#microsoft.graph.security.processEvidence':
                         image_file = evidence.get('imageFile') or {}
-                        evidence_path = image_file.get('filePath', '').lower()
-                        evidence_filename = image_file.get('fileName', '').lower()
+                        evidence_path = (image_file.get('filePath') or '').lower()
+                        evidence_filename = (image_file.get('fileName') or '').lower()
 
                         # Also check parent process image file (CRITICAL FIX)
                         parent_image_file = evidence.get('parentProcessImageFile') or {}
@@ -412,8 +413,8 @@ class DefenderAlertQuery:
                                 break
 
                 # Also check if the alert title or description mentions the path
-                title = alert.get('title', '').lower()
-                description = alert.get('description', '').lower()
+                title = (alert.get('title') or '').lower()
+                description = (alert.get('description') or '').lower()
                 if search_path in title or search_path in description:
                     match_found = True
 
@@ -430,8 +431,8 @@ class DefenderAlertQuery:
                 match_found = False
 
                 # Check title and description (already filtered by OData if no file_path)
-                title = alert.get('title', '').lower()
-                description = alert.get('description', '').lower()
+                title = (alert.get('title') or '').lower()
+                description = (alert.get('description') or '').lower()
                 if search_lower in title or search_lower in description:
                     match_found = True
 
@@ -444,8 +445,8 @@ class DefenderAlertQuery:
                         # Check fileEvidence
                         if evidence.get('@odata.type') == '#microsoft.graph.security.fileEvidence':
                             file_details = evidence.get('fileDetails') or {}
-                            evidence_path = file_details.get('filePath', '').lower()
-                            evidence_filename = file_details.get('fileName', '').lower()
+                            evidence_path = (file_details.get('filePath') or '').lower()
+                            evidence_filename = (file_details.get('fileName') or '').lower()
                         # Check processEvidence
                         elif evidence.get('@odata.type') == '#microsoft.graph.security.processEvidence':
                             image_file = evidence.get('imageFile') or {}
@@ -540,8 +541,8 @@ class DefenderAlertQuery:
             alert_id = alert.get('id', 'N/A')
 
             # Check title and description
-            title = alert.get('title', '').lower()
-            description = alert.get('description', '').lower()
+            title = (alert.get('title') or '').lower()
+            description = (alert.get('description') or '').lower()
             if search_lower in title:
                 matches.append('title')
             if search_lower in description:
@@ -595,7 +596,7 @@ class DefenderAlertQuery:
 
                 # Check deviceEvidence for hostname
                 elif evidence_type == '#microsoft.graph.security.deviceEvidence':
-                    device_name = evidence.get('deviceDnsName', '').lower()
+                    device_name = (evidence.get('deviceDnsName') or '').lower()
                     if search_lower in device_name:
                         matches.append('hostname')
 
@@ -807,7 +808,7 @@ class DefenderAlertQuery:
             severity_counts = {}
             status_counts = {}
             for alert in alerts:
-                severity = alert.get('severity', 'unknown').lower()
+                severity = (alert.get('severity') or 'unknown').lower()
                 severity_counts[severity] = severity_counts.get(severity, 0) + 1
                 status = alert.get('status', 'unknown')
                 status_counts[status] = status_counts.get(status, 0) + 1
@@ -1038,7 +1039,7 @@ class DefenderAlertQuery:
         # Severity breakdown
         severity_counts = {}
         for alert in alerts:
-            severity = alert.get('severity', 'unknown').lower()
+            severity = (alert.get('severity') or 'unknown').lower()
             severity_counts[severity] = severity_counts.get(severity, 0) + 1
 
         # Status breakdown
@@ -1207,7 +1208,7 @@ class DefenderAlertQuery:
             severity_counts = {}
             status_counts = {}
             for alert in alerts:
-                severity = alert.get('severity', 'unknown').lower()
+                severity = (alert.get('severity') or 'unknown').lower()
                 severity_counts[severity] = severity_counts.get(severity, 0) + 1
                 status = alert.get('status', 'unknown')
                 status_counts[status] = status_counts.get(status, 0) + 1
@@ -1354,7 +1355,7 @@ class DefenderAlertQuery:
         # Severity breakdown
         severity_counts = {}
         for alert in alerts:
-            severity = alert.get('severity', 'unknown').lower()
+            severity = (alert.get('severity') or 'unknown').lower()
             severity_counts[severity] = severity_counts.get(severity, 0) + 1
 
         # Remediation status analysis
@@ -1717,7 +1718,10 @@ Examples:
             print(formatted_output)
 
     except Exception as e:
+        import traceback
         print(f"Error: {e}", file=sys.stderr)
+        print("\nFull traceback:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
 

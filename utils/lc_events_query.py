@@ -163,8 +163,8 @@ class LCEventsQuery:
             Tuple of (events_list, query_info)
         """
         # Build LCQL query
-        lcql_query = f"{date_range} | * | RECEIPT | routing/investigation_id contains '{uuid}' and not (event/ERROR == 1 or event/ERROR == 200)" 
-
+        # lcql_query = f"{date_range} | * | RECEIPT | routing/investigation_id contains '{uuid}'" 
+        lcql_query = f"{date_range} | * | RECEIPT | event/FILE_PATH contains '{uuid}'"
         # Execute lc-sensors command with authentication
         cmd = [
             self.lc_sensors_path, "events",
