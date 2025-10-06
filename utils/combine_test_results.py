@@ -32,6 +32,10 @@ Usage Examples:
     # Exclude specific error codes from analysis
     python combine_test_results.py --uuid "abc123" --date-range "last 7 days" --exclude-error-codes "1,200"
 
+    # Enable comprehensive defense scoring (NEW)
+    python combine_test_results.py --uuid "abc123def456" --date-range "last 24 hours" --score
+    python combine_test_results.py --uuid "abc123" --date-range "last 7 days" --score --format markdown --output report.md
+
     # Export to JSON for further processing
     python combine_test_results.py --uuid "abc123def456" --date-range "today" --output results.json
 
@@ -135,9 +139,19 @@ class CombinedTestResults:
             if result.returncode != 0:
                 raise RuntimeError(f"LimaCharlie query failed: {result.stderr}")
 
+            # Show stderr if there was any output (even with returncode 0)
+            if result.stderr:
+                print(f"Query stderr output: {result.stderr}")
+
             # Read results from temporary file
-            with open(temp_path, 'r') as f:
-                lc_results = json.load(f)
+            try:
+                with open(temp_path, 'r') as f:
+                    file_content = f.read()
+                    if not file_content.strip():
+                        raise ValueError(f"Output file is empty. Command stderr: {result.stderr}")
+                    lc_results = json.loads(file_content)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Failed to parse JSON from output file. Error: {e}\nFile content: {file_content[:200]}\nCommand stderr: {result.stderr}")
 
             if show_progress:
                 print(f"LimaCharlie query completed: {len(lc_results)} events found")
@@ -288,8 +302,15 @@ class CombinedTestResults:
         return None
 
     def correlate_results(self, lc_results: List[Dict[str, Any]], defender_results: List[Dict[str, Any]],
-                         time_window_minutes: int = 5) -> List[Dict[str, Any]]:
-        """Correlate LimaCharlie and Defender results by hostname and timestamp"""
+                         time_window_minutes: int = 5, enable_scoring: bool = False) -> List[Dict[str, Any]]:
+        """Correlate LimaCharlie and Defender results by hostname and timestamp
+
+        Args:
+            lc_results: LimaCharlie event results
+            defender_results: Defender alert results
+            time_window_minutes: Time window for correlation matching
+            enable_scoring: If True, calculate scoring metrics for each correlation
+        """
         correlations = []
 
         # Process each LC event
@@ -336,6 +357,10 @@ class CombinedTestResults:
                         'defender_title': best_match.get('title', ''),
                         'defender_hostname': self._extract_hostname_from_alert(best_match)
                     })
+
+            # Calculate scoring if enabled
+            if enable_scoring:
+                correlation['scoring'] = self.calculate_event_score(correlation)
 
             correlations.append(correlation)
 
@@ -480,8 +505,13 @@ class CombinedTestResults:
                 statuses.add(status)
         return '/'.join(sorted(statuses)) if statuses else 'N/A'
 
-    def format_correlations_table(self, correlations: List[Dict[str, Any]]) -> str:
-        """Format correlations as a table"""
+    def format_correlations_table(self, correlations: List[Dict[str, Any]], enable_scoring: bool = False) -> str:
+        """Format correlations as a table
+
+        Args:
+            correlations: List of correlation dictionaries
+            enable_scoring: If True, include score column in table
+        """
         if not correlations:
             return "No correlations found."
 
@@ -490,9 +520,13 @@ class CombinedTestResults:
         output.append("=" * 120)
         output.append("")
 
-        # Table headers
-        headers = ["LC Hostname", "LC Timestamp", "LC Error", "Defender Match", "Def Timestamp", "Severity", "Status", "Remediation", "Detection"]
-        col_widths = [16, 16, 8, 12, 16, 10, 12, 12, 12]
+        # Table headers - add Score column if scoring enabled
+        if enable_scoring:
+            headers = ["LC Hostname", "LC Timestamp", "LC Error", "Defender Match", "Def Timestamp", "Severity", "Status", "Remediation", "Detection", "Score"]
+            col_widths = [16, 16, 8, 12, 16, 10, 12, 12, 12, 8]
+        else:
+            headers = ["LC Hostname", "LC Timestamp", "LC Error", "Defender Match", "Def Timestamp", "Severity", "Status", "Remediation", "Detection"]
+            col_widths = [16, 16, 8, 12, 16, 10, 12, 12, 12]
 
         # Header row
         header_row = "| " + " | ".join(f"{headers[i]:<{col_widths[i]}}" for i in range(len(headers))) + " |"
@@ -534,6 +568,11 @@ class CombinedTestResults:
                 corr.get('detection_status', 'N/A')[:11]
             ]
 
+            # Add score column if enabled
+            if enable_scoring:
+                score = corr.get('scoring', {}).get('total_score', 0)
+                row_data.append(f"{score:.1f}")
+
             # Create row
             row = "| " + " | ".join(f"{row_data[i]:<{col_widths[i]}}" for i in range(len(row_data))) + " |"
             output.append(row)
@@ -543,8 +582,17 @@ class CombinedTestResults:
     def generate_statistics(self, correlations: List[Dict[str, Any]],
                           lc_query_info: Dict[str, Any],
                           defender_query_info: Dict[str, Any],
-                          time_window_minutes: int = 5) -> str:
-        """Generate summary statistics"""
+                          time_window_minutes: int = 5,
+                          enable_scoring: bool = False) -> str:
+        """Generate summary statistics
+
+        Args:
+            correlations: List of correlation dictionaries
+            lc_query_info: LimaCharlie query information
+            defender_query_info: Defender query information
+            time_window_minutes: Time window for correlation
+            enable_scoring: If True, include scoring statistics
+        """
         if not correlations:
             return "No statistics available."
 
@@ -587,6 +635,44 @@ class CombinedTestResults:
         stats.append(f"Test UUID: {lc_query_info.get('uuid', 'N/A')}")
         stats.append(f"Date Range: {lc_query_info.get('date_range', 'N/A')}")
         stats.append(f"Time Window: {time_window_minutes} minutes")
+
+        # Add defense score statistics if enabled
+        if enable_scoring:
+            defense_score_data = self.calculate_defense_score(correlations)
+            stats.append("")
+            stats.append("=" * 50)
+            stats.append("DEFENSE SCORE ANALYSIS")
+            stats.append("=" * 50)
+            stats.append(f"Final Defense Score: {defense_score_data['final_score']:.2f}%")
+            stats.append(f"Rating: {defense_score_data['interpretation']}")
+            stats.append(f"Assessment: {defense_score_data['description']}")
+            stats.append("")
+            stats.append("Component Breakdown:")
+
+            comp_avgs = defense_score_data['component_averages']
+            stats.append(f"  Detection Coverage:    {comp_avgs['detection_coverage']['average']:.2f}/{comp_avgs['detection_coverage']['max']} ({comp_avgs['detection_coverage']['percentage']:.1f}%)")
+            stats.append(f"  Prevention Quality:    {comp_avgs['prevention_quality']['average']:.2f}/{comp_avgs['prevention_quality']['max']} ({comp_avgs['prevention_quality']['percentage']:.1f}%)")
+            stats.append(f"  Response Speed:        {comp_avgs['response_speed']['average']:.2f}/{comp_avgs['response_speed']['max']} ({comp_avgs['response_speed']['percentage']:.1f}%)")
+            stats.append(f"  Severity Recognition:  {comp_avgs['severity_recognition']['average']:.2f}/{comp_avgs['severity_recognition']['max']} ({comp_avgs['severity_recognition']['percentage']:.1f}%)")
+
+            # Show penalties if any
+            penalties = defense_score_data['penalties']
+            if penalties['total_penalty'] > 0:
+                stats.append("")
+                stats.append("Penalties Applied:")
+                if penalties['unmatched_events'] > 0:
+                    stats.append(f"  Unmatched Events: -{penalties['unmatched_events']} points")
+                if penalties['late_detections'] > 0:
+                    stats.append(f"  Late Detections: -{penalties['late_detections']} points")
+                if penalties['not_remediated'] > 0:
+                    stats.append(f"  Not Remediated: -{penalties['not_remediated']} points")
+                if penalties['not_detected'] > 0:
+                    stats.append(f"  Not Detected: -{penalties['not_detected']} points")
+                stats.append(f"  Total Penalties: -{penalties['total_penalty']} points")
+
+            stats.append("")
+            stats.append(f"Average Score Before Penalties: {defense_score_data['average_score_before_penalties']:.2f}")
+            stats.append("=" * 50)
 
         stats.append("")
         stats.append("LC Error Code Distribution:")
@@ -671,11 +757,406 @@ class CombinedTestResults:
         }
         return error_meanings.get(error_code, "Unknown")
 
+    # ============================================================================
+    # SCORING METHODS (Optional - only used when --score flag is enabled)
+    # ============================================================================
+
+    def calculate_detection_coverage_score(self, correlation: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate detection coverage score (0-40 points)
+
+        Scoring breakdown:
+        - Base detection (matched): 20 points
+        - Evidence diversity: 0-20 points
+        """
+        score_breakdown = {
+            'base_detection': 0,
+            'evidence_diversity': 0,
+            'total': 0
+        }
+
+        # Base detection: 20 points if matched
+        if correlation.get('defender_match') == 'Yes':
+            score_breakdown['base_detection'] = 20
+
+        # Evidence diversity analysis (only if we have a match)
+        if correlation.get('defender_match') == 'Yes':
+            # Count evidence types from the defender alert
+            # We don't have direct access to the alert here, so we'll estimate based on available data
+            evidence_score = 0
+
+            # If we have multiple status types, indicates multiple evidence
+            if correlation.get('remediation_status') and correlation.get('remediation_status') != 'N/A':
+                evidence_score += 5
+
+            if correlation.get('detection_status') and correlation.get('detection_status') != 'N/A':
+                evidence_score += 5
+
+            # If we have defender hostname, indicates device evidence
+            if correlation.get('defender_hostname'):
+                evidence_score += 5
+
+            # If severity is assessed, indicates analysis depth
+            if correlation.get('severity') and correlation.get('severity') != 'N/A':
+                evidence_score += 5
+
+            score_breakdown['evidence_diversity'] = min(evidence_score, 20)
+
+        score_breakdown['total'] = score_breakdown['base_detection'] + score_breakdown['evidence_diversity']
+        return score_breakdown
+
+    def calculate_prevention_quality_score(self, lc_error_code: int, defender_status: str) -> Dict[str, Any]:
+        """Calculate prevention quality score (0-30 points)
+
+        Scoring breakdown:
+        - LC error code base points
+        - Defender status multiplier
+        """
+        # LC error code base points
+        error_code_points = {
+            3: 30,    # Quarantined - pre-execution blocking (best)
+            1: 25,    # NF_denied - kernel-level denial
+            259: 20,  # exec_stop - execution stopped
+            0: 15,    # exec_error - failed execution
+            200: 5    # Uploaded - detection only (worst)
+        }
+
+        base_points = error_code_points.get(lc_error_code, 10)  # Default 10 for unknown codes
+
+        # Defender status multiplier
+        status_multipliers = {
+            'prevented': 1.0,
+            'blocked': 0.8,
+            'resolved': 0.6,
+            'inProgress': 0.4,
+            'new': 0.2
+        }
+
+        # Normalize status (case-insensitive)
+        status_normalized = defender_status.lower() if defender_status else ''
+        multiplier = status_multipliers.get(status_normalized, 0.5)  # Default 0.5 for unknown
+
+        final_score = base_points * multiplier
+
+        return {
+            'base_points': base_points,
+            'error_code': lc_error_code,
+            'status': defender_status,
+            'multiplier': multiplier,
+            'total': round(final_score, 2)
+        }
+
+    def calculate_response_speed_score(self, lc_timestamp: Optional[datetime],
+                                       defender_timestamp_str: str) -> Dict[str, Any]:
+        """Calculate response speed score (0-20 points)
+
+        Based on time difference between LC event and Defender alert
+        """
+        score_breakdown = {
+            'time_diff_seconds': None,
+            'time_diff_category': 'N/A',
+            'total': 0
+        }
+
+        if not lc_timestamp or not defender_timestamp_str:
+            return score_breakdown
+
+        defender_timestamp = self.parse_timestamp(defender_timestamp_str)
+        if not defender_timestamp:
+            return score_breakdown
+
+        # Calculate time difference
+        time_diff = abs(defender_timestamp - lc_timestamp)
+        time_diff_seconds = time_diff.total_seconds()
+        score_breakdown['time_diff_seconds'] = time_diff_seconds
+
+        # Score based on time difference
+        if time_diff_seconds < 5:
+            score_breakdown['total'] = 20
+            score_breakdown['time_diff_category'] = 'Real-time (<5s)'
+        elif time_diff_seconds < 30:
+            score_breakdown['total'] = 18
+            score_breakdown['time_diff_category'] = 'Near real-time (5-30s)'
+        elif time_diff_seconds < 60:
+            score_breakdown['total'] = 15
+            score_breakdown['time_diff_category'] = 'Fast (30-60s)'
+        elif time_diff_seconds < 120:
+            score_breakdown['total'] = 12
+            score_breakdown['time_diff_category'] = 'Good (1-2m)'
+        elif time_diff_seconds < 180:
+            score_breakdown['total'] = 8
+            score_breakdown['time_diff_category'] = 'Acceptable (2-3m)'
+        elif time_diff_seconds < 300:
+            score_breakdown['total'] = 4
+            score_breakdown['time_diff_category'] = 'Slow (3-5m)'
+        else:
+            score_breakdown['total'] = 0
+            score_breakdown['time_diff_category'] = 'Delayed (>5m)'
+
+        return score_breakdown
+
+    def calculate_severity_score(self, severity: str) -> Dict[str, Any]:
+        """Calculate severity recognition score (0-10 points)
+
+        Rewards accurate threat severity assessment
+        """
+        severity_points = {
+            'high': 10,
+            'medium': 7,
+            'low': 4,
+            'informational': 1
+        }
+
+        # Normalize severity (case-insensitive)
+        severity_normalized = severity.lower() if severity else ''
+        points = severity_points.get(severity_normalized, 0)
+
+        return {
+            'severity': severity,
+            'total': points
+        }
+
+    def calculate_event_score(self, correlation: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate total score for a single event (0-100 points)
+
+        Combines all scoring components:
+        - Detection coverage: 0-40 points
+        - Prevention quality: 0-30 points
+        - Response speed: 0-20 points
+        - Severity recognition: 0-10 points
+        """
+        # Calculate individual component scores
+        detection_score = self.calculate_detection_coverage_score(correlation)
+
+        prevention_score = self.calculate_prevention_quality_score(
+            correlation.get('lc_error_code', 0),
+            correlation.get('status', '')
+        )
+
+        response_speed_score = self.calculate_response_speed_score(
+            correlation.get('lc_timestamp_parsed'),
+            correlation.get('defender_timestamp', '')
+        )
+
+        severity_score = self.calculate_severity_score(
+            correlation.get('severity', '')
+        )
+
+        # Calculate total score
+        total_score = (
+            detection_score['total'] +
+            prevention_score['total'] +
+            response_speed_score['total'] +
+            severity_score['total']
+        )
+
+        return {
+            'detection_coverage': detection_score,
+            'prevention_quality': prevention_score,
+            'response_speed': response_speed_score,
+            'severity_recognition': severity_score,
+            'total_score': round(total_score, 2),
+            'max_score': 100
+        }
+
+    def calculate_penalties(self, correlations: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calculate penalty points for various failure conditions
+
+        Penalties:
+        - Unmatched events: -5 per event
+        - Late detection (>5 min): -3 per event
+        - Not remediated: -5 per event
+        - Not detected (but alert exists): -10 per event
+        """
+        penalties = {
+            'unmatched_events': 0,
+            'late_detections': 0,
+            'not_remediated': 0,
+            'not_detected': 0,
+            'total_penalty': 0,
+            'breakdown': []
+        }
+
+        for corr in correlations:
+            # Unmatched events
+            if corr.get('defender_match') != 'Yes':
+                penalties['unmatched_events'] += 5
+                penalties['breakdown'].append({
+                    'hostname': corr.get('lc_hostname', 'N/A'),
+                    'type': 'unmatched',
+                    'penalty': 5
+                })
+
+            # Late detection (>5 minutes)
+            if 'scoring' in corr:
+                response_speed = corr['scoring'].get('response_speed', {})
+                time_diff = response_speed.get('time_diff_seconds')
+                if time_diff and time_diff > 300:
+                    penalties['late_detections'] += 3
+                    penalties['breakdown'].append({
+                        'hostname': corr.get('lc_hostname', 'N/A'),
+                        'type': 'late_detection',
+                        'penalty': 3,
+                        'time_diff': time_diff
+                    })
+
+            # Not remediated
+            remediation_status = corr.get('remediation_status', '').lower()
+            if 'notremediated' in remediation_status:
+                penalties['not_remediated'] += 5
+                penalties['breakdown'].append({
+                    'hostname': corr.get('lc_hostname', 'N/A'),
+                    'type': 'not_remediated',
+                    'penalty': 5
+                })
+
+            # Not detected (but alert exists - false positive indicator)
+            detection_status = corr.get('detection_status', '').lower()
+            if corr.get('defender_match') == 'Yes' and 'notdetected' in detection_status:
+                penalties['not_detected'] += 10
+                penalties['breakdown'].append({
+                    'hostname': corr.get('lc_hostname', 'N/A'),
+                    'type': 'not_detected',
+                    'penalty': 10
+                })
+
+        penalties['total_penalty'] = (
+            penalties['unmatched_events'] +
+            penalties['late_detections'] +
+            penalties['not_remediated'] +
+            penalties['not_detected']
+        )
+
+        return penalties
+
+    def calculate_defense_score(self, correlations: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calculate final defense score with component breakdown
+
+        Returns comprehensive scoring analysis including:
+        - Overall defense score (0-100%)
+        - Component averages
+        - Penalties applied
+        - Score interpretation
+        """
+        if not correlations:
+            return {
+                'final_score': 0,
+                'interpretation': 'No data',
+                'total_events': 0
+            }
+
+        # Calculate average scores for each component
+        total_events = len(correlations)
+        events_with_scores = [c for c in correlations if 'scoring' in c]
+
+        if not events_with_scores:
+            return {
+                'final_score': 0,
+                'interpretation': 'Scoring not calculated',
+                'total_events': total_events
+            }
+
+        # Sum up all component scores
+        component_totals = {
+            'detection_coverage': 0,
+            'prevention_quality': 0,
+            'response_speed': 0,
+            'severity_recognition': 0
+        }
+
+        total_score_sum = 0
+
+        for corr in events_with_scores:
+            scoring = corr.get('scoring', {})
+            component_totals['detection_coverage'] += scoring.get('detection_coverage', {}).get('total', 0)
+            component_totals['prevention_quality'] += scoring.get('prevention_quality', {}).get('total', 0)
+            component_totals['response_speed'] += scoring.get('response_speed', {}).get('total', 0)
+            component_totals['severity_recognition'] += scoring.get('severity_recognition', {}).get('total', 0)
+            total_score_sum += scoring.get('total_score', 0)
+
+        # Calculate averages
+        num_scored_events = len(events_with_scores)
+        avg_detection = component_totals['detection_coverage'] / num_scored_events
+        avg_prevention = component_totals['prevention_quality'] / num_scored_events
+        avg_speed = component_totals['response_speed'] / num_scored_events
+        avg_severity = component_totals['severity_recognition'] / num_scored_events
+        avg_total = total_score_sum / num_scored_events
+
+        # Calculate penalties
+        penalties = self.calculate_penalties(correlations)
+
+        # Final score (average score minus penalties, capped at 0-100)
+        final_score = max(0, min(100, avg_total - penalties['total_penalty']))
+
+        # Score interpretation
+        if final_score >= 90:
+            interpretation = "⭐⭐⭐⭐⭐ Excellent"
+            description = "Comprehensive pre-execution prevention with fast response"
+        elif final_score >= 75:
+            interpretation = "⭐⭐⭐⭐ Strong"
+            description = "Effective early-stage blocking and good coverage"
+        elif final_score >= 60:
+            interpretation = "⭐⭐⭐ Good"
+            description = "Solid detection with moderate prevention"
+        elif final_score >= 40:
+            interpretation = "⭐⭐ Fair"
+            description = "Basic detection capabilities, needs improvement"
+        elif final_score >= 20:
+            interpretation = "⭐ Weak"
+            description = "Limited and delayed detection, critical gaps"
+        else:
+            interpretation = "❌ Critical"
+            description = "Inadequate protection, immediate action required"
+
+        return {
+            'final_score': round(final_score, 2),
+            'average_score_before_penalties': round(avg_total, 2),
+            'interpretation': interpretation,
+            'description': description,
+            'total_events': total_events,
+            'scored_events': num_scored_events,
+            'component_averages': {
+                'detection_coverage': {
+                    'average': round(avg_detection, 2),
+                    'max': 40,
+                    'percentage': round((avg_detection / 40) * 100, 1)
+                },
+                'prevention_quality': {
+                    'average': round(avg_prevention, 2),
+                    'max': 30,
+                    'percentage': round((avg_prevention / 30) * 100, 1)
+                },
+                'response_speed': {
+                    'average': round(avg_speed, 2),
+                    'max': 20,
+                    'percentage': round((avg_speed / 20) * 100, 1)
+                },
+                'severity_recognition': {
+                    'average': round(avg_severity, 2),
+                    'max': 10,
+                    'percentage': round((avg_severity / 10) * 100, 1)
+                }
+            },
+            'penalties': penalties
+        }
+
+    # ============================================================================
+    # END SCORING METHODS
+    # ============================================================================
+
     def _format_markdown(self, correlations: List[Dict[str, Any]],
                         lc_query_info: Dict[str, Any],
                         defender_query_info: Dict[str, Any],
-                        time_window_minutes: int = 5) -> str:
-        """Format output in markdown format with Defense Score prominently displayed"""
+                        time_window_minutes: int = 5,
+                        enable_scoring: bool = False) -> str:
+        """Format output in markdown format with Defense Score prominently displayed
+
+        Args:
+            correlations: List of correlation dictionaries
+            lc_query_info: LimaCharlie query information
+            defender_query_info: Defender query information
+            time_window_minutes: Time window for correlation
+            enable_scoring: If True, include comprehensive scoring analysis
+        """
         if not correlations:
             return "# F0RT1KA Combined Security Test Results\n\nNo correlations found."
 
@@ -688,9 +1169,40 @@ class CombinedTestResults:
         defense_score = (matched_events / total_lc_events * 100) if total_lc_events > 0 else 0
 
         # Prominent Defense Score section
-        output.append("## 🛡️ Defense Score")
-        output.append(f"## **{defense_score:.1f}%**")
-        output.append(f"*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
+        if enable_scoring:
+            # Use comprehensive scoring
+            defense_score_data = self.calculate_defense_score(correlations)
+            output.append("## 🛡️ Defense Score")
+            output.append(f"## **{defense_score_data['final_score']:.1f}%** - {defense_score_data['interpretation']}")
+            output.append(f"*{defense_score_data['description']}*\n")
+
+            # Component breakdown
+            output.append("### Score Components")
+            comp_avgs = defense_score_data['component_averages']
+            output.append(f"- **Detection Coverage:** {comp_avgs['detection_coverage']['average']:.2f}/{comp_avgs['detection_coverage']['max']} ({comp_avgs['detection_coverage']['percentage']:.1f}%)")
+            output.append(f"- **Prevention Quality:** {comp_avgs['prevention_quality']['average']:.2f}/{comp_avgs['prevention_quality']['max']} ({comp_avgs['prevention_quality']['percentage']:.1f}%)")
+            output.append(f"- **Response Speed:** {comp_avgs['response_speed']['average']:.2f}/{comp_avgs['response_speed']['max']} ({comp_avgs['response_speed']['percentage']:.1f}%)")
+            output.append(f"- **Severity Recognition:** {comp_avgs['severity_recognition']['average']:.2f}/{comp_avgs['severity_recognition']['max']} ({comp_avgs['severity_recognition']['percentage']:.1f}%)")
+
+            # Penalties if any
+            penalties = defense_score_data['penalties']
+            if penalties['total_penalty'] > 0:
+                output.append(f"\n**Penalties Applied:** -{penalties['total_penalty']} points")
+                if penalties['unmatched_events'] > 0:
+                    output.append(f"- Unmatched Events: -{penalties['unmatched_events']}")
+                if penalties['late_detections'] > 0:
+                    output.append(f"- Late Detections: -{penalties['late_detections']}")
+                if penalties['not_remediated'] > 0:
+                    output.append(f"- Not Remediated: -{penalties['not_remediated']}")
+                if penalties['not_detected'] > 0:
+                    output.append(f"- Not Detected: -{penalties['not_detected']}")
+
+            output.append(f"\n*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
+        else:
+            # Use simple match percentage (existing behavior)
+            output.append("## 🛡️ Defense Score")
+            output.append(f"## **{defense_score:.1f}%**")
+            output.append(f"*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
 
         # Summary section
         output.append("## Summary")
@@ -716,8 +1228,14 @@ class CombinedTestResults:
         # Correlation Results Table
         output.append("\n---\n")
         output.append("## Correlation Results\n")
-        output.append("| LC Hostname | LC Timestamp | LC Error | Defender Match | Def Timestamp | Severity | Status | Remediation | Detection |")
-        output.append("|-------------|--------------|----------|----------------|---------------|----------|--------|-------------|-----------|")
+
+        # Table headers - add Score column if scoring enabled
+        if enable_scoring:
+            output.append("| LC Hostname | LC Timestamp | LC Error | Defender Match | Def Timestamp | Severity | Status | Remediation | Detection | Score |")
+            output.append("|-------------|--------------|----------|----------------|---------------|----------|--------|-------------|-----------|-------|")
+        else:
+            output.append("| LC Hostname | LC Timestamp | LC Error | Defender Match | Def Timestamp | Severity | Status | Remediation | Detection |")
+            output.append("|-------------|--------------|----------|----------------|---------------|----------|--------|-------------|-----------|")
 
         for corr in correlations:
             # Format LC timestamp
@@ -749,7 +1267,12 @@ class CombinedTestResults:
             remediation = corr.get('remediation_status', 'N/A').replace('|', '\\|')[:12]
             detection = corr.get('detection_status', 'N/A').replace('|', '\\|')[:12]
 
-            output.append(f"| {hostname} | {lc_ts} | {corr.get('lc_error_code', 0)} | {defender_match} | {def_ts} | {severity} | {status} | {remediation} | {detection} |")
+            # Build row with optional score column
+            if enable_scoring:
+                score = corr.get('scoring', {}).get('total_score', 0)
+                output.append(f"| {hostname} | {lc_ts} | {corr.get('lc_error_code', 0)} | {defender_match} | {def_ts} | {severity} | {status} | {remediation} | {detection} | {score:.1f} |")
+            else:
+                output.append(f"| {hostname} | {lc_ts} | {corr.get('lc_error_code', 0)} | {defender_match} | {def_ts} | {severity} | {status} | {remediation} | {detection} |")
 
         # Statistics Summary
         output.append("\n---\n")
@@ -830,22 +1353,38 @@ class CombinedTestResults:
                      lc_query_info: Dict[str, Any],
                      defender_query_info: Dict[str, Any],
                      format_type: str = 'table',
-                     time_window_minutes: int = 5) -> str:
-        """Format output in the requested format"""
+                     time_window_minutes: int = 5,
+                     enable_scoring: bool = False) -> str:
+        """Format output in the requested format
+
+        Args:
+            correlations: List of correlation dictionaries
+            lc_query_info: LimaCharlie query information
+            defender_query_info: Defender query information
+            format_type: Output format (table, json, or markdown)
+            time_window_minutes: Time window for correlation
+            enable_scoring: If True, include comprehensive scoring analysis
+        """
         if format_type == 'json':
-            return json.dumps({
+            output_data = {
                 'correlations': correlations,
                 'lc_query_info': lc_query_info,
                 'defender_query_info': defender_query_info,
                 'time_window_minutes': time_window_minutes
-            }, indent=2, default=str)
+            }
+
+            # Add defense score data if scoring enabled
+            if enable_scoring:
+                output_data['defense_score'] = self.calculate_defense_score(correlations)
+
+            return json.dumps(output_data, indent=2, default=str)
 
         elif format_type == 'markdown':
-            return self._format_markdown(correlations, lc_query_info, defender_query_info, time_window_minutes)
+            return self._format_markdown(correlations, lc_query_info, defender_query_info, time_window_minutes, enable_scoring)
 
         else:  # table format
-            table_output = self.format_correlations_table(correlations)
-            stats_output = self.generate_statistics(correlations, lc_query_info, defender_query_info, time_window_minutes)
+            table_output = self.format_correlations_table(correlations, enable_scoring)
+            stats_output = self.generate_statistics(correlations, lc_query_info, defender_query_info, time_window_minutes, enable_scoring)
             unmatched_analysis = self.analyze_unmatched_events(correlations)
             return f"{table_output}\n\n{stats_output}\n\n{unmatched_analysis}"
 
@@ -868,6 +1407,10 @@ Examples:
 
   # Exclude specific error codes from analysis
   %(prog)s --uuid "abc123def456" --date-range "last 7 days" --exclude-error-codes "1,200"
+
+  # Enable comprehensive defense scoring
+  %(prog)s --uuid "abc123def456" --date-range "last 24 hours" --score
+  %(prog)s --uuid "abc123def456" --date-range "last 7 days" --score --format markdown --output report.md
 
   # With additional options
   %(prog)s --uuid "abc123def456" --date-range "last 30 days" --limit 5000 --env-file custom.env
@@ -896,6 +1439,8 @@ Examples:
     parser.add_argument('--format', choices=['table', 'json', 'markdown'], default='table',
                        help='Output format (default: table)')
     parser.add_argument('--output', help='Output file path (stdout if not specified)')
+    parser.add_argument('--score', action='store_true',
+                       help='Enable comprehensive defense scoring analysis (optional)')
 
     args = parser.parse_args()
 
@@ -941,10 +1486,10 @@ Examples:
         )
 
         # Correlate results
-        correlations = analyzer.correlate_results(lc_results, defender_results, args.time_window)
+        correlations = analyzer.correlate_results(lc_results, defender_results, args.time_window, enable_scoring=args.score)
 
         # Generate output
-        formatted_output = analyzer.format_output(correlations, lc_query_info, defender_query_info, args.format, args.time_window)
+        formatted_output = analyzer.format_output(correlations, lc_query_info, defender_query_info, args.format, args.time_window, enable_scoring=args.score)
 
         # Write output
         if args.output:
