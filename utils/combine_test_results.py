@@ -47,6 +47,8 @@ Usage Examples:
 """
 
 import argparse
+import csv
+import io
 import json
 import os
 import sys
@@ -633,6 +635,11 @@ class CombinedTestResults:
         stats.append(f"Unique Endpoints: {len(unique_hostnames)}")
         stats.append(f"Endpoints with Matches: {len(matched_hostnames)}")
         stats.append(f"Test UUID: {lc_query_info.get('uuid', 'N/A')}")
+
+        # Add SHA1 hash if available
+        if defender_query_info.get('sha1'):
+            stats.append(f"Test SHA1: {defender_query_info.get('sha1')}")
+
         stats.append(f"Date Range: {lc_query_info.get('date_range', 'N/A')}")
         stats.append(f"Time Window: {time_window_minutes} minutes")
 
@@ -1147,7 +1154,9 @@ class CombinedTestResults:
                         lc_query_info: Dict[str, Any],
                         defender_query_info: Dict[str, Any],
                         time_window_minutes: int = 5,
-                        enable_scoring: bool = False) -> str:
+                        enable_scoring: bool = False,
+                        notes: Optional[str] = None,
+                        next_steps: Optional[str] = None) -> str:
         """Format output in markdown format with Defense Score prominently displayed
 
         Args:
@@ -1156,6 +1165,8 @@ class CombinedTestResults:
             defender_query_info: Defender query information
             time_window_minutes: Time window for correlation
             enable_scoring: If True, include comprehensive scoring analysis
+            notes: Optional notes text to include after Summary
+            next_steps: Optional next steps text to include after Summary/Notes
         """
         if not correlations:
             return "# F0RT1KA Combined Security Test Results\n\nNo correlations found."
@@ -1169,40 +1180,15 @@ class CombinedTestResults:
         defense_score = (matched_events / total_lc_events * 100) if total_lc_events > 0 else 0
 
         # Prominent Defense Score section
+        output.append("## 🛡️ Defense Score")
         if enable_scoring:
             # Use comprehensive scoring
             defense_score_data = self.calculate_defense_score(correlations)
-            output.append("## 🛡️ Defense Score")
-            output.append(f"## **{defense_score_data['final_score']:.1f}%** - {defense_score_data['interpretation']}")
-            output.append(f"*{defense_score_data['description']}*\n")
-
-            # Component breakdown
-            output.append("### Score Components")
-            comp_avgs = defense_score_data['component_averages']
-            output.append(f"- **Detection Coverage:** {comp_avgs['detection_coverage']['average']:.2f}/{comp_avgs['detection_coverage']['max']} ({comp_avgs['detection_coverage']['percentage']:.1f}%)")
-            output.append(f"- **Prevention Quality:** {comp_avgs['prevention_quality']['average']:.2f}/{comp_avgs['prevention_quality']['max']} ({comp_avgs['prevention_quality']['percentage']:.1f}%)")
-            output.append(f"- **Response Speed:** {comp_avgs['response_speed']['average']:.2f}/{comp_avgs['response_speed']['max']} ({comp_avgs['response_speed']['percentage']:.1f}%)")
-            output.append(f"- **Severity Recognition:** {comp_avgs['severity_recognition']['average']:.2f}/{comp_avgs['severity_recognition']['max']} ({comp_avgs['severity_recognition']['percentage']:.1f}%)")
-
-            # Penalties if any
-            penalties = defense_score_data['penalties']
-            if penalties['total_penalty'] > 0:
-                output.append(f"\n**Penalties Applied:** -{penalties['total_penalty']} points")
-                if penalties['unmatched_events'] > 0:
-                    output.append(f"- Unmatched Events: -{penalties['unmatched_events']}")
-                if penalties['late_detections'] > 0:
-                    output.append(f"- Late Detections: -{penalties['late_detections']}")
-                if penalties['not_remediated'] > 0:
-                    output.append(f"- Not Remediated: -{penalties['not_remediated']}")
-                if penalties['not_detected'] > 0:
-                    output.append(f"- Not Detected: -{penalties['not_detected']}")
-
-            output.append(f"\n*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
+            output.append(f"### **{defense_score_data['final_score']:.1f}%**")
         else:
             # Use simple match percentage (existing behavior)
-            output.append("## 🛡️ Defense Score")
-            output.append(f"## **{defense_score:.1f}%**")
-            output.append(f"*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
+            output.append(f"### **{defense_score:.1f}%**")
+        output.append(f"*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
 
         # Summary section
         output.append("## Summary")
@@ -1222,8 +1208,27 @@ class CombinedTestResults:
         output.append(f"- **Unique Endpoints:** {len(unique_hostnames)}")
         output.append(f"- **Endpoints with Matches:** {len(matched_hostnames)}")
         output.append(f"- **Test UUID:** {lc_query_info.get('uuid', 'N/A')}")
+
+        # Add SHA1 hash if available
+        if defender_query_info.get('sha1'):
+            output.append(f"- **Test SHA1:** {defender_query_info.get('sha1')}")
+
         output.append(f"- **Date Range:** {lc_query_info.get('date_range', 'N/A')}")
         output.append(f"- **Time Window:** {time_window_minutes} minutes")
+
+        # Add Notes section if provided
+        if notes:
+            output.append("\n## Notes")
+            # Process \n for line breaks
+            notes_text = notes.replace('\\n', '\n')
+            output.append(notes_text)
+
+        # Add Next Steps section if provided
+        if next_steps:
+            output.append("\n## Next Steps")
+            # Process \n for line breaks
+            next_steps_text = next_steps.replace('\\n', '\n')
+            output.append(next_steps_text)
 
         # Correlation Results Table
         output.append("\n---\n")
@@ -1344,26 +1349,109 @@ class CombinedTestResults:
             if len(unmatched_events) > 10:
                 output.append(f"\n*Showing first 10 of {len(unmatched_events)} unmatched events*")
 
-        output.append("\n---\n")
-        output.append(f"*Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC*")
+        output.append(f"\n*Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC*")
 
         return '\n'.join(output)
+
+    def _format_csv(self, correlations: List[Dict[str, Any]],
+                    lc_query_info: Dict[str, Any],
+                    defender_query_info: Dict[str, Any],
+                    time_window_minutes: int = 5,
+                    enable_scoring: bool = False) -> str:
+        """Format output in CSV format
+
+        Args:
+            correlations: List of correlation dictionaries
+            lc_query_info: LimaCharlie query information
+            defender_query_info: Defender query information
+            time_window_minutes: Time window for correlation
+            enable_scoring: If True, include score column
+        """
+        if not correlations:
+            return "# No correlations found"
+
+        output = io.StringIO()
+
+        # Define CSV headers
+        if enable_scoring:
+            headers = [
+                'LC Hostname', 'LC Timestamp', 'LC Error Code', 'LC File Path',
+                'Defender Match', 'Defender Timestamp', 'Severity', 'Status',
+                'Remediation Status', 'Detection Status', 'Defender Alert ID',
+                'Defender Title', 'Defender Hostname', 'Score'
+            ]
+        else:
+            headers = [
+                'LC Hostname', 'LC Timestamp', 'LC Error Code', 'LC File Path',
+                'Defender Match', 'Defender Timestamp', 'Severity', 'Status',
+                'Remediation Status', 'Detection Status', 'Defender Alert ID',
+                'Defender Title', 'Defender Hostname'
+            ]
+
+        writer = csv.writer(output)
+        writer.writerow(headers)
+
+        # Write data rows
+        for corr in correlations:
+            # Format LC timestamp
+            lc_ts = corr.get('lc_timestamp', '')
+            if lc_ts and corr.get('lc_timestamp_parsed'):
+                try:
+                    lc_ts = corr['lc_timestamp_parsed'].strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+
+            # Format Defender timestamp
+            def_ts = corr.get('defender_timestamp', '')
+            if def_ts:
+                def_parsed = self.parse_timestamp(def_ts)
+                if def_parsed:
+                    def_ts = def_parsed.strftime('%Y-%m-%d %H:%M:%S')
+
+            row = [
+                corr.get('lc_hostname', 'N/A'),
+                lc_ts,
+                corr.get('lc_error_code', ''),
+                corr.get('lc_file_path', ''),
+                corr.get('defender_match', 'No'),
+                def_ts,
+                corr.get('severity', 'N/A'),
+                corr.get('status', 'N/A'),
+                corr.get('remediation_status', 'N/A'),
+                corr.get('detection_status', 'N/A'),
+                corr.get('defender_alert_id', ''),
+                corr.get('defender_title', ''),
+                corr.get('defender_hostname', '')
+            ]
+
+            # Add score if enabled
+            if enable_scoring:
+                score = corr.get('scoring', {}).get('total_score', 0)
+                row.append(f"{score:.2f}")
+
+            writer.writerow(row)
+
+        return output.getvalue()
 
     def format_output(self, correlations: List[Dict[str, Any]],
                      lc_query_info: Dict[str, Any],
                      defender_query_info: Dict[str, Any],
                      format_type: str = 'table',
                      time_window_minutes: int = 5,
-                     enable_scoring: bool = False) -> str:
+                     enable_scoring: bool = False,
+                     notes: Optional[str] = None,
+                     next_steps: Optional[str] = None) -> str:
         """Format output in the requested format
 
         Args:
             correlations: List of correlation dictionaries
             lc_query_info: LimaCharlie query information
             defender_query_info: Defender query information
-            format_type: Output format (table, json, or markdown)
+            format_type: Output format (table, json, markdown, or csv)
             time_window_minutes: Time window for correlation
             enable_scoring: If True, include comprehensive scoring analysis
+            notes: Optional notes text (markdown only)
+            next_steps: Optional next steps text (markdown only)
         """
         if format_type == 'json':
             output_data = {
@@ -1380,7 +1468,10 @@ class CombinedTestResults:
             return json.dumps(output_data, indent=2, default=str)
 
         elif format_type == 'markdown':
-            return self._format_markdown(correlations, lc_query_info, defender_query_info, time_window_minutes, enable_scoring)
+            return self._format_markdown(correlations, lc_query_info, defender_query_info, time_window_minutes, enable_scoring, notes, next_steps)
+
+        elif format_type == 'csv':
+            return self._format_csv(correlations, lc_query_info, defender_query_info, time_window_minutes, enable_scoring)
 
         else:  # table format
             table_output = self.format_correlations_table(correlations, enable_scoring)
@@ -1412,6 +1503,13 @@ Examples:
   %(prog)s --uuid "abc123def456" --date-range "last 24 hours" --score
   %(prog)s --uuid "abc123def456" --date-range "last 7 days" --score --format markdown --output report.md
 
+  # Export to CSV format
+  %(prog)s --uuid "abc123def456" --date-range "last 7 days" --format csv --output results.csv
+  %(prog)s --uuid "abc123def456" --date-range "last 7 days" --format csv --score --output results_with_scores.csv
+
+  # Add Notes and Next Steps to markdown output
+  %(prog)s --uuid "abc123" --date-range "last 7 days" --format markdown --notes "Test conducted on production environment.\nAll systems monitored." --next-steps "Review alerts\nUpdate detection rules" --output report.md
+
   # With additional options
   %(prog)s --uuid "abc123def456" --date-range "last 30 days" --limit 5000 --env-file custom.env
 
@@ -1436,11 +1534,15 @@ Examples:
                        help='Time window in minutes for correlation matching (default: 5)')
     parser.add_argument('--exclude-error-codes',
                        help='Comma-separated list of LC error codes to exclude from analysis (e.g., "1,200")')
-    parser.add_argument('--format', choices=['table', 'json', 'markdown'], default='table',
+    parser.add_argument('--format', choices=['table', 'json', 'markdown', 'csv'], default='table',
                        help='Output format (default: table)')
     parser.add_argument('--output', help='Output file path (stdout if not specified)')
     parser.add_argument('--score', action='store_true',
                        help='Enable comprehensive defense scoring analysis (optional)')
+    parser.add_argument('--notes',
+                       help='Add a Notes section to markdown output (supports \\n for line breaks)')
+    parser.add_argument('--next-steps',
+                       help='Add a Next Steps section to markdown output (supports \\n for line breaks)')
 
     args = parser.parse_args()
 
@@ -1489,7 +1591,16 @@ Examples:
         correlations = analyzer.correlate_results(lc_results, defender_results, args.time_window, enable_scoring=args.score)
 
         # Generate output
-        formatted_output = analyzer.format_output(correlations, lc_query_info, defender_query_info, args.format, args.time_window, enable_scoring=args.score)
+        formatted_output = analyzer.format_output(
+            correlations,
+            lc_query_info,
+            defender_query_info,
+            args.format,
+            args.time_window,
+            enable_scoring=args.score,
+            notes=args.notes,
+            next_steps=args.next_steps
+        )
 
         # Write output
         if args.output:
