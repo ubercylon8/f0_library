@@ -523,10 +523,10 @@ class CombinedTestResults:
         # Table headers - add Score column if scoring enabled
         if enable_scoring:
             headers = ["LC Hostname", "LC Timestamp", "LC Error", "Defender Match", "Def Timestamp", "Severity", "Status", "Remediation", "Detection", "Score"]
-            col_widths = [16, 16, 8, 12, 16, 10, 12, 12, 12, 8]
+            col_widths = [16, 16, 8, 12, 16, 13, 12, 12, 12, 8]
         else:
             headers = ["LC Hostname", "LC Timestamp", "LC Error", "Defender Match", "Def Timestamp", "Severity", "Status", "Remediation", "Detection"]
-            col_widths = [16, 16, 8, 12, 16, 10, 12, 12, 12]
+            col_widths = [16, 16, 8, 12, 16, 13, 12, 12, 12]
 
         # Header row
         header_row = "| " + " | ".join(f"{headers[i]:<{col_widths[i]}}" for i in range(len(headers))) + " |"
@@ -562,7 +562,7 @@ class CombinedTestResults:
                 str(corr.get('lc_error_code', 0)),
                 corr.get('defender_match', 'No')[:11],
                 def_ts,
-                corr.get('severity', 'N/A')[:9],
+                corr.get('severity', 'N/A')[:13],
                 corr.get('status', 'N/A')[:11],
                 corr.get('remediation_status', 'N/A')[:11],
                 corr.get('detection_status', 'N/A')[:11]
