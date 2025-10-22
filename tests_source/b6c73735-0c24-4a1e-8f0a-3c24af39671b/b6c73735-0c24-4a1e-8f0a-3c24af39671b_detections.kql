@@ -1,0 +1,187 @@
+// Behavioral Detection Queries for MDE Authentication Bypass Command Interception
+// Test ID: b6c73735-0c24-4a1e-8f0a-3c24af39671b
+// MITRE ATT&CK: T1562.001, T1014, T1090.003, T1140
+// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+
+//
+// QUERY 1: Unauthorized MDE Service Manipulation Detection
+// Purpose: Detect processes attempting to manipulate or impersonate MDE services
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where (ProcessCommandLine has_any("winatp-gw", "edr/commands/cnc", "senseir/v1/actions")
+    and ProcessCommandLine has_any("bypass", "spoof", "intercept"))
+    or (FileName !in~("MsSense.exe", "SenseIR.exe")
+        and (ProcessCommandLine has "MsSense" or ProcessCommandLine has "SenseIR"))
+| extend SuspiciousPattern = case(
+    ProcessCommandLine has "edr/commands/cnc", "Command Endpoint Access",
+    ProcessCommandLine has "senseir/v1/actions", "LiveResponse Endpoint Access",
+    FileName !in~("MsSense.exe", "SenseIR.exe"), "Fake MDE Service",
+    "Unknown Pattern"
+)
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
+    SuspiciousPattern, InitiatingProcessFileName, InitiatingProcessCommandLine
+| summarize EventCount=count(),
+    Patterns=make_set(SuspiciousPattern),
+    FirstSeen=min(TimeGenerated),
+    LastSeen=max(TimeGenerated)
+    by DeviceName, AccountName
+
+//
+// QUERY 2: Isolation Status Spoofing Detection
+// Purpose: Detect discrepancies between isolation commands and network activity
+//
+let IsolationCommands = DeviceEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "DeviceIsolation" or ActionType has "Isolat"
+| distinct DeviceName, IsolationTime=TimeGenerated;
+let NetworkActivity = DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| summarize ConnectionCount=count(),
+    UniqueRemoteIPs=dcount(RemoteIP),
+    DataTransferred=sum(BytesSent + BytesReceived)
+    by DeviceName, bin(TimeGenerated, 5m);
+IsolationCommands
+| join kind=inner (NetworkActivity) on DeviceName
+| where TimeGenerated > IsolationTime
+| where ConnectionCount > 10 or DataTransferred > 1048576  // Active network despite isolation
+| extend Detection="Device shows network activity despite isolation command"
+| project TimeGenerated, DeviceName, Detection, ConnectionCount,
+    UniqueRemoteIPs, DataTransferred, MinutesSinceIsolation=datetime_diff('minute', TimeGenerated, IsolationTime)
+
+//
+// QUERY 3: MDE Configuration Exfiltration Detection
+// Purpose: Detect unauthorized access to MDE configuration files
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where (FolderPath has_any("Windows Defender", "Microsoft\\Windows Defender", "MsSense", "SenseIR")
+    and FileName endswith_any(".json", ".xml", ".config", ".etl"))
+    or FileSizeBytes > 5242880  // Files larger than 5MB from defender directories
+| where InitiatingProcessFileName !in~("MsMpEng.exe", "MsSense.exe", "SenseIR.exe", "TrustedInstaller.exe")
+| extend SuspiciousAccess = case(
+    FileSizeBytes > 8000000, "Large Config File Access",
+    FileName has "config", "Configuration File Read",
+    FileName has "rules", "Detection Rules Access",
+    FileName has "exclusion", "Exclusion List Access",
+    "Defender File Access"
+)
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, FileSizeBytes, SuspiciousAccess, AccountName
+| summarize FileCount=count(),
+    TotalSize=sum(FileSizeBytes),
+    FileTypes=make_set(tostring(split(FileName, ".")[-1])),
+    AccessTypes=make_set(SuspiciousAccess)
+    by DeviceName, InitiatingProcessFileName, AccountName
+
+//
+// QUERY 4: CloudLR Token Generation Without Authentication
+// Purpose: Detect attempts to generate Live Response tokens without proper auth
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any("CloudLR", "LiveResponse", "SenseIR")
+    and ProcessCommandLine has_any("token", "auth", "bearer")
+| where InitiatingProcessFileName !in~("MsSense.exe", "SenseIR.exe", "SecurityHealthService.exe")
+| extend TokenPattern = extract(@"(token|bearer|jwt)[\s=:]+([A-Za-z0-9\-_.]+)", 2, ProcessCommandLine)
+| where isnotempty(TokenPattern) or ProcessCommandLine has_any("bypass", "without", "no-auth")
+| project TimeGenerated, DeviceName, AccountName, FileName,
+    ProcessCommandLine, InitiatingProcessFileName, TokenPattern
+| summarize TokenAttempts=count(),
+    UniqueTokens=dcount(TokenPattern),
+    FirstAttempt=min(TimeGenerated),
+    LastAttempt=max(TimeGenerated)
+    by DeviceName, AccountName, InitiatingProcessFileName
+
+//
+// QUERY 5: Certificate Pinning Bypass Attempts
+// Purpose: Detect attempts to bypass certificate validation for MDE services
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any("CRYPT32", "CertVerifyCertificateChainPolicy", "CertGetCertificateChain")
+    or (ProcessCommandLine has_any("winatp", "microsoft.com")
+        and ProcessCommandLine has_any("skip", "ignore", "bypass", "disable"))
+| extend BypassMethod = case(
+    ProcessCommandLine has "CRYPT32", "CRYPT32 Patching",
+    ProcessCommandLine has "CertVerify", "Certificate Validation Bypass",
+    ProcessCommandLine has_all("winatp", "skip"), "Endpoint Certificate Skip",
+    "Unknown Method"
+)
+| project TimeGenerated, DeviceName, AccountName, FileName,
+    ProcessCommandLine, BypassMethod, InitiatingProcessFileName
+
+//
+// QUERY 6: PowerShell MDE Endpoint Targeting
+// Purpose: Detect PowerShell scripts targeting MDE cloud endpoints
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine has_any(
+    "winatp-gw-eus.microsoft.com",
+    "winatp-gw-weu.microsoft.com",
+    "winatp-gw-cus.microsoft.com",
+    "winatp-gw-neu.microsoft.com",
+    "/edr/commands/",
+    "/senseir/v1/",
+    "MachineId",
+    "TenantId"
+)
+| where ProcessCommandLine !has "C:\\F0\\"  // Exclude test directory
+| extend EndpointAccessed = extract(@"(winatp-gw-[a-z]+\.microsoft\.com)", 1, ProcessCommandLine)
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    EndpointAccessed, InitiatingProcessFileName, InitiatingProcessCommandLine
+| summarize AccessCount=count(),
+    UniqueEndpoints=make_set(EndpointAccessed),
+    FirstAccess=min(TimeGenerated),
+    LastAccess=max(TimeGenerated)
+    by DeviceName, AccountName
+
+//
+// QUERY 7: Fake MDE Service Process Detection
+// Purpose: Identify processes impersonating legitimate MDE services
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~("MsSense.exe", "SenseIR.exe", "MsMpEng.exe")
+| where FolderPath !has_any(
+    "Program Files\\Windows Defender",
+    "ProgramData\\Microsoft\\Windows Defender",
+    "Windows\\System32\\",
+    "Program Files\\Microsoft Security Client"
+)
+| extend FakeService = strcat("Fake ", FileName, " from ", FolderPath)
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    FakeService, ProcessCommandLine, SHA256
+| summarize FakeProcessCount=count(),
+    UniquePaths=make_set(FolderPath),
+    UniqueHashes=make_set(SHA256)
+    by DeviceName, FileName
+
+//
+// QUERY 8: Combined High-Confidence MDE Attack Detection
+// Purpose: Correlate multiple indicators for comprehensive attack detection
+//
+let SuspiciousProcesses = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any("winatp", "edr/commands", "senseir", "MachineId")
+| where FileName !in~("MsSense.exe", "SenseIR.exe")
+| distinct DeviceName, AccountName;
+let ConfigAccess = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FolderPath has_any("Windows Defender", "MsSense", "SenseIR")
+| where InitiatingProcessFileName !in~("MsMpEng.exe", "MsSense.exe", "TrustedInstaller.exe")
+| distinct DeviceName, AccountName;
+let NetworkAnomalies = DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemoteUrl has_any("winatp-gw", "microsoft.com/edr", "microsoft.com/senseir")
+| where InitiatingProcessFileName !in~("MsSense.exe", "SenseIR.exe")
+| distinct DeviceName, AccountName;
+SuspiciousProcesses
+| join kind=inner (ConfigAccess) on DeviceName, AccountName
+| join kind=inner (NetworkAnomalies) on DeviceName, AccountName
+| extend ThreatScore = 95,
+    Detection = "High-Confidence MDE Authentication Bypass Attack"
+| project TimeGenerated=now(), DeviceName, AccountName, ThreatScore, Detection,
+    Recommendation = "Immediate investigation required - Possible MDE service compromise"
