@@ -144,8 +144,9 @@ func InitLogger(testID, testName string) *TestLog {
 	// Capture system info
 	globalLog.SystemInfo = captureSystemInfo()
 
-	LogMessage("INFO", "Initialization", fmt.Sprintf("Test logger initialized for %s", testName))
-	LogMessage("INFO", "Initialization", fmt.Sprintf("Running as: %s (Admin: %v)",
+	// Use addMessage() directly since we already hold the lock
+	addMessage("INFO", "Initialization", fmt.Sprintf("Test logger initialized for %s", testName))
+	addMessage("INFO", "Initialization", fmt.Sprintf("Running as: %s (Admin: %v)",
 		globalLog.SystemInfo.Username, globalLog.SystemInfo.IsAdmin))
 
 	return globalLog
