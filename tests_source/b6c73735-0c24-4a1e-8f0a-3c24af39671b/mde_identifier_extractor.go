@@ -98,7 +98,7 @@ func extractFromRegistry(id *MDEIdentifiers) bool {
 		`SOFTWARE\Policies\Microsoft\Windows Advanced Threat Protection`,
 	}
 
-	for _, path in range regPaths {
+	for _, path := range regPaths {
 		fmt.Printf("[*] Checking: %s\n", path)
 
 		key, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
