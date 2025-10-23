@@ -11,10 +11,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -326,7 +327,7 @@ func enableDebugPrivilege() bool {
 	defer syscall.CloseHandle(syscall.Handle(token))
 
 	// Lookup privilege value
-	var luid syscall.LUID
+	var luid windows.LUID
 	privName, _ := syscall.UTF16PtrFromString("SeDebugPrivilege")
 
 	r1, _, _ = procLookupPrivilegeValue.Call(
@@ -342,15 +343,15 @@ func enableDebugPrivilege() bool {
 	// Enable privilege
 	type TOKEN_PRIVILEGES struct {
 		PrivilegeCount uint32
-		Privileges     [1]syscall.LUIDAndAttributes
+		Privileges     [1]windows.LUIDAndAttributes
 	}
 
 	tp := TOKEN_PRIVILEGES{
 		PrivilegeCount: 1,
-		Privileges: [1]syscall.LUIDAndAttributes{
+		Privileges: [1]windows.LUIDAndAttributes{
 			{
 				Luid:       luid,
-				Attributes: syscall.SE_PRIVILEGE_ENABLED,
+				Attributes: windows.SE_PRIVILEGE_ENABLED,
 			},
 		},
 	}

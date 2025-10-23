@@ -5,6 +5,20 @@ Advanced security test that replicates the critical authentication bypass vulner
 
 **Test Score**: **9.3/10** - High-fidelity replication with advanced safety mechanisms
 
+**Score Breakdown**:
+- **Real-World Accuracy: 3.0/3.0** - Extracts actual Machine ID, Tenant ID, Sense ID from registry/WMI; communicates with real winatp-gw-*.microsoft.com endpoints across multiple regions
+- **Technical Sophistication: 3.0/3.0** - Certificate pinning bypass via memory patching of CRYPT32 functions; three operational modes (TEST_ONLY, QUICK_PATCH, PERSISTENT); actual network protocol testing
+- **Safety Mechanisms: 2.0/2.0** - Watchdog process with auto-restore; emergency recovery PowerShell script; three-layer safety architecture; automatic restoration on timeout
+- **Detection Opportunities: 1.0/1.0** - 9 distinct phases with clear detection points: component deployment, identifier extraction, cert bypass attempts, network testing, command interception, isolation spoofing, config exfiltration, CloudLR token generation, verification
+- **Logging & Observability: 0.3/1.0** - Comprehensive test_logger module with JSON/text output, phase tracking, system info capture, file/process logging (Added in v2.0)
+
+**Key Strengths**:
+- Real production endpoint testing with proper safety controls
+- Advanced memory manipulation techniques with multiple operational modes
+- Multi-layer safety architecture (watchdog + recovery + auto-restore)
+- Professional logging and complete audit trails
+- 9 distinct detection opportunities across all attack phases
+
 ## MITRE ATT&CK Mapping
 - **Tactic**: Defense Evasion
 - **Technique**: T1562.001 - Impair Defenses: Disable or Modify Tools
@@ -38,12 +52,12 @@ Advanced security test that replicates the critical authentication bypass vulner
 ### ✅ Comprehensive Testing
 1. **Phase 1**: Component deployment
 2. **Phase 2**: Real MDE identifier extraction (NEW)
-3. **Phase 3**: Certificate pinning bypass attempt
+3. **Phase 3**: Certificate pinning bypass attempt (NEW)
 4. **Phase 4**: Network authentication testing (NEW)
-5. **Phase 5**: Command interception simulation
-6. **Phase 6**: Isolation status spoofing
-7. **Phase 7**: Configuration exfiltration
-8. **Phase 8**: CloudLR token generation
+5. **Phase 5**: File drop operations
+6. **Phase 6**: Command interception simulation
+7. **Phase 7**: Isolation status spoofing
+8. **Phase 8**: CloudLR token generation (NEW)
 9. **Phase 9**: Attack verification
 
 ## Expected Outcomes
@@ -72,35 +86,47 @@ Advanced security test that replicates the critical authentication bypass vulner
 
 ### Automated Build (Recommended)
 ```bash
-# Build all components at once
+# Build single self-contained binary with all components embedded
 ./tests_source/b6c73735-0c24-4a1e-8f0a-3c24af39671b/build_all.sh
 ```
 
-This script builds:
-- Main test binary (with embedded Phase 1 & 2 modules)
-- Watchdog binary
+**This creates a SINGLE BINARY (~20MB) containing:**
+- Main test logic with comprehensive logging
+- Watchdog binary (auto-extracted at runtime)
+- Emergency recovery script (auto-extracted at runtime)
 - Helper binaries (fake_mssense.exe, isolation_spoofer.exe)
-- Copies all to build directory with documentation
+- PowerShell interceptor script
+
+**Result:** Only ONE .exe file needed for deployment!
 
 ### Manual Build
 ```bash
-# Build supporting binaries first
+# Build helper binaries first
 cd tests_source/b6c73735-0c24-4a1e-8f0a-3c24af39671b/
-
-# Build helper binaries
 GOOS=windows GOARCH=amd64 go build -o fake_mssense.exe fake_mssense.go
 GOOS=windows GOARCH=amd64 go build -o isolation_spoofer.exe isolation_spoofer.go
 GOOS=windows GOARCH=amd64 go build -o cert_bypass_watchdog.exe cert_bypass_watchdog.go
 
-# Return to root
-cd ../../..
+# Build main test with all components embedded
+GOOS=windows GOARCH=amd64 go build -o ../../build/b6c73735-0c24-4a1e-8f0a-3c24af39671b/b6c73735-0c24-4a1e-8f0a-3c24af39671b.exe b6c73735-0c24-4a1e-8f0a-3c24af39671b.go test_logger.go
 
-# Build main test
-./utils/gobuild build tests_source/b6c73735-0c24-4a1e-8f0a-3c24af39671b/
+# Clean up temporary files
+rm -f fake_mssense.exe isolation_spoofer.exe cert_bypass_watchdog.exe
+cd ../../..
 
 # Optional: Sign the test binary
 ./utils/codesign sign build/b6c73735-0c24-4a1e-8f0a-3c24af39671b/b6c73735-0c24-4a1e-8f0a-3c24af39671b.exe
 ```
+
+### Deployment
+**IMPORTANT:** You only need to deploy the single `.exe` file!
+
+```bash
+# Copy single binary to target system
+scp build/b6c73735-0c24-4a1e-8f0a-3c24af39671b/b6c73735-0c24-4a1e-8f0a-3c24af39671b.exe target-host:C:\
+```
+
+The binary will automatically extract all required components to `C:\F0` on first run.
 
 ## Usage Instructions
 
@@ -109,10 +135,12 @@ cd ../../..
 # Run test with default settings (safe modes)
 b6c73735-0c24-4a1e-8f0a-3c24af39671b.exe
 
-# The test will automatically:
-# - Extract real MDE identifiers (Phase 2)
-# - Test network authentication (Phase 4)
-# - Use TEST_ONLY mode for cert bypass (safest)
+# On first run, the test will automatically:
+# 1. Extract embedded components to C:\F0 (watchdog, recovery script)
+# 2. Extract real MDE identifiers (Phase 2)
+# 3. Test network authentication (Phase 4)
+# 4. Use TEST_ONLY mode for cert bypass (safest)
+# 5. Generate comprehensive execution logs
 ```
 
 ### Advanced Options
@@ -138,11 +166,29 @@ b6c73735-0c24-4a1e-8f0a-3c24af39671b.exe --bypass-mode=persistent
 
 ### Test Results
 After execution, check these files in `C:\F0\`:
+- **`test_execution_log.json`** - **Comprehensive execution log (JSON format)**
+- **`test_execution_log.txt`** - **Comprehensive execution log (human-readable)**
 - `mde_identifiers.json` - Extracted MDE identifiers
 - `network_test_results.json` - Network authentication test results
 - `network_test_report.txt` - Human-readable report
 - `attack_summary.txt` - Overall test summary
 - `watchdog_state.json` - Watchdog status (if used)
+
+### Execution Logs
+**NEW**: All test executions now generate comprehensive logs tracking:
+- All 7 test phases with timing and status
+- System information (OS, MDE version, Defender status)
+- File drop operations and quarantine status
+- Process executions and results
+- Certificate bypass attempts (if applicable)
+- Network test results (if applicable)
+- Identifier extraction details
+- Complete message timeline with millisecond precision
+- Exit code and reason
+
+**Log Locations**:
+- JSON: `C:\F0\test_execution_log.json` (machine-parseable)
+- Text: `C:\F0\test_execution_log.txt` (human-readable)
 
 ### Safety Notes
 ⚠️ **IMPORTANT**:
