@@ -113,14 +113,15 @@ func simulateCloudLRTokenGeneration(identifiers *MDEIdentifiers) bool {
 }
 
 func test() {
-	// Initialize comprehensive logger
-	InitLogger("b6c73735-0c24-4a1e-8f0a-3c24af39671b", "MDE Authentication Bypass Command Interception")
+	// Logger already initialized in main() before component extraction
 
 	// Ensure log is saved on exit
 	defer func() {
 		if r := recover(); r != nil {
-			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+			if globalLog != nil {
+				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
+				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+			}
 		}
 	}()
 
@@ -505,11 +506,16 @@ func main() {
 	Endpoint.Say("Test: MDE Authentication Bypass Command Interception")
 	Endpoint.Say("")
 
+	// Initialize logger BEFORE extracting components (so LogFileDropped works)
+	InitLogger("b6c73735-0c24-4a1e-8f0a-3c24af39671b", "MDE Authentication Bypass Command Interception")
+
 	// Extract embedded components (watchdog, recovery script)
 	Endpoint.Say("Single-binary deployment - extracting embedded components...")
 	if err := extractEmbeddedComponents(); err != nil {
 		Endpoint.Say("FATAL: Failed to extract embedded components: %v", err)
 		Endpoint.Say("Cannot proceed without required runtime files")
+		LogMessage("ERROR", "Component Extraction", fmt.Sprintf("Failed to extract: %v", err))
+		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Component extraction failed: %v", err))
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
 	Endpoint.Say("")
