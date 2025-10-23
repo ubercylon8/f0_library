@@ -184,9 +184,18 @@ func test() {
 		LogMessage("CRITICAL", "Certificate Pinning Bypass", "Cert bypass test successful - memory patching possible")
 		LogPhaseEnd(3, "success", "Cert bypass test completed successfully")
 	} else {
-		Endpoint.Say("  [-] Cert bypass test inconclusive: %s", bypassResult.ErrorMessage)
-		LogMessage("WARN", "Certificate Pinning Bypass", fmt.Sprintf("Test inconclusive: %s", bypassResult.ErrorMessage))
-		LogPhaseEnd(3, "inconclusive", bypassResult.ErrorMessage)
+		// Check if this is an environmental failure (not a real security result)
+		if strings.Contains(bypassResult.ErrorMessage, "Environmental failure") {
+			Endpoint.Say("  [-] TEST INCONCLUSIVE - Environmental Issue")
+			Endpoint.Say("  [!] This is NOT a security block - likely DLL loading issue")
+			Endpoint.Say("  [*] Continuing with other test phases...")
+			LogMessage("WARN", "Certificate Pinning Bypass", fmt.Sprintf("Environmental failure (not security-related): %s", bypassResult.ErrorMessage))
+			LogPhaseEnd(3, "skipped_environmental", bypassResult.ErrorMessage)
+		} else {
+			Endpoint.Say("  [-] Cert bypass test inconclusive: %s", bypassResult.ErrorMessage)
+			LogMessage("WARN", "Certificate Pinning Bypass", fmt.Sprintf("Test inconclusive: %s", bypassResult.ErrorMessage))
+			LogPhaseEnd(3, "inconclusive", bypassResult.ErrorMessage)
+		}
 	}
 
 	// Phase 4: Network Authentication Testing
