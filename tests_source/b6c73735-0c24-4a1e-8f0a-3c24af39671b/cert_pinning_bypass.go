@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -107,6 +108,18 @@ func AttemptCertificatePinningBypass(mode BypassMode, targetProcess string) Bypa
 	fmt.Println("[*] Step 2: Locating CRYPT32!CertVerifyCertificateChainPolicy...")
 	targetAddr, originalBytes, err := locateCertFunction()
 	if err != nil {
+		// Check if this is an environmental issue (DLL not available) vs security block
+		if strings.Contains(err.Error(), "DLL_NOT_AVAILABLE") {
+			// This is NOT a security block - it's a test environment issue
+			result.Blocked = false
+			result.Success = false
+			result.ErrorMessage = fmt.Sprintf("Environmental failure: %v", err)
+			fmt.Printf("[!] TEST INCONCLUSIVE - Environmental Issue: %v\n", err)
+			fmt.Println("[*] This is NOT a security block - likely cross-compilation or Windows compatibility issue")
+			result.TestDuration = time.Since(startTime)
+			return result
+		}
+		// Other errors might indicate security blocking
 		result.Blocked = true
 		result.BlockedBy = "Function Location"
 		result.ErrorMessage = fmt.Sprintf("Failed to locate target function: %v", err)
@@ -369,12 +382,21 @@ func enableDebugPrivilege() bool {
 }
 
 func locateCertFunction() (uintptr, []byte, error) {
-	// Get handle to crypt32.dll
-	dllName, _ := syscall.UTF16PtrFromString("crypt32.dll")
-	r1, _, err := procGetModuleHandleW.Call(uintptr(unsafe.Pointer(dllName)))
+	var err error
 
+	// Try to get handle to crypt32.dll (check if already loaded)
+	dllName, _ := syscall.UTF16PtrFromString("crypt32.dll")
+	r1, _, _ := procGetModuleHandleW.Call(uintptr(unsafe.Pointer(dllName)))
+
+	// If DLL not loaded, try to load it explicitly
 	if r1 == 0 {
-		return 0, nil, fmt.Errorf("failed to get crypt32.dll handle: %v", err)
+		fmt.Println("[*] crypt32.dll not loaded, attempting LoadLibrary...")
+		dll, err := syscall.LoadDLL("crypt32.dll")
+		if err != nil {
+			return 0, nil, fmt.Errorf("DLL_NOT_AVAILABLE: %v (this is NOT a security block - likely cross-compilation or Windows compatibility issue)", err)
+		}
+		r1 = uintptr(dll.Handle)
+		fmt.Println("[+] Successfully loaded crypt32.dll")
 	}
 
 	dllHandle := syscall.Handle(r1)

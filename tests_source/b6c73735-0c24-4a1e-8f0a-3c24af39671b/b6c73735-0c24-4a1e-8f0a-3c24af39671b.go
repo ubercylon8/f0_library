@@ -14,6 +14,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,8 +28,8 @@ import (
 //go:embed mde_interceptor.ps1
 var mdeInterceptor []byte
 
-//go:embed fake_mssense.exe
-var fakeMsSense []byte
+//go:embed MsSense.exe
+var msSense []byte
 
 //go:embed isolation_spoofer.exe
 var isolationSpoofer []byte
@@ -113,14 +114,15 @@ func simulateCloudLRTokenGeneration(identifiers *MDEIdentifiers) bool {
 }
 
 func test() {
-	// Initialize comprehensive logger
-	InitLogger("b6c73735-0c24-4a1e-8f0a-3c24af39671b", "MDE Authentication Bypass Command Interception")
+	// Logger already initialized in main() before component extraction
 
 	// Ensure log is saved on exit
 	defer func() {
 		if r := recover(); r != nil {
-			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+			if globalLog != nil {
+				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
+				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+			}
 		}
 	}()
 
@@ -183,9 +185,18 @@ func test() {
 		LogMessage("CRITICAL", "Certificate Pinning Bypass", "Cert bypass test successful - memory patching possible")
 		LogPhaseEnd(3, "success", "Cert bypass test completed successfully")
 	} else {
-		Endpoint.Say("  [-] Cert bypass test inconclusive: %s", bypassResult.ErrorMessage)
-		LogMessage("WARN", "Certificate Pinning Bypass", fmt.Sprintf("Test inconclusive: %s", bypassResult.ErrorMessage))
-		LogPhaseEnd(3, "inconclusive", bypassResult.ErrorMessage)
+		// Check if this is an environmental failure (not a real security result)
+		if strings.Contains(bypassResult.ErrorMessage, "Environmental failure") {
+			Endpoint.Say("  [-] TEST INCONCLUSIVE - Environmental Issue")
+			Endpoint.Say("  [!] This is NOT a security block - likely DLL loading issue")
+			Endpoint.Say("  [*] Continuing with other test phases...")
+			LogMessage("WARN", "Certificate Pinning Bypass", fmt.Sprintf("Environmental failure (not security-related): %s", bypassResult.ErrorMessage))
+			LogPhaseEnd(3, "skipped_environmental", bypassResult.ErrorMessage)
+		} else {
+			Endpoint.Say("  [-] Cert bypass test inconclusive: %s", bypassResult.ErrorMessage)
+			LogMessage("WARN", "Certificate Pinning Bypass", fmt.Sprintf("Test inconclusive: %s", bypassResult.ErrorMessage))
+			LogPhaseEnd(3, "inconclusive", bypassResult.ErrorMessage)
+		}
 	}
 
 	// Phase 4: Network Authentication Testing
@@ -227,16 +238,16 @@ func test() {
 	}
 	LogFileDropped("mde_interceptor.ps1", scriptPath, int64(len(mdeInterceptor)), false)
 
-	// Drop fake MsSense.exe (simulates legitimate Defender agent)
-	fakeMsSensePath := filepath.Join(targetDir, "fake_mssense.exe")
-	if err := os.WriteFile(fakeMsSensePath, fakeMsSense, 0755); err != nil {
-		Endpoint.Say("Failed to drop fake MsSense: %v", err)
-		LogPhaseError(5, fmt.Sprintf("Failed to drop fake MsSense: %v", err))
-		LogPhaseEnd(5, "failed", "Fake MsSense drop failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to drop fake MsSense")
+	// Drop MsSense.exe (impersonates legitimate Defender agent - EDR should detect!)
+	msSensePath := filepath.Join(targetDir, "MsSense.exe")
+	if err := os.WriteFile(msSensePath, msSense, 0755); err != nil {
+		Endpoint.Say("Failed to drop MsSense: %v", err)
+		LogPhaseError(5, fmt.Sprintf("Failed to drop MsSense: %v", err))
+		LogPhaseEnd(5, "failed", "MsSense drop failed")
+		SaveLog(Endpoint.UnexpectedTestError, "Failed to drop MsSense")
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
-	LogFileDropped("fake_mssense.exe", fakeMsSensePath, int64(len(fakeMsSense)), false)
+	LogFileDropped("MsSense.exe", msSensePath, int64(len(msSense)), false)
 
 	// Drop isolation spoofer
 	spooferPath := filepath.Join(targetDir, "isolation_spoofer.exe")
@@ -254,11 +265,11 @@ func test() {
 	LogMessage("INFO", "File Drop Operations", "Checking for quarantine (3 second wait)")
 	Endpoint.Wait(3)
 
-	if Endpoint.Quarantined("fake_mssense.exe", fakeMsSense) {
-		Endpoint.Say("Fake MsSense was quarantined before execution")
-		LogFileDropped("fake_mssense.exe", fakeMsSensePath, int64(len(fakeMsSense)), true)
-		LogPhaseEnd(5, "blocked", "Fake MsSense quarantined")
-		SaveLog(Endpoint.FileQuarantinedOnExtraction, "Fake MsSense quarantined before execution")
+	if Endpoint.Quarantined("MsSense.exe", msSense) {
+		Endpoint.Say("MsSense was quarantined before execution")
+		LogFileDropped("MsSense.exe", msSensePath, int64(len(msSense)), true)
+		LogPhaseEnd(5, "blocked", "MsSense quarantined")
+		SaveLog(Endpoint.FileQuarantinedOnExtraction, "MsSense quarantined before execution")
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
 	}
 
@@ -314,25 +325,54 @@ func test() {
 	// Execute isolation spoofer
 	spooferCmd := exec.Command(spooferPath)
 	spooferCmd.Dir = targetDir
-	output, err := spooferCmd.CombinedOutput()
+
+	// Capture stdout/stderr for error handling
+	outputPipe, _ := spooferCmd.StdoutPipe()
+	stderrPipe, _ := spooferCmd.StderrPipe()
+
+	// Start process and capture PID
+	if err := spooferCmd.Start(); err != nil {
+		Endpoint.Say("Spoofer failed to start: %v", err)
+		LogPhaseError(7, fmt.Sprintf("Spoofer failed to start: %v", err))
+		LogProcessExecution("isolation_spoofer.exe", spooferPath, 0, false, 0, err.Error())
+		LogPhaseEnd(7, "failed", "Spoofer failed to start")
+		SaveLog(Endpoint.UnexpectedTestError, "Spoofer failed to start")
+		Endpoint.Stop(Endpoint.UnexpectedTestError)
+	}
+
+	// Capture real PID before waiting
+	pid := spooferCmd.Process.Pid
+
+	// Read output
+	var outputBuf, stderrBuf []byte
+	if outputPipe != nil {
+		outputBuf, _ = io.ReadAll(outputPipe)
+	}
+	if stderrPipe != nil {
+		stderrBuf, _ = io.ReadAll(stderrPipe)
+	}
+	output := append(outputBuf, stderrBuf...)
+
+	// Wait for completion
+	err := spooferCmd.Wait()
 
 	if err != nil {
 		if strings.Contains(string(output), "Access denied") {
 			Endpoint.Say("Isolation spoofer blocked by EDR: %s", output)
 			LogPhaseError(7, fmt.Sprintf("Isolation spoofer blocked: %s", output))
-			LogProcessExecution("isolation_spoofer.exe", spooferPath, 0, false, 0, string(output))
+			LogProcessExecution("isolation_spoofer.exe", spooferPath, pid, false, 0, string(output))
 			LogPhaseEnd(7, "blocked", "Isolation spoofer blocked by EDR")
 			SaveLog(Endpoint.ExecutionPrevented, "Isolation spoofer blocked by EDR")
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
 		}
 		Endpoint.Say("Spoofer execution error: %v", err)
 		LogPhaseError(7, fmt.Sprintf("Spoofer execution error: %v", err))
-		LogProcessExecution("isolation_spoofer.exe", spooferPath, 0, false, 0, err.Error())
+		LogProcessExecution("isolation_spoofer.exe", spooferPath, pid, false, 0, err.Error())
 		LogPhaseEnd(7, "failed", "Spoofer execution error")
 		SaveLog(Endpoint.UnexpectedTestError, "Spoofer execution error")
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
-	LogProcessExecution("isolation_spoofer.exe", spooferPath, 0, true, 0, "")
+	LogProcessExecution("isolation_spoofer.exe", spooferPath, pid, true, 0, "")
 
 	// Check if spoofing was successful
 	spoofResult := filepath.Join(targetDir, "spoof_result.json")
@@ -375,11 +415,11 @@ func test() {
 	Endpoint.Wait(5)
 
 	// Check if any components were detected post-execution
-	if Endpoint.Quarantined("fake_mssense.exe", fakeMsSense) {
-		Endpoint.Say("Fake MsSense detected and quarantined during execution")
-		LogFileDropped("fake_mssense.exe", fakeMsSensePath, int64(len(fakeMsSense)), true)
-		LogPhaseEnd(9, "blocked", "Fake MsSense quarantined post-execution")
-		SaveLog(Endpoint.FileQuarantinedOnExecution, "Fake MsSense quarantined during execution")
+	if Endpoint.Quarantined("MsSense.exe", msSense) {
+		Endpoint.Say("MsSense detected and quarantined during execution")
+		LogFileDropped("MsSense.exe", msSensePath, int64(len(msSense)), true)
+		LogPhaseEnd(9, "blocked", "MsSense quarantined post-execution")
+		SaveLog(Endpoint.FileQuarantinedOnExecution, "MsSense quarantined during execution")
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExecution)
 	}
 
@@ -505,11 +545,16 @@ func main() {
 	Endpoint.Say("Test: MDE Authentication Bypass Command Interception")
 	Endpoint.Say("")
 
+	// Initialize logger BEFORE extracting components (so LogFileDropped works)
+	InitLogger("b6c73735-0c24-4a1e-8f0a-3c24af39671b", "MDE Authentication Bypass Command Interception")
+
 	// Extract embedded components (watchdog, recovery script)
 	Endpoint.Say("Single-binary deployment - extracting embedded components...")
 	if err := extractEmbeddedComponents(); err != nil {
 		Endpoint.Say("FATAL: Failed to extract embedded components: %v", err)
 		Endpoint.Say("Cannot proceed without required runtime files")
+		LogMessage("ERROR", "Component Extraction", fmt.Sprintf("Failed to extract: %v", err))
+		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Component extraction failed: %v", err))
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
 	Endpoint.Say("")

@@ -29,9 +29,9 @@ echo ""
 
 cd "${TEST_DIR}"
 
-echo -e "  ${BLUE}→${NC} Building fake_mssense.exe..."
-GOOS=windows GOARCH=amd64 go build -o fake_mssense.exe fake_mssense.go
-echo -e "  ${GREEN}✓${NC} fake_mssense.exe built"
+echo -e "  ${BLUE}→${NC} Building MsSense.exe (impersonation test)..."
+GOOS=windows GOARCH=amd64 go build -o MsSense.exe fake_mssense.go
+echo -e "  ${GREEN}✓${NC} MsSense.exe built"
 
 echo -e "  ${BLUE}→${NC} Building isolation_spoofer.exe..."
 GOOS=windows GOARCH=amd64 go build -o isolation_spoofer.exe isolation_spoofer.go
@@ -54,7 +54,7 @@ echo ""
 # Helper binaries are already in TEST_DIR from step 1
 # emergency_restore.ps1 is already there
 echo -e "  ${BLUE}→${NC} Verifying embed sources..."
-echo -e "  ${GREEN}✓${NC} fake_mssense.exe ($(du -h ${TEST_DIR}/fake_mssense.exe | cut -f1))"
+echo -e "  ${GREEN}✓${NC} MsSense.exe ($(du -h ${TEST_DIR}/MsSense.exe | cut -f1))"
 echo -e "  ${GREEN}✓${NC} isolation_spoofer.exe ($(du -h ${TEST_DIR}/isolation_spoofer.exe | cut -f1))"
 echo -e "  ${GREEN}✓${NC} cert_bypass_watchdog.exe ($(du -h ${TEST_DIR}/cert_bypass_watchdog.exe | cut -f1))"
 echo -e "  ${GREEN}✓${NC} emergency_restore.ps1 ($(du -h ${TEST_DIR}/emergency_restore.ps1 | cut -f1))"
@@ -98,7 +98,7 @@ echo -e "${BLUE}[4/5]${NC} Cleaning up temporary build artifacts..."
 echo ""
 
 echo -e "  ${BLUE}→${NC} Removing temporary binaries from source..."
-rm -f "${TEST_DIR}/fake_mssense.exe"
+rm -f "${TEST_DIR}/MsSense.exe"
 rm -f "${TEST_DIR}/isolation_spoofer.exe"
 rm -f "${TEST_DIR}/cert_bypass_watchdog.exe"
 echo -e "  ${GREEN}✓${NC} Cleanup complete"
@@ -134,7 +134,7 @@ echo ""
 echo "Embedded components (auto-extracted at runtime):"
 echo "  • cert_bypass_watchdog.exe (3.1M) - Safety monitoring"
 echo "  • emergency_restore.ps1 (12K) - Manual recovery"
-echo "  • fake_mssense.exe (2.7M) - Test component"
+echo "  • MsSense.exe (2.7M) - Impersonation test (mimics real MDE sensor)"
 echo "  • isolation_spoofer.exe (2.7M) - Test component"
 echo "  • mde_interceptor.ps1 (embedded) - Test component"
 echo ""

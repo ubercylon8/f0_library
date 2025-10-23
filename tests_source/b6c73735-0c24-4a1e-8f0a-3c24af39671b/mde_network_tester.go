@@ -51,9 +51,12 @@ type NetworkTestSummary struct {
 	FailedTests       int                 `json:"failedTests"`
 	VulnerableCount   int                 `json:"vulnerableCount"`
 	ProtectedCount    int                 `json:"protectedCount"`
+	DeprecatedCount   int                 `json:"deprecatedCount"` // 404s - endpoints removed/patched
+	NetworkFailures   int                 `json:"networkFailures"` // Connection failures
 	Results           []NetworkTestResult `json:"results"`
 	CertBypassActive  bool                `json:"certBypassActive"`
 	OverallVulnerable bool                `json:"overallVulnerable"`
+	EndpointsPatched  bool                `json:"endpointsPatched"` // All returned 404
 }
 
 // TestMDENetworkAuthentication tests MDE endpoint authentication
@@ -97,11 +100,16 @@ func TestMDENetworkAuthentication(identifiers *MDEIdentifiers, certBypassActive 
 			} else if result.AuthenticationReq {
 				summary.ProtectedCount++
 				fmt.Printf("    [+] PROTECTED: Authentication required (%d)\n", result.StatusCode)
+			} else if result.StatusCode == 404 {
+				// Track deprecated/patched endpoints separately
+				summary.DeprecatedCount++
+				fmt.Printf("    [!] DEPRECATED: Endpoint patched/removed (%d)\n", result.StatusCode)
 			} else {
 				fmt.Printf("    [*] Status: %d - %s\n", result.StatusCode, result.StatusText)
 			}
 		} else {
 			summary.FailedTests++
+			summary.NetworkFailures++
 			fmt.Printf("    [!] Request failed: %s\n", result.ErrorMessage)
 		}
 
@@ -111,6 +119,11 @@ func TestMDENetworkAuthentication(identifiers *MDEIdentifiers, certBypassActive 
 
 	// Calculate overall vulnerability status
 	summary.OverallVulnerable = summary.VulnerableCount > 0
+
+	// Check if all successful requests returned 404 (endpoints patched)
+	if summary.SuccessfulTests > 0 && summary.DeprecatedCount == summary.SuccessfulTests {
+		summary.EndpointsPatched = true
+	}
 
 	summary.TestEnd = time.Now()
 
@@ -263,10 +276,11 @@ func testEndpoint(endpoint MDEEndpoint, identifiers *MDEIdentifiers) NetworkTest
 		fmt.Println("    [+] Status 403 - Access forbidden (expected)")
 
 	case 404:
-		// Not Found - Endpoint might not exist or wrong URL
+		// Not Found - Endpoint has been removed/changed (likely patched after vulnerability disclosure)
 		result.Vulnerable = false
 		result.AuthenticationReq = false
-		fmt.Println("    [*] Status 404 - Endpoint not found")
+		result.StatusText = "Endpoint Deprecated/Patched"
+		fmt.Println("    [!] Status 404 - Endpoint deprecated (likely patched by Microsoft)")
 
 	case 500, 502, 503:
 		// Server error - Can't determine vulnerability
@@ -302,6 +316,8 @@ func displayNetworkTestSummary(summary *NetworkTestSummary) {
 
 	fmt.Printf("Vulnerable:          %d endpoint(s)\n", summary.VulnerableCount)
 	fmt.Printf("Protected:           %d endpoint(s)\n", summary.ProtectedCount)
+	fmt.Printf("Deprecated/Patched:  %d endpoint(s)\n", summary.DeprecatedCount)
+	fmt.Printf("Network Failures:    %d endpoint(s)\n", summary.NetworkFailures)
 	fmt.Println()
 
 	if summary.OverallVulnerable {
@@ -320,22 +336,37 @@ func displayNetworkTestSummary(summary *NetworkTestSummary) {
 		fmt.Println("[!]   - Isolation status spoofing")
 		fmt.Println("[!]   - Configuration exfiltration")
 		fmt.Println("[!] ========================================")
+	} else if summary.EndpointsPatched {
+		// All endpoints returned 404 - they've been patched/removed
+		fmt.Println("[+] ========================================")
+		fmt.Println("[+] ENDPOINTS PATCHED/DEPRECATED")
+		fmt.Println("[+] ========================================")
+		fmt.Println("[+] ")
+		fmt.Println("[+] All tested endpoints returned 404.")
+		fmt.Println("[+] This indicates Microsoft has likely")
+		fmt.Println("[+] patched the vulnerability by removing")
+		fmt.Println("[+] or changing the endpoints.")
+		fmt.Println("[+] ")
+		fmt.Println("[+] InfoGuard Labs disclosed this")
+		fmt.Println("[+] vulnerability in October 2025.")
+		fmt.Println("[+] ")
+		fmt.Println("[+] Status: PATCHED")
+		fmt.Println("[+] ========================================")
 	} else if summary.ProtectedCount > 0 {
+		// Got valid responses requiring authentication
 		fmt.Println("[+] ========================================")
 		fmt.Println("[+] PROTECTED STATUS")
 		fmt.Println("[+] ========================================")
 		fmt.Println("[+] ")
-		fmt.Println("[+] All tested endpoints require")
-		fmt.Println("[+] proper authentication.")
+		fmt.Println("[+] Tested endpoints require proper")
+		fmt.Println("[+] authentication (401/403 responses).")
 		fmt.Println("[+] ")
-		fmt.Println("[+] Either:")
-		fmt.Println("[+]   - Vulnerability has been patched")
-		fmt.Println("[+]   - Network is isolated")
-		fmt.Println("[+]   - EDR is blocking requests")
+		fmt.Println("[+] Status: PROTECTED")
 		fmt.Println("[+] ========================================")
-	} else {
+	} else if summary.NetworkFailures > 0 {
+		// Network connectivity issues
 		fmt.Println("[*] ========================================")
-		fmt.Println("[*] INCONCLUSIVE RESULTS")
+		fmt.Println("[*] NETWORK CONNECTIVITY ISSUES")
 		fmt.Println("[*] ========================================")
 		fmt.Println("[*] ")
 		fmt.Println("[*] Could not reach MDE endpoints.")
@@ -344,6 +375,19 @@ func displayNetworkTestSummary(summary *NetworkTestSummary) {
 		fmt.Println("[*]   - DNS blocked")
 		fmt.Println("[*]   - Firewall rules")
 		fmt.Println("[*]   - System not connected to internet")
+		fmt.Println("[*] ")
+		fmt.Println("[*] Status: INCONCLUSIVE")
+		fmt.Println("[*] ========================================")
+	} else {
+		// Mixed or unclear results
+		fmt.Println("[*] ========================================")
+		fmt.Println("[*] MIXED RESULTS")
+		fmt.Println("[*] ========================================")
+		fmt.Println("[*] ")
+		fmt.Println("[*] Received varied responses from")
+		fmt.Println("[*] different endpoints.")
+		fmt.Println("[*] ")
+		fmt.Println("[*] Status: INCONCLUSIVE")
 		fmt.Println("[*] ========================================")
 	}
 
