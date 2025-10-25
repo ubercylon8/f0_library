@@ -75,14 +75,15 @@ func EnsureCertificateInstalled() error {
 
 // isCertificateInstalled checks if the F0RT1KA certificate exists in the LocalMachine\Root store
 func isCertificateInstalled() (bool, error) {
+	// Use -like instead of -eq to handle full subject strings like "C=US, O=F0RT1KA, CN=F0RT1KA Security Testing Framework"
 	psScript := fmt.Sprintf(`
-		$cert = Get-ChildItem %s | Where-Object {$_.Subject -eq "%s"}
+		$cert = Get-ChildItem %s | Where-Object {$_.Subject -like "*F0RT1KA Security Testing Framework*"}
 		if ($cert) {
 			Write-Output "INSTALLED"
 		} else {
 			Write-Output "NOT_INSTALLED"
 		}
-	`, certStore, certSubject)
+	`, certStore)
 
 	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-Command", psScript)
 	output, err := cmd.CombinedOutput()

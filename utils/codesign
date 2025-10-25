@@ -4,6 +4,7 @@
 # Uses osslsigncode to sign Windows executables with certificates
 
 set -e
+set +H  # Disable history expansion to handle passwords with special characters like !
 
 # Colors for output
 RED='\033[0;31m'
@@ -195,14 +196,14 @@ prompt_password() {
     if [[ -f "$password_file_hidden_path" ]]; then
         password=$(cat "$password_file_hidden_path" 2>/dev/null | tr -d '\n\r')
         if [[ -n "$password" ]]; then
-            print_info "Using password from file: $password_file_hidden"
+            print_info "Using password from file: $password_file_hidden" >&2
             echo "$password"
             return 0
         fi
     elif [[ -f "$password_file" ]]; then
         password=$(cat "$password_file" 2>/dev/null | tr -d '\n\r')
         if [[ -n "$password" ]]; then
-            print_info "Using password from file: $(basename "$password_file")"
+            print_info "Using password from file: $(basename "$password_file")" >&2
             echo "$password"
             return 0
         fi
@@ -387,6 +388,9 @@ sign_binary_nested() {
     fi
 
     print_info "[1/2] Signing with primary certificate..."
+    if [[ "$verbose" == "true" ]]; then
+        print_info "DEBUG: Primary password length: ${#primary_password}"
+    fi
     local error_output
     if ! error_output=$("${primary_cmd[@]}" 2>&1); then
         print_error "Primary signature failed: $error_output"
