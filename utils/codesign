@@ -39,6 +39,7 @@ USAGE:
 
 COMMANDS:
     sign <file(s)>          Sign one or more files (supports glob patterns)
+    sign-nested <file> <cert1> <cert2>  Dual-sign a file (sign with cert1, nest cert2)
     sign-all [directory]    Sign all executables in directory (default: build/)
     verify <binary>         Verify signature of a binary
     list-certs              List available certificates in signing-certs/
@@ -65,6 +66,9 @@ EXAMPLES:
 
     # Sign all binaries in build directory
     $(basename "$0") sign-all
+
+    # Dual-sign with org cert + F0RT1KA cert (for ASR compatibility + self-healing)
+    $(basename "$0") sign-nested build/test-uuid/test-uuid.exe signing-certs/sb_cert.pfx signing-certs/F0RT1KA.pfx
 
     # Sign with description and URL
     $(basename "$0") --cert signing-certs/mycert.pfx \\
@@ -127,22 +131,32 @@ select_certificate() {
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local cert_dir="$script_dir/../signing-certs"
     local selected_cert=""
-    
+
     if [[ ! -d "$cert_dir" ]]; then
         print_error "Certificate directory not found: $cert_dir"
         return 1
     fi
-    
-    # Build array of certificates
+
+    # Check for F0RT1KA certificate (default/recommended)
+    local f0rt1ka_cert="$cert_dir/F0RT1KA.pfx"
+    if [[ -f "$f0rt1ka_cert" ]]; then
+        selected_cert="$f0rt1ka_cert"
+        print_info "Using F0RT1KA certificate (default): $(basename "$selected_cert")"
+        echo "$selected_cert"
+        return 0
+    fi
+
+    # Build array of certificates (fallback if F0RT1KA not found)
     local certs=()
     for cert_file in "$cert_dir"/*.{pfx,p12}; do
         if [[ -f "$cert_file" ]]; then
             certs+=("$cert_file")
         fi
     done
-    
+
     if [[ ${#certs[@]} -eq 0 ]]; then
         print_error "No certificates found in $cert_dir/"
+        print_warning "Expected F0RT1KA.pfx for self-healing tests"
         return 1
     elif [[ ${#certs[@]} -eq 1 ]]; then
         selected_cert="${certs[0]}"
@@ -152,7 +166,7 @@ select_certificate() {
         for i in "${!certs[@]}"; do
             echo "  $((i+1)). $(basename "${certs[i]}")" >&2
         done
-        
+
         while true; do
             read -p "Select certificate (1-${#certs[@]}): " choice
             if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#certs[@]} ]]; then
@@ -163,14 +177,38 @@ select_certificate() {
             fi
         done
     fi
-    
+
     echo "$selected_cert"
 }
 
-# Prompt for password securely
+# Prompt for password securely (or auto-read from password file)
 prompt_password() {
+    local cert_file="$1"
     local password=""
-    
+
+    # Check if there's a password file for this certificate
+    local password_file="${cert_file}.txt"
+    local password_file_hidden=".$(basename "$cert_file").txt"
+    local password_file_hidden_path="$(dirname "$cert_file")/$password_file_hidden"
+
+    # Try to read password from file (hidden file first, then regular)
+    if [[ -f "$password_file_hidden_path" ]]; then
+        password=$(cat "$password_file_hidden_path" 2>/dev/null | tr -d '\n\r')
+        if [[ -n "$password" ]]; then
+            print_info "Using password from file: $password_file_hidden"
+            echo "$password"
+            return 0
+        fi
+    elif [[ -f "$password_file" ]]; then
+        password=$(cat "$password_file" 2>/dev/null | tr -d '\n\r')
+        if [[ -n "$password" ]]; then
+            print_info "Using password from file: $(basename "$password_file")"
+            echo "$password"
+            return 0
+        fi
+    fi
+
+    # No password file found - prompt user
     while [[ -z "$password" ]]; do
         read -s -p "Enter certificate password: " password
         echo
@@ -178,7 +216,7 @@ prompt_password() {
             print_warning "Password cannot be empty"
         fi
     done
-    
+
     echo "$password"
 }
 
@@ -283,6 +321,136 @@ sign_binary() {
         if [[ "$use_temp" == "true" ]] && [[ -f "$temp_output" ]]; then
             rm -f "$temp_output"
         fi
+        return 1
+    fi
+}
+
+# Dual-sign a binary (sign with primary cert, then nest secondary cert)
+# This creates a binary that is trusted by endpoints with EITHER certificate
+sign_binary_nested() {
+    local binary_path="$1"
+    local primary_cert="$2"
+    local primary_password="$3"
+    local secondary_cert="$4"
+    local secondary_password="$5"
+    local description="$6"
+    local url="$7"
+    local timestamp_url="$8"
+    local verbose="$9"
+
+    if [[ ! -f "$binary_path" ]]; then
+        print_error "Binary not found: $binary_path"
+        return 1
+    fi
+
+    if [[ ! -f "$primary_cert" ]]; then
+        print_error "Primary certificate not found: $primary_cert"
+        return 1
+    fi
+
+    if [[ ! -f "$secondary_cert" ]]; then
+        print_error "Secondary certificate not found: $secondary_cert"
+        return 1
+    fi
+
+    print_info "Dual-signing binary: $(basename "$binary_path")"
+    print_info "  Primary cert: $(basename "$primary_cert")"
+    print_info "  Secondary cert: $(basename "$secondary_cert")"
+
+    # Step 1: Sign with primary certificate
+    local temp_signed="${binary_path}.primary-signed.tmp"
+
+    local primary_cmd=(
+        "osslsigncode"
+        "sign"
+        "-pkcs12" "$primary_cert"
+        "-pass" "$primary_password"
+        "-in" "$binary_path"
+        "-out" "$temp_signed"
+    )
+
+    # Add optional parameters for primary signature
+    if [[ -n "$description" ]]; then
+        primary_cmd+=("-n" "$description")
+    fi
+
+    if [[ -n "$url" ]]; then
+        primary_cmd+=("-i" "$url")
+    fi
+
+    if [[ -n "$timestamp_url" ]]; then
+        primary_cmd+=("-t" "$timestamp_url")
+    fi
+
+    if [[ "$verbose" == "true" ]]; then
+        print_info "Primary sign command: ${primary_cmd[*]}"
+    fi
+
+    print_info "[1/2] Signing with primary certificate..."
+    local error_output
+    if ! error_output=$("${primary_cmd[@]}" 2>&1); then
+        print_error "Primary signature failed: $error_output"
+        rm -f "$temp_signed"
+        return 1
+    fi
+
+    print_success "Primary signature applied"
+
+    # Step 2: Nest secondary certificate
+    local temp_dual="${binary_path}.dual-signed.tmp"
+
+    local secondary_cmd=(
+        "osslsigncode"
+        "sign"
+        "-nest"
+        "-pkcs12" "$secondary_cert"
+        "-pass" "$secondary_password"
+        "-in" "$temp_signed"
+        "-out" "$temp_dual"
+    )
+
+    # Add optional parameters for secondary signature (same as primary)
+    if [[ -n "$description" ]]; then
+        secondary_cmd+=("-n" "$description")
+    fi
+
+    if [[ -n "$url" ]]; then
+        secondary_cmd+=("-i" "$url")
+    fi
+
+    if [[ -n "$timestamp_url" ]]; then
+        secondary_cmd+=("-t" "$timestamp_url")
+    fi
+
+    if [[ "$verbose" == "true" ]]; then
+        print_info "Secondary sign command: ${secondary_cmd[*]}"
+    fi
+
+    print_info "[2/2] Nesting secondary certificate..."
+    if ! error_output=$("${secondary_cmd[@]}" 2>&1); then
+        print_error "Secondary signature (nested) failed: $error_output"
+        rm -f "$temp_signed" "$temp_dual"
+        return 1
+    fi
+
+    print_success "Secondary signature nested"
+
+    # Step 3: Move dual-signed binary to final location (overwrite original)
+    if mv -f "$temp_dual" "$binary_path"; then
+        rm -f "$temp_signed"  # Clean up intermediate file
+        print_success "Dual-signed binary ready: $(basename "$binary_path")"
+
+        # Show file info
+        if [[ -f "$binary_path" ]]; then
+            local size=$(ls -lh "$binary_path" | awk '{print $5}')
+            print_info "Final binary size: $size"
+            print_info "Binary is now trusted by endpoints with EITHER certificate"
+        fi
+
+        return 0
+    else
+        print_error "Failed to finalize dual-signed binary"
+        rm -f "$temp_signed" "$temp_dual"
         return 1
     fi
 }
@@ -423,6 +591,24 @@ main() {
                     shift
                 done
                 ;;
+            sign-nested)
+                command="sign-nested"
+                shift
+                # Expect: <binary> <cert1> <cert2>
+                if [[ -n "$1" && ! "$1" =~ ^-- ]]; then
+                    binary_paths=("$1")
+                    shift
+                fi
+                # Store cert files in an array for nested signing
+                local nested_certs=()
+                while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do
+                    nested_certs+=("$1")
+                    shift
+                done
+                # Export for use in case statement (bash array limitation workaround)
+                export NESTED_CERT1="${nested_certs[0]:-}"
+                export NESTED_CERT2="${nested_certs[1]:-}"
+                ;;
             sign-all)
                 command="sign-all"
                 if [[ -n "$2" && ! "$2" =~ ^-- ]]; then
@@ -474,9 +660,9 @@ main() {
                 fi
             fi
             
-            # Prompt for password if not provided
+            # Prompt for password if not provided (or auto-read from password file)
             if [[ -z "$password" ]]; then
-                password=$(prompt_password)
+                password=$(prompt_password "$cert_file")
             fi
             
             # Sign each file
@@ -498,6 +684,42 @@ main() {
                 exit 1
             fi
             ;;
+        sign-nested)
+            # Validate inputs
+            if [[ ${#binary_paths[@]} -eq 0 ]]; then
+                print_error "Binary path required for sign-nested command"
+                print_info "Usage: $(basename "$0") sign-nested <binary> <cert1> <cert2>"
+                exit 1
+            fi
+
+            if [[ -z "$NESTED_CERT1" || -z "$NESTED_CERT2" ]]; then
+                print_error "Two certificate files required for dual signing"
+                print_info "Usage: $(basename "$0") sign-nested <binary> <cert1> <cert2>"
+                print_info "Example: $(basename "$0") sign-nested test.exe sb_cert.pfx F0RT1KA.pfx"
+                exit 1
+            fi
+
+            local binary_path="${binary_paths[0]}"
+            local primary_cert="$NESTED_CERT1"
+            local secondary_cert="$NESTED_CERT2"
+
+            # Get passwords for both certificates
+            print_info "Dual signing requires passwords for both certificates"
+            print_info "Primary certificate: $(basename "$primary_cert")"
+            local primary_password=$(prompt_password "$primary_cert")
+
+            print_info "Secondary certificate: $(basename "$secondary_cert")"
+            local secondary_password=$(prompt_password "$secondary_cert")
+
+            # Perform dual signing
+            if sign_binary_nested "$binary_path" "$primary_cert" "$primary_password" "$secondary_cert" "$secondary_password" "$description" "$url" "$timestamp_url" "$verbose"; then
+                print_success "Dual signing completed successfully"
+                exit 0
+            else
+                print_error "Dual signing failed"
+                exit 1
+            fi
+            ;;
         sign-all)
             # Select certificate if not provided
             if [[ -z "$cert_file" ]]; then
@@ -507,9 +729,9 @@ main() {
                 fi
             fi
             
-            # Prompt for password if not provided
+            # Prompt for password if not provided (or auto-read from password file)
             if [[ -z "$password" ]]; then
-                password=$(prompt_password)
+                password=$(prompt_password "$cert_file")
             fi
             
             sign_all_binaries "$directory" "$cert_file" "$password" "$description" "$url" "$timestamp_url" "$verbose"
