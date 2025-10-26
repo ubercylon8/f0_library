@@ -23,9 +23,10 @@ detect:
     - op: contains
       path: event/COMMAND_LINE
       value: f0rtika-cert-installer
-    - op: is not
+    - op: is
       path: event/ERROR_CODE
       value: 0
+      not: true
 
 respond:
   - action: report

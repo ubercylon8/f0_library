@@ -39,9 +39,25 @@ limacharlie-iac/
    pip install limacharlie
    ```
 
-2. **API keys configured** for target organizations
+2. **LimaCharlie account** with organization created
 
-3. **Organization created** in LimaCharlie
+3. **API credentials** (Organization ID and API Key from LimaCharlie web UI)
+
+### Authentication
+
+Before running any deployment commands, authenticate with LimaCharlie:
+
+```bash
+# First time: Login and save credentials
+limacharlie login
+# You'll be prompted for:
+# - Organization ID (UUID)
+# - API Key (JWT token)
+# - Environment name (e.g., "sb", "production", etc.)
+
+# To switch between saved organizations:
+limacharlie use <environment-name>
+```
 
 ### Deployment (3 Steps)
 
@@ -83,20 +99,26 @@ curl -X PUT "<SIGNED_URL>" \
 
 **Option B - Manual Deployment:**
 ```bash
+# First, select your organization
+limacharlie use <environment-name>
+
 # Deploy auto-installation rule
-limacharlie --org <org-name> dr add rules/f0rtika-cert-auto-install.yaml
+limacharlie dr add -f rules/f0rtika-cert-auto-install.yaml -r "f0rtika-cert-auto-install"
 
 # Deploy monitoring rule (optional)
-limacharlie --org <org-name> dr add rules/f0rtika-cert-install-monitor.yaml
+limacharlie dr add -f rules/f0rtika-cert-install-monitor.yaml -r "f0rtika-cert-install-monitor"
 
 # Deploy success tracking rule (optional)
-limacharlie --org <org-name> dr add rules/f0rtika-cert-install-success-monitor.yaml
+limacharlie dr add -f rules/f0rtika-cert-install-success-monitor.yaml -r "f0rtika-cert-install-success-monitor"
 ```
 
 **Option C - Full Organization Template:**
 ```bash
+# First, select your organization
+limacharlie use <environment-name>
+
 # Apply complete template with all rules
-limacharlie --org <org-name> config push f0rtika-org-template.yaml
+limacharlie config push f0rtika-org-template.yaml
 ```
 
 #### Step 3: Verify Deployment
@@ -104,10 +126,10 @@ limacharlie --org <org-name> config push f0rtika-org-template.yaml
 **Check Rule Status:**
 ```bash
 # List D&R rules
-limacharlie --org <org-name> dr list
+limacharlie dr list
 
 # Verify auto-installation rule exists
-limacharlie --org <org-name> dr list | grep f0rtika-cert-auto-install
+limacharlie dr list | grep f0rtika-cert-auto-install
 ```
 
 **Monitor Events:**
@@ -179,7 +201,7 @@ respond:
       keys:
         - '{{ .routing.sid }}'
       max_count: 1
-      period: 2592000
+      period: 720h  # 30 days
 ```
 
 ### 3. Monitoring Rules
@@ -319,7 +341,7 @@ openssl x509 -in signing-certs/F0RT1KA.cer -text -noout
 **Common causes:**
 1. **Rule not deployed:**
    ```bash
-   limacharlie --org <org> dr list | grep f0rtika-cert-auto-install
+   limacharlie dr list | grep f0rtika-cert-auto-install
    ```
 
 2. **Payload not uploaded:**
@@ -337,7 +359,7 @@ openssl x509 -in signing-certs/F0RT1KA.cer -text -noout
 **Solution:**
 ```bash
 # Re-deploy rule
-limacharlie --org <org> dr add rules/f0rtika-cert-auto-install.yaml
+limacharlie dr add -f rules/f0rtika-cert-auto-install.yaml -r "f0rtika-cert-auto-install"
 
 # Verify payload exists
 # Upload if missing via Web UI
@@ -412,9 +434,15 @@ done
 
 2. Deploy custom templates:
    ```bash
-   limacharlie --org sb config push f0rtika-org-template-sb.yaml
-   limacharlie --org tpsgl config push f0rtika-org-template-tpsgl.yaml
-   limacharlie --org rga config push f0rtika-org-template-rga.yaml
+   # Select organization and deploy
+   limacharlie use sb
+   limacharlie config push f0rtika-org-template-sb.yaml
+
+   limacharlie use tpsgl
+   limacharlie config push f0rtika-org-template-tpsgl.yaml
+
+   limacharlie use rga
+   limacharlie config push f0rtika-org-template-rga.yaml
    ```
 
 ---

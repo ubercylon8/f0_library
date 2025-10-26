@@ -19,8 +19,7 @@
 detect:
   target: deployment
   event: CONNECTED
-  op: is platform
-    name: windows
+  op: is windows
 
 respond:
   - action: task
@@ -34,4 +33,4 @@ respond:
       keys:
         - '{{ .routing.sid }}'
       max_count: 1
-      period: 2592000  # 30 days in seconds
+      period: 720h  # 30 days

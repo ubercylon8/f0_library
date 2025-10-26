@@ -5,7 +5,7 @@
 #
 # Prerequisites:
 #   - LimaCharlie CLI installed (pip install limacharlie)
-#   - API keys configured for target organizations
+#   - Authenticated with LimaCharlie (limacharlie login)
 #   - Payload uploaded to LimaCharlie
 #
 # Usage:
@@ -126,8 +126,15 @@ deploy_rule() {
         return 0
     fi
 
-    # Deploy using limacharlie CLI
-    if limacharlie --org "$org" dr add "$rule_file" 2>&1; then
+    # Select organization and deploy using limacharlie CLI
+    print_info "Switching to organization: $org"
+    if ! limacharlie use "$org" 2>&1; then
+        print_error "Failed to switch to organization: $org"
+        return 1
+    fi
+
+    # Deploy rule with name
+    if limacharlie dr add -f "$rule_file" -r "$rule_name" 2>&1; then
         print_success "Rule deployed successfully: $rule_name"
     else
         print_error "Failed to deploy rule: $rule_name"
@@ -174,8 +181,14 @@ verify_deployment() {
 
     print_info "Verifying deployment for organization: $org"
 
+    # Switch to organization
+    if ! limacharlie use "$org" 2>&1; then
+        print_error "Failed to switch to organization: $org"
+        return 1
+    fi
+
     # Check if rule exists
-    if limacharlie --org "$org" dr list 2>&1 | grep -q "f0rtika-cert-auto-install"; then
+    if limacharlie dr list 2>&1 | grep -q "f0rtika-cert-auto-install"; then
         print_success "Auto-installation rule found in organization"
     else
         print_warning "Auto-installation rule NOT found in organization"

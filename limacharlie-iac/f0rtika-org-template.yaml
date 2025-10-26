@@ -46,7 +46,7 @@ rules:
           keys:
             - '{{ .routing.sid }}'
           max_count: 1
-          period: 2592000
+          period: 720h  # 30 days
 
   # Installation Failure Monitoring
   - name: f0rtika-cert-install-monitor
@@ -67,9 +67,10 @@ rules:
         - op: contains
           path: event/COMMAND_LINE
           value: f0rtika-cert-installer
-        - op: is not
+        - op: is
           path: event/ERROR_CODE
           value: 0
+          not: true
     response:
       - action: report
         name: F0RT1KA-Certificate-Installation-Failed

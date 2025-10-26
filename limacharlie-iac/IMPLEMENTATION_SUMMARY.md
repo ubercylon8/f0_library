@@ -212,7 +212,7 @@ signing-certs/
    └─→ Target: deployment / CONNECTED / Windows
 
 3. Verify rule active
-   └─→ Command: limacharlie --org <org> dr list
+   └─→ Command: limacharlie dr list
 ```
 
 ### Phase 2: Automatic Installation

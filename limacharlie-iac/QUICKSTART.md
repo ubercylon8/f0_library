@@ -11,8 +11,15 @@ pip install limacharlie
 # 2. Verify installation
 limacharlie --version
 
-# 3. Configure API key (if not already done)
+# 3. Authenticate with LimaCharlie (first time only)
 limacharlie login
+# You'll be prompted for:
+# - Organization ID (UUID from LimaCharlie UI)
+# - API Key (JWT token from LimaCharlie UI)
+# - Environment name (e.g., "production", "sb", etc.)
+
+# 4. Select your organization
+limacharlie use <environment-name>
 ```
 
 ## Deployment (5 minutes)
@@ -45,10 +52,10 @@ cd limacharlie-iac/scripts
 cd limacharlie-iac
 
 # Deploy auto-installation rule
-limacharlie --org <your-org> dr add rules/f0rtika-cert-auto-install.yaml
+limacharlie dr add -f rules/f0rtika-cert-auto-install.yaml -r "f0rtika-cert-auto-install"
 
 # Optional: Deploy monitoring rule
-limacharlie --org <your-org> dr add rules/f0rtika-cert-install-monitor.yaml
+limacharlie dr add -f rules/f0rtika-cert-install-monitor.yaml -r "f0rtika-cert-install-monitor"
 ```
 
 ## Verification (3 minutes)
@@ -93,7 +100,7 @@ cd /path/to/f0_library
 
 ✅ **Deployment Successful:**
 - Payload visible in LimaCharlie UI: Sensors → Payloads
-- D&R rule visible: `limacharlie --org <org> dr list | grep f0rtika-cert-auto-install`
+- D&R rule visible: `limacharlie dr list | grep f0rtika-cert-auto-install`
 
 ✅ **Installation Successful:**
 - RECEIPT event shows exit code 0
@@ -111,10 +118,10 @@ cd /path/to/f0_library
 
 ```bash
 # Check rule deployed
-limacharlie --org <org> dr list
+limacharlie dr list
 
 # Re-deploy if missing
-limacharlie --org <org> dr add rules/f0rtika-cert-auto-install.yaml
+limacharlie dr add -f rules/f0rtika-cert-auto-install.yaml -r "f0rtika-cert-auto-install"
 ```
 
 ### Certificate Installation Failed
@@ -181,10 +188,10 @@ After successful deployment:
 **Key Commands:**
 ```bash
 # Deploy
-limacharlie --org <org> dr add rules/f0rtika-cert-auto-install.yaml
+limacharlie dr add -f rules/f0rtika-cert-auto-install.yaml -r "f0rtika-cert-auto-install"
 
 # Verify
-limacharlie --org <org> dr list | grep f0rtika-cert-auto-install
+limacharlie dr list | grep f0rtika-cert-auto-install
 
 # Check endpoint
 certutil -store Root | findstr /i "F0RT1KA"
