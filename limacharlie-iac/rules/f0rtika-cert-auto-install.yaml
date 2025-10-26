@@ -1,0 +1,37 @@
+# F0RT1KA Certificate Auto-Installation - LimaCharlie D&R Rule
+#
+# Purpose: Automatically install F0RT1KA code signing certificate on Windows sensor enrollment
+# Trigger: CONNECTED event (when Windows sensors come online)
+# Action: Execute PowerShell payload to install certificate to Trusted Root store
+#
+# Deployment:
+#   1. Upload payload: limacharlie-iac/payloads/install-f0rtika-cert.ps1
+#   2. Apply this rule: limacharlie config push f0rtika-cert-auto-install.yaml
+#
+# Testing:
+#   - Install new LimaCharlie sensor on Windows VM
+#   - Check deployment events for CONNECTED
+#   - Verify RECEIPT event shows successful installation
+#   - Run: certutil -store Root | findstr /i "F0RT1KA"
+#
+# Suppression: Runs once per sensor (30 days) to avoid redundant executions
+
+detect:
+  target: deployment
+  event: CONNECTED
+  op: is platform
+    name: windows
+
+respond:
+  - action: task
+    command: >
+      run --payload-name f0rtika-cert-installer
+      --interpreter powershell
+      --arguments " -CertBase64 'MIIFeTCCA2GgAwIBAgIUbnW5hrRpEeLCrQhxA7sawBm46mYwDQYJKoZIhvcNAQELBQAwTDErMCkGA1UEAwwiRjBSVDFLQSBTZWN1cml0eSBUZXN0aW5nIEZyYW1ld29yazEQMA4GA1UECgwHRjBSVDFLQTELMAkGA1UEBhMCVVMwHhcNMjUxMDI1MDI0NjQ2WhcNMzAxMDI0MDI0NjQ2WjBMMSswKQYDVQQDDCJGMFJUMUtBIFNlY3VyaXR5IFRlc3RpbmcgRnJhbWV3b3JrMRAwDgYDVQQKDAdGMFJUMUtBMQswCQYDVQQGEwJVUzCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAL25zBNJrAMve7ScNuLziXq0LuBdNe+tJsOMqvvINjb+2ekFtlNHLsiKAYR22B8GqVxXZdVNbAybS8cF+/l6ollUJMOp4WaezA9nRW1pSK0lzMVXSZ/uTfcySngzM7eNM9YUSTfYhv5x+fzHNEltgCw2z0/XNQs37ZYtlmo3MdMkNdWUGbQugEyGs8OzVklz9Y11mOF7ootvD/bsLmpA8hr9cpdTCPsQpwALwPqAo/db7Yr8zcTIQoM31+vIX3jgz3Mj2QgRhm7TuVgg5/wA/MoNu8GEVCuQVgrSkoQAKXTloO/x5SbY+f5r+Zd3cbsq+zfYiSnLqTv5UrcaKgjXn85AYUXrixXdVCtIEPRJCvTuanoknG+ned4z3bti1FJnDn/peRtQXmbS51ratZw0h2iD2xJdRohv+rw5/cuqu5xzSqmkZqHQ0rJkBDYABjlAeMAjsIZ61hcWwzQPFkvkrCkbHdKHXJKcgSMT3dryynwkODHJyDf/t6Ld3fsrbryYgaB4BGN5Lw6OGzYwjr3QTeXoJVf1tp9TyUZbGpgv9z5vyd0Lqi7bMD3w5lIW1xNDl+hfyvWR4xbaieVYYW++KED8iKyzZ1wMzFnMaEelj6UohOFh71/TSySICp/93HBuQ8icx34zhtKGwQp/L3mZUY8e3VCqOlwme8VdMMW7utxlAgMBAAGjUzBRMB0GA1UdDgQWBBSXfpglV9QT+Q578S4IPZx/IRlAmzAfBgNVHSMEGDAWgBSXfpglV9QT+Q578S4IPZx/IRlAmzAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4ICAQAdlbbOnuz7MHy8dbg2n291+CIbwHqm35nPax5TAOMzMGASkRBcz8HxQfte4t6xSg1YDpyo6pGeSZ8J46/3OFat8fM29w9j2E+TdpQ0wKnqk0Tu3Av8PlRzkxuR67M6YA7TyU9EIM3zcmoT2iuLIXrsonAs9I6T3W+feNIH4c/NBqIW3YMi/rVJZ4m3IJ6LVjsr7tVINXzejwsPvXBMO4iN+s/z9L/4Qxxn6Kh4E3UWQqYY9Sp6MCow1YoTti+9WkRq6PB2CKAzNw8o66yevPybmFTRwlH+ljtPRa6youVkd4zhlIOVTDbfXBiJr+uFykKXhlYGV+3+0vMEnqG5yYhtuD5rMwaE9244OZzHcVlGiU7qAspwZh/go2mpcnOdjJ6/qDUApsioReFbzIaLzFSTf1DDFBF49UGRBTXNwsyErfVyHcvgPjgKKo6uKG1tQ4kKr7nTwKxntFnZqF+fO85uy1fxkMaX77xM36wHFNUh/V0rLcry3wcmiWNgzbpBy+bNpw3ZHbyulXe0EH8VSl4Z1BWhUqM9ACqodOgsr7zW5t3s5a1RoQ85ZLbRn0XERQX2fFbQygtS7e38H3ZU1rfl6LbUxzSFDbHHSC8xcuqpcC+bQsYTS2DcUHcxmiI3shw0KTy+Zn3c6JCD7/VWjWK2MYdDOFojUO2BhrfQTQZ0Tg=='"
+      --timeout 120
+    suppression:
+      is_global: false
+      keys:
+        - '{{ .routing.sid }}'
+      max_count: 1
+      period: 2592000  # 30 days in seconds

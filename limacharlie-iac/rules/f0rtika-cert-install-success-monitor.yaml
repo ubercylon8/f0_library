@@ -1,0 +1,40 @@
+# F0RT1KA Certificate Installation Success Monitoring - LimaCharlie D&R Rule
+#
+# Purpose: Track successful F0RT1KA certificate installations (optional)
+# Trigger: RECEIPT event from certificate installation payload with exit code 0
+# Action: Create informational report for audit trail
+#
+# Deployment:
+#   Apply this rule: limacharlie config push f0rtika-cert-install-success-monitor.yaml
+#
+# What it detects:
+#   - Successful certificate installations
+#   - Certificate already present (idempotent check)
+#
+# Output: Creates detection for audit/reporting purposes
+#
+# Note: This is OPTIONAL - enable if you want to track all certificate installations
+
+detect:
+  event: RECEIPT
+  op: and
+  rules:
+    - op: contains
+      path: event/COMMAND_LINE
+      value: f0rtika-cert-installer
+    - op: is
+      path: event/ERROR_CODE
+      value: 0
+
+respond:
+  - action: report
+    name: F0RT1KA-Certificate-Installation-Success
+    metadata:
+      description: "F0RT1KA certificate successfully installed on sensor"
+      severity: informational
+      tags:
+        - f0rtika
+        - certificate
+        - installation
+        - infrastructure
+        - audit

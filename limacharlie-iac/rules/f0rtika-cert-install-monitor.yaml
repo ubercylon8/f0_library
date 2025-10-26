@@ -1,0 +1,43 @@
+# F0RT1KA Certificate Installation Monitoring - LimaCharlie D&R Rule
+#
+# Purpose: Alert on F0RT1KA certificate installation failures
+# Trigger: RECEIPT event from certificate installation payload with non-zero exit code
+# Action: Create detection report for investigation
+#
+# Deployment:
+#   Apply this rule: limacharlie config push f0rtika-cert-install-monitor.yaml
+#
+# What it detects:
+#   - PowerShell script failures (exit code 1)
+#   - Permission issues
+#   - Certificate decode failures
+#   - Import failures
+#   - Verification failures
+#
+# Output: Creates detection visible in LimaCharlie UI and forwarded to outputs
+
+detect:
+  event: RECEIPT
+  op: and
+  rules:
+    - op: contains
+      path: event/COMMAND_LINE
+      value: f0rtika-cert-installer
+    - op: is not
+      path: event/ERROR_CODE
+      value: 0
+
+respond:
+  - action: report
+    name: F0RT1KA-Certificate-Installation-Failed
+    metadata:
+      description: "F0RT1KA certificate installation failed on sensor"
+      severity: medium
+      false_positives: "Certificate might already be installed (check STDOUT)"
+      recommended_action: "Review RECEIPT event output for error details; verify sensor has SYSTEM privileges; check if certificate already installed"
+      mitre_attack: []
+      tags:
+        - f0rtika
+        - certificate
+        - installation
+        - infrastructure
