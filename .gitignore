@@ -67,3 +67,7 @@ utils/__pycache__/
 # Environment files containing sensitive credentials
 .env
 .env.*
+
+# Multi-stage test temporary binaries (cleaned after build)
+*-T*.exe
+*-T*.dll
