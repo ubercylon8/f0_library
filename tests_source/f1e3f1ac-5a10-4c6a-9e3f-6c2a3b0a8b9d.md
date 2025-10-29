@@ -1,0 +1,73 @@
+# FIREFLAME Ransomware Emulation (DRAGONFORCE RaaS)
+
+This VST simulates core behaviors attributed to FIREFLAME, a Windows-based ransomware with code overlaps to CONTI and reportedly operated within the DRAGONFORCE RaaS. The probe focuses on safe, high-signal behaviors mapped to DRAGONFORCE-related MITRE ATT&CK techniques to verify Microsoft Defender detection and prevention.
+
+## How
+
+Phases:
+
+1. Execution Guardrails: Create a named mutex to emulate ransomware single-instance control
+2. Masquerade + Padding: Drop a padded PE-like file `svchost.exe` to simulate obfuscation/masquerading and check for quarantine
+3. Hidden VB Execution: Run a benign VBScript with hidden window to emulate script-based execution
+4. Discovery: Run basic system, user, process, and directory discovery
+5. Indicator Removal: Create and delete a temporary file to emulate log/file cleanup
+6. Service Registration (Simulation): Drop decoy `.sys` drivers and attempt kernel-type service creation (creation only; not started)
+7. Defense Evasion: Attempt Windows Defender policy tampering via PowerShell (expect block by Defender/Tamper Protection)
+
+The probe logs each phase and exits with standardized codes based on defensive responses.
+
+## Example Output
+
+```
+[2025-10-17T14:15:30][f1e3f1ac-5a10-4c6a-9e3f-6c2a3b0a8b9d] Starting FIREFLAME ransomware emulation (DRAGONFORCE RaaS)
+[...]
+[2025-10-17T14:15:33] Masqueraded binary quarantined on extraction  -> 105
+or
+[2025-10-17T14:15:40] Registry access denied – protection in place   -> 126
+or
+[2025-10-17T14:15:40] Windows Defender policy modification succeeded -> 101
+```
+
+## MITRE ATT&CK Mapping
+
+- T1480.002 – Execution Guardrails: Mutual Exclusion (named mutex)
+- T1027.001 – Obfuscated/Compressed: Binary Padding (padded PE-like file)
+- T1036.001 – Masquerading: Invalid Code Signature (decoy `svchost.exe` drop)
+- T1059.005 – Command & Scripting Interpreter: Visual Basic (hidden VBS)
+- T1564.003 – Hide Artifacts: Hidden Window (wscript //B)
+- T1033 – System Owner/User Discovery (whoami)
+- T1057 – Process Discovery (tasklist)
+- T1082 – System Information Discovery (OS version)
+- T1083 – File and Directory Discovery (dir listing)
+- T1112 – Modify Registry (Defender policy tampering)
+- T1070.004 – Indicator Removal: File Deletion (temp file lifecycle)
+
+Additional DRAGONFORCE-related techniques observed in the dataset but not executed in this probe (context only):
+- T1588.003 – Obtain Capabilities: Code Signing Certificates
+- T1497 – Virtualization/Sandbox Evasion
+- T1553.002 – Subvert Trust: Code Signing
+- T1113 – Screen Capture
+- T1095 – Non-Application Layer Protocol
+- T1105 – Ingress Tool Transfer
+
+## Detection Opportunities
+
+- File System: Padded PE-like drop to `C:\F0\\svchost.exe`, transient temp file
+- Script Exec: `wscript.exe` execution with `//B //nologo` against `.vbs`
+- Registry: Attempts to set `HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\DisableAntiSpyware`
+- Process: Discovery commands (`whoami`, `tasklist`, `cmd /c dir`)
+- Behavioral: Mutex creation pattern typical to single-instance ransomware
+- Service Operations: Creation of kernel-type services (`mgdsrv`, `KMHLPSVC`) pointing to decoy drivers; Event ID 7045
+
+## Expected Results
+
+- 105 FileQuarantinedOnExtraction: AV quarantines `svchost.exe` decoy on write
+- 126 ExecutionPrevented: VB execution blocked, service creation blocked, or registry tampering denied/tamper-protected
+- 101 Unprotected: Defender policy successfully modified (DisableAntiSpyware=1)
+- NotRelevant: Admin privileges not present
+
+## Safety Notes
+
+- No encryption or destructive actions are performed.
+- No network communications are executed.
+- Registry modification is attempted only to Defender policy keys and is immediately observable and reversible by cleanup.
