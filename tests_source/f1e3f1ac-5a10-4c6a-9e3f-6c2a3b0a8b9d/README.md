@@ -1,6 +1,6 @@
 # FIREFLAME Ransomware Emulation (DRAGONFORCE RaaS)
 
-This VST simulates core behaviors attributed to FIREFLAME, a Windows-based ransomware with code overlaps to CONTI and reportedly operated within the DRAGONFORCE RaaS. The probe focuses on safe, high-signal behaviors mapped to DRAGONFORCE-related MITRE ATT&CK techniques to verify Microsoft Defender detection and prevention.
+This VST simulates core behaviors attributed to FIREFLAME, a Windows-based ransomware with code overlaps to CONTI and reportedly operated within the DRAGONFORCE RaaS. The probe focuses on safe, high-signal behaviors mapped to DRAGONFORCE-related MITRE ATT&CK techniques to verify EDR detection and prevention.
 
 ## How
 
