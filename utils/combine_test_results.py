@@ -632,6 +632,13 @@ class CombinedTestResults:
 
         stats.append(f"Total Defender Alerts: {defender_query_info.get('total_alerts', 0)}")
         stats.append(f"Matched Events: {matched_events} ({(matched_events/total_lc_events)*100:.1f}%)")
+
+        # Calculate and display Final Score
+        final_score_data = self.calculate_final_score(correlations)
+        if final_score_data['prevented_only'] > 0:
+            stats.append(f"Prevented Without Alert (LC 126): {final_score_data['prevented_only']} events")
+        stats.append(f"Final Score: {final_score_data['successful_defenses']} successful defenses ({final_score_data['final_score']:.1f}%)")
+
         stats.append(f"Unique Endpoints: {len(unique_hostnames)}")
         stats.append(f"Endpoints with Matches: {len(matched_hostnames)}")
         stats.append(f"Test UUID: {lc_query_info.get('uuid', 'N/A')}")
@@ -759,10 +766,68 @@ class CombinedTestResults:
             0: "exec_error",
             1: "NF_denied",
             3: "Quarantined",
+            126: "prevented_execution",
             200: "Uploaded",
             259: "exec_stop"
         }
         return error_meanings.get(error_code, "Unknown")
+
+    def calculate_final_score(self, correlations: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calculate Final Score counting successful defenses
+
+        Success = Defender detected it OR execution was prevented (code 126)
+
+        Note: Events with BOTH Defender match AND code 126 are counted only once
+        to avoid double counting.
+
+        Args:
+            correlations: List of correlation dictionaries
+
+        Returns:
+            Dictionary with:
+            - final_score: Percentage of successful defenses (0-100)
+            - total_events: Total number of events
+            - successful_defenses: Count of events with defense
+            - defender_matches: Count with Defender alerts
+            - prevented_only: Count with code 126 but no Defender alert (OS/policy prevention)
+        """
+        if not correlations:
+            return {
+                'final_score': 0,
+                'total_events': 0,
+                'successful_defenses': 0,
+                'defender_matches': 0,
+                'prevented_only': 0
+            }
+
+        total_events = len(correlations)
+        defender_matches = 0
+        prevented_only = 0
+
+        for corr in correlations:
+            has_defender_match = corr.get('defender_match') == 'Yes'
+            has_prevention_code = corr.get('lc_error_code') == 126
+
+            if has_defender_match:
+                # Event detected by Defender (regardless of error code)
+                defender_matches += 1
+            elif has_prevention_code:
+                # Event prevented by OS/policy without Defender alert
+                prevented_only += 1
+
+        # Total successful defenses (no double counting)
+        successful_defenses = defender_matches + prevented_only
+
+        # Calculate final score percentage
+        final_score = (successful_defenses / total_events * 100) if total_events > 0 else 0
+
+        return {
+            'final_score': round(final_score, 1),
+            'total_events': total_events,
+            'successful_defenses': successful_defenses,
+            'defender_matches': defender_matches,
+            'prevented_only': prevented_only
+        }
 
     # ============================================================================
     # SCORING METHODS (Optional - only used when --score flag is enabled)
@@ -1179,16 +1244,25 @@ class CombinedTestResults:
         matched_events = len([c for c in correlations if c.get('defender_match') == 'Yes'])
         defense_score = (matched_events / total_lc_events * 100) if total_lc_events > 0 else 0
 
-        # Prominent Defense Score section
+        # Defense Score section (uses Final Score logic)
+        final_score_data = self.calculate_final_score(correlations)
+
         output.append("## 🛡️ Defense Score")
         if enable_scoring:
             # Use comprehensive scoring
             defense_score_data = self.calculate_defense_score(correlations)
             output.append(f"### **{defense_score_data['final_score']:.1f}%**")
+            output.append(f"*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
         else:
-            # Use simple match percentage (existing behavior)
-            output.append(f"### **{defense_score:.1f}%**")
-        output.append(f"*{matched_events} out of {total_lc_events} LimaCharlie events detected by Microsoft Defender*\n")
+            # Use final score logic (defender matches OR code 126)
+            output.append(f"### **{final_score_data['final_score']:.1f}%**")
+            output.append(f"*{final_score_data['successful_defenses']} out of {total_lc_events} events successfully defended*")
+            output.append("")
+            output.append("**Breakdown:**")
+            output.append(f"- Defender Matches: {final_score_data['defender_matches']} events")
+            if final_score_data['prevented_only'] > 0:
+                output.append(f"- Prevented Without Alert (LC 126): {final_score_data['prevented_only']} events (OS/policy prevention)")
+            output.append("")
 
         # Summary section
         output.append("## Summary")
@@ -1460,6 +1534,9 @@ class CombinedTestResults:
                 'defender_query_info': defender_query_info,
                 'time_window_minutes': time_window_minutes
             }
+
+            # Add final score data (always included)
+            output_data['final_score_data'] = self.calculate_final_score(correlations)
 
             # Add defense score data if scoring enabled
             if enable_scoring:
