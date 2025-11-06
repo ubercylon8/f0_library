@@ -19,7 +19,7 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
     
     - name: Install security tools
       run: |
@@ -40,7 +40,7 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
     
     - name: Scan for secrets
       run: |
@@ -59,7 +59,7 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
     
     - name: Install PSScriptAnalyzer
       shell: powershell
@@ -83,19 +83,19 @@ jobs:
     name: CodeQL Analysis
     runs-on: ubuntu-latest
     if: false  # Disabled until we have Go modules
-    
+
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
-    
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
+
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v2
+      uses: github/codeql-action/init@0499de31b99561a6d14a36a5f662c2a54f91beee
       with:
         languages: go
         queries: security-and-quality
-    
+
     - name: Autobuild
-      uses: github/codeql-action/autobuild@v2
-    
+      uses: github/codeql-action/autobuild@0499de31b99561a6d14a36a5f662c2a54f91beee
+
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v2
+      uses: github/codeql-action/analyze@0499de31b99561a6d14a36a5f662c2a54f91beee
