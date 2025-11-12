@@ -108,16 +108,6 @@ Test stops at first blocked stage:
 # Build all stages and main binary (default: sb organization certificate)
 ./tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh
 
-# Or specify a different organization certificate for dual signing
-./tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh --org tpsgl
-./tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh --org rga
-```
-
-**Dual Signing Options:**
-- `--org sb` (default) - Use SB organization certificate + F0RT1KA certificate
-- `--org tpsgl` - Use TPSGL organization certificate + F0RT1KA certificate
-- `--org rga` - Use RGA organization certificate + F0RT1KA certificate
-
 The build process:
 1. Builds 5 stage binaries (one per technique)
 2. Builds cleanup utility
@@ -126,8 +116,6 @@ The build process:
 5. Builds main orchestrator (embeds signed stages)
 6. Dual-signs main binary with org cert + F0RT1KA
 7. Cleans up temporary files
-
-**Final output:** Single `eafce2fc-75fd-4c62-92dc-32cabe5cf206.exe` (~25-30MB with embedded Tailscale)
 
 ## Cleanup
 
