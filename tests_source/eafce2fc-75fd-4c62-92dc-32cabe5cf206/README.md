@@ -1,0 +1,210 @@
+# Tailscale Remote Access and Data Exfiltration
+
+## Overview
+This test simulates a sophisticated attack chain using Tailscale for remote access establishment and data exfiltration. It evaluates endpoint protection capabilities against the use of legitimate remote access tools for malicious purposes, combined with SSH-based command execution and C2 data exfiltration.
+
+**Test Score**: **8.0/10** - Advanced multi-stage killchain with real-world remote access techniques
+
+**Score Breakdown**:
+- **Real-World Accuracy: 2.5/3.0** - Uses actual Tailscale software, real OpenSSH installation, authentic network protocols
+- **Technical Sophistication: 2.5/3.0** - Multi-stage architecture, service installation, network tunneling, data compression/exfiltration
+- **Safety Mechanisms: 1.5/2.0** - Dedicated cleanup utility, staged approach with clear detection points
+- **Detection Opportunities: 1.0/1.0** - 5 distinct stages with clear EDR validation points
+- **Logging & Observability: 0.5/1.0** - Multi-stage logger with technique-level tracking
+
+**Key Strengths**:
+- Uses actual Tailscale software (not simulation)
+- Real Windows service installation (OpenSSH)
+- Multi-stage architecture for precision detection
+- Configurable binary acquisition (download vs embedded)
+- Comprehensive cleanup utility for post-test removal
+- 5 distinct ATT&CK techniques tested individually
+
+## MITRE ATT&CK Mapping
+
+**Multi-Stage Killchain:**
+- **Stage 1 - T1105**: Ingress Tool Transfer (Tailscale download)
+- **Stage 2 - T1543.003**: Create or Modify System Process: Windows Service (OpenSSH)
+- **Stage 3 - T1219**: Remote Access Software (Tailscale connection)
+- **Stage 4 - T1021.004**: Remote Services: SSH
+- **Stage 5 - T1041**: Exfiltration Over C2 Channel
+
+**Additional Techniques:**
+- **T1071.001**: Application Layer Protocol: Web Protocols (Tailscale communication)
+- **T1560.001**: Archive Collected Data: Archive via Utility (data compression)
+- **T1048**: Exfiltration Over Alternative Protocol
+
+## Test Execution
+
+This test uses **multi-stage architecture** where each ATT&CK technique is implemented as a separate signed binary. This provides technique-level detection precision - if EDR blocks Stage 3 (T1219), you know exactly which technique triggered protection.
+
+### Configuration (Before Building)
+
+**REQUIRED:** Edit `eafce2fc-75fd-4c62-92dc-32cabe5cf206.go` and replace the auth key placeholder:
+
+```go
+const (
+    // REPLACE THIS with your actual Tailscale auth key
+    TAILSCALE_AUTH_KEY = "tskey-auth-REPLACE_ME_WITH_ACTUAL_KEY"
+)
+```
+
+Generate auth key at: https://login.tailscale.com/admin/settings/keys
+
+### Execution Modes
+
+**Embedded Mode (Default):**
+```powershell
+C:\eafce2fc-75fd-4c62-92dc-32cabe5cf206.exe
+```
+Uses pre-embedded Tailscale binary (works offline, larger binary size ~25MB)
+
+**Download Mode:**
+```powershell
+C:\eafce2fc-75fd-4c62-92dc-32cabe5cf206.exe --download
+```
+Downloads Tailscale from official servers (tests download blocking, requires internet)
+
+### Prerequisites
+- Administrator privileges required (for OpenSSH installation)
+- Internet connectivity (for Tailscale connection and download mode)
+- Valid Tailscale auth key configured
+- Windows 10/11 or Server 2019+
+
+## Expected Outcomes
+
+### Unprotected System (Exit Code 101 - VULNERABLE)
+All 5 stages complete successfully:
+1. Tailscale binary acquired (downloaded or extracted)
+2. OpenSSH Server installed and started
+3. Tailscale connected to tailnet infrastructure
+4. SSH remote access validated
+5. Sensitive data compressed and exfiltrated
+
+**Result:** Complete attack chain succeeded - attacker gains remote access and exfiltrates data
+
+### Protected System (Exit Code 126 - PROTECTED)
+
+Test stops at first blocked stage:
+
+- **Stage 1 Blocked**: Tailscale download prevented or binary quarantined
+- **Stage 2 Blocked**: OpenSSH installation prevented by security policy
+- **Stage 3 Blocked**: Tailscale execution blocked or network connection denied
+- **Stage 4 Blocked**: SSH access prevented by firewall/EDR
+- **Stage 5 Blocked**: Data compression or exfiltration prevented
+
+**Result:** EDR detected and blocked technique at specific stage
+
+### Error Conditions (Exit Code 999)
+- Not running as administrator
+- Tailscale auth key not configured
+- Network connectivity issues (timeout)
+- Service installation prerequisites not met
+
+## Build Instructions
+
+```bash
+# Build all stages and main binary
+./tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh
+```
+
+The build process:
+1. Builds 5 stage binaries (one per technique)
+2. Builds cleanup utility
+3. Signs all stage binaries (CRITICAL - before embedding)
+4. Downloads/embeds Tailscale binary
+5. Builds main orchestrator (embeds signed stages)
+6. Signs main binary
+7. Cleans up temporary files
+
+**Final output:** Single `eafce2fc-75fd-4c62-92dc-32cabe5cf206.exe` (~25-30MB with embedded Tailscale)
+
+## Cleanup
+
+After test completion, run the cleanup utility:
+
+```powershell
+C:\F0\tailscale_cleanup.exe
+```
+
+The cleanup utility removes:
+- Tailscale portable installation and state files
+- OpenSSH Server (optional - prompts before removal)
+- Firewall rules created by test
+- All stage binaries and test artifacts
+- Exfiltrated data archives
+- Log files
+
+**Note:** Cleanup requires administrator privileges
+
+## Detection Opportunities
+
+This test provides **5 distinct detection points** across the killchain:
+
+1. **Stage 1 Detection:**
+   - HTTP download of remote access tool
+   - File creation of unsigned/untrusted binary
+   - Behavioral: Tool download patterns
+
+2. **Stage 2 Detection:**
+   - Windows capability installation
+   - Service creation/modification
+   - Firewall rule creation
+   - Behavioral: Service persistence establishment
+
+3. **Stage 3 Detection:**
+   - Execution of portable remote access tool
+   - Network connections to Tailscale infrastructure
+   - Process creation patterns
+   - Behavioral: Outbound C2 connections
+
+4. **Stage 4 Detection:**
+   - SSH service activity
+   - Network connections on port 22
+   - Authentication attempts
+   - Behavioral: Remote access patterns
+
+5. **Stage 5 Detection:**
+   - Mass file access patterns
+   - Archive creation (zip)
+   - Large data transfers
+   - Behavioral: Data staging and exfiltration
+
+## Safety Mechanisms
+
+- **Staged Execution**: Each stage must succeed before proceeding
+- **Cleanup Utility**: Dedicated tool for complete removal
+- **Admin Requirements**: Prevents accidental execution
+- **Dummy Data Only**: Exfiltration uses fake sensitive files
+- **Reversible Changes**: All modifications can be undone
+- **Clear Logging**: Complete audit trail of all actions
+
+## Multi-Stage Architecture Benefits
+
+- **Technique-Level Precision**: Know exactly which technique triggered EDR
+- **Isolation**: Only blocked stage binary quarantined, not entire test
+- **Real-World Modeling**: Mimics actual multi-phase attack chains
+- **Forensic Value**: Logs show exact point where protection activated
+- **Modular Testing**: Individual stages can be tested separately
+
+## Scoring Justification
+
+**Why 8.0/10:**
+- Uses actual production software (Tailscale, OpenSSH)
+- Real network communications and service installation
+- Multi-stage architecture models sophisticated threats
+- 5 distinct detection opportunities for validation
+- Dedicated cleanup and safety mechanisms
+- Comprehensive logging with technique-level tracking
+
+**Deductions:**
+- Exfiltration uses dummy data (not real sensitive files) - reduces real-world accuracy
+- No advanced evasion techniques (straightforward execution)
+- Cleanup requires manual execution (not automatic recovery)
+
+## Version History
+
+- **v1.0** (2025-01-15): Initial release with 5-stage architecture
+- Multi-stage pattern for technique-level detection
+- Configurable binary acquisition modes
+- Dedicated cleanup utility
