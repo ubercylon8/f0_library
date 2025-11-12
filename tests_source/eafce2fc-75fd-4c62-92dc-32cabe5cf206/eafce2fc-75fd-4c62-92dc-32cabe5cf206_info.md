@@ -546,7 +546,7 @@ These behaviors are common across various threat actors and provide strong detec
 
 ## Version History
 
-- **v1.0** (2025-01-15): Initial release
+- **v1.0** (2025-10-15): Initial release
   - Multi-stage architecture with 5 techniques
   - Configurable binary acquisition modes
   - Dedicated cleanup utility
