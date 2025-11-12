@@ -5,9 +5,75 @@ TEST_UUID="eafce2fc-75fd-4c62-92dc-32cabe5cf206"
 TEST_DIR="tests_source/${TEST_UUID}"
 BUILD_DIR="build/${TEST_UUID}"
 
+# Parse command-line arguments
+ORG_CERT=""
+USAGE="Usage: $0 [--org <org-name>]
+
+Options:
+  --org <org-name>    Organization certificate to use for dual signing (default: sb)
+                      Available: sb, tpsgl, rga
+
+Examples:
+  $0                  # Use default sb certificate
+  $0 --org tpsgl      # Use tpsgl certificate
+  $0 --org rga        # Use rga certificate
+"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --org)
+            ORG_CERT="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "$USAGE"
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown option: $1"
+            echo "$USAGE"
+            exit 1
+            ;;
+    esac
+done
+
+# Default to sb if no org specified
+if [ -z "$ORG_CERT" ]; then
+    ORG_CERT="sb"
+fi
+
+# Map org name to certificate file (paths relative from test directory)
+case "$ORG_CERT" in
+    sb)
+        ORG_CERT_FILE="../../signing-certs/F0-LocalCodeSigningCert-CST-SB.pfx"
+        ORG_CERT_FILE_ROOT="signing-certs/F0-LocalCodeSigningCert-CST-SB.pfx"
+        ;;
+    tpsgl)
+        ORG_CERT_FILE="../../signing-certs/F0-LocalCodeSigningCert-CST-TPSGL.pfx"
+        ORG_CERT_FILE_ROOT="signing-certs/F0-LocalCodeSigningCert-CST-TPSGL.pfx"
+        ;;
+    rga)
+        ORG_CERT_FILE="../../signing-certs/F0-LocalCodeSigningCert-CST-RGA.pfx"
+        ORG_CERT_FILE_ROOT="signing-certs/F0-LocalCodeSigningCert-CST-RGA.pfx"
+        ;;
+    *)
+        echo "ERROR: Unknown organization: $ORG_CERT"
+        echo "Available organizations: sb, tpsgl, rga"
+        exit 1
+        ;;
+esac
+
+# Verify certificate file exists (check from root)
+if [ ! -f "signing-certs/$(basename ${ORG_CERT_FILE})" ]; then
+    echo "ERROR: Certificate file not found: signing-certs/$(basename ${ORG_CERT_FILE})"
+    exit 1
+fi
+
 echo "================================================================="
 echo "Building Multi-Stage Test: Tailscale Remote Access"
 echo "Test ID: ${TEST_UUID}"
+echo "Organization: ${ORG_CERT}"
+echo "Certificate: $(basename ${ORG_CERT_FILE})"
 echo "================================================================="
 echo ""
 
@@ -51,7 +117,7 @@ echo "    ✓ cleanup_utility.exe created"
 echo ""
 
 # Step 3: Dual-sign stage binaries (CRITICAL - before embedding!)
-echo "[Step 3/7] Dual-signing stage binaries and cleanup utility (sb + F0RT1KA)..."
+echo "[Step 3/7] Dual-signing stage binaries and cleanup utility (${ORG_CERT} + F0RT1KA)..."
 echo ""
 
 for stage in "${STAGES[@]}"; do
@@ -59,7 +125,7 @@ for stage in "${STAGES[@]}"; do
     binary="${TEST_UUID}-${technique}.exe"
 
     echo "  Dual-signing ${binary}..."
-    ../../utils/codesign sign-nested "${binary}" ../../signing-certs/F0-LocalCodeSigningCert-CST-SB.pfx ../../signing-certs/F0RT1KA.pfx
+    ../../utils/codesign sign-nested "${binary}" "${ORG_CERT_FILE}" ../../signing-certs/F0RT1KA.pfx
 
     if [ $? -ne 0 ]; then
         echo "ERROR: Failed to sign ${binary}"
@@ -68,7 +134,7 @@ for stage in "${STAGES[@]}"; do
 done
 
 echo "  Dual-signing cleanup_utility.exe..."
-../../utils/codesign sign-nested cleanup_utility.exe ../../signing-certs/F0-LocalCodeSigningCert-CST-SB.pfx ../../signing-certs/F0RT1KA.pfx
+../../utils/codesign sign-nested cleanup_utility.exe "${ORG_CERT_FILE}" ../../signing-certs/F0RT1KA.pfx
 
 echo ""
 
@@ -147,10 +213,10 @@ echo ""
 cd ../..
 
 # Step 7: Dual-sign main binary
-echo "[Step 7/7] Dual-signing main binary (sb + F0RT1KA)..."
+echo "[Step 7/7] Dual-signing main binary (${ORG_CERT} + F0RT1KA)..."
 echo ""
 
-./utils/codesign sign-nested "${BUILD_DIR}/${TEST_UUID}.exe" signing-certs/F0-LocalCodeSigningCert-CST-SB.pfx signing-certs/F0RT1KA.pfx
+./utils/codesign sign-nested "${BUILD_DIR}/${TEST_UUID}.exe" "${ORG_CERT_FILE_ROOT}" signing-certs/F0RT1KA.pfx
 
 if [ $? -ne 0 ]; then
     echo "ERROR: Failed to sign main binary"
@@ -183,7 +249,7 @@ echo "Test Binary:"
 ls -lh "${BUILD_DIR}/${TEST_UUID}.exe"
 echo ""
 echo "Signing:"
-echo "  ✓ All binaries dual-signed (sb org cert + F0RT1KA)"
+echo "  ✓ All binaries dual-signed (${ORG_CERT} org cert + F0RT1KA)"
 echo "  ✓ Stage binaries: 5 stages + cleanup utility"
 echo "  ✓ Main orchestrator: Full test binary"
 echo ""
