@@ -204,7 +204,7 @@ This test provides **5 distinct detection points** across the killchain:
 
 ## Version History
 
-- **v1.0** (2025-01-15): Initial release with 5-stage architecture
+- **v1.0** (2025-10-15): Initial release with 5-stage architecture
 - Multi-stage pattern for technique-level detection
 - Configurable binary acquisition modes
 - Dedicated cleanup utility
