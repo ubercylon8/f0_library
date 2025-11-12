@@ -226,6 +226,29 @@ fi
 echo "    ✓ Main binary dual-signed"
 echo ""
 
+# Calculate SHA1 hashes before cleanup
+echo "Calculating SHA1 hashes..."
+cd "${TEST_DIR}"
+
+declare -A STAGE_HASHES
+for stage in "${STAGES[@]}"; do
+    IFS=':' read -r technique source <<< "$stage"
+    binary="${TEST_UUID}-${technique}.exe"
+    if [ -f "${binary}" ]; then
+        hash=$(shasum -a 1 "${binary}" | awk '{print $1}')
+        STAGE_HASHES["${binary}"]="${hash}"
+    fi
+done
+
+# Calculate cleanup utility hash
+if [ -f "cleanup_utility.exe" ]; then
+    CLEANUP_HASH=$(shasum -a 1 cleanup_utility.exe | awk '{print $1}')
+fi
+
+# Calculate main binary hash
+cd ../..
+MAIN_HASH=$(shasum -a 1 "${BUILD_DIR}/${TEST_UUID}.exe" | awk '{print $1}')
+
 # Cleanup temporary files
 echo "Cleaning up temporary stage binaries from source directory..."
 cd "${TEST_DIR}"
@@ -252,6 +275,22 @@ echo "Signing:"
 echo "  ✓ All binaries dual-signed (${ORG_CERT} org cert + F0RT1KA)"
 echo "  ✓ Stage binaries: 5 stages + cleanup utility"
 echo "  ✓ Main orchestrator: Full test binary"
+echo ""
+echo "SHA1 Hashes:"
+echo "  Main Binary:"
+echo "    ${TEST_UUID}.exe: ${MAIN_HASH}"
+echo ""
+echo "  Embedded Binaries:"
+for stage in "${STAGES[@]}"; do
+    IFS=':' read -r technique source <<< "$stage"
+    binary="${TEST_UUID}-${technique}.exe"
+    if [ -n "${STAGE_HASHES[$binary]}" ]; then
+        echo "    ${binary}: ${STAGE_HASHES[$binary]}"
+    fi
+done
+if [ -n "${CLEANUP_HASH}" ]; then
+    echo "    cleanup_utility.exe: ${CLEANUP_HASH}"
+fi
 echo ""
 echo "Deployment:"
 echo "  1. Replace AUTH_KEY placeholder in source code before building"
