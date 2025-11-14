@@ -1,0 +1,472 @@
+# Enhanced LimaCharlie D&R Rules for F0RT1KA Results Collection
+# Production-ready rules with comprehensive monitoring and automation
+
+---
+# Rule 1: Auto-Deploy Collector on Sensor Registration
+- name: f0rtika-auto-deploy-collector
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    event: NEW_SENSOR
+    op: and
+    rules:
+      # Deploy only to Windows sensors
+      - op: is windows
+
+      # Optional: Filter by tag
+      # - op: exists
+      #   path: event/TAGS
+      #   value: f0rtika-endpoint
+
+  respond:
+    # Create F0 directory
+    - action: task
+      command: >
+        cmd.exe /c "if not exist c:\F0 mkdir c:\F0 && if not exist c:\F0\collected mkdir c:\F0\collected"
+      investigation: f0rtika_deployment
+      suppression:
+        is global: false
+        keys:
+          - event/SENSOR_ID
+        max count: 1
+        period: 86400
+
+    # Deploy collector binary (requires payload management)
+    - action: artifact_get
+      artifact: f0_collector.exe
+      destination: c:\F0\f0_collector.exe
+
+    # Deploy configuration
+    - action: artifact_get
+      artifact: collector_config.json
+      destination: c:\F0\collector_config.json
+
+    # Set up scheduled task
+    - action: task
+      command: >
+        powershell.exe -ExecutionPolicy Bypass -Command "
+        $action = New-ScheduledTaskAction -Execute 'c:\F0\f0_collector.exe' -Argument 'collect --once';
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration ([TimeSpan]::MaxValue);
+        $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest;
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew;
+        Register-ScheduledTask -TaskName 'F0RT1KA Results Collector' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force
+        "
+      investigation: f0rtika_deployment
+
+  metadata:
+    description: "Automatically deploys F0RT1KA collector to new Windows sensors"
+    author: "F0RT1KA Framework"
+    category: "automation"
+    severity: "informational"
+    version: "2.0"
+
+---
+# Rule 2: Detect Test Result Creation (Enhanced)
+- name: f0rtika-test-result-created-enhanced
+  namespace: managed
+  version: 2
+  enabled: true
+
+  detect:
+    event: NEW_DOCUMENT
+    op: and
+    rules:
+      # Match test_execution_log.json files
+      - op: ends with
+        path: event/FILE_PATH
+        value: '\test_execution_log.json'
+        case sensitive: false
+
+      # In the F0 directory
+      - op: starts with
+        path: event/FILE_PATH
+        value: 'c:\F0\'
+        case sensitive: false
+
+      # Exclude already collected files
+      - op: is not
+        path: event/FILE_PATH
+        value: 'c:\F0\collected\'
+
+      # File size > 100 bytes (sanity check)
+      - op: is greater than
+        path: event/FILE_SIZE
+        value: 100
+
+  respond:
+    # Log the detection
+    - action: report
+      name: f0rtika_test_result_detected
+      metadata:
+        file_path: event/FILE_PATH
+        file_size: event/FILE_SIZE
+        sensor_id: event/SENSOR_ID
+        timestamp: event/TIMESTAMP
+
+    # Collect via LimaCharlie (backup)
+    - action: artifact_get
+      file_path: event/FILE_PATH
+      retention_days: 90
+      investigation: f0rtika_results
+
+    # Trigger collector immediately
+    - action: task
+      command: >
+        c:\F0\f0_collector.exe collect --once
+      wait_for_completion: false
+      investigation: f0rtika_collection
+      suppression:
+        is global: false
+        keys:
+          - event/SENSOR_ID
+        max count: 1
+        period: 60  # Prevent multiple triggers within 60 seconds
+
+    # Optional: Send notification
+    # - action: webhook
+    #   url: https://your-webhook-url.com/f0rtika-results
+    #   body: '{"event": "test_result_created", "sensor": "{{event/SENSOR_ID}}", "file": "{{event/FILE_PATH}}"}'
+
+  metadata:
+    description: "Detects F0RT1KA test result creation and triggers collection with backup"
+    author: "F0RT1KA Framework"
+    category: "automation"
+    severity: "informational"
+    version: "2.0"
+
+---
+# Rule 3: Monitor Collector Execution (Enhanced)
+- name: f0rtika-collector-monitor-enhanced
+  namespace: managed
+  version: 2
+  enabled: true
+
+  detect:
+    event: NEW_PROCESS
+    op: and
+    rules:
+      # Match collector executable
+      - op: ends with
+        path: event/FILE_PATH
+        value: 'f0_collector.exe'
+        case sensitive: false
+
+      # From F0 directory
+      - op: starts with
+        path: event/FILE_PATH
+        value: 'c:\F0\'
+        case sensitive: false
+
+  respond:
+    # Log execution with full context
+    - action: report
+      name: f0rtika_collector_execution
+      metadata:
+        process_id: event/PROCESS_ID
+        command_line: event/COMMAND_LINE
+        parent_process: event/PARENT/FILE_PATH
+        parent_command: event/PARENT/COMMAND_LINE
+        user: event/USER_NAME
+        sensor_id: event/SENSOR_ID
+        timestamp: event/TIMESTAMP
+
+    # Tag sensor for tracking
+    - action: add_tag
+      tag: f0rtika-active
+      ttl: 3600  # Tag expires after 1 hour
+
+  metadata:
+    description: "Monitors F0RT1KA collector execution with detailed context"
+    author: "F0RT1KA Framework"
+    category: "monitoring"
+    severity: "informational"
+    version: "2.0"
+
+---
+# Rule 4: Alert on Collector Failures (Enhanced)
+- name: f0rtika-collector-failure-alert-enhanced
+  namespace: managed
+  version: 2
+  enabled: true
+
+  detect:
+    event: TERMINATE_PROCESS
+    op: and
+    rules:
+      # Match collector executable
+      - op: ends with
+        path: event/FILE_PATH
+        value: 'f0_collector.exe'
+        case sensitive: false
+
+      # Non-zero exit code
+      - op: is not
+        path: event/EXIT_CODE
+        value: 0
+
+  respond:
+    # Send detailed alert
+    - action: report
+      name: f0rtika_collector_failure
+      metadata:
+        exit_code: event/EXIT_CODE
+        command_line: event/COMMAND_LINE
+        process_id: event/PROCESS_ID
+        runtime_ms: event/RUNTIME_MS
+        sensor_id: event/SENSOR_ID
+        hostname: routing/hostname
+        organization: routing/oid
+        timestamp: event/TIMESTAMP
+      priority: high
+
+    # Collect logs for troubleshooting
+    - action: artifact_get
+      file_path: c:\F0\collector.log
+      retention_days: 30
+      investigation: f0rtika_troubleshooting
+
+    # Optional: Restart collector after failure
+    # - action: task
+    #   command: >
+    #     c:\F0\f0_collector.exe collect --once --verbose
+    #   wait_for_completion: false
+
+    # Send webhook notification
+    # - action: webhook
+    #   url: https://your-webhook-url.com/alerts
+    #   body: '{"alert": "collector_failure", "sensor": "{{routing/hostname}}", "exit_code": {{event/EXIT_CODE}}}'
+
+  metadata:
+    description: "Alerts on F0RT1KA collector failures with log collection"
+    author: "F0RT1KA Framework"
+    category: "alerting"
+    severity: "medium"
+    version: "2.0"
+
+---
+# Rule 5: Detect Elasticsearch Connection Failures
+- name: f0rtika-elastic-connection-failure
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    event: DNS_REQUEST
+    op: and
+    rules:
+      # DNS lookup from collector
+      - op: ends with
+        path: event/PROCESS/FILE_PATH
+        value: 'f0_collector.exe'
+        case sensitive: false
+
+      # Failed DNS resolution
+      - op: exists
+        path: event/ERROR
+
+  respond:
+    - action: report
+      name: f0rtika_network_issue
+      metadata:
+        domain: event/DOMAIN_NAME
+        error: event/ERROR
+        sensor_id: event/SENSOR_ID
+        timestamp: event/TIMESTAMP
+      priority: medium
+
+  metadata:
+    description: "Detects network connectivity issues for collector"
+    author: "F0RT1KA Framework"
+    category: "monitoring"
+    severity: "medium"
+
+---
+# Rule 6: Monitor Collector Health (Heartbeat)
+- name: f0rtika-collector-heartbeat
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    # Trigger on file modification (state file updates)
+    event: FILE_MODIFIED
+    op: and
+    rules:
+      - op: is
+        path: event/FILE_PATH
+        value: 'c:\F0\.collector_state.json'
+        case sensitive: false
+
+  respond:
+    # Update heartbeat timestamp
+    - action: report
+      name: f0rtika_heartbeat
+      metadata:
+        sensor_id: event/SENSOR_ID
+        hostname: routing/hostname
+        timestamp: event/TIMESTAMP
+        file_size: event/FILE_SIZE
+
+    # Refresh active tag
+    - action: add_tag
+      tag: f0rtika-healthy
+      ttl: 600  # 10 minutes
+
+  metadata:
+    description: "Tracks collector health via state file modifications"
+    author: "F0RT1KA Framework"
+    category: "monitoring"
+    severity: "informational"
+
+---
+# Rule 7: Alert on Missing Heartbeat
+- name: f0rtika-missing-heartbeat-alert
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    # This would typically be a scheduled check
+    # Implementation depends on LC's scheduled detection capabilities
+    event: SCHEDULED_CHECK
+    interval: 900  # Check every 15 minutes
+
+  respond:
+    # Check if f0rtika-healthy tag is present
+    # If missing, send alert
+    - action: report
+      name: f0rtika_collector_offline
+      metadata:
+        sensor_id: routing/sid
+        hostname: routing/hostname
+        last_seen: routing/last_seen
+      priority: high
+      condition:
+        op: does not have tag
+        tag: f0rtika-healthy
+
+  metadata:
+    description: "Alerts when collector appears offline (no heartbeat)"
+    author: "F0RT1KA Framework"
+    category: "alerting"
+    severity: "high"
+
+---
+# Rule 8: Detect Suspicious Collector Activity
+- name: f0rtika-collector-tampering-detection
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    event: FILE_MODIFIED
+    op: and
+    rules:
+      # Collector binary or config modified
+      - op: is
+        path: event/FILE_PATH
+        value: 'c:\F0\f0_collector.exe|c:\F0\collector_config.json'
+        case sensitive: false
+        re: true
+
+      # By non-SYSTEM user
+      - op: is not
+        path: event/USER_NAME
+        value: 'SYSTEM'
+
+  respond:
+    - action: report
+      name: f0rtika_tampering_detected
+      metadata:
+        file_path: event/FILE_PATH
+        user: event/USER_NAME
+        process: event/PROCESS/FILE_PATH
+        sensor_id: event/SENSOR_ID
+        timestamp: event/TIMESTAMP
+      priority: high
+
+    # Collect modified file for analysis
+    - action: artifact_get
+      file_path: event/FILE_PATH
+      retention_days: 90
+      investigation: f0rtika_security_incident
+
+  metadata:
+    description: "Detects unauthorized modifications to collector files"
+    author: "F0RT1KA Framework"
+    category: "security"
+    severity: "high"
+
+---
+# Rule 9: Scheduled Task Health Check
+- name: f0rtika-scheduled-task-check
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    # Monitor for scheduled task deletion or modification
+    event: WEL
+    op: and
+    rules:
+      - op: is
+        path: event/EVENT/System/EventID
+        value: 4699  # Task deleted
+
+      - op: contains
+        path: event/EVENT/EventData/TaskName
+        value: 'F0RT1KA Results Collector'
+
+  respond:
+    - action: report
+      name: f0rtika_scheduled_task_deleted
+      metadata:
+        task_name: event/EVENT/EventData/TaskName
+        user: event/EVENT/EventData/SubjectUserName
+        sensor_id: event/SENSOR_ID
+        timestamp: event/TIMESTAMP
+      priority: high
+
+    # Attempt to recreate task
+    - action: task
+      command: >
+        powershell.exe -ExecutionPolicy Bypass -File c:\F0\deploy-collector-task.ps1
+
+  metadata:
+    description: "Monitors for scheduled task deletion and attempts recovery"
+    author: "F0RT1KA Framework"
+    category: "security"
+    severity: "high"
+
+---
+# Rule 10: Bulk Export Success Monitoring
+- name: f0rtika-export-success-tracking
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    # Monitor collector logs for successful exports
+    event: FILE_MODIFIED
+    op: and
+    rules:
+      - op: is
+        path: event/FILE_PATH
+        value: 'c:\F0\collector.log'
+        case sensitive: false
+
+  respond:
+    # Parse log for success indicators (requires log parsing capability)
+    - action: report
+      name: f0rtika_export_activity
+      metadata:
+        sensor_id: event/SENSOR_ID
+        timestamp: event/TIMESTAMP
+
+  metadata:
+    description: "Tracks export activity via log file monitoring"
+    author: "F0RT1KA Framework"
+    category: "monitoring"
+    severity: "informational"
