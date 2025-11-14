@@ -1,12 +1,20 @@
-// test_logger.go - Enhanced logging for F0RT1KA multi-stage tests
-// Provides comprehensive structured logging with multi-stage support
-// Stage binaries can attach to shared log file for coordinated logging
+// test_logger.go - F0RT1KA Test Results Schema v2.0 Compliant Logger
+// Provides comprehensive structured logging conforming to test-results-schema-v2.0.json
+// Supports both standard and multi-stage test architectures
 //
-// MULTI-STAGE ENHANCEMENTS:
+// SCHEMA v2.0 FEATURES:
+// - Schema versioning for backward compatibility
+// - Rich metadata (MITRE ATT&CK, scoring, categorization)
+// - Execution context (organization, environment, batch correlation)
+// - Computed outcomes (protection status, detection phase)
+// - Pre-computed metrics for dashboard performance
+// - ISO 8601 UTC timestamps for time-series analysis
+//
+// MULTI-STAGE SUPPORT:
 // - AttachLogger() for stage binaries to attach to existing log
 // - LogStageStart(), LogStageEnd(), LogStageBlocked() for stage-specific logging
 // - Thread-safe log file operations for concurrent stage execution
-// - Stage result tracking in JSON/text logs
+// - Stage result tracking with technique-level precision
 
 //go:build windows
 // +build windows
@@ -27,123 +35,295 @@ import (
 )
 
 // ==============================================================================
-// DATA STRUCTURES
+// SCHEMA VERSION - DO NOT MODIFY
+// ==============================================================================
+
+const SCHEMA_VERSION = "2.0"
+
+// ==============================================================================
+// DATA STRUCTURES - F0RT1KA Test Results Schema v2.0
 // ==============================================================================
 
 // TestLog is the main structure containing all test execution data
+// Conforms to test-results-schema-v2.0.json
 type TestLog struct {
-	TestID                string                  `json:"testId"`
-	TestName              string                  `json:"testName"`
-	IsMultiStage          bool                    `json:"isMultiStage"`
-	StartTime             time.Time               `json:"startTime"`
-	EndTime               time.Time               `json:"endTime"`
-	Duration              int64                   `json:"durationMs"`
-	ExitCode              int                     `json:"exitCode"`
-	ExitReason            string                  `json:"exitReason"`
-	Phases                []PhaseLog              `json:"phases"`
-	Stages                []StageLog              `json:"stages,omitempty"` // Multi-stage only
-	BlockedAtStage        int                     `json:"blockedAtStage,omitempty"`
-	BlockedTechnique      string                  `json:"blockedTechnique,omitempty"`
-	CertBypass            *CertBypassLog          `json:"certBypass,omitempty"`
-	NetworkTest           *NetworkTestSummary     `json:"networkTest,omitempty"`
-	IdentifierExtraction  *IdentifierLog          `json:"identifierExtraction,omitempty"`
-	SystemInfo            SystemInfo              `json:"systemInfo"`
-	Messages              []LogEntry              `json:"messages"`
-	FilesDropped          []FileDropLog           `json:"filesDropped"`
-	ProcessesExecuted     []ProcessLog            `json:"processesExecuted"`
+	// Schema identification
+	SchemaVersion string `json:"schemaVersion"`
+
+	// Core identifiers
+	TestID   string `json:"testId"`
+	TestName string `json:"testName"`
+
+	// Test metadata (REQUIRED in v2.0)
+	TestMetadata TestMetadata `json:"testMetadata"`
+
+	// Execution context (REQUIRED in v2.0)
+	ExecutionContext ExecutionContext `json:"executionContext"`
+
+	// Timing (ISO 8601 UTC)
+	StartTime  JSONTime `json:"startTime"`
+	EndTime    JSONTime `json:"endTime"`
+	DurationMs int64    `json:"durationMs"`
+
+	// Exit information
+	ExitCode   int    `json:"exitCode"`
+	ExitReason string `json:"exitReason"`
+
+	// Computed outcome (NEW in v2.0)
+	Outcome Outcome `json:"outcome"`
+
+	// Multi-stage support
+	IsMultiStage     bool      `json:"isMultiStage,omitempty"`
+	Stages           []Stage   `json:"stages,omitempty"`
+	BlockedAtStage   int       `json:"blockedAtStage,omitempty"`
+	BlockedTechnique string    `json:"blockedTechnique,omitempty"`
+
+	// System information
+	SystemInfo SystemInfo `json:"systemInfo"`
+
+	// Execution details
+	Phases            []Phase     `json:"phases"`
+	Messages          []LogEntry  `json:"messages"`
+	FilesDropped      []FileDrop  `json:"filesDropped"`
+	ProcessesExecuted []Process   `json:"processesExecuted"`
+
+	// Test-specific data (optional)
+	CertBypass           *CertBypassLog       `json:"certBypass,omitempty"`
+	NetworkTest          *NetworkTestSummary  `json:"networkTest,omitempty"`
+	IdentifierExtraction *IdentifierLog       `json:"identifierExtraction,omitempty"`
+
+	// Aggregation metrics (NEW in v2.0)
+	Metrics *Metrics `json:"metrics,omitempty"`
+
+	// Artifacts (NEW in v2.0)
+	Artifacts *Artifacts `json:"artifacts,omitempty"`
 }
 
-// StageLog tracks individual stage execution in multi-stage tests
-type StageLog struct {
-	StageID      int       `json:"stageId"`
-	Technique    string    `json:"technique"` // MITRE ATT&CK ID (e.g., "T1134.001")
-	Name         string    `json:"name"`
-	StartTime    time.Time `json:"startTime"`
-	EndTime      time.Time `json:"endTime"`
-	DurationMs   int64     `json:"durationMs"`
-	Status       string    `json:"status"` // "success", "blocked", "error"
-	ExitCode     int       `json:"exitCode"`
-	BlockedBy    string    `json:"blockedBy,omitempty"`
-	ErrorMessage string    `json:"errorMessage,omitempty"`
+// TestMetadata contains test classification and attribution
+type TestMetadata struct {
+	Version        string         `json:"version"`        // Test version (semantic versioning)
+	Category       string         `json:"category"`       // Test category
+	Severity       string         `json:"severity"`       // Threat severity
+	Techniques     []string       `json:"techniques"`     // MITRE ATT&CK technique IDs
+	Tactics        []string       `json:"tactics"`        // MITRE ATT&CK tactic names
+	Score          float64        `json:"score,omitempty"`          // Overall test quality score (0-10)
+	ScoreBreakdown *ScoreBreakdown `json:"scoreBreakdown,omitempty"` // Detailed scoring
+	Tags           []string       `json:"tags,omitempty"`           // Additional classification tags
 }
 
-// PhaseLog tracks individual test phases
-type PhaseLog struct {
-	PhaseNumber int       `json:"phaseNumber"`
-	PhaseName   string    `json:"phaseName"`
-	StartTime   time.Time `json:"startTime"`
-	EndTime     time.Time `json:"endTime"`
-	DurationMs  int64     `json:"durationMs"`
-	Status      string    `json:"status"` // "success", "failed", "blocked", "skipped"
-	Details     string    `json:"details"`
-	Errors      []string  `json:"errors,omitempty"`
+// ScoreBreakdown provides detailed test quality scoring
+type ScoreBreakdown struct {
+	RealWorldAccuracy       float64 `json:"realWorldAccuracy"`       // 0-3
+	TechnicalSophistication float64 `json:"technicalSophistication"` // 0-3
+	SafetyMechanisms        float64 `json:"safetyMechanisms"`        // 0-2
+	DetectionOpportunities  float64 `json:"detectionOpportunities"`  // 0-1
+	LoggingObservability    float64 `json:"loggingObservability"`    // 0-1
+}
+
+// ExecutionContext provides execution environment details
+type ExecutionContext struct {
+	ExecutionID    string                  `json:"executionId"`              // Unique execution run ID (UUID)
+	BatchID        string                  `json:"batchId,omitempty"`        // Optional batch identifier
+	Organization   string                  `json:"organization"`             // Organization ID (sb, tpsgl, rga)
+	Environment    string                  `json:"environment"`              // Deployment environment
+	DeploymentType string                  `json:"deploymentType,omitempty"` // How test was deployed
+	TriggeredBy    string                  `json:"triggeredBy,omitempty"`    // Who/what initiated test
+	Configuration  *ExecutionConfiguration `json:"configuration,omitempty"`  // Test configuration
+}
+
+// ExecutionConfiguration contains test execution settings
+type ExecutionConfiguration struct {
+	TimeoutMs         int    `json:"timeoutMs,omitempty"`         // Configured timeout
+	CertificateMode   string `json:"certificateMode,omitempty"`   // Certificate installation mode
+	MultiStageEnabled bool   `json:"multiStageEnabled,omitempty"` // Multi-stage flag
+}
+
+// Outcome contains computed outcome metrics
+type Outcome struct {
+	Protected            bool     `json:"protected"`                      // Whether endpoint was protected
+	Category             string   `json:"category"`                       // Outcome categorization
+	DetectionPhase       *string  `json:"detectionPhase"`                 // Phase where detection occurred (null if unprotected)
+	BlockedTechniques    []string `json:"blockedTechniques,omitempty"`    // ATT&CK techniques blocked
+	SuccessfulTechniques []string `json:"successfulTechniques,omitempty"` // ATT&CK techniques succeeded
+}
+
+// Stage tracks individual stage execution in multi-stage tests
+type Stage struct {
+	StageID      int      `json:"stageId"`
+	Technique    string   `json:"technique"` // MITRE ATT&CK ID
+	Name         string   `json:"name"`
+	StartTime    JSONTime `json:"startTime"`
+	EndTime      JSONTime `json:"endTime"`
+	DurationMs   int64    `json:"durationMs"`
+	Status       string   `json:"status"` // "success", "blocked", "error", "skipped"
+	ExitCode     int      `json:"exitCode"`
+	BlockedBy    string   `json:"blockedBy,omitempty"`
+	ErrorMessage string   `json:"errorMessage,omitempty"`
+}
+
+// Phase tracks individual test phases
+type Phase struct {
+	PhaseNumber int      `json:"phaseNumber"`
+	PhaseName   string   `json:"phaseName"`
+	StartTime   JSONTime `json:"startTime"`
+	EndTime     JSONTime `json:"endTime"`
+	DurationMs  int64    `json:"durationMs"`
+	Status      string   `json:"status"` // "success", "failed", "blocked", "skipped", "in_progress"
+	Details     string   `json:"details,omitempty"`
+	Errors      []string `json:"errors,omitempty"`
+}
+
+// LogEntry represents a single log message
+type LogEntry struct {
+	Timestamp JSONTime `json:"timestamp"`
+	Level     string   `json:"level"` // "INFO", "WARN", "ERROR", "CRITICAL", "SUCCESS", "DEBUG"
+	Phase     string   `json:"phase"`
+	Message   string   `json:"message"`
+}
+
+// SystemInfo captures target system context
+type SystemInfo struct {
+	Hostname        string         `json:"hostname"`
+	OSVersion       string         `json:"osVersion"`
+	Architecture    string         `json:"architecture"`
+	DefenderRunning bool           `json:"defenderRunning"`
+	MDEInstalled    bool           `json:"mdeInstalled"`
+	MDEVersion      string         `json:"mdeVersion,omitempty"`
+	ProcessID       int            `json:"processId"`
+	Username        string         `json:"username"`
+	IsAdmin         bool           `json:"isAdmin"`
+	EDRProducts     []EDRProduct   `json:"edrProducts,omitempty"`
+}
+
+// EDRProduct represents detected EDR/AV product
+type EDRProduct struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+	Running bool   `json:"running"`
+}
+
+// FileDrop tracks files dropped during test
+type FileDrop struct {
+	Filename    string   `json:"filename"`
+	Path        string   `json:"path"`
+	Size        int64    `json:"size"`
+	Quarantined bool     `json:"quarantined"`
+	Timestamp   JSONTime `json:"timestamp"`
+	SHA256      string   `json:"sha256,omitempty"`
+	FileType    string   `json:"fileType,omitempty"`
+}
+
+// Process tracks processes executed during test
+type Process struct {
+	ProcessName string   `json:"processName"`
+	CommandLine string   `json:"commandLine,omitempty"`
+	PID         int      `json:"pid,omitempty"`
+	Success     bool     `json:"success"`
+	ExitCode    int      `json:"exitCode,omitempty"`
+	Timestamp   JSONTime `json:"timestamp"`
+	ErrorMsg    string   `json:"errorMsg,omitempty"`
+	ParentPID   int      `json:"parentPid,omitempty"`
 }
 
 // CertBypassLog tracks certificate bypass attempts
 type CertBypassLog struct {
-	Mode            string    `json:"mode"`
-	Attempted       bool      `json:"attempted"`
-	Success         bool      `json:"success"`
-	Blocked         bool      `json:"blocked"`
-	BlockedBy       string    `json:"blockedBy,omitempty"`
-	WatchdogActive  bool      `json:"watchdogActive"`
-	RestoreSuccess  bool      `json:"restoreSuccess"`
-	DurationMs      int64     `json:"durationMs"`
-	PatchAddress    string    `json:"patchAddress,omitempty"`
-	Timestamp       time.Time `json:"timestamp"`
+	Mode           string   `json:"mode"`
+	Attempted      bool     `json:"attempted"`
+	Success        bool     `json:"success"`
+	Blocked        bool     `json:"blocked"`
+	BlockedBy      string   `json:"blockedBy,omitempty"`
+	WatchdogActive bool     `json:"watchdogActive"`
+	RestoreSuccess bool     `json:"restoreSuccess"`
+	DurationMs     int64    `json:"durationMs"`
+	PatchAddress   string   `json:"patchAddress,omitempty"`
+	Timestamp      JSONTime `json:"timestamp"`
 }
 
 // IdentifierLog tracks identifier extraction
 type IdentifierLog struct {
-	Method       string    `json:"method"` // "registry", "config", "wmi", "simulated"
-	MDEInstalled bool      `json:"mdeInstalled"`
-	Success      bool      `json:"success"`
-	MachineID    string    `json:"machineId"`
-	TenantID     string    `json:"tenantId"`
-	SenseID      string    `json:"senseId,omitempty"`
-	OrgID        string    `json:"orgId,omitempty"`
-	Timestamp    time.Time `json:"timestamp"`
+	Method       string   `json:"method"` // "registry", "config", "wmi", "api", "simulated"
+	MDEInstalled bool     `json:"mdeInstalled"`
+	Success      bool     `json:"success"`
+	MachineID    string   `json:"machineId,omitempty"`
+	TenantID     string   `json:"tenantId,omitempty"`
+	SenseID      string   `json:"senseId,omitempty"`
+	OrgID        string   `json:"orgId,omitempty"`
+	Timestamp    JSONTime `json:"timestamp"`
 }
 
-// LogEntry represents a single log entry
-type LogEntry struct {
-	Timestamp time.Time `json:"timestamp"`
-	Level     string    `json:"level"` // "INFO", "WARN", "ERROR", "CRITICAL", "SUCCESS"
-	Phase     string    `json:"phase"`
-	Message   string    `json:"message"`
+// NetworkTestSummary tracks network testing details
+type NetworkTestSummary struct {
+	TotalEndpoints    int           `json:"totalEndpoints"`
+	SuccessfulTests   int           `json:"successfulTests"`
+	FailedTests       int           `json:"failedTests"`
+	VulnerableCount   int           `json:"vulnerableCount"`
+	ProtectedCount    int           `json:"protectedCount"`
+	OverallVulnerable bool          `json:"overallVulnerable"`
+	Results           []interface{} `json:"results,omitempty"`
 }
 
-// SystemInfo captures system context
-type SystemInfo struct {
-	Hostname        string `json:"hostname"`
-	OSVersion       string `json:"osVersion"`
-	Architecture    string `json:"architecture"`
-	DefenderRunning bool   `json:"defenderRunning"`
-	MDEInstalled    bool   `json:"mdeInstalled"`
-	MDEVersion      string `json:"mdeVersion,omitempty"`
-	ProcessID       int    `json:"processId"`
-	Username        string `json:"username"`
-	IsAdmin         bool   `json:"isAdmin"`
+// Metrics provides pre-computed aggregation metrics
+type Metrics struct {
+	TotalPhases        int `json:"totalPhases"`
+	SuccessfulPhases   int `json:"successfulPhases"`
+	FailedPhases       int `json:"failedPhases"`
+	TotalFilesDropped  int `json:"totalFilesDropped"`
+	FilesQuarantined   int `json:"filesQuarantined"`
+	TotalProcesses     int `json:"totalProcesses"`
+	SuccessfulProcesses int `json:"successfulProcesses"`
+	TotalLogMessages   int `json:"totalLogMessages"`
+	ErrorCount         int `json:"errorCount"`
+	CriticalCount      int `json:"criticalCount"`
 }
 
-// FileDropLog tracks files dropped during test
-type FileDropLog struct {
-	Filename    string    `json:"filename"`
-	Path        string    `json:"path"`
-	Size        int64     `json:"size"`
-	Quarantined bool      `json:"quarantined"`
-	Timestamp   time.Time `json:"timestamp"`
+// Artifacts contains paths to test artifacts
+type Artifacts struct {
+	LogFilePath      string   `json:"logFilePath,omitempty"`
+	JSONFilePath     string   `json:"jsonFilePath,omitempty"`
+	ScreenshotPaths  []string `json:"screenshotPaths,omitempty"`
+	PacketCapturePath string   `json:"packetCapturePath,omitempty"`
 }
 
-// ProcessLog tracks processes executed during test
-type ProcessLog struct {
-	ProcessName string    `json:"processName"`
-	CommandLine string    `json:"commandLine"`
-	PID         int       `json:"pid,omitempty"`
-	Success     bool      `json:"success"`
-	ExitCode    int       `json:"exitCode,omitempty"`
-	Timestamp   time.Time `json:"timestamp"`
-	ErrorMsg    string    `json:"errorMsg,omitempty"`
+// ==============================================================================
+// JSON TIME HANDLING - ISO 8601 UTC
+// ==============================================================================
+
+// JSONTime wraps time.Time to provide ISO 8601 UTC JSON marshaling
+type JSONTime struct {
+	time.Time
+}
+
+// MarshalJSON implements json.Marshaler for ISO 8601 UTC format
+func (t JSONTime) MarshalJSON() ([]byte, error) {
+	if t.Time.IsZero() {
+		return []byte("null"), nil
+	}
+	// Format as ISO 8601 UTC: 2024-11-14T15:30:45.123Z
+	formatted := fmt.Sprintf("\"%s\"", t.UTC().Format("2006-01-02T15:04:05.000Z"))
+	return []byte(formatted), nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler for ISO 8601 parsing
+func (t *JSONTime) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		return nil
+	}
+	str := strings.Trim(string(data), "\"")
+	parsed, err := time.Parse("2006-01-02T15:04:05.000Z", str)
+	if err != nil {
+		// Try alternative format without milliseconds
+		parsed, err = time.Parse("2006-01-02T15:04:05Z", str)
+		if err != nil {
+			return err
+		}
+	}
+	t.Time = parsed
+	return nil
+}
+
+// NewJSONTime creates a JSONTime from time.Time
+func NewJSONTime(t time.Time) JSONTime {
+	return JSONTime{Time: t}
 }
 
 // ==============================================================================
@@ -153,8 +333,7 @@ type ProcessLog struct {
 var (
 	globalLog *TestLog
 	logMutex  sync.Mutex
-	logFile   *os.File
-	isStage   bool = false // true if this is a stage binary (not main orchestrator)
+	isStage   bool = false // true if this is a stage binary
 )
 
 // ==============================================================================
@@ -162,28 +341,31 @@ var (
 // ==============================================================================
 
 // InitLogger initializes the global test logger (main orchestrator only)
-func InitLogger(testID, testName string) *TestLog {
+// metadata and executionContext must be provided to conform to schema v2.0
+func InitLogger(testID, testName string, metadata TestMetadata, executionContext ExecutionContext) *TestLog {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
 	globalLog = &TestLog{
+		SchemaVersion:     SCHEMA_VERSION,
 		TestID:            testID,
 		TestName:          testName,
-		IsMultiStage:      false, // Will be set to true if stages are used
-		StartTime:         time.Now(),
-		Phases:            []PhaseLog{},
-		Stages:            []StageLog{},
+		TestMetadata:      metadata,
+		ExecutionContext:  executionContext,
+		StartTime:         NewJSONTime(time.Now().UTC()),
+		IsMultiStage:      false,
+		Phases:            []Phase{},
+		Stages:            []Stage{},
 		Messages:          []LogEntry{},
-		FilesDropped:      []FileDropLog{},
-		ProcessesExecuted: []ProcessLog{},
+		FilesDropped:      []FileDrop{},
+		ProcessesExecuted: []Process{},
+		SystemInfo:        captureSystemInfo(),
 	}
 
-	// Capture system info
-	globalLog.SystemInfo = captureSystemInfo()
-
-	addMessage("INFO", "Initialization", fmt.Sprintf("Test logger initialized for %s", testName))
-	addMessage("INFO", "Initialization", fmt.Sprintf("Running as: %s (Admin: %v)",
-		globalLog.SystemInfo.Username, globalLog.SystemInfo.IsAdmin))
+	addMessage("INFO", "Initialization", fmt.Sprintf("Test logger initialized for %s (Schema v%s)", testName, SCHEMA_VERSION))
+	addMessage("INFO", "Initialization", fmt.Sprintf("Running as: %s (Admin: %v)", globalLog.SystemInfo.Username, globalLog.SystemInfo.IsAdmin))
+	addMessage("INFO", "Initialization", fmt.Sprintf("Execution ID: %s", executionContext.ExecutionID))
+	addMessage("INFO", "Initialization", fmt.Sprintf("Organization: %s | Environment: %s", executionContext.Organization, executionContext.Environment))
 
 	return globalLog
 }
@@ -200,27 +382,30 @@ func AttachLogger(testID, stageName string) {
 	logPath := filepath.Join("C:\\F0", "test_execution_log.json")
 	if data, err := os.ReadFile(logPath); err == nil {
 		if err := json.Unmarshal(data, &globalLog); err == nil {
-			// Successfully loaded existing log
 			addMessage("INFO", stageName, "Stage attached to shared log")
 			return
 		}
 	}
 
-	// Create minimal log if file doesn't exist yet
+	// Create minimal log if file doesn't exist yet (shouldn't happen in normal flow)
 	globalLog = &TestLog{
+		SchemaVersion:     SCHEMA_VERSION,
 		TestID:            testID,
 		TestName:          "Multi-Stage Test",
 		IsMultiStage:      true,
-		StartTime:         time.Now(),
-		Phases:            []PhaseLog{},
-		Stages:            []StageLog{},
+		StartTime:         NewJSONTime(time.Now().UTC()),
+		Phases:            []Phase{},
+		Stages:            []Stage{},
 		Messages:          []LogEntry{},
-		FilesDropped:      []FileDropLog{},
-		ProcessesExecuted: []ProcessLog{},
+		FilesDropped:      []FileDrop{},
+		ProcessesExecuted: []Process{},
 		SystemInfo:        captureSystemInfo(),
+		// Metadata and ExecutionContext will be set by main orchestrator
+		TestMetadata:     TestMetadata{},
+		ExecutionContext: ExecutionContext{},
 	}
 
-	addMessage("INFO", stageName, "Stage created new log (orchestrator not started yet)")
+	addMessage("WARN", stageName, "Stage created new log (orchestrator not started yet)")
 }
 
 // ==============================================================================
@@ -234,11 +419,11 @@ func LogStageStart(stageID int, technique, name string) {
 
 	globalLog.IsMultiStage = true
 
-	stage := StageLog{
+	stage := Stage{
 		StageID:   stageID,
 		Technique: technique,
 		Name:      name,
-		StartTime: time.Now(),
+		StartTime: NewJSONTime(time.Now().UTC()),
 		Status:    "in_progress",
 	}
 
@@ -251,16 +436,14 @@ func LogStageEnd(stageID int, technique, status, details string) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
-	// Find and update stage
 	for i := range globalLog.Stages {
 		if globalLog.Stages[i].StageID == stageID && globalLog.Stages[i].Technique == technique {
-			globalLog.Stages[i].EndTime = time.Now()
+			globalLog.Stages[i].EndTime = NewJSONTime(time.Now().UTC())
 			globalLog.Stages[i].Status = status
-			globalLog.Stages[i].DurationMs = globalLog.Stages[i].EndTime.Sub(globalLog.Stages[i].StartTime).Milliseconds()
+			globalLog.Stages[i].DurationMs = time.Now().UTC().Sub(globalLog.Stages[i].StartTime.Time).Milliseconds()
 
 			addMessage("INFO", technique, fmt.Sprintf("Stage %d completed: %s (%dms)", stageID, status, globalLog.Stages[i].DurationMs))
 
-			// Persist to disk immediately (for stage coordination)
 			if isStage {
 				persistLog()
 			}
@@ -274,13 +457,12 @@ func LogStageBlocked(stageID int, technique, reason string) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
-	// Find and update stage
 	for i := range globalLog.Stages {
 		if globalLog.Stages[i].StageID == stageID && globalLog.Stages[i].Technique == technique {
-			globalLog.Stages[i].EndTime = time.Now()
+			globalLog.Stages[i].EndTime = NewJSONTime(time.Now().UTC())
 			globalLog.Stages[i].Status = "blocked"
 			globalLog.Stages[i].BlockedBy = reason
-			globalLog.Stages[i].DurationMs = globalLog.Stages[i].EndTime.Sub(globalLog.Stages[i].StartTime).Milliseconds()
+			globalLog.Stages[i].DurationMs = time.Now().UTC().Sub(globalLog.Stages[i].StartTime.Time).Milliseconds()
 			globalLog.Stages[i].ExitCode = 126
 
 			globalLog.BlockedAtStage = stageID
@@ -288,7 +470,6 @@ func LogStageBlocked(stageID int, technique, reason string) {
 
 			addMessage("ERROR", technique, fmt.Sprintf("Stage %d BLOCKED: %s", stageID, reason))
 
-			// Persist to disk immediately
 			if isStage {
 				persistLog()
 			}
@@ -306,10 +487,10 @@ func LogPhaseStart(phaseNumber int, phaseName string) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
-	phase := PhaseLog{
+	phase := Phase{
 		PhaseNumber: phaseNumber,
 		PhaseName:   phaseName,
-		StartTime:   time.Now(),
+		StartTime:   NewJSONTime(time.Now().UTC()),
 		Status:      "in_progress",
 		Errors:      []string{},
 	}
@@ -324,10 +505,10 @@ func LogPhaseEnd(phaseNumber int, status string, details string) {
 	defer logMutex.Unlock()
 
 	if phaseNumber >= 0 && phaseNumber < len(globalLog.Phases) {
-		globalLog.Phases[phaseNumber].EndTime = time.Now()
+		globalLog.Phases[phaseNumber].EndTime = NewJSONTime(time.Now().UTC())
 		globalLog.Phases[phaseNumber].Status = status
 		globalLog.Phases[phaseNumber].Details = details
-		globalLog.Phases[phaseNumber].DurationMs = globalLog.Phases[phaseNumber].EndTime.Sub(globalLog.Phases[phaseNumber].StartTime).Milliseconds()
+		globalLog.Phases[phaseNumber].DurationMs = time.Now().UTC().Sub(globalLog.Phases[phaseNumber].StartTime.Time).Milliseconds()
 
 		addMessage("INFO", globalLog.Phases[phaseNumber].PhaseName,
 			fmt.Sprintf("Phase %d completed: %s (%d ms)", phaseNumber, status, globalLog.Phases[phaseNumber].DurationMs))
@@ -352,7 +533,6 @@ func LogMessage(level, phase, message string) {
 
 	addMessage(level, phase, message)
 
-	// Persist immediately if this is a stage binary
 	if isStage {
 		persistLog()
 	}
@@ -361,7 +541,7 @@ func LogMessage(level, phase, message string) {
 // addMessage internal function (assumes lock is held)
 func addMessage(level, phase, message string) {
 	msg := LogEntry{
-		Timestamp: time.Now(),
+		Timestamp: NewJSONTime(time.Now().UTC()),
 		Level:     level,
 		Phase:     phase,
 		Message:   message,
@@ -375,12 +555,18 @@ func LogFileDropped(filename, path string, size int64, quarantined bool) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
-	fileDrop := FileDropLog{
+	ext := filepath.Ext(filename)
+	if len(ext) > 0 {
+		ext = ext[1:] // Remove leading dot
+	}
+
+	fileDrop := FileDrop{
 		Filename:    filename,
 		Path:        path,
 		Size:        size,
 		Quarantined: quarantined,
-		Timestamp:   time.Now(),
+		Timestamp:   NewJSONTime(time.Now().UTC()),
+		FileType:    ext,
 	}
 
 	globalLog.FilesDropped = append(globalLog.FilesDropped, fileDrop)
@@ -397,17 +583,18 @@ func LogProcessExecution(processName, commandLine string, pid int, success bool,
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
-	procLog := ProcessLog{
+	proc := Process{
 		ProcessName: processName,
 		CommandLine: commandLine,
 		PID:         pid,
 		Success:     success,
 		ExitCode:    exitCode,
-		Timestamp:   time.Now(),
+		Timestamp:   NewJSONTime(time.Now().UTC()),
 		ErrorMsg:    errorMsg,
+		ParentPID:   os.Getpid(), // Current process is parent
 	}
 
-	globalLog.ProcessesExecuted = append(globalLog.ProcessesExecuted, procLog)
+	globalLog.ProcessesExecuted = append(globalLog.ProcessesExecuted, proc)
 
 	if success {
 		addMessage("INFO", "Process Execution", fmt.Sprintf("Executed: %s (PID: %d)", processName, pid))
@@ -420,17 +607,130 @@ func LogProcessExecution(processName, commandLine string, pid int, success bool,
 // SAVE FUNCTIONS
 // ==============================================================================
 
-// SaveLog saves the complete log to disk
+// SaveLog saves the complete log to disk with computed outcomes and metrics
 func SaveLog(exitCode int, exitReason string) error {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
-	globalLog.EndTime = time.Now()
-	globalLog.Duration = globalLog.EndTime.Sub(globalLog.StartTime).Milliseconds()
+	globalLog.EndTime = NewJSONTime(time.Now().UTC())
+	globalLog.DurationMs = time.Now().UTC().Sub(globalLog.StartTime.Time).Milliseconds()
 	globalLog.ExitCode = exitCode
 	globalLog.ExitReason = exitReason
 
+	// Compute outcome
+	globalLog.Outcome = computeOutcome(exitCode)
+
+	// Compute metrics
+	globalLog.Metrics = computeMetrics()
+
+	// Set artifacts
+	globalLog.Artifacts = &Artifacts{
+		LogFilePath:  "C:\\F0\\test_execution_log.txt",
+		JSONFilePath: "C:\\F0\\test_execution_log.json",
+	}
+
 	return persistLog()
+}
+
+// computeOutcome calculates outcome based on exit code and test execution
+func computeOutcome(exitCode int) Outcome {
+	outcome := Outcome{
+		Protected:            exitCode == 105 || exitCode == 126 || exitCode == 127,
+		BlockedTechniques:    []string{},
+		SuccessfulTechniques: []string{},
+	}
+
+	// Categorize outcome
+	switch exitCode {
+	case 105:
+		outcome.Category = "quarantined_on_extraction"
+		phase := "file_drop"
+		outcome.DetectionPhase = &phase
+	case 126:
+		outcome.Category = "execution_prevented"
+		phase := "pre_execution"
+		outcome.DetectionPhase = &phase
+	case 127:
+		outcome.Category = "quarantined_on_execution"
+		phase := "during_execution"
+		outcome.DetectionPhase = &phase
+	case 101:
+		outcome.Category = "unprotected"
+		outcome.DetectionPhase = nil
+	case 102:
+		outcome.Category = "timeout"
+		outcome.DetectionPhase = nil
+	case 999, 1:
+		outcome.Category = "test_error"
+		outcome.DetectionPhase = nil
+	default:
+		outcome.Category = "unknown"
+		outcome.DetectionPhase = nil
+	}
+
+	// For multi-stage tests, populate blocked/successful techniques
+	if globalLog.IsMultiStage {
+		for _, stage := range globalLog.Stages {
+			if stage.Status == "blocked" {
+				outcome.BlockedTechniques = append(outcome.BlockedTechniques, stage.Technique)
+			} else if stage.Status == "success" {
+				outcome.SuccessfulTechniques = append(outcome.SuccessfulTechniques, stage.Technique)
+			}
+		}
+	} else {
+		// For standard tests, use metadata techniques
+		if outcome.Protected {
+			outcome.BlockedTechniques = globalLog.TestMetadata.Techniques
+		} else {
+			outcome.SuccessfulTechniques = globalLog.TestMetadata.Techniques
+		}
+	}
+
+	return outcome
+}
+
+// computeMetrics calculates aggregation metrics for dashboard performance
+func computeMetrics() *Metrics {
+	metrics := &Metrics{
+		TotalPhases:        len(globalLog.Phases),
+		TotalFilesDropped:  len(globalLog.FilesDropped),
+		TotalProcesses:     len(globalLog.ProcessesExecuted),
+		TotalLogMessages:   len(globalLog.Messages),
+	}
+
+	// Count successful/failed phases
+	for _, phase := range globalLog.Phases {
+		if phase.Status == "success" {
+			metrics.SuccessfulPhases++
+		} else if phase.Status == "failed" || phase.Status == "blocked" {
+			metrics.FailedPhases++
+		}
+	}
+
+	// Count quarantined files
+	for _, file := range globalLog.FilesDropped {
+		if file.Quarantined {
+			metrics.FilesQuarantined++
+		}
+	}
+
+	// Count successful processes
+	for _, proc := range globalLog.ProcessesExecuted {
+		if proc.Success {
+			metrics.SuccessfulProcesses++
+		}
+	}
+
+	// Count errors and criticals
+	for _, msg := range globalLog.Messages {
+		if msg.Level == "ERROR" {
+			metrics.ErrorCount++
+		} else if msg.Level == "CRITICAL" {
+			metrics.CriticalCount++
+		}
+	}
+
+	return metrics
 }
 
 // persistLog writes log to disk (assumes lock is held)
@@ -459,7 +759,7 @@ func persistLog() error {
 	// Only print confirmation if main orchestrator (not stage)
 	if !isStage {
 		fmt.Printf("\n[*] ========================================\n")
-		fmt.Printf("[*] Execution logs saved:\n")
+		fmt.Printf("[*] Execution logs saved (Schema v%s):\n", SCHEMA_VERSION)
 		fmt.Printf("[*]   JSON: %s\n", jsonPath)
 		fmt.Printf("[*]   TEXT: %s\n", txtPath)
 		fmt.Printf("[*] ========================================\n\n")
@@ -474,17 +774,60 @@ func formatTextLog(log *TestLog) string {
 
 	out.WriteString(strings.Repeat("=", 80) + "\n")
 	out.WriteString("F0RT1KA SECURITY TEST - EXECUTION LOG\n")
+	out.WriteString(fmt.Sprintf("Schema Version: %s\n", log.SchemaVersion))
 	out.WriteString(strings.Repeat("=", 80) + "\n\n")
 
 	// Test information
 	out.WriteString(fmt.Sprintf("Test ID:      %s\n", log.TestID))
 	out.WriteString(fmt.Sprintf("Test Name:    %s\n", log.TestName))
-	out.WriteString(fmt.Sprintf("Multi-Stage:  %v\n", log.IsMultiStage))
-	out.WriteString(fmt.Sprintf("Start Time:   %s\n", log.StartTime.Format("2006-01-02 15:04:05.000")))
-	out.WriteString(fmt.Sprintf("End Time:     %s\n", log.EndTime.Format("2006-01-02 15:04:05.000")))
-	out.WriteString(fmt.Sprintf("Duration:     %d ms (%.2f seconds)\n", log.Duration, float64(log.Duration)/1000))
+	out.WriteString(fmt.Sprintf("Version:      %s\n", log.TestMetadata.Version))
+	out.WriteString(fmt.Sprintf("Category:     %s\n", log.TestMetadata.Category))
+	out.WriteString(fmt.Sprintf("Severity:     %s\n", log.TestMetadata.Severity))
+	out.WriteString(fmt.Sprintf("Techniques:   %s\n", strings.Join(log.TestMetadata.Techniques, ", ")))
+	out.WriteString(fmt.Sprintf("Tactics:      %s\n", strings.Join(log.TestMetadata.Tactics, ", ")))
+	if log.TestMetadata.Score > 0 {
+		out.WriteString(fmt.Sprintf("Test Score:   %.1f/10\n", log.TestMetadata.Score))
+	}
+	out.WriteString(fmt.Sprintf("Multi-Stage:  %v\n\n", log.IsMultiStage))
+
+	// Execution context
+	out.WriteString("EXECUTION CONTEXT\n")
+	out.WriteString(strings.Repeat("-", 80) + "\n")
+	out.WriteString(fmt.Sprintf("Execution ID:  %s\n", log.ExecutionContext.ExecutionID))
+	if log.ExecutionContext.BatchID != "" {
+		out.WriteString(fmt.Sprintf("Batch ID:      %s\n", log.ExecutionContext.BatchID))
+	}
+	out.WriteString(fmt.Sprintf("Organization:  %s\n", log.ExecutionContext.Organization))
+	out.WriteString(fmt.Sprintf("Environment:   %s\n", log.ExecutionContext.Environment))
+	if log.ExecutionContext.TriggeredBy != "" {
+		out.WriteString(fmt.Sprintf("Triggered By:  %s\n", log.ExecutionContext.TriggeredBy))
+	}
+	out.WriteString("\n")
+
+	// Timing
+	out.WriteString("EXECUTION TIMING\n")
+	out.WriteString(strings.Repeat("-", 80) + "\n")
+	out.WriteString(fmt.Sprintf("Start Time:   %s\n", log.StartTime.Format("2006-01-02 15:04:05.000 UTC")))
+	out.WriteString(fmt.Sprintf("End Time:     %s\n", log.EndTime.Format("2006-01-02 15:04:05.000 UTC")))
+	out.WriteString(fmt.Sprintf("Duration:     %d ms (%.2f seconds)\n\n", log.DurationMs, float64(log.DurationMs)/1000))
+
+	// Outcome
+	out.WriteString("TEST OUTCOME\n")
+	out.WriteString(strings.Repeat("-", 80) + "\n")
 	out.WriteString(fmt.Sprintf("Exit Code:    %d\n", log.ExitCode))
-	out.WriteString(fmt.Sprintf("Exit Reason:  %s\n\n", log.ExitReason))
+	out.WriteString(fmt.Sprintf("Exit Reason:  %s\n", log.ExitReason))
+	out.WriteString(fmt.Sprintf("Protected:    %v\n", log.Outcome.Protected))
+	out.WriteString(fmt.Sprintf("Category:     %s\n", log.Outcome.Category))
+	if log.Outcome.DetectionPhase != nil {
+		out.WriteString(fmt.Sprintf("Detection:    %s\n", *log.Outcome.DetectionPhase))
+	}
+	if len(log.Outcome.BlockedTechniques) > 0 {
+		out.WriteString(fmt.Sprintf("Blocked:      %s\n", strings.Join(log.Outcome.BlockedTechniques, ", ")))
+	}
+	if len(log.Outcome.SuccessfulTechniques) > 0 {
+		out.WriteString(fmt.Sprintf("Successful:   %s\n", strings.Join(log.Outcome.SuccessfulTechniques, ", ")))
+	}
+	out.WriteString("\n")
 
 	// Multi-stage information
 	if log.IsMultiStage && len(log.Stages) > 0 {
@@ -526,6 +869,20 @@ func formatTextLog(log *TestLog) string {
 	}
 	out.WriteString("\n")
 
+	// Metrics summary
+	if log.Metrics != nil {
+		out.WriteString("METRICS SUMMARY\n")
+		out.WriteString(strings.Repeat("-", 80) + "\n")
+		out.WriteString(fmt.Sprintf("Phases:       %d total, %d successful, %d failed\n",
+			log.Metrics.TotalPhases, log.Metrics.SuccessfulPhases, log.Metrics.FailedPhases))
+		out.WriteString(fmt.Sprintf("Files:        %d dropped, %d quarantined\n",
+			log.Metrics.TotalFilesDropped, log.Metrics.FilesQuarantined))
+		out.WriteString(fmt.Sprintf("Processes:    %d total, %d successful\n",
+			log.Metrics.TotalProcesses, log.Metrics.SuccessfulProcesses))
+		out.WriteString(fmt.Sprintf("Messages:     %d total (%d errors, %d critical)\n\n",
+			log.Metrics.TotalLogMessages, log.Metrics.ErrorCount, log.Metrics.CriticalCount))
+	}
+
 	// Phase execution
 	if len(log.Phases) > 0 {
 		out.WriteString("PHASE EXECUTION\n")
@@ -559,6 +916,9 @@ func formatTextLog(log *TestLog) string {
 			out.WriteString(fmt.Sprintf("%d. %s [%s]\n", i+1, file.Filename, status))
 			out.WriteString(fmt.Sprintf("   Path: %s\n", file.Path))
 			out.WriteString(fmt.Sprintf("   Size: %d bytes\n", file.Size))
+			if file.FileType != "" {
+				out.WriteString(fmt.Sprintf("   Type: %s\n", file.FileType))
+			}
 		}
 		out.WriteString("\n")
 	}
@@ -618,10 +978,17 @@ func captureSystemInfo() SystemInfo {
 		ProcessID:       os.Getpid(),
 		Username:        os.Getenv("USERNAME"),
 		IsAdmin:         isAdmin(),
+		EDRProducts:     []EDRProduct{},
 	}
 
 	if info.MDEInstalled {
 		info.MDEVersion = getMDEVersion()
+		// Add MDE to EDR products list
+		info.EDRProducts = append(info.EDRProducts, EDRProduct{
+			Name:    "Microsoft Defender for Endpoint",
+			Version: info.MDEVersion,
+			Running: info.DefenderRunning,
+		})
 	}
 
 	return info
@@ -637,8 +1004,9 @@ func getOSVersion() string {
 }
 
 func getArchitecture() string {
-	if os.Getenv("PROCESSOR_ARCHITECTURE") != "" {
-		return os.Getenv("PROCESSOR_ARCHITECTURE")
+	arch := os.Getenv("PROCESSOR_ARCHITECTURE")
+	if arch != "" {
+		return arch
 	}
 	return "Unknown"
 }
@@ -690,18 +1058,11 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// NetworkTestSummary stub for compatibility
-type NetworkTestSummary struct {
-	TotalEndpoints     int `json:"totalEndpoints"`
-	SuccessfulTests    int `json:"successfulTests"`
-	FailedTests        int `json:"failedTests"`
-	VulnerableCount    int `json:"vulnerableCount"`
-	ProtectedCount     int `json:"protectedCount"`
-	OverallVulnerable  bool `json:"overallVulnerable"`
-	Results            []interface{} `json:"results,omitempty"`
-}
+// ==============================================================================
+// BACKWARDS COMPATIBILITY STUBS
+// ==============================================================================
 
-// MDEIdentifiers stub for compatibility
+// MDEIdentifiers stub for compatibility with existing tests
 type MDEIdentifiers struct {
 	Source            string
 	MDEInstalled      bool
@@ -712,7 +1073,7 @@ type MDEIdentifiers struct {
 	OrgID             string
 }
 
-// BypassResult stub for compatibility
+// BypassResult stub for compatibility with existing tests
 type BypassResult struct {
 	Success      bool
 	Blocked      bool

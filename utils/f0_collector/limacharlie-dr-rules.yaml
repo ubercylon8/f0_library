@@ -1,0 +1,155 @@
+# LimaCharlie Detection & Response Rules for F0RT1KA Results Collection
+# Deploy these rules to automatically collect and export test results
+
+---
+# Rule 1: Detect Test Result File Creation
+- name: f0rtika-test-result-created
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    event: NEW_DOCUMENT
+    op: and
+    rules:
+      # Match test_execution_log.json files
+      - op: ends with
+        path: event/FILE_PATH
+        value: '\test_execution_log.json'
+        case sensitive: false
+
+      # In the F0 directory
+      - op: starts with
+        path: event/FILE_PATH
+        value: 'c:\F0\'
+        case sensitive: false
+
+      # Exclude already collected files
+      - op: is not
+        path: event/FILE_PATH
+        value: 'c:\F0\collected\'
+
+  respond:
+    # Trigger collection
+    - action: task
+      command: >
+        c:\F0\f0_collector.exe collect --once
+      wait_for_completion: false
+
+    # Optionally, also collect the file via LimaCharlie
+    - action: artifact_get
+      file_path: event/FILE_PATH
+      retention_days: 90
+
+  metadata:
+    description: "Detects creation of F0RT1KA test result files and triggers collection"
+    author: "F0RT1KA Framework"
+    category: "automation"
+    severity: "informational"
+
+---
+# Rule 2: Monitor Collector Execution
+- name: f0rtika-collector-monitor
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    event: NEW_PROCESS
+    op: and
+    rules:
+      # Match collector executable
+      - op: ends with
+        path: event/FILE_PATH
+        value: 'f0_collector.exe'
+        case sensitive: false
+
+      # From F0 directory
+      - op: starts with
+        path: event/FILE_PATH
+        value: 'c:\F0\'
+        case sensitive: false
+
+  respond:
+    # Log execution for monitoring
+    - action: report
+      name: f0rtika_collector_execution
+      metadata:
+        command_line: event/COMMAND_LINE
+        parent_process: event/PARENT/COMMAND_LINE
+        timestamp: event/TIMESTAMP
+
+  metadata:
+    description: "Monitors F0RT1KA collector execution for operational visibility"
+    author: "F0RT1KA Framework"
+    category: "monitoring"
+    severity: "informational"
+
+---
+# Rule 3: Alert on Collector Failures
+- name: f0rtika-collector-failure-alert
+  namespace: managed
+  version: 1
+  enabled: true
+
+  detect:
+    event: TERMINATE_PROCESS
+    op: and
+    rules:
+      # Match collector executable
+      - op: ends with
+        path: event/FILE_PATH
+        value: 'f0_collector.exe'
+        case sensitive: false
+
+      # Non-zero exit code
+      - op: is not
+        path: event/EXIT_CODE
+        value: 0
+
+  respond:
+    # Send alert
+    - action: report
+      name: f0rtika_collector_failure
+      metadata:
+        exit_code: event/EXIT_CODE
+        command_line: event/COMMAND_LINE
+        timestamp: event/TIMESTAMP
+
+    # Optionally send to Slack/email/etc
+    # - action: webhook
+    #   url: https://your-webhook-url.com
+    #   body: "F0RT1KA collector failed with exit code: {{event/EXIT_CODE}}"
+
+  metadata:
+    description: "Alerts when F0RT1KA collector exits with error"
+    author: "F0RT1KA Framework"
+    category: "alerting"
+    severity: "medium"
+
+---
+# Rule 4: Periodic Collection Trigger (Optional)
+# This rule can be used as an alternative to Windows Scheduled Task
+- name: f0rtika-periodic-collection
+  namespace: managed
+  version: 1
+  enabled: false  # Enable if you want LC to handle scheduling instead of Windows Task
+
+  detect:
+    # Use a time-based trigger if available in your LC version
+    # This is a placeholder - adjust based on LC capabilities
+    event: SCHEDULED
+    interval: 300  # 5 minutes
+
+  respond:
+    - action: task
+      command: >
+        c:\F0\f0_collector.exe collect --once
+      wait_for_completion: false
+
+  metadata:
+    description: "Periodically triggers F0RT1KA collection (alternative to Windows Task)"
+    author: "F0RT1KA Framework"
+    category: "automation"
+    severity: "informational"
+    note: "This is an alternative to Windows Scheduled Task deployment"

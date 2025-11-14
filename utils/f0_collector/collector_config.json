@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "collector": {
+    "scanPath": "c:\\F0",
+    "scanPattern": "**/test_execution_log.json",
+    "stateFile": "c:\\F0\\.collector_state.json",
+    "moveCollected": true,
+    "collectedPath": "c:\\F0\\collected"
+  },
+  "elasticsearch": {
+    "enabled": true,
+    "endpoints": [
+      "https://your-elasticsearch-endpoint.com:9200"
+    ],
+    "cloudId": "",
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "indexPrefix": "f0rtika",
+    "indexPattern": "f0rtika-{yyyy.MM.dd}",
+    "bulkSize": 100,
+    "timeout": 30,
+    "retryAttempts": 3,
+    "retryDelay": 5,
+    "tlsVerify": true,
+    "tlsCert": ""
+  },
+  "logging": {
+    "level": "info",
+    "file": "c:\\F0\\collector.log",
+    "maxSizeMB": 10,
+    "maxBackups": 3,
+    "console": true
+  },
+  "validation": {
+    "schemaVersion": "2.0",
+    "strictMode": true,
+    "skipInvalid": false
+  }
+}

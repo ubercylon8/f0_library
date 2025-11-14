@@ -1,0 +1,55 @@
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "rollover": {
+            "max_primary_shard_size": "50GB",
+            "max_age": "1d"
+          },
+          "set_priority": {
+            "priority": 100
+          }
+        }
+      },
+      "warm": {
+        "min_age": "7d",
+        "actions": {
+          "shrink": {
+            "number_of_shards": 1
+          },
+          "forcemerge": {
+            "max_num_segments": 1
+          },
+          "set_priority": {
+            "priority": 50
+          }
+        }
+      },
+      "cold": {
+        "min_age": "30d",
+        "actions": {
+          "set_priority": {
+            "priority": 0
+          },
+          "freeze": {}
+        }
+      },
+      "delete": {
+        "min_age": "90d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    },
+    "_meta": {
+      "description": "ILM policy for F0RT1KA test results indices",
+      "retention": "90 days",
+      "hot_phase": "0-7 days (active indexing and searching)",
+      "warm_phase": "7-30 days (optimized for searching)",
+      "cold_phase": "30-90 days (archived, rarely accessed)",
+      "delete_phase": "90+ days (deleted)"
+    }
+  }
+}

@@ -1,0 +1,372 @@
+{
+  "index_patterns": ["f0rtika-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "f0rtika-ilm-policy",
+      "index.refresh_interval": "5s",
+      "index.codec": "best_compression"
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time"
+        },
+        "schemaVersion": {
+          "type": "keyword"
+        },
+        "testId": {
+          "type": "keyword"
+        },
+        "testName": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword"
+            }
+          }
+        },
+        "testMetadata": {
+          "properties": {
+            "version": {
+              "type": "keyword"
+            },
+            "category": {
+              "type": "keyword"
+            },
+            "severity": {
+              "type": "keyword"
+            },
+            "techniques": {
+              "type": "keyword"
+            },
+            "tactics": {
+              "type": "keyword"
+            },
+            "score": {
+              "type": "float"
+            },
+            "scoreBreakdown": {
+              "properties": {
+                "realWorldAccuracy": {
+                  "type": "float"
+                },
+                "technicalSophistication": {
+                  "type": "float"
+                },
+                "safetyMechanisms": {
+                  "type": "float"
+                },
+                "detectionOpportunities": {
+                  "type": "float"
+                },
+                "loggingObservability": {
+                  "type": "float"
+                }
+              }
+            },
+            "tags": {
+              "type": "keyword"
+            }
+          }
+        },
+        "executionContext": {
+          "properties": {
+            "executionId": {
+              "type": "keyword"
+            },
+            "organization": {
+              "type": "keyword"
+            },
+            "environment": {
+              "type": "keyword"
+            },
+            "deploymentType": {
+              "type": "keyword"
+            },
+            "triggeredBy": {
+              "type": "keyword"
+            },
+            "configuration": {
+              "properties": {
+                "timeoutMs": {
+                  "type": "long"
+                },
+                "certificateMode": {
+                  "type": "keyword"
+                },
+                "multiStageEnabled": {
+                  "type": "boolean"
+                },
+                "customSettings": {
+                  "type": "object",
+                  "enabled": false
+                }
+              }
+            }
+          }
+        },
+        "startTime": {
+          "type": "date",
+          "format": "strict_date_optional_time"
+        },
+        "endTime": {
+          "type": "date",
+          "format": "strict_date_optional_time"
+        },
+        "durationMs": {
+          "type": "long"
+        },
+        "exitCode": {
+          "type": "integer"
+        },
+        "exitReason": {
+          "type": "text"
+        },
+        "outcome": {
+          "properties": {
+            "protected": {
+              "type": "boolean"
+            },
+            "category": {
+              "type": "keyword"
+            },
+            "detectionPhase": {
+              "type": "keyword"
+            },
+            "blockedTechniques": {
+              "type": "keyword"
+            },
+            "successfulTechniques": {
+              "type": "keyword"
+            },
+            "evasionTechniquesUsed": {
+              "type": "keyword"
+            },
+            "notes": {
+              "type": "text"
+            }
+          }
+        },
+        "systemInfo": {
+          "properties": {
+            "hostname": {
+              "type": "keyword"
+            },
+            "os": {
+              "type": "keyword"
+            },
+            "osVersion": {
+              "type": "keyword"
+            },
+            "architecture": {
+              "type": "keyword"
+            },
+            "edrProduct": {
+              "type": "keyword"
+            },
+            "edrVersion": {
+              "type": "keyword"
+            },
+            "avProduct": {
+              "type": "keyword"
+            },
+            "avVersion": {
+              "type": "keyword"
+            }
+          }
+        },
+        "phases": {
+          "type": "nested",
+          "properties": {
+            "phaseNumber": {
+              "type": "integer"
+            },
+            "phaseName": {
+              "type": "keyword"
+            },
+            "startTime": {
+              "type": "date"
+            },
+            "endTime": {
+              "type": "date"
+            },
+            "durationMs": {
+              "type": "long"
+            },
+            "status": {
+              "type": "keyword"
+            },
+            "exitCode": {
+              "type": "integer"
+            },
+            "techniques": {
+              "type": "keyword"
+            },
+            "description": {
+              "type": "text"
+            }
+          }
+        },
+        "messages": {
+          "type": "nested",
+          "properties": {
+            "timestamp": {
+              "type": "date"
+            },
+            "level": {
+              "type": "keyword"
+            },
+            "phase": {
+              "type": "keyword"
+            },
+            "message": {
+              "type": "text"
+            }
+          }
+        },
+        "filesDropped": {
+          "type": "nested",
+          "properties": {
+            "timestamp": {
+              "type": "date"
+            },
+            "path": {
+              "type": "keyword"
+            },
+            "name": {
+              "type": "keyword"
+            },
+            "size": {
+              "type": "long"
+            },
+            "hash": {
+              "type": "keyword"
+            },
+            "quarantined": {
+              "type": "boolean"
+            }
+          }
+        },
+        "processesExecuted": {
+          "type": "nested",
+          "properties": {
+            "timestamp": {
+              "type": "date"
+            },
+            "pid": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "keyword"
+            },
+            "path": {
+              "type": "keyword"
+            },
+            "commandLine": {
+              "type": "text"
+            },
+            "exitCode": {
+              "type": "integer"
+            },
+            "blocked": {
+              "type": "boolean"
+            }
+          }
+        },
+        "errors": {
+          "type": "nested",
+          "properties": {
+            "timestamp": {
+              "type": "date"
+            },
+            "phase": {
+              "type": "keyword"
+            },
+            "errorType": {
+              "type": "keyword"
+            },
+            "errorMessage": {
+              "type": "text"
+            },
+            "fatal": {
+              "type": "boolean"
+            }
+          }
+        },
+        "metrics": {
+          "properties": {
+            "totalPhases": {
+              "type": "integer"
+            },
+            "successfulPhases": {
+              "type": "integer"
+            },
+            "totalFilesDropped": {
+              "type": "integer"
+            },
+            "filesQuarantined": {
+              "type": "integer"
+            },
+            "totalProcesses": {
+              "type": "integer"
+            },
+            "processesBlocked": {
+              "type": "integer"
+            },
+            "errorCount": {
+              "type": "integer"
+            },
+            "warningCount": {
+              "type": "integer"
+            }
+          }
+        },
+        "isMultiStage": {
+          "type": "boolean"
+        },
+        "multiStageContext": {
+          "properties": {
+            "orchestratorId": {
+              "type": "keyword"
+            },
+            "totalStages": {
+              "type": "integer"
+            },
+            "completedStages": {
+              "type": "integer"
+            },
+            "currentStage": {
+              "type": "integer"
+            }
+          }
+        },
+        "collectionMetadata": {
+          "properties": {
+            "collectedAt": {
+              "type": "date"
+            },
+            "collectorVersion": {
+              "type": "keyword"
+            },
+            "collectorHost": {
+              "type": "keyword"
+            },
+            "filePath": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    }
+  },
+  "priority": 100,
+  "version": 1,
+  "_meta": {
+    "description": "Index template for F0RT1KA security test results",
+    "created_by": "F0RT1KA Framework",
+    "schema_version": "2.0"
+  }
+}

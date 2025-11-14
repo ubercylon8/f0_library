@@ -1,0 +1,242 @@
+# LimaCharlie Output Module Configuration for Elasticsearch
+# This configures LC to send F0RT1KA test results directly to Elasticsearch
+# as a backup/alternative to the standalone collector
+
+---
+# Output Configuration: Elasticsearch
+name: f0rtika-elasticsearch-output
+type: elasticsearch
+enabled: true
+
+# Elasticsearch Connection Settings
+connection:
+  # Option 1: Self-hosted Elasticsearch
+  hosts:
+    - https://your-elasticsearch-host:9200
+
+  # Option 2: Elastic Cloud
+  # cloud_id: "deployment-name:abc123..."
+
+  # Authentication
+  # Recommended: API Key
+  api_key: "${F0_ELASTIC_API_KEY}"  # Use environment variable
+
+  # Alternative: Basic Auth
+  # username: "${F0_ELASTIC_USERNAME}"
+  # password: "${F0_ELASTIC_PASSWORD}"
+
+  # TLS Settings
+  tls:
+    verify: true
+    # ca_cert_path: /path/to/ca.pem  # Optional custom CA
+
+  # Connection Pool
+  pool:
+    max_connections: 10
+    timeout: 30s
+    retry:
+      attempts: 3
+      delay: 5s
+
+# Index Settings
+index:
+  # Index pattern (supports date formatting)
+  name: "f0rtika-lc-{yyyy.MM.dd}"
+
+  # Rollover settings
+  rollover:
+    max_size: 50gb
+    max_age: 1d
+
+  # Bulk settings
+  bulk:
+    size: 100
+    flush_interval: 30s
+    max_retries: 3
+
+# Data Processing
+processing:
+  # Transform LC events to F0RT1KA schema
+  transform:
+    enabled: true
+    script: |
+      # Extract test result from artifact collection
+      if event.type == "ARTIFACT_GET" and event.file_path.endswith("test_execution_log.json"):
+        # Parse JSON content
+        test_result = json.loads(event.artifact_content)
+
+        # Add LC metadata
+        test_result["collectionMetadata"] = {
+          "collectedAt": event.timestamp,
+          "collectorVersion": "limacharlie-1.0",
+          "collectorHost": event.sensor_hostname,
+          "filePath": event.file_path,
+          "sensorId": event.sensor_id,
+          "organization": event.organization_id
+        }
+
+        # Add @timestamp for Kibana
+        test_result["@timestamp"] = test_result.get("startTime")
+
+        return test_result
+      else:
+        return None  # Skip non-test-result events
+
+  # Field mappings
+  mappings:
+    # Map LC fields to Elasticsearch fields
+    sensor_id: "collectionMetadata.sensorId"
+    sensor_hostname: "systemInfo.hostname"
+    organization_id: "executionContext.organization"
+    timestamp: "@timestamp"
+
+# Filtering
+filters:
+  # Only send F0RT1KA test results
+  include:
+    - event_type: ARTIFACT_GET
+      file_path:
+        ends_with: "test_execution_log.json"
+        starts_with: "c:\\F0\\"
+
+    - event_type: REPORT
+      report_name: "f0rtika_test_result_detected"
+
+  # Exclude already processed results
+  exclude:
+    - file_path:
+        contains: "\\collected\\"
+
+# Buffering and Reliability
+buffering:
+  # Local buffer for network outages
+  enabled: true
+  max_size: 1gb
+  persistence: true
+  path: /var/lib/limacharlie/buffer/f0rtika
+
+  # Retry policy
+  retry:
+    max_attempts: 10
+    backoff: exponential
+    initial_delay: 5s
+    max_delay: 300s
+
+# Monitoring
+monitoring:
+  # Health checks
+  healthcheck:
+    enabled: true
+    interval: 60s
+    endpoint: "/_cluster/health"
+
+  # Metrics
+  metrics:
+    enabled: true
+    interval: 300s
+    include:
+      - events_sent
+      - events_failed
+      - bytes_sent
+      - buffer_size
+      - connection_status
+
+# Error Handling
+error_handling:
+  # What to do with failed events
+  on_failure:
+    action: retry_then_buffer
+
+  # Dead letter queue for persistent failures
+  dead_letter:
+    enabled: true
+    path: /var/lib/limacharlie/dlq/f0rtika
+    max_size: 100mb
+
+# Logging
+logging:
+  level: info
+  include_payloads: false  # Don't log full payloads (sensitive data)
+  errors_only: false
+
+# Tags and Metadata
+metadata:
+  # Add these fields to every document
+  static_fields:
+    source: "limacharlie"
+    pipeline: "f0rtika-lc-output"
+
+  # Add LC organization info
+  include_org_metadata: true
+
+---
+# Alternative: Webhook Output (for custom processing)
+# Use this if you need to transform data before sending to Elasticsearch
+
+name: f0rtika-webhook-output
+type: webhook
+enabled: false  # Enable if using instead of direct ES output
+
+connection:
+  url: "https://your-ingest-api.com/f0rtika/ingest"
+  method: POST
+  headers:
+    Content-Type: "application/json"
+    Authorization: "Bearer ${INGEST_API_TOKEN}"
+
+  timeout: 30s
+  retry:
+    attempts: 3
+    delay: 5s
+
+# Same filtering and processing as above
+filters:
+  include:
+    - event_type: ARTIFACT_GET
+      file_path:
+        ends_with: "test_execution_log.json"
+
+payload:
+  format: json
+  template: |
+    {
+      "event": "{{event.type}}",
+      "sensor_id": "{{event.sensor_id}}",
+      "organization": "{{event.organization_id}}",
+      "file_path": "{{event.file_path}}",
+      "content": {{event.artifact_content}},
+      "timestamp": "{{event.timestamp}}"
+    }
+
+buffering:
+  enabled: true
+  max_size: 1gb
+  persistence: true
+
+---
+# Output: Syslog (for SIEM integration)
+# Alternative output for organizations using SIEM
+
+name: f0rtika-syslog-output
+type: syslog
+enabled: false
+
+connection:
+  protocol: tcp
+  host: syslog.example.com
+  port: 514
+  tls: true
+
+format:
+  facility: local0
+  severity: info
+  tag: "f0rtika"
+
+payload:
+  format: json
+  include_metadata: true
+
+filters:
+  include:
+    - event_type: REPORT
+      report_name: "f0rtika_test_result_detected"
