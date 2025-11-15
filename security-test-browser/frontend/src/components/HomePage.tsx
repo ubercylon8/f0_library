@@ -3,8 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { getAllTests } from '../services/api';
 import { TestMetadata } from '../types/test';
 import TestCard from './TestCard';
+import TestListItem from './TestListItem';
 import SearchBar from './SearchBar';
-import { Loader2 } from 'lucide-react';
+import { Loader2, LayoutGrid, List } from 'lucide-react';
+
+type ViewMode = 'grid' | 'list';
 
 export default function HomePage() {
   const [tests, setTests] = useState<TestMetadata[]>([]);
@@ -14,6 +17,7 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -121,7 +125,7 @@ export default function HomePage() {
           placeholder="Search by name, UUID, technique, or description..."
         />
 
-        <div className="flex gap-4 flex-wrap">
+        <div className="flex gap-4 flex-wrap items-center">
           {/* Category Filter */}
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium">Category:</label>
@@ -154,22 +158,60 @@ export default function HomePage() {
             </select>
           </div>
 
-          <div className="ml-auto text-sm text-muted-foreground">
-            Showing {filteredTests.length} of {tests.length} tests
+          <div className="ml-auto flex items-center gap-4">
+            {/* View Toggle */}
+            <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-1.5 rounded transition-colors ${
+                  viewMode === 'grid'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-accent'
+                }`}
+                title="Grid view"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-1.5 rounded transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-accent'
+                }`}
+                title="List view"
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="text-sm text-muted-foreground">
+              Showing {filteredTests.length} of {tests.length} tests
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Test Grid */}
+      {/* Test Grid/List */}
       <div className="flex-1 overflow-y-auto">
         {filteredTests.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             No tests found matching your criteria
           </div>
-        ) : (
+        ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-6">
             {filteredTests.map(test => (
               <TestCard
+                key={test.uuid}
+                test={test}
+                onClick={() => navigate(`/test/${test.uuid}`)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="border border-border rounded-lg overflow-hidden bg-card">
+            {filteredTests.map(test => (
+              <TestListItem
                 key={test.uuid}
                 test={test}
                 onClick={() => navigate(`/test/${test.uuid}`)}

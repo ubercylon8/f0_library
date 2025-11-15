@@ -1,5 +1,5 @@
 import { TestMetadata } from '../types/test';
-import { FileCode2, Calendar, Layers, Star } from 'lucide-react';
+import { FileCode2, Calendar, Layers, Star, Shield, Workflow } from 'lucide-react';
 import TechniqueBadge from './TechniqueBadge';
 
 interface TestCardProps {
@@ -79,9 +79,25 @@ export default function TestCard({ test, onClick }: TestCardProps) {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center gap-2 text-xs text-muted-foreground pt-3 border-t border-border">
-        <FileCode2 className="w-3 h-3" />
-        <span className="font-mono">{test.uuid.slice(0, 8)}...</span>
+      <div className="flex items-center gap-3 text-xs text-muted-foreground pt-3 border-t border-border">
+        <div className="flex items-center gap-1">
+          <FileCode2 className="w-3 h-3" />
+          <span className="font-mono">{test.uuid.slice(0, 8)}...</span>
+        </div>
+
+        {test.hasDetectionFiles && (
+          <div className="flex items-center gap-1 text-blue-500" title="Detection rules included (KQL/YARA)">
+            <Shield className="w-3 h-3" />
+            <span className="text-[10px] font-medium">KQL</span>
+          </div>
+        )}
+
+        {test.hasAttackFlow && (
+          <div className="flex items-center gap-1 text-purple-500" title="Attack flow diagram available">
+            <Workflow className="w-3 h-3" />
+            <span className="text-[10px] font-medium">Flow</span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,10 +1,15 @@
 interface TechniqueBadgeProps {
   technique: string;
+  size?: 'sm' | 'md';
 }
 
-export default function TechniqueBadge({ technique }: TechniqueBadgeProps) {
+export default function TechniqueBadge({ technique, size = 'md' }: TechniqueBadgeProps) {
+  const sizeClasses = size === 'sm'
+    ? 'px-1.5 py-0.5 text-[10px]'
+    : 'px-2 py-1 text-xs';
+
   return (
-    <span className="inline-flex items-center px-2 py-1 rounded-md bg-primary/10 text-primary text-xs font-mono font-medium">
+    <span className={`inline-flex items-center rounded-md bg-primary/10 text-primary font-mono font-medium ${sizeClasses}`}>
       {technique}
     </span>
   );

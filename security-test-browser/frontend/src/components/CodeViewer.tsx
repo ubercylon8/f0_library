@@ -20,6 +20,8 @@ export default function CodeViewer({ content, language, filename }: CodeViewerPr
     'powershell': 'powershell',
     'bash': 'bash',
     'json': 'json',
+    'kql': 'sql',  // KQL is similar to SQL
+    'yara': 'clike',  // YARA has C-like syntax
   };
 
   const syntaxLanguage = languageMap[language] || 'text';

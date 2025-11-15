@@ -35,9 +35,9 @@ export interface StageInfo {
 export interface TestFile {
   name: string;
   path: string;
-  type: 'go' | 'powershell' | 'markdown' | 'html' | 'bash' | 'other';
+  type: 'go' | 'powershell' | 'markdown' | 'html' | 'bash' | 'kql' | 'yara' | 'other';
   size: number;
-  category: 'source' | 'documentation' | 'diagram' | 'config' | 'other';
+  category: 'source' | 'documentation' | 'diagram' | 'config' | 'detection' | 'other';
 }
 
 export interface TestDetails extends TestMetadata {
@@ -47,6 +47,7 @@ export interface TestDetails extends TestMetadata {
   hasReadme: boolean;
   hasInfoCard: boolean;
   hasSafetyDoc: boolean;
+  hasDetectionFiles: boolean;
 }
 
 export interface FileContent {

@@ -26,6 +26,9 @@ export class TestIndexer {
     if (fileName.endsWith('.go') || fileName.endsWith('.ps1')) {
       return 'source';
     }
+    if (fileName.endsWith('.kql') || fileName.endsWith('.yara') || fileName.endsWith('.yar')) {
+      return 'detection';
+    }
     if (fileName.endsWith('.sh') || fileName === 'go.mod' || fileName === 'go.sum') {
       return 'config';
     }
@@ -48,6 +51,11 @@ export class TestIndexer {
         return 'html';
       case '.sh':
         return 'bash';
+      case '.kql':
+        return 'kql';
+      case '.yara':
+      case '.yar':
+        return 'yara';
       default:
         return 'other';
     }
@@ -84,13 +92,14 @@ export class TestIndexer {
       }
     }
 
-    // Sort files: documentation first, then source, then config, then others
+    // Sort files: documentation first, then source, then detection, then config, then others
     const categoryOrder: Record<TestFile['category'], number> = {
       'documentation': 1,
       'diagram': 2,
       'source': 3,
-      'config': 4,
-      'other': 5,
+      'detection': 4,
+      'config': 5,
+      'other': 6,
     };
 
     files.sort((a, b) => {
@@ -135,6 +144,7 @@ export class TestIndexer {
       const hasSafetyDoc = files.some(f => f.name === 'SAFETY.md');
       const attackFlowFile = files.find(f => f.name.endsWith('_attack_flow.html') || f.name.includes('attack_flow'));
       const hasAttackFlow = !!attackFlowFile;
+      const hasDetectionFiles = files.some(f => f.category === 'detection');
 
       const testDetails: TestDetails = {
         ...metadata,
@@ -144,6 +154,7 @@ export class TestIndexer {
         hasReadme,
         hasInfoCard,
         hasSafetyDoc,
+        hasDetectionFiles,
       };
 
       return testDetails;

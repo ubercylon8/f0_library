@@ -121,6 +121,7 @@ export default function TestDetailPage() {
   // Categorize files
   const documentationFiles = test.files.filter(f => f.category === 'documentation');
   const sourceFiles = test.files.filter(f => f.category === 'source');
+  const detectionFiles = test.files.filter(f => f.category === 'detection');
   const configFiles = test.files.filter(f => f.category === 'config');
   const otherFiles = test.files.filter(f => f.category === 'other');
 
@@ -256,6 +257,33 @@ export default function TestDetailPage() {
                           : 'hover:bg-accent'
                       }`}
                     >
+                      {file.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Detection Rules */}
+            {detectionFiles.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                  <Shield className="w-3 h-3" />
+                  Detection Rules
+                </h3>
+                <div className="space-y-1">
+                  {detectionFiles.map(file => (
+                    <button
+                      key={file.name}
+                      onClick={() => handleFileSelect(file.name)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
+                        selectedFile === file.name && activeView === 'file'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'hover:bg-accent'
+                      }`}
+                    >
+                      {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
+                      {file.type === 'yara' && <span className="text-xs text-purple-500 mr-2">YARA</span>}
                       {file.name}
                     </button>
                   ))}
