@@ -50,6 +50,10 @@ dist/
 temp_resources/
 staging/
 
+# Embedded test dependencies (large binaries)
+**/OpenSSH-Win64.zip
+**/tailscale*.msi
+
 # Claude-related files and folders
 CLAUDE.md
 .claude/
