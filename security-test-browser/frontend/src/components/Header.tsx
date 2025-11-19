@@ -6,16 +6,16 @@ export default function Header() {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <header className="h-16 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="h-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto h-full px-4 flex items-center justify-between">
         {/* Logo and Title */}
         <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-          <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10">
-            <Shield className="w-6 h-6 text-primary" />
+          <div className="flex items-center justify-center w-16 h-16 rounded-lg bg-primary/10">
+            <Shield className="w-12 h-12 text-primary" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">F0RT1KA</h1>
-            <p className="text-xs text-muted-foreground">Security Test Browser</p>
+            <h1 className="text-4xl font-bold tracking-tight">ACHILLES</h1>
+            <p className="text-sm text-muted-foreground">Security Test Browser</p>
           </div>
         </Link>
 
