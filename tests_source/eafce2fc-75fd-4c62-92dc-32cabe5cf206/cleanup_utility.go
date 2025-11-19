@@ -180,17 +180,58 @@ func stopOpenSSH() {
 func removeOpenSSH() {
 	// Check if state file exists
 	if _, err := os.Stat(OPENSSH_STATE_FILE); os.IsNotExist(err) {
-		fmt.Println("  No OpenSSH state file found - using legacy method")
+		fmt.Println("  No OpenSSH state file found - using default removal method")
 		fmt.Println("  Removing OpenSSH Server (unattended mode assumes test installed it)...")
 
-		cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
-			"Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0")
+		// Method 1: Try manual installation cleanup (new method)
+		manualInstallPath := "C:\\Program Files\\OpenSSH"
+		if _, err := os.Stat(manualInstallPath); err == nil {
+			fmt.Println("  Detected manual OpenSSH installation - running cleanup...")
 
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("  Failed to remove OpenSSH: %v\n", err)
+			// Run uninstall-sshd.ps1 if it exists
+			uninstallScript := filepath.Join(manualInstallPath, "uninstall-sshd.ps1")
+			if _, err := os.Stat(uninstallScript); err == nil {
+				fmt.Println("    Running uninstall-sshd.ps1...")
+				cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-File", uninstallScript)
+				cmd.Dir = manualInstallPath
+				if output, err := cmd.CombinedOutput(); err != nil {
+					fmt.Printf("    Warning: uninstall script failed: %v - %s\n", err, string(output))
+				} else {
+					fmt.Println("    Uninstall script completed")
+					time.Sleep(2 * time.Second)
+				}
+			}
+
+			// Delete service if still exists
+			exec.Command("sc", "delete", "sshd").Run()
+			exec.Command("sc", "delete", "ssh-agent").Run()
+
+			// Remove the installation directory
+			fmt.Println("    Removing C:\\Program Files\\OpenSSH directory...")
+			if err := os.RemoveAll(manualInstallPath); err != nil {
+				fmt.Printf("    Warning: Failed to remove directory: %v\n", err)
+			} else {
+				fmt.Println("    Manual OpenSSH installation removed")
+			}
 		} else {
-			fmt.Println("  OpenSSH Server removed")
+			// Method 2: Try Windows Capability removal (legacy method)
+			fmt.Println("  Attempting Windows Capability removal...")
+			cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
+				"Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0")
+
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("  Failed to remove OpenSSH: %v\n", err)
+			} else {
+				fmt.Println("  OpenSSH Server removed")
+			}
 		}
+
+		// Clean up dropped zip file
+		zipPath := "c:\\F0\\OpenSSH-Win64.zip"
+		if err := os.Remove(zipPath); err == nil {
+			fmt.Println("  Removed OpenSSH-Win64.zip")
+		}
+
 		return
 	}
 
@@ -222,6 +263,8 @@ func cleanupTestFiles() {
 		"c:\\F0\\ssh_test_marker.txt",
 		"c:\\F0\\exfiltrated_data.zip",
 		"c:\\F0\\EXFILTRATED_DATA.zip",
+		"c:\\F0\\OpenSSH-Win64.zip",
+		"c:\\F0\\tailscale-setup.msi",
 	}
 
 	for _, file := range filesToRemove {
@@ -275,13 +318,48 @@ func restoreOpenSSHState() {
 	// If OpenSSH was NOT installed originally, remove it
 	if !state.WasInstalled {
 		fmt.Println("    OpenSSH was NOT installed before test - removing...")
-		cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
-			"Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0")
 
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("    Failed to remove OpenSSH: %v\n", err)
+		// Check if it's a manual installation or Windows Capability installation
+		manualInstallPath := "C:\\Program Files\\OpenSSH"
+		if _, err := os.Stat(manualInstallPath); err == nil {
+			// Manual installation - run uninstall script
+			fmt.Println("    Detected manual installation - running uninstall...")
+			uninstallScript := filepath.Join(manualInstallPath, "uninstall-sshd.ps1")
+
+			if _, err := os.Stat(uninstallScript); err == nil {
+				cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-File", uninstallScript)
+				cmd.Dir = manualInstallPath
+				if output, err := cmd.CombinedOutput(); err != nil {
+					fmt.Printf("    Warning: uninstall script failed: %v - %s\n", err, string(output))
+				} else {
+					fmt.Println("    Uninstall script completed")
+					time.Sleep(2 * time.Second)
+				}
+			}
+
+			// Delete services
+			exec.Command("sc", "delete", "sshd").Run()
+			exec.Command("sc", "delete", "ssh-agent").Run()
+
+			// Remove directory
+			if err := os.RemoveAll(manualInstallPath); err != nil {
+				fmt.Printf("    Warning: Failed to remove directory: %v\n", err)
+			} else {
+				fmt.Println("    Manual OpenSSH installation removed")
+			}
+
+			// Clean up dropped zip
+			os.Remove("c:\\F0\\OpenSSH-Win64.zip")
 		} else {
-			fmt.Println("    OpenSSH Server removed")
+			// Windows Capability installation
+			cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
+				"Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0")
+
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("    Failed to remove OpenSSH: %v\n", err)
+			} else {
+				fmt.Println("    OpenSSH Server removed")
+			}
 		}
 	} else {
 		// OpenSSH WAS installed - restore to original state

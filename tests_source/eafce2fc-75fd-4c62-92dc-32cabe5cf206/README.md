@@ -25,7 +25,7 @@ This test simulates a sophisticated attack chain using Tailscale for remote acce
 
 **Multi-Stage Killchain:**
 - **Stage 1 - T1105**: Ingress Tool Transfer (Tailscale download)
-- **Stage 2 - T1543.003**: Create or Modify System Process: Windows Service (OpenSSH)
+- **Stage 2 - T1543.003**: Create or Modify System Process: Windows Service (OpenSSH manual installation)
 - **Stage 3 - T1219**: Remote Access Software (Tailscale connection)
 - **Stage 4 - T1021.004**: Remote Services: SSH
 - **Stage 5 - T1041**: Exfiltration Over C2 Channel
@@ -104,18 +104,25 @@ Test stops at first blocked stage:
 
 ## Build Instructions
 
+**Prerequisites:**
+- OpenSSH-Win64.zip must be present in the test directory
+- Download from: https://github.com/PowerShell/Win32-OpenSSH/releases
+- Place in: `tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/OpenSSH-Win64.zip`
+
 ```bash
 # Build all stages and main binary (default: sb organization certificate)
 ./tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh
+```
 
 The build process:
-1. Builds 5 stage binaries (one per technique)
-2. Builds cleanup utility
-3. Dual-signs all stage binaries with org cert + F0RT1KA (CRITICAL - before embedding)
-4. Downloads/embeds Tailscale binary
-5. Builds main orchestrator (embeds signed stages)
-6. Dual-signs main binary with org cert + F0RT1KA
-7. Cleans up temporary files
+1. Verifies OpenSSH-Win64.zip exists
+2. Builds 5 stage binaries (one per technique)
+3. Builds cleanup utility
+4. Dual-signs all stage binaries with org cert + F0RT1KA (CRITICAL - before embedding)
+5. Downloads/embeds Tailscale binary
+6. Builds main orchestrator (embeds signed stages + OpenSSH zip)
+7. Dual-signs main binary with org cert + F0RT1KA
+8. Cleans up temporary files
 
 ## Cleanup
 
@@ -134,10 +141,12 @@ Invoke-Command -ComputerName target-host -ScriptBlock { C:\F0\tailscale_cleanup.
 
 The cleanup utility removes:
 - Tailscale portable installation and state files
+- OpenSSH manual installation (runs uninstall-sshd.ps1, removes C:\Program Files\OpenSSH)
 - Restores OpenSSH Server to original state (or removes if test installed it)
 - Restores Windows services to original state
 - Restores firewall rules to original state
 - All stage binaries and test artifacts
+- Dropped OpenSSH-Win64.zip file
 - Exfiltrated data archives
 - Log files and state capture files
 
@@ -156,9 +165,11 @@ This test provides **5 distinct detection points** across the killchain:
    - Behavioral: Tool download patterns
 
 2. **Stage 2 Detection:**
-   - Windows capability installation
-   - Service creation/modification
+   - Zip file extraction to Program Files
+   - PowerShell script execution (install-sshd.ps1)
+   - Service creation/modification (sshd, ssh-agent)
    - Firewall rule creation
+   - File write operations in privileged directory
    - Behavioral: Service persistence establishment
 
 3. **Stage 3 Detection:**

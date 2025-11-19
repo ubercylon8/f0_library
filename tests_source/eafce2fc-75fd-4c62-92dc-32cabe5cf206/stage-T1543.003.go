@@ -9,10 +9,12 @@ Installs OpenSSH Server for remote access
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -24,6 +26,10 @@ const (
 	STAGE_ID       = 2
 )
 
+// Embed OpenSSH portable zip package
+//go:embed OpenSSH-Win64.zip
+var opensshZip []byte
+
 // Standardized stage exit codes
 const (
 	StageSuccess     = 0
@@ -33,7 +39,9 @@ const (
 )
 
 const (
-	OPENSSH_STATE_FILE = "c:\\F0\\original_openssh_state.json"
+	OPENSSH_STATE_FILE   = "c:\\F0\\original_openssh_state.json"
+	OPENSSH_INSTALL_PATH = "C:\\Program Files\\OpenSSH"
+	OPENSSH_ZIP_DROP     = "c:\\F0\\OpenSSH-Win64.zip"
 )
 
 // OpenSSHState represents the original state of OpenSSH before test modifications
@@ -116,36 +124,79 @@ func main() {
 }
 
 func installOpenSSH() error {
-	LogMessage("INFO", TECHNIQUE_ID, "Installing OpenSSH Server capability...")
+	LogMessage("INFO", TECHNIQUE_ID, "Installing OpenSSH Server from embedded package...")
 
 	// Check if already installed
-	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
-		"Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*'")
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("capability check failed: %v", err)
-	}
-
-	if strings.Contains(string(output), "State : Installed") {
-		LogMessage("INFO", TECHNIQUE_ID, "OpenSSH Server already installed")
+	if _, err := os.Stat(OPENSSH_INSTALL_PATH); err == nil {
+		LogMessage("INFO", TECHNIQUE_ID, "OpenSSH Server already installed at "+OPENSSH_INSTALL_PATH)
 		return nil
 	}
 
-	// Install OpenSSH Server
-	LogMessage("INFO", TECHNIQUE_ID, "Adding OpenSSH Server capability...")
+	// Step 1: Drop embedded zip to C:\F0\
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Dropping OpenSSH zip (%d bytes) to %s", len(opensshZip), OPENSSH_ZIP_DROP))
+	if err := os.WriteFile(OPENSSH_ZIP_DROP, opensshZip, 0644); err != nil {
+		return fmt.Errorf("failed to drop OpenSSH zip: %v", err)
+	}
+
+	// Check if zip was quarantined
+	if _, err := os.Stat(OPENSSH_ZIP_DROP); os.IsNotExist(err) {
+		return fmt.Errorf("OpenSSH zip was quarantined after drop")
+	}
+
+	// Step 2: Extract zip to C:\Program Files\
+	LogMessage("INFO", TECHNIQUE_ID, "Extracting OpenSSH to C:\\Program Files\\...")
+	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
+		fmt.Sprintf(`Expand-Archive -Path "%s" -DestinationPath "C:\Program Files\" -Force`, OPENSSH_ZIP_DROP))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("extraction failed: %v - %s", err, string(output))
+	}
+
+	// Step 3: Rename OpenSSH-Win64 to OpenSSH
+	LogMessage("INFO", TECHNIQUE_ID, "Renaming OpenSSH-Win64 to OpenSSH...")
+	extractedPath := "C:\\Program Files\\OpenSSH-Win64"
+
+	// Remove target if it exists
+	if _, err := os.Stat(OPENSSH_INSTALL_PATH); err == nil {
+		os.RemoveAll(OPENSSH_INSTALL_PATH)
+	}
+
 	cmd = exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
-		"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0")
+		fmt.Sprintf(`Rename-Item -Path "%s" -NewName "OpenSSH"`, extractedPath))
 
 	output, err = cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("installation failed: %v - %s", err, string(output))
+		return fmt.Errorf("rename failed: %v - %s", err, string(output))
 	}
 
-	// Wait for installation to complete
-	time.Sleep(5 * time.Second)
+	// Verify installation directory exists
+	if _, err := os.Stat(OPENSSH_INSTALL_PATH); os.IsNotExist(err) {
+		return fmt.Errorf("OpenSSH installation directory not found after extraction")
+	}
 
-	LogMessage("INFO", TECHNIQUE_ID, "OpenSSH Server capability installed")
+	// Step 4: Run install-sshd.ps1 script
+	LogMessage("INFO", TECHNIQUE_ID, "Running install-sshd.ps1 script...")
+	installScript := filepath.Join(OPENSSH_INSTALL_PATH, "install-sshd.ps1")
+
+	if _, err := os.Stat(installScript); os.IsNotExist(err) {
+		return fmt.Errorf("install-sshd.ps1 not found at %s", installScript)
+	}
+
+	cmd = exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-File", installScript)
+	cmd.Dir = OPENSSH_INSTALL_PATH
+
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("install script failed: %v - %s", err, string(output))
+	}
+
+	LogMessage("INFO", TECHNIQUE_ID, "OpenSSH installation script output: "+string(output))
+
+	// Wait for installation to complete
+	time.Sleep(3 * time.Second)
+
+	LogMessage("INFO", TECHNIQUE_ID, "OpenSSH Server installed successfully")
 	return nil
 }
 
@@ -216,6 +267,12 @@ func captureOpenSSHState() error {
 }
 
 func isOpenSSHInstalled() bool {
+	// Check if OpenSSH is installed at the manual installation path
+	if _, err := os.Stat(OPENSSH_INSTALL_PATH); err == nil {
+		return true
+	}
+
+	// Also check if installed via Windows Capability (legacy/pre-existing installation)
 	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
 		"Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*'")
 

@@ -77,6 +77,23 @@ echo "Certificate: $(basename ${ORG_CERT_FILE})"
 echo "================================================================="
 echo ""
 
+# Verify required files exist
+echo "Verifying required files..."
+cd "${TEST_DIR}"
+
+if [ ! -f "OpenSSH-Win64.zip" ]; then
+    echo "ERROR: OpenSSH-Win64.zip not found in ${TEST_DIR}"
+    echo "Please download OpenSSH-Win64.zip and place it in the test directory"
+    echo "Download from: https://github.com/PowerShell/Win32-OpenSSH/releases"
+    exit 1
+fi
+
+OPENSSH_SIZE=$(ls -lh "OpenSSH-Win64.zip" | awk '{print $5}')
+echo "  ✓ OpenSSH-Win64.zip found (${OPENSSH_SIZE})"
+echo ""
+
+cd ../..
+
 # Stage definitions: "TECHNIQUE:SOURCE_FILE"
 declare -a STAGES=(
     "T1105:stage-T1105"
