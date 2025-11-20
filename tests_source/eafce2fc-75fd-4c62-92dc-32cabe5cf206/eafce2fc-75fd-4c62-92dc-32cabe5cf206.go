@@ -320,7 +320,9 @@ func executeStage(stage Stage) int {
 
 	// Start the stage process
 	if err := cmd.Start(); err != nil {
+		errMsg := fmt.Sprintf("Failed to start stage %s: %v", stage.Technique, err)
 		Endpoint.Say("  Failed to start stage: %v", err)
+		LogMessage("ERROR", stage.Technique, errMsg)
 		return 999
 	}
 
@@ -358,7 +360,9 @@ func executeStage(stage Stage) int {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return exitErr.ExitCode()
 		}
+		errMsg := fmt.Sprintf("Stage execution error for %s: %v", stage.Technique, err)
 		Endpoint.Say("  Stage execution error: %v", err)
+		LogMessage("ERROR", stage.Technique, errMsg)
 		return 999 // Unknown error
 	}
 
