@@ -146,15 +146,88 @@ type ProcessLog struct {
 	ErrorMsg    string    `json:"errorMsg,omitempty"`
 }
 
+// TimestampWriter wraps writes with timestamps for stdout/stderr capture
+type TimestampWriter struct {
+	file        *os.File
+	mu          sync.Mutex
+	lastNewline bool // Track if last write ended with newline
+}
+
+// Write implements io.Writer interface with timestamp prefixing
+func (w *TimestampWriter) Write(p []byte) (n int, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.file == nil {
+		return 0, fmt.Errorf("stdout file not initialized")
+	}
+
+	// Convert bytes to string for processing
+	text := string(p)
+	if text == "" {
+		return 0, nil
+	}
+
+	// Split into lines
+	lines := strings.Split(text, "\n")
+
+	for i, line := range lines {
+		// Skip empty lines except the last one (which might be just \n)
+		if line == "" && i < len(lines)-1 {
+			if i > 0 || w.lastNewline {
+				// Write newline for empty line
+				if _, err := w.file.WriteString("\n"); err != nil {
+					return 0, err
+				}
+			}
+			continue
+		}
+
+		// If this is not the first line or last write ended with newline, add timestamp
+		if i > 0 || w.lastNewline {
+			timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+			if _, err := w.file.WriteString(fmt.Sprintf("%s %s", timestamp, line)); err != nil {
+				return 0, err
+			}
+		} else {
+			// Continue previous line without timestamp
+			if _, err := w.file.WriteString(line); err != nil {
+				return 0, err
+			}
+		}
+
+		// Add newline if not the last line
+		if i < len(lines)-1 {
+			if _, err := w.file.WriteString("\n"); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	// Track if this write ended with newline
+	w.lastNewline = strings.HasSuffix(text, "\n")
+	if w.lastNewline && len(lines) > 0 && lines[len(lines)-1] == "" {
+		// Ended with newline, write it
+		if _, err := w.file.WriteString("\n"); err != nil {
+			return 0, err
+		}
+	}
+
+	return len(p), nil
+}
+
 // ==============================================================================
 // GLOBAL STATE
 // ==============================================================================
 
 var (
-	globalLog *TestLog
-	logMutex  sync.Mutex
-	logFile   *os.File
-	isStage   bool = false // true if this is a stage binary (not main orchestrator)
+	globalLog      *TestLog
+	logMutex       sync.Mutex
+	logFile        *os.File
+	isStage        bool = false // true if this is a stage binary (not main orchestrator)
+	stdoutFile     *os.File     // Raw stdout capture file
+	originalStdout *os.File     // Original stdout for restoration
+	originalStderr *os.File     // Original stderr for restoration
 )
 
 // ==============================================================================
@@ -180,6 +253,72 @@ func InitLogger(testID, testName string) *TestLog {
 
 	// Capture system info
 	globalLog.SystemInfo = captureSystemInfo()
+
+	// Set up stdout/stderr capture to test_execution_stdout.txt
+	targetDir := "C:\\F0"
+	os.MkdirAll(targetDir, 0755)
+	stdoutPath := filepath.Join(targetDir, "test_execution_stdout.txt")
+
+	var err error
+	stdoutFile, err = os.Create(stdoutPath)
+	if err != nil {
+		// If we can't create stdout file, just continue without capture
+		fmt.Printf("[WARNING] Failed to create stdout capture file: %v\n", err)
+		addMessage("WARN", "Initialization", fmt.Sprintf("Failed to create stdout capture: %v", err))
+	} else {
+		// Save original stdout/stderr
+		originalStdout = os.Stdout
+		originalStderr = os.Stderr
+
+		// Create pipes for capturing output
+		rOut, wOut, _ := os.Pipe()
+		rErr, wErr, _ := os.Pipe()
+
+		// Redirect stdout and stderr to pipes
+		os.Stdout = wOut
+		os.Stderr = wErr
+
+		// Create timestamped writer
+		timestampWriter := &TimestampWriter{
+			file:        stdoutFile,
+			lastNewline: true,
+		}
+
+		// Start goroutines to copy from pipes to both console and file
+		go func() {
+			buf := make([]byte, 1024)
+			for {
+				n, err := rOut.Read(buf)
+				if n > 0 {
+					// Write to original stdout (console)
+					originalStdout.Write(buf[:n])
+					// Write to timestamped file
+					timestampWriter.Write(buf[:n])
+				}
+				if err != nil {
+					break
+				}
+			}
+		}()
+
+		go func() {
+			buf := make([]byte, 1024)
+			for {
+				n, err := rErr.Read(buf)
+				if n > 0 {
+					// Write to original stderr (console)
+					originalStderr.Write(buf[:n])
+					// Write to timestamped file
+					timestampWriter.Write(buf[:n])
+				}
+				if err != nil {
+					break
+				}
+			}
+		}()
+
+		addMessage("INFO", "Initialization", fmt.Sprintf("Stdout/stderr capture enabled: %s", stdoutPath))
+	}
 
 	addMessage("INFO", "Initialization", fmt.Sprintf("Test logger initialized for %s", testName))
 	addMessage("INFO", "Initialization", fmt.Sprintf("Running as: %s (Admin: %v)",
@@ -370,6 +509,37 @@ func addMessage(level, phase, message string) {
 	globalLog.Messages = append(globalLog.Messages, msg)
 }
 
+// LogConsole logs a message to both console and raw stdout file with timestamp
+// This function should be used for all console output to ensure capture
+func LogConsole(format string, args ...interface{}) {
+	// Format the message
+	msg := fmt.Sprintf(format, args...)
+
+	// Print to console
+	fmt.Println(msg)
+
+	// Write to stdout file with timestamp (if enabled)
+	if stdoutFile != nil {
+		timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+		fmt.Fprintf(stdoutFile, "%s %s\n", timestamp, msg)
+	}
+}
+
+// LogConsolef is like LogConsole but doesn't add a newline (for Printf-style usage)
+func LogConsolef(format string, args ...interface{}) {
+	// Format the message
+	msg := fmt.Sprintf(format, args...)
+
+	// Print to console without newline
+	fmt.Print(msg)
+
+	// Write to stdout file with timestamp (if enabled)
+	if stdoutFile != nil {
+		timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+		fmt.Fprintf(stdoutFile, "%s %s", timestamp, msg)
+	}
+}
+
 // LogFileDropped logs a file drop operation
 func LogFileDropped(filename, path string, size int64, quarantined bool) {
 	logMutex.Lock()
@@ -430,6 +600,25 @@ func SaveLog(exitCode int, exitReason string) error {
 	globalLog.ExitCode = exitCode
 	globalLog.ExitReason = exitReason
 
+	// Close and restore stdout/stderr before persisting logs
+	if stdoutFile != nil {
+		// Restore original stdout/stderr
+		if originalStdout != nil {
+			os.Stdout = originalStdout
+		}
+		if originalStderr != nil {
+			os.Stderr = originalStderr
+		}
+
+		// Give goroutines a moment to finish writing
+		time.Sleep(100 * time.Millisecond)
+
+		// Close the stdout capture file
+		stdoutFile.Sync()  // Flush any pending writes
+		stdoutFile.Close()
+		stdoutFile = nil
+	}
+
 	return persistLog()
 }
 
@@ -460,8 +649,12 @@ func persistLog() error {
 	if !isStage {
 		fmt.Printf("\n[*] ========================================\n")
 		fmt.Printf("[*] Execution logs saved:\n")
-		fmt.Printf("[*]   JSON: %s\n", jsonPath)
-		fmt.Printf("[*]   TEXT: %s\n", txtPath)
+		fmt.Printf("[*]   JSON:   %s\n", jsonPath)
+		fmt.Printf("[*]   TEXT:   %s\n", txtPath)
+		stdoutPath := filepath.Join(targetDir, "test_execution_stdout.txt")
+		if _, err := os.Stat(stdoutPath); err == nil {
+			fmt.Printf("[*]   STDOUT: %s\n", stdoutPath)
+		}
 		fmt.Printf("[*] ========================================\n\n")
 	}
 
