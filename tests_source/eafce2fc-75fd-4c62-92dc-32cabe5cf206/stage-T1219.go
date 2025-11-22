@@ -99,11 +99,13 @@ func main() {
 			strings.Contains(err.Error(), "restricted") ||
 			strings.Contains(err.Error(), "prevented") {
 
+			fmt.Printf("[STAGE T1219] MSI installation blocked: %v\n", err)
 			LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("MSI installation blocked: %v", err))
 			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
 			os.Exit(StageBlocked)
 		}
 
+		fmt.Printf("[STAGE T1219] Installation failed: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Installation failed: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)
@@ -117,11 +119,13 @@ func main() {
 			strings.Contains(err.Error(), "timeout") ||
 			strings.Contains(err.Error(), "refused") {
 
+			fmt.Printf("[STAGE T1219] Connection blocked: %v\n", err)
 			LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("Connection blocked: %v", err))
 			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
 			os.Exit(StageBlocked)
 		}
 
+		fmt.Printf("[STAGE T1219] Connection failed: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Connection failed: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)
