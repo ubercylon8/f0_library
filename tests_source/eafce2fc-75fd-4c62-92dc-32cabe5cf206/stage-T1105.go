@@ -51,6 +51,7 @@ func main() {
 	// Read configuration
 	config, err := readConfig()
 	if err != nil {
+		fmt.Printf("[STAGE T1105] Failed to read config: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Failed to read config: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "Configuration error")
 		os.Exit(StageError)
@@ -75,18 +76,21 @@ func main() {
 			strings.Contains(downloadErr.Error(), "access denied") ||
 			strings.Contains(downloadErr.Error(), "blocked") {
 
+			fmt.Printf("[STAGE T1105] Download blocked: %v\n", downloadErr)
 			LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("Download blocked: %v", downloadErr))
 			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, downloadErr.Error())
 			os.Exit(StageBlocked)
 		}
 
 		// Other error
+		fmt.Printf("[STAGE T1105] Download failed: %v\n", downloadErr)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Download failed: %v", downloadErr))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", downloadErr.Error())
 		os.Exit(StageError)
 	}
 
 	if !downloadSuccess {
+		fmt.Printf("[STAGE T1105] Failed to acquire Tailscale MSI\n")
 		LogMessage("ERROR", TECHNIQUE_ID, "Failed to acquire Tailscale MSI")
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "MSI acquisition failed")
 		os.Exit(StageError)
@@ -95,6 +99,7 @@ func main() {
 	// Verify MSI was written successfully
 	targetPath := filepath.Join("c:\\F0", "tailscale-setup.msi")
 	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+		fmt.Printf("[STAGE T1105] Tailscale MSI not found after download\n")
 		LogMessage("ERROR", TECHNIQUE_ID, "Tailscale MSI not found after download")
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "MSI verification failed")
 		os.Exit(StageError)

@@ -42,6 +42,7 @@ func main() {
 	// Create staging directory
 	stagingDir := filepath.Join("c:\\F0", "exfil_staging")
 	if err := os.MkdirAll(stagingDir, 0755); err != nil {
+		fmt.Printf("[STAGE T1041] Failed to create staging directory: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Failed to create staging directory: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "Staging directory creation failed")
 		os.Exit(StageError)
@@ -51,6 +52,7 @@ func main() {
 
 	// Create dummy sensitive files
 	if err := createDummySensitiveData(stagingDir); err != nil {
+		fmt.Printf("[STAGE T1041] Failed to create sensitive data: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Failed to create sensitive data: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)
@@ -63,11 +65,13 @@ func main() {
 		if strings.Contains(err.Error(), "access denied") ||
 			strings.Contains(err.Error(), "blocked") {
 
+			fmt.Printf("[STAGE T1041] Data compression blocked: %v\n", err)
 			LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("Data compression blocked: %v", err))
 			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
 			os.Exit(StageBlocked)
 		}
 
+		fmt.Printf("[STAGE T1041] Compression failed: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Compression failed: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)
@@ -80,11 +84,13 @@ func main() {
 			strings.Contains(err.Error(), "denied") ||
 			strings.Contains(err.Error(), "quarantined") {
 
+			fmt.Printf("[STAGE T1041] Exfiltration blocked: %v\n", err)
 			LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("Exfiltration blocked: %v", err))
 			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
 			os.Exit(StageBlocked)
 		}
 
+		fmt.Printf("[STAGE T1041] Exfiltration failed: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Exfiltration failed: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)

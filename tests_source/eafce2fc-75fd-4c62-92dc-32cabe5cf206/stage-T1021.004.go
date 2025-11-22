@@ -41,6 +41,7 @@ func main() {
 
 	// Verify SSH service is running
 	if !isServiceRunning("sshd") {
+		fmt.Printf("[STAGE T1021.004] OpenSSH service not running\n")
 		LogMessage("ERROR", TECHNIQUE_ID, "OpenSSH service not running")
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "SSH service prerequisite not met")
 		os.Exit(StageError)
@@ -54,11 +55,13 @@ func main() {
 			strings.Contains(err.Error(), "access denied") ||
 			strings.Contains(err.Error(), "timeout") {
 
+			fmt.Printf("[STAGE T1021.004] SSH access blocked: %v\n", err)
 			LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("SSH access blocked: %v", err))
 			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
 			os.Exit(StageBlocked)
 		}
 
+		fmt.Printf("[STAGE T1021.004] SSH test failed: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("SSH test failed: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)
@@ -66,6 +69,7 @@ func main() {
 
 	// Test remote command execution
 	if err := testRemoteExecution(); err != nil {
+		fmt.Printf("[STAGE T1021.004] Remote execution failed: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Remote execution failed: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)

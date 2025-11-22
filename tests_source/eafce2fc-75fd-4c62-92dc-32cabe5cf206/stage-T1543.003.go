@@ -61,6 +61,7 @@ func main() {
 
 	// Check if running with admin privileges
 	if !isAdmin() {
+		fmt.Printf("[STAGE T1543.003] Administrator privileges required\n")
 		LogMessage("ERROR", TECHNIQUE_ID, "Administrator privileges required")
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "Not running as administrator")
 		os.Exit(StageError)
@@ -79,11 +80,13 @@ func main() {
 			strings.Contains(err.Error(), "blocked") ||
 			strings.Contains(err.Error(), "restricted") {
 
+			fmt.Printf("[STAGE T1543.003] Installation blocked: %v\n", err)
 			LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("Installation blocked: %v", err))
 			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
 			os.Exit(StageBlocked)
 		}
 
+		fmt.Printf("[STAGE T1543.003] Installation failed: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Installation failed: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)
@@ -91,6 +94,7 @@ func main() {
 
 	// Configure OpenSSH for remote access
 	if err := configureOpenSSH(); err != nil {
+		fmt.Printf("[STAGE T1543.003] Configuration failed: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Configuration failed: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)
@@ -101,11 +105,13 @@ func main() {
 		if strings.Contains(err.Error(), "access denied") ||
 			strings.Contains(err.Error(), "blocked") {
 
+			fmt.Printf("[STAGE T1543.003] Service start blocked: %v\n", err)
 			LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("Service start blocked: %v", err))
 			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
 			os.Exit(StageBlocked)
 		}
 
+		fmt.Printf("[STAGE T1543.003] Service start failed: %v\n", err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Service start failed: %v", err))
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		os.Exit(StageError)
@@ -113,6 +119,7 @@ func main() {
 
 	// Verify service is running
 	if !isServiceRunning("sshd") {
+		fmt.Printf("[STAGE T1543.003] OpenSSH service not running after start attempt\n")
 		LogMessage("ERROR", TECHNIQUE_ID, "OpenSSH service not running after start attempt")
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "Service verification failed")
 		os.Exit(StageError)
