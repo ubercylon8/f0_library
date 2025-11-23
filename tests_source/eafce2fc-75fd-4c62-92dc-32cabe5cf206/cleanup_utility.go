@@ -48,7 +48,7 @@ func main() {
 	fmt.Println("=================================================================")
 	fmt.Println()
 
-	if !isAdmin() {
+	if !checkIsAdmin() {
 		fmt.Println("ERROR: Administrator privileges required")
 		fmt.Println("Please run this utility as Administrator")
 		os.Exit(1)
@@ -504,7 +504,7 @@ func restoreOriginalServiceStates() {
 	fmt.Println("  Services restored to original state")
 }
 
-func isAdmin() bool {
+func checkIsAdmin() bool {
 	cmd := exec.Command("net", "session")
 	err := cmd.Run()
 	return err == nil
