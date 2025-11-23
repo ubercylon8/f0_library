@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "description": "F0RT1KA Organization Registry - Maps organization UUIDs to certificates and display names",
+  "defaultOrganization": "sb",
+  "autoDetectSingleOrg": true,
+  "organizations": [
+    {
+      "uuid": "09b59276-9efb-4d3d-bbdd-4b4663ef0c42",
+      "shortName": "sb",
+      "fullName": "Superintendency of Banks",
+      "certificateFile": "F0-LocalCodeSigningCert-CST-SB.pfx",
+      "passwordFile": ".F0-LocalCodeSigningCert-CST-SB.pfx.txt",
+      "limaCharlieOrg": "sb",
+      "enabled": true,
+      "default": true
+    },
+    {
+      "uuid": "b2f8dccb-6d23-492e-aa87-a0a8a6103189",
+      "shortName": "tpsgl",
+      "fullName": "Transact Pay",
+      "certificateFile": "F0-LocalCodeSigningCert-CST-TPSGL.pfx",
+      "passwordFile": ".F0-LocalCodeSigningCert-CST-TPSGL.pfx.txt",
+      "limaCharlieOrg": "tpsgl",
+      "enabled": true,
+      "default": false
+    },
+    {
+      "uuid": "9634119d-fa6b-42b8-9b9b-90ad8f22e482",
+      "shortName": "rga",
+      "fullName": "RG Associates",
+      "certificateFile": "F0-LocalCodeSigningCert-CST-RGA.pfx",
+      "passwordFile": ".F0-LocalCodeSigningCert-CST-RGA.pfx.txt",
+      "limaCharlieOrg": "rga",
+      "enabled": true,
+      "default": false
+    }
+  ],
+  "metadata": {
+    "createdAt": "2025-01-23",
+    "purpose": "UUID-based organization identification for multi-org Elasticsearch analytics",
+    "notes": [
+      "Single-org users: Set defaultOrganization or enable autoDetectSingleOrg",
+      "Multi-org users: Specify UUID or short name when building tests",
+      "Certificate files remain unchanged - registry provides mapping only"
+    ]
+  }
+}

@@ -182,8 +182,19 @@
         },
         "organization": {
           "type": "string",
-          "description": "Organization identifier (sb, tpsgl, rga, etc.)",
+          "description": "Organization identifier - UUID (recommended) or short name for backward compatibility",
+          "pattern": "^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9_-]+)$",
+          "examples": ["09b59276-9efb-4d3d-bbdd-4b4663ef0c42", "sb", "tpsgl", "rga"]
+        },
+        "organizationShortName": {
+          "type": "string",
+          "description": "Optional: Organization short name for display (e.g., 'sb', 'tpsgl')",
           "examples": ["sb", "tpsgl", "rga"]
+        },
+        "organizationFullName": {
+          "type": "string",
+          "description": "Optional: Organization full name for reporting (e.g., 'Superintendency of Banks')",
+          "examples": ["Superintendency of Banks", "Transact Pay", "RG Associates"]
         },
         "environment": {
           "type": "string",

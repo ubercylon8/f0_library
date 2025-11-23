@@ -14,8 +14,13 @@
 # 5. Sign main binary
 # 6. Cleanup temporary files
 #
-# Usage: ./build_all.sh
+# Usage: ./build_all.sh [--org <org-identifier>]
 # Output: build/<uuid>/<uuid>.exe (single deployable binary)
+#
+# Optional --org parameter:
+#   --org sb             Dual-sign with SB cert + F0RT1KA (legacy short name)
+#   --org 09b59276-...   Dual-sign with UUID (recommended for new tests)
+#   (none)               F0RT1KA-only signing
 
 set -e  # Exit on any error
 set -u  # Exit on undefined variable
@@ -40,6 +45,33 @@ declare -a STAGES=(
 # DO NOT EDIT BELOW THIS LINE (unless you know what you're doing)
 # ==============================================================================
 
+# Parse command-line arguments
+ORG_CERT=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --org)
+            ORG_CERT="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--org <org-identifier>]"
+            echo ""
+            echo "Options:"
+            echo "  --org <id>    Organization for dual signing (UUID or short name)"
+            echo "                Examples: sb, 09b59276-9efb-4d3d-bbdd-4b4663ef0c42"
+            echo "  -h, --help    Show this help message"
+            echo ""
+            echo "If --org is not specified, uses F0RT1KA-only signing"
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown option: $1"
+            echo "Usage: $0 [--org <org-identifier>]"
+            exit 1
+            ;;
+    esac
+done
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -52,6 +84,46 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 TEST_DIR="${PROJECT_ROOT}/tests_source/${TEST_UUID}"
 BUILD_DIR="${PROJECT_ROOT}/build/${TEST_UUID}"
+
+# Source organization registry helper
+if [ -f "${PROJECT_ROOT}/utils/resolve_org.sh" ]; then
+    source "${PROJECT_ROOT}/utils/resolve_org.sh"
+fi
+
+# Determine signing mode and resolve certificates
+if [ -z "$ORG_CERT" ]; then
+    # F0RT1KA-only signing
+    SIGNING_MODE="single"
+    PRIMARY_CERT="${PROJECT_ROOT}/signing-certs/F0RT1KA.pfx"
+    PRIMARY_PASSWORD_FILE="${PROJECT_ROOT}/signing-certs/.F0RT1KA.pfx.txt"
+else
+    # Dual signing: org cert + F0RT1KA
+    SIGNING_MODE="dual"
+
+    # Resolve organization to certificate file
+    if command -v resolve_org_to_cert &> /dev/null; then
+        CERT_FILE=$(resolve_org_to_cert "$ORG_CERT")
+        if [ $? -ne 0 ] || [ -z "$CERT_FILE" ]; then
+            print_error "Could not resolve organization '$ORG_CERT' to certificate"
+            exit 1
+        fi
+        ORG_CERT_FILE="${PROJECT_ROOT}/signing-certs/${CERT_FILE}"
+        ORG_PASSWORD_FILE="${PROJECT_ROOT}/signing-certs/.${CERT_FILE}.txt"
+    else
+        print_warning "Registry helper not available, using legacy certificate lookup"
+        # Fallback: try to find cert by pattern matching
+        ORG_CERT_FILE=$(find "${PROJECT_ROOT}/signing-certs" -name "*.pfx" | grep -i "$ORG_CERT" | head -1)
+        if [ -z "$ORG_CERT_FILE" ]; then
+            print_error "Could not find certificate for organization: $ORG_CERT"
+            exit 1
+        fi
+        ORG_PASSWORD_FILE=$(find "${PROJECT_ROOT}/signing-certs" -name ".*" -type f | grep -i "$ORG_CERT" | head -1)
+    fi
+
+    # F0RT1KA certificate (secondary/nested)
+    SECONDARY_CERT="${PROJECT_ROOT}/signing-certs/F0RT1KA.pfx"
+    SECONDARY_PASSWORD_FILE="${PROJECT_ROOT}/signing-certs/.F0RT1KA.pfx.txt"
+fi
 
 # Build configuration
 GOOS="windows"
@@ -140,7 +212,7 @@ for stage_def in "${STAGES[@]}"; do
     fi
 
     echo "  Building ${stage_binary} from ${source_go}..."
-    GOOS=${GOOS} GOARCH=${GOARCH} go build -o "${stage_binary}" "${source_go}" test_logger.go
+    GOOS=${GOOS} GOARCH=${GOARCH} go build -o "${stage_binary}" "${source_go}" test_logger.go org_resolver.go
 
     if [ ! -f "${stage_binary}" ]; then
         print_error "Failed to build ${stage_binary}"
@@ -151,25 +223,40 @@ for stage_def in "${STAGES[@]}"; do
 done
 print_success "Built ${stage_count} unsigned stage binaries"
 
-# Read F0RT1KA certificate password (auto-read from password file)
-F0RT1KA_CERT="${PROJECT_ROOT}/signing-certs/F0RT1KA.pfx"
-F0RT1KA_PASSWORD=$(cat "${PROJECT_ROOT}/signing-certs/.F0RT1KA.pfx.txt" | tr -d '\n\r')
-
 # Step 2: Sign stage binaries (CRITICAL - before embedding)
-print_step "2/6" "Signing stage binaries..."
-for stage_def in "${STAGES[@]}"; do
-    IFS=':' read -r technique _ <<< "$stage_def"
-    stage_binary="${TEST_UUID}-${technique}.exe"
+if [ "$SIGNING_MODE" = "dual" ]; then
+    print_step "2/6" "Dual-signing stage binaries (org + F0RT1KA)..."
+    for stage_def in "${STAGES[@]}"; do
+        IFS=':' read -r technique _ <<< "$stage_def"
+        stage_binary="${TEST_UUID}-${technique}.exe"
 
-    echo "  Signing ${stage_binary}..."
-    "${PROJECT_ROOT}/utils/codesign" --cert "${F0RT1KA_CERT}" --password "${F0RT1KA_PASSWORD}" sign "${stage_binary}"
+        echo "  Dual-signing ${stage_binary}..."
+        "${PROJECT_ROOT}/utils/codesign" sign-nested "${stage_binary}" "${ORG_CERT_FILE}" "${SECONDARY_CERT}"
 
-    if [ $? -ne 0 ]; then
-        print_error "Failed to sign ${stage_binary}"
-        exit 1
-    fi
-done
-print_success "Signed ${stage_count} stage binaries"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to dual-sign ${stage_binary}"
+            exit 1
+        fi
+    done
+    print_success "Dual-signed ${stage_count} stage binaries"
+else
+    print_step "2/6" "Signing stage binaries (F0RT1KA)..."
+    PRIMARY_PASSWORD=$(cat "${PRIMARY_PASSWORD_FILE}" | tr -d '\n\r')
+
+    for stage_def in "${STAGES[@]}"; do
+        IFS=':' read -r technique _ <<< "$stage_def"
+        stage_binary="${TEST_UUID}-${technique}.exe"
+
+        echo "  Signing ${stage_binary}..."
+        "${PROJECT_ROOT}/utils/codesign" --cert "${PRIMARY_CERT}" --password "${PRIMARY_PASSWORD}" sign "${stage_binary}"
+
+        if [ $? -ne 0 ]; then
+            print_error "Failed to sign ${stage_binary}"
+            exit 1
+        fi
+    done
+    print_success "Signed ${stage_count} stage binaries"
+fi
 
 # Step 3: Verify signatures (self-signed certs will show warnings but are cryptographically valid)
 print_step "3/6" "Verifying stage signatures..."
@@ -201,7 +288,7 @@ mkdir -p "${BUILD_DIR}"
 # Build main binary
 main_binary="${BUILD_DIR}/${TEST_UUID}.exe"
 echo "  Building ${TEST_UUID}.exe with embedded stage binaries..."
-GOOS=${GOOS} GOARCH=${GOARCH} go build -o "${main_binary}" "${TEST_UUID}.go" test_logger.go
+GOOS=${GOOS} GOARCH=${GOARCH} go build -o "${main_binary}" "${TEST_UUID}.go" test_logger.go org_resolver.go
 
 if [ ! -f "${main_binary}" ]; then
     print_error "Failed to build main binary: ${TEST_UUID}.exe"
@@ -213,13 +300,24 @@ main_size_before=$(ls -lh "${main_binary}" | awk '{print $5}')
 print_success "Main orchestrator built (${main_size_before})"
 
 # Step 5: Sign main binary
-print_step "5/6" "Signing main binary..."
 cd "${PROJECT_ROOT}"
-"${PROJECT_ROOT}/utils/codesign" --cert "${F0RT1KA_CERT}" --password "${F0RT1KA_PASSWORD}" sign "${BUILD_DIR}/${TEST_UUID}.exe"
 
-if [ $? -ne 0 ]; then
-    print_error "Failed to sign main binary"
-    exit 1
+if [ "$SIGNING_MODE" = "dual" ]; then
+    print_step "5/6" "Dual-signing main binary (org + F0RT1KA)..."
+    "${PROJECT_ROOT}/utils/codesign" sign-nested "${BUILD_DIR}/${TEST_UUID}.exe" "${ORG_CERT_FILE}" "${SECONDARY_CERT}"
+
+    if [ $? -ne 0 ]; then
+        print_error "Failed to dual-sign main binary"
+        exit 1
+    fi
+else
+    print_step "5/6" "Signing main binary (F0RT1KA)..."
+    "${PROJECT_ROOT}/utils/codesign" --cert "${PRIMARY_CERT}" --password "${PRIMARY_PASSWORD}" sign "${BUILD_DIR}/${TEST_UUID}.exe"
+
+    if [ $? -ne 0 ]; then
+        print_error "Failed to sign main binary"
+        exit 1
+    fi
 fi
 
 # Verify main binary signature

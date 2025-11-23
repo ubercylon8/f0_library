@@ -22,7 +22,8 @@ This template provides a standardized structure for creating multi-stage attack 
 multistage_template/
 ├── TEMPLATE-UUID.go          # Main orchestrator (customize for your test)
 ├── stage-template.go          # Stage binary template (copy for each technique)
-├── test_logger.go             # Enhanced logging (copy as-is)
+├── test_logger.go             # Enhanced logging with Schema v2.0 (copy as-is)
+├── org_resolver.go            # Organization registry helper (copy as-is)
 ├── go.mod                     # Module dependencies (update module name)
 ├── build_all.sh               # Build script (customize for your stages)
 └── README.md                  # This file
@@ -63,6 +64,20 @@ const (
     TEST_UUID = "abc123"  // Your test UUID
     TEST_NAME = "Privilege Escalation Killchain"  // Your test name
 )
+
+// In main(), update test metadata
+metadata := TestMetadata{
+    Version:    "1.0.0",
+    Category:   "privilege_escalation",
+    Severity:   "high",
+    Techniques: []string{"T1134.001", "T1055.001", "T1003.001"},
+    Tactics:    []string{"privilege-escalation", "defense-evasion", "credential-access"},
+    Score:      8.5,
+    Tags:       []string{"multi-stage", "killchain"},
+}
+
+// Organization is automatically resolved from registry
+orgInfo := ResolveOrganization("")  // Uses default from registry
 
 // Update embedded binaries
 //go:embed abc123-T1134.001.exe
@@ -326,7 +341,8 @@ tests_source/abc123-privilege-escalation/
 ├── stage-T1134.001.go         # Stage 1 source
 ├── stage-T1055.001.go         # Stage 2 source
 ├── stage-T1003.001.go         # Stage 3 source
-├── test_logger.go             # Logging module
+├── test_logger.go             # Logging module (Schema v2.0)
+├── org_resolver.go            # Organization registry helper
 ├── go.mod                     # Module file
 ├── build_all.sh               # Build script
 └── README.md                  # Documentation
@@ -384,7 +400,7 @@ killchain := []Stage{
 ls -la *-T*.exe
 
 # If missing, build them first
-GOOS=windows GOARCH=amd64 go build -o abc123-T1134.001.exe stage-T1134.001.go test_logger.go
+GOOS=windows GOARCH=amd64 go build -o abc123-T1134.001.exe stage-T1134.001.go test_logger.go org_resolver.go
 ```
 
 ### Signature Verification Fails

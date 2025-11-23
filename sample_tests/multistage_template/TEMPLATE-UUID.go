@@ -7,13 +7,15 @@
 //
 // USAGE INSTRUCTIONS:
 // 1. Copy this template to tests_source/<your-uuid>/<your-uuid>.go
-// 2. Replace TEMPLATE-UUID with your actual test UUID (lowercase)
-// 3. Update TEST_NAME with your test name
-// 4. Define your killchain stages in the killchain array
-// 5. Create stage binaries (copy stage-template.go for each technique)
-// 6. Build stage binaries and sign them BEFORE embedding
-// 7. Update //go:embed directives to embed your signed stage binaries
-// 8. Implement any test-specific initialization or cleanup logic
+// 2. Copy test_logger.go and org_resolver.go to your test directory
+// 3. Replace TEMPLATE-UUID with your actual test UUID (lowercase)
+// 4. Update TEST_NAME with your test name
+// 5. Update test metadata (techniques, tactics, scoring) in main()
+// 6. Define your killchain stages in the killchain array
+// 7. Create stage binaries (copy stage-template.go for each technique)
+// 8. Build stage binaries and sign them BEFORE embedding
+// 9. Update //go:embed directives to embed your signed stage binaries
+// 10. Implement any test-specific initialization or cleanup logic
 //
 // CRITICAL: Stage binaries MUST be signed BEFORE embedding!
 // See build_all.sh for the complete build process.
@@ -29,6 +31,7 @@ import (
 	"path/filepath"
 	_ "embed"
 
+	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
 )
 
@@ -45,9 +48,11 @@ const (
 // Replace these with your actual stage binary names after building and signing them
 //
 // Build process:
-// 1. Build: GOOS=windows GOARCH=amd64 go build -o TEMPLATE-UUID-T1234.001.exe stage-T1234.001.go test_logger.go
+// 1. Build: GOOS=windows GOARCH=amd64 go build -o TEMPLATE-UUID-T1234.001.exe stage-T1234.001.go test_logger.go org_resolver.go
 // 2. Sign:  ../../utils/codesign sign TEMPLATE-UUID-T1234.001.exe
 // 3. Then this //go:embed directive will embed the SIGNED binary
+//
+// Note: Stage binaries also include org_resolver.go for organization resolution
 
 //go:embed TEMPLATE-UUID-T1134.001.exe
 var stage1Binary []byte
@@ -82,8 +87,45 @@ type Stage struct {
 // ==============================================================================
 
 func main() {
-	// Initialize logger for entire test
-	InitLogger(TEST_UUID, TEST_NAME)
+	// Initialize logger with Schema v2.0 metadata and execution context
+	//
+	// Define test metadata (MITRE ATT&CK mapping, scoring, categorization)
+	metadata := TestMetadata{
+		Version:    "1.0.0",
+		Category:   "privilege_escalation", // Update for your test
+		Severity:   "high",                  // critical, high, medium, low, informational
+		Techniques: []string{"T1134.001", "T1055.001", "T1003.001"}, // Update with your techniques
+		Tactics:    []string{"privilege-escalation", "defense-evasion", "credential-access"}, // Update with your tactics
+		Score:      8.5,
+		ScoreBreakdown: &ScoreBreakdown{
+			RealWorldAccuracy:       2.5,
+			TechnicalSophistication: 3.0,
+			SafetyMechanisms:        2.0,
+			DetectionOpportunities:  0.5,
+			LoggingObservability:    1.0,
+		},
+		Tags: []string{"multi-stage", "killchain"}, // Add relevant tags
+	}
+
+	// Resolve organization info (UUID or short name)
+	// This can come from command-line arg, environment variable, or use default
+	// For this template, using default organization from registry
+	orgInfo := ResolveOrganization("") // Empty string uses default from registry
+
+	// Define execution context
+	executionContext := ExecutionContext{
+		ExecutionID:   uuid.New().String(), // Generate unique execution ID
+		Organization:  orgInfo.UUID,        // UUID for Elasticsearch analytics
+		Environment:   "lab",               // production, staging, lab, development, testing
+		DeploymentType: "manual",           // manual, automated, cicd, scheduled
+		Configuration: &ExecutionConfiguration{
+			TimeoutMs:         300000, // 5 minutes
+			MultiStageEnabled: true,
+		},
+	}
+
+	// Initialize logger with v2.0 signature
+	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
 
 	// Panic recovery
 	defer func() {

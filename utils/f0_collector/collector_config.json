@@ -5,7 +5,8 @@
     "scanPattern": "**/test_execution_log.json",
     "stateFile": "c:\\F0\\.collector_state.json",
     "moveCollected": true,
-    "collectedPath": "c:\\F0\\collected"
+    "collectedPath": "c:\\F0\\collected",
+    "organizationRegistry": ""
   },
   "elasticsearch": {
     "enabled": true,
