@@ -38,11 +38,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Determine script location and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
 # Source organization registry helper
-if [ -f "../../utils/resolve_org.sh" ]; then
-    source "../../utils/resolve_org.sh"
+RESOLVE_ORG_SCRIPT="${PROJECT_ROOT}/utils/resolve_org.sh"
+if [ -f "${RESOLVE_ORG_SCRIPT}" ]; then
+    source "${RESOLVE_ORG_SCRIPT}"
 else
-    echo "ERROR: Organization registry helper not found: ../../utils/resolve_org.sh"
+    echo "ERROR: Organization registry helper not found: ${RESOLVE_ORG_SCRIPT}"
     exit 1
 fi
 
@@ -54,13 +59,13 @@ if [ $? -ne 0 ] || [ -z "$CERT_FILE" ]; then
     exit 1
 fi
 
-# Set certificate paths (relative from test directory)
-ORG_CERT_FILE="../../signing-certs/${CERT_FILE}"
-ORG_CERT_FILE_ROOT="signing-certs/${CERT_FILE}"
+# Set certificate paths
+ORG_CERT_FILE="${PROJECT_ROOT}/signing-certs/${CERT_FILE}"
+ORG_CERT_FILE_RELATIVE="../../signing-certs/${CERT_FILE}"  # For use from test directory
 
 # Verify certificate file exists
-if [ ! -f "${ORG_CERT_FILE_ROOT}" ]; then
-    echo "ERROR: Certificate file not found: ${ORG_CERT_FILE_ROOT}"
+if [ ! -f "${ORG_CERT_FILE}" ]; then
+    echo "ERROR: Certificate file not found: ${ORG_CERT_FILE}"
     exit 1
 fi
 
@@ -137,7 +142,7 @@ for stage in "${STAGES[@]}"; do
     binary="${TEST_UUID}-${technique}.exe"
 
     echo "  Dual-signing ${binary}..."
-    ../../utils/codesign sign-nested "${binary}" "${ORG_CERT_FILE}" ../../signing-certs/F0RT1KA.pfx
+    ../../utils/codesign sign-nested "${binary}" "${ORG_CERT_FILE_RELATIVE}" ../../signing-certs/F0RT1KA.pfx
 
     if [ $? -ne 0 ]; then
         echo "ERROR: Failed to sign ${binary}"
@@ -146,7 +151,7 @@ for stage in "${STAGES[@]}"; do
 done
 
 echo "  Dual-signing cleanup_utility.exe..."
-../../utils/codesign sign-nested cleanup_utility.exe "${ORG_CERT_FILE}" ../../signing-certs/F0RT1KA.pfx
+../../utils/codesign sign-nested cleanup_utility.exe "${ORG_CERT_FILE_RELATIVE}" ../../signing-certs/F0RT1KA.pfx
 
 echo ""
 
@@ -228,7 +233,7 @@ cd ../..
 echo "[Step 7/7] Dual-signing main binary (${ORG_CERT} + F0RT1KA)..."
 echo ""
 
-./utils/codesign sign-nested "${BUILD_DIR}/${TEST_UUID}.exe" "${ORG_CERT_FILE_ROOT}" signing-certs/F0RT1KA.pfx
+./utils/codesign sign-nested "${BUILD_DIR}/${TEST_UUID}.exe" "${ORG_CERT_FILE}" signing-certs/F0RT1KA.pfx
 
 if [ $? -ne 0 ]; then
     echo "ERROR: Failed to sign main binary"
