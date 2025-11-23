@@ -21,6 +21,7 @@ import (
 	"time"
 	_ "embed"
 
+	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
 )
 
@@ -92,8 +93,40 @@ func main() {
 	Endpoint.Say("  - Auth Key: %s", maskAuthKey(TAILSCALE_AUTH_KEY))
 	Endpoint.Say("")
 
-	// Initialize shared logger
-	InitLogger(TEST_UUID, TEST_NAME)
+	// Initialize shared logger with Schema v2.0 metadata and execution context
+	metadata := TestMetadata{
+		Version:    "1.0.0",
+		Category:   "command_and_control",
+		Severity:   "high",
+		Techniques: []string{"T1105", "T1219", "T1543.003", "T1021.004", "T1041"},
+		Tactics:    []string{"command-and-control", "exfiltration", "persistence", "lateral-movement"},
+		Score:      8.5,
+		ScoreBreakdown: &ScoreBreakdown{
+			RealWorldAccuracy:       2.5,
+			TechnicalSophistication: 3.0,
+			SafetyMechanisms:        2.0,
+			DetectionOpportunities:  0.5,
+			LoggingObservability:    0.5,
+		},
+		Tags: []string{"multi-stage", "remote-access", "tailscale", "data-exfiltration"},
+	}
+
+	// Resolve organization from registry (UUID or short name)
+	orgInfo := ResolveOrganization("")  // Empty string uses default from registry
+
+	executionContext := ExecutionContext{
+		ExecutionID:   uuid.New().String(),
+		Organization:  orgInfo.UUID,
+		Environment:   "lab",
+		DeploymentType: "manual",
+		Configuration: &ExecutionConfiguration{
+			TimeoutMs:         300000,
+			MultiStageEnabled: true,
+		},
+	}
+
+	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
+
 	defer func() {
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))

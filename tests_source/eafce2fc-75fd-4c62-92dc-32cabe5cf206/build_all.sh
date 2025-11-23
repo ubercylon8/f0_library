@@ -7,16 +7,17 @@ BUILD_DIR="build/${TEST_UUID}"
 
 # Parse command-line arguments
 ORG_CERT=""
-USAGE="Usage: $0 [--org <org-name>]
+USAGE="Usage: $0 [--org <org-identifier>]
 
 Options:
-  --org <org-name>    Organization certificate to use for dual signing (default: sb)
-                      Available: sb, tpsgl, rga
+  --org <org-identifier>    Organization for dual signing (UUID or short name)
+                            Examples: sb, 09b59276-9efb-4d3d-bbdd-4b4663ef0c42
+                            Available short names: sb, tpsgl, rga
 
 Examples:
-  $0                  # Use default sb certificate
-  $0 --org tpsgl      # Use tpsgl certificate
-  $0 --org rga        # Use rga certificate
+  $0                           # Use default organization from registry
+  $0 --org sb                  # Use sb short name
+  $0 --org 09b59276-9efb...    # Use UUID
 "
 
 while [[ $# -gt 0 ]]; do
@@ -37,43 +38,37 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Default to sb if no org specified
-if [ -z "$ORG_CERT" ]; then
-    ORG_CERT="sb"
+# Source organization registry helper
+if [ -f "../../utils/resolve_org.sh" ]; then
+    source "../../utils/resolve_org.sh"
+else
+    echo "ERROR: Organization registry helper not found: ../../utils/resolve_org.sh"
+    exit 1
 fi
 
-# Map org name to certificate file (paths relative from test directory)
-case "$ORG_CERT" in
-    sb)
-        ORG_CERT_FILE="../../signing-certs/F0-LocalCodeSigningCert-CST-SB.pfx"
-        ORG_CERT_FILE_ROOT="signing-certs/F0-LocalCodeSigningCert-CST-SB.pfx"
-        ;;
-    tpsgl)
-        ORG_CERT_FILE="../../signing-certs/F0-LocalCodeSigningCert-CST-TPSGL.pfx"
-        ORG_CERT_FILE_ROOT="signing-certs/F0-LocalCodeSigningCert-CST-TPSGL.pfx"
-        ;;
-    rga)
-        ORG_CERT_FILE="../../signing-certs/F0-LocalCodeSigningCert-CST-RGA.pfx"
-        ORG_CERT_FILE_ROOT="signing-certs/F0-LocalCodeSigningCert-CST-RGA.pfx"
-        ;;
-    *)
-        echo "ERROR: Unknown organization: $ORG_CERT"
-        echo "Available organizations: sb, tpsgl, rga"
-        exit 1
-        ;;
-esac
+# Resolve organization to certificate file using registry
+CERT_FILE=$(resolve_org_to_cert "$ORG_CERT")
+if [ $? -ne 0 ] || [ -z "$CERT_FILE" ]; then
+    echo "ERROR: Could not resolve organization '$ORG_CERT' to certificate"
+    list_organizations
+    exit 1
+fi
 
-# Verify certificate file exists (check from root)
-if [ ! -f "signing-certs/$(basename ${ORG_CERT_FILE})" ]; then
-    echo "ERROR: Certificate file not found: signing-certs/$(basename ${ORG_CERT_FILE})"
+# Set certificate paths (relative from test directory)
+ORG_CERT_FILE="../../signing-certs/${CERT_FILE}"
+ORG_CERT_FILE_ROOT="signing-certs/${CERT_FILE}"
+
+# Verify certificate file exists
+if [ ! -f "${ORG_CERT_FILE_ROOT}" ]; then
+    echo "ERROR: Certificate file not found: ${ORG_CERT_FILE_ROOT}"
     exit 1
 fi
 
 echo "================================================================="
 echo "Building Multi-Stage Test: Tailscale Remote Access"
 echo "Test ID: ${TEST_UUID}"
-echo "Organization: ${ORG_CERT}"
-echo "Certificate: $(basename ${ORG_CERT_FILE})"
+echo "Organization: ${ORG_CERT:-default}"
+echo "Certificate: ${CERT_FILE}"
 echo "================================================================="
 echo ""
 
@@ -115,7 +110,7 @@ for stage in "${STAGES[@]}"; do
     output_name="${TEST_UUID}-${technique}.exe"
 
     echo "  Building ${technique} (${source}.go)..."
-    GOOS=windows GOARCH=amd64 go build -o "${output_name}" "${source}.go" test_logger.go
+    GOOS=windows GOARCH=amd64 go build -o "${output_name}" "${source}.go" test_logger.go org_resolver.go
 
     if [ ! -f "${output_name}" ]; then
         echo "ERROR: Failed to build ${output_name}"
@@ -129,7 +124,7 @@ echo ""
 
 # Step 2: Build cleanup utility
 echo "[Step 2/7] Building cleanup utility..."
-GOOS=windows GOARCH=amd64 go build -o cleanup_utility.exe cleanup_utility.go
+GOOS=windows GOARCH=amd64 go build -o cleanup_utility.exe cleanup_utility.go test_logger.go org_resolver.go
 echo "    ✓ cleanup_utility.exe created"
 echo ""
 
@@ -217,7 +212,7 @@ mkdir -p "${BUILD_DIR}"
 
 echo "  Building ${TEST_UUID}.exe..."
 cd "${TEST_DIR}"
-GOOS=windows GOARCH=amd64 go build -o "../../${BUILD_DIR}/${TEST_UUID}.exe" "${TEST_UUID}.go" test_logger.go
+GOOS=windows GOARCH=amd64 go build -o "../../${BUILD_DIR}/${TEST_UUID}.exe" "${TEST_UUID}.go" test_logger.go org_resolver.go
 
 if [ ! -f "../../${BUILD_DIR}/${TEST_UUID}.exe" ]; then
     echo "ERROR: Failed to build main binary"
