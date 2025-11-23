@@ -17,11 +17,12 @@ type Config struct {
 
 // CollectorConfig holds collector-specific settings
 type CollectorConfig struct {
-	ScanPath       string `json:"scanPath"`
-	ScanPattern    string `json:"scanPattern"`
-	StateFile      string `json:"stateFile"`
-	MoveCollected  bool   `json:"moveCollected"`
-	CollectedPath  string `json:"collectedPath"`
+	ScanPath             string `json:"scanPath"`
+	ScanPattern          string `json:"scanPattern"`
+	StateFile            string `json:"stateFile"`
+	MoveCollected        bool   `json:"moveCollected"`
+	CollectedPath        string `json:"collectedPath"`
+	OrganizationRegistry string `json:"organizationRegistry"` // Optional: Path to organization registry for enrichment
 }
 
 // ElasticsearchConfig holds Elasticsearch connection settings
