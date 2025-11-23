@@ -54,8 +54,8 @@ var stage5Binary []byte
 //go:embed cleanup_utility.exe
 var cleanupBinary []byte
 
-// Stage definition for multi-stage execution
-type Stage struct {
+// KillchainStage definition for multi-stage execution
+type KillchainStage struct {
 	ID          int
 	Name        string
 	Technique   string
@@ -141,7 +141,7 @@ func main() {
 	os.WriteFile(configPath, []byte(configContent), 0644)
 
 	// Define killchain
-	killchain := []Stage{
+	killchain := []KillchainStage{
 		{
 			ID:          1,
 			Name:        "Ingress Tool Transfer",
@@ -308,7 +308,7 @@ func main() {
 	Endpoint.Stop(Endpoint.Unprotected)
 }
 
-func extractStage(stage Stage) error {
+func extractStage(stage KillchainStage) error {
 	targetDir := "c:\\F0"
 	os.MkdirAll(targetDir, 0755)
 
@@ -321,7 +321,7 @@ func extractStage(stage Stage) error {
 	return nil
 }
 
-func executeStage(stage Stage) int {
+func executeStage(stage KillchainStage) int {
 	stagePath := filepath.Join("c:\\F0", stage.BinaryName)
 
 	// Set timeout based on stage complexity
