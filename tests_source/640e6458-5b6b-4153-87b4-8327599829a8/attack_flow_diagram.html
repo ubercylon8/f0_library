@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EDR Network Isolation Test - Attack Flow Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* F0RT1KA Header */
+        .framework-header {
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.6));
+            border-bottom: 1px solid rgba(255, 107, 107, 0.2);
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .framework-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .framework-subtitle {
+            position: absolute;
+            right: 30px;
+            font-size: 0.85em;
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        .dashboard-container {
+            display: flex;
+            height: calc(100vh - 60px);
+            position: relative;
+        }
+
+        /* Left Panel - Attack Flow View */
+        .attack-flow-panel {
+            flex: 1;
+            min-width: 60%;
+            padding: 30px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .header h1 {
+            font-size: 2.2em;
+            background: linear-gradient(135deg, #ff4458, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #9ca3af;
+            font-size: 1em;
+        }
+
+        /* View Toggle Buttons */
+        .view-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+
+        .view-btn {
+            padding: 8px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+        }
+
+        .view-btn.active {
+            background: rgba(255, 107, 107, 0.1);
+            border-color: #ff6b6b;
+            color: #ff6b6b;
+        }
+
+        .view-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #ffffff;
+        }
+
+        /* SVG Attack Flow Container */
+        .attack-flow-svg-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+            min-height: 600px;
+        }
+
+        .attack-flow-svg {
+            width: 100%;
+            height: auto;
+            min-height: 550px;
+        }
+
+        /* Timeline View (Hidden by default) */
+        .timeline-view {
+            display: none;
+            padding: 20px;
+        }
+
+        .timeline-view.active {
+            display: block;
+        }
+
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-left: 3px solid transparent;
+        }
+
+        .timeline-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateX(5px);
+        }
+
+        .timeline-item.active {
+            background: rgba(255, 107, 107, 0.05);
+            border-left-color: #ff6b6b;
+        }
+
+        .timeline-number {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            border: 2px solid;
+        }
+
+        .timeline-content {
+            flex: 1;
+        }
+
+        .timeline-title {
+            font-size: 1.1em;
+            color: #ffffff;
+            margin-bottom: 5px;
+        }
+
+        .timeline-meta {
+            font-size: 0.85em;
+            color: #9ca3af;
+        }
+
+        /* Right Panel - Details (OPAQUE BACKGROUND) */
+        .details-panel {
+            width: 450px;
+            background: #0f1419; /* Solid opaque background */
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            overflow-y: auto;
+            position: relative;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8); /* Add shadow for depth */
+        }
+
+        .details-panel.active {
+            transform: translateX(0);
+        }
+
+        .close-details {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 30px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            border-radius: 50%;
+            color: #9ca3af;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .close-details:hover {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+            transform: rotate(90deg);
+        }
+
+        .stage-details {
+            display: none;
+        }
+
+        .stage-details.active {
+            display: block;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .stage-header {
+            margin-bottom: 25px;
+        }
+
+        .stage-header h2 {
+            font-size: 1.5em;
+            color: #ff6b6b;
+            margin-bottom: 8px;
+        }
+
+        .stage-mitre {
+            display: inline-block;
+            padding: 4px 12px;
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-radius: 12px;
+            color: #ff8787;
+            font-size: 0.85em;
+            margin-bottom: 10px;
+        }
+
+        .detail-section {
+            margin-bottom: 25px;
+        }
+
+        .detail-section h3 {
+            color: #ffffff;
+            font-size: 1.1em;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .detail-list {
+            list-style: none;
+        }
+
+        .detail-list li {
+            padding: 8px 0;
+            color: #9ca3af;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .detail-list li:before {
+            content: "▸";
+            color: #ff6b6b;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+
+        .code-block {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            color: #4ade80;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+
+        .detection-indicator {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 15px;
+        }
+
+        .detection-indicator h4 {
+            color: #ffc107;
+            font-size: 0.95em;
+            margin-bottom: 8px;
+        }
+
+        .detection-indicator p {
+            color: #9ca3af;
+            font-size: 0.85em;
+            line-height: 1.5;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1024px) {
+            .dashboard-container {
+                flex-direction: column;
+            }
+
+            .attack-flow-panel {
+                min-width: 100%;
+                height: 60vh;
+            }
+
+            .details-panel {
+                width: 100%;
+                height: 40vh;
+                transform: translateY(100%);
+                border-left: none;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            .details-panel.active {
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- F0RT1KA Framework Header -->
+    <div class="framework-header">
+        <div class="framework-title">F0RT1KA Security Testing Framework</div>
+        <div class="framework-subtitle">EDR Network Isolation Attack Flow</div>
+    </div>
+
+    <div class="dashboard-container">
+        <!-- Left Panel - Attack Flow Visualization -->
+        <div class="attack-flow-panel">
+            <div class="header">
+                <h1>EDR Network Isolation via WFP</h1>
+                <p>SilentButDeadly Technique Implementation</p>
+            </div>
+
+            <div class="view-toggle">
+                <button class="view-btn active" onclick="switchView('flow')">Attack Flow</button>
+                <button class="view-btn" onclick="switchView('timeline')">Timeline</button>
+            </div>
+
+            <!-- Attack Flow SVG View -->
+            <div class="attack-flow-svg-container" id="flow-view">
+                <svg class="attack-flow-svg" viewBox="0 0 800 550">
+                    <!-- Background Grid -->
+                    <defs>
+                        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                        </pattern>
+
+                        <!-- Arrow Markers -->
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#ff6b6b"/>
+                        </marker>
+
+                        <!-- Glow Effect -->
+                        <filter id="glow">
+                            <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                            <feMerge>
+                                <feMergeNode in="coloredBlur"/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+                    </defs>
+
+                    <rect width="800" height="550" fill="url(#grid)"/>
+
+                    <!-- Stage 1: Discovery -->
+                    <g class="stage-node" data-stage="1" style="cursor: pointer;">
+                        <rect x="50" y="80" width="200" height="100" rx="8" fill="rgba(0,0,0,0.5)"
+                              stroke="#ff6b6b" stroke-width="2" filter="url(#glow)"/>
+                        <text x="150" y="115" text-anchor="middle" fill="#ff6b6b" font-size="14" font-weight="bold">
+                            Stage 1: Discovery
+                        </text>
+                        <text x="150" y="135" text-anchor="middle" fill="#9ca3af" font-size="12">
+                            T1016 - System Network
+                        </text>
+                        <text x="150" y="150" text-anchor="middle" fill="#9ca3af" font-size="12">
+                            Configuration Discovery
+                        </text>
+                        <text x="150" y="170" text-anchor="middle" fill="#4ade80" font-size="11">
+                            40+ EDR Products
+                        </text>
+                    </g>
+
+                    <!-- Arrow from Stage 1 to Stage 2 -->
+                    <path d="M 250 130 L 320 130" stroke="#ff6b6b" stroke-width="2"
+                          marker-end="url(#arrowhead)" opacity="0.8"/>
+
+                    <!-- Stage 2: WFP Filters -->
+                    <g class="stage-node" data-stage="2" style="cursor: pointer;">
+                        <rect x="320" y="80" width="200" height="100" rx="8" fill="rgba(0,0,0,0.5)"
+                              stroke="#ff6b6b" stroke-width="2" filter="url(#glow)"/>
+                        <text x="420" y="115" text-anchor="middle" fill="#ff6b6b" font-size="14" font-weight="bold">
+                            Stage 2: Network Isolation
+                        </text>
+                        <text x="420" y="135" text-anchor="middle" fill="#9ca3af" font-size="12">
+                            T1562.004 - Disable
+                        </text>
+                        <text x="420" y="150" text-anchor="middle" fill="#9ca3af" font-size="12">
+                            Windows Firewall
+                        </text>
+                        <text x="420" y="170" text-anchor="middle" fill="#4ade80" font-size="11">
+                            WFP Filter Application
+                        </text>
+                    </g>
+
+                    <!-- Arrow from Stage 2 to Stage 3 -->
+                    <path d="M 520 130 L 590 130" stroke="#ff6b6b" stroke-width="2"
+                          marker-end="url(#arrowhead)" opacity="0.8"/>
+
+                    <!-- Stage 3: Service Disruption -->
+                    <g class="stage-node" data-stage="3" style="cursor: pointer;">
+                        <rect x="590" y="80" width="200" height="100" rx="8" fill="rgba(0,0,0,0.5)"
+                              stroke="#ff6b6b" stroke-width="2" filter="url(#glow)"/>
+                        <text x="690" y="115" text-anchor="middle" fill="#ff6b6b" font-size="14" font-weight="bold">
+                            Stage 3: Service Disruption
+                        </text>
+                        <text x="690" y="135" text-anchor="middle" fill="#9ca3af" font-size="12">
+                            T1489 - Service Stop
+                        </text>
+                        <text x="690" y="150" text-anchor="middle" fill="#9ca3af" font-size="12">
+                            T1562.001 - Impair Defenses
+                        </text>
+                        <text x="690" y="170" text-anchor="middle" fill="#4ade80" font-size="11">
+                            SCM Manipulation
+                        </text>
+                    </g>
+
+                    <!-- Technical Details for Each Stage -->
+                    <!-- Stage 1 Details -->
+                    <g class="stage-details-svg">
+                        <rect x="50" y="210" width="200" height="80" rx="6" fill="rgba(255,107,107,0.05)"
+                              stroke="rgba(255,107,107,0.2)" stroke-width="1"/>
+                        <text x="60" y="230" fill="#ffc107" font-size="11" font-weight="bold">Process Enumeration</text>
+                        <text x="60" y="245" fill="#9ca3af" font-size="10">• CreateToolhelp32Snapshot</text>
+                        <text x="60" y="260" fill="#9ca3af" font-size="10">• Process32FirstW/NextW</text>
+                        <text x="60" y="275" fill="#9ca3af" font-size="10">• Extract PIDs & Names</text>
+                    </g>
+
+                    <!-- Stage 2 Details -->
+                    <g class="stage-details-svg">
+                        <rect x="320" y="210" width="200" height="120" rx="6" fill="rgba(255,107,107,0.05)"
+                              stroke="rgba(255,107,107,0.2)" stroke-width="1"/>
+                        <text x="330" y="230" fill="#ffc107" font-size="11" font-weight="bold">WFP Implementation</text>
+                        <text x="330" y="245" fill="#9ca3af" font-size="10">• FwpmEngineOpen0</text>
+                        <text x="330" y="260" fill="#9ca3af" font-size="10">• FwpmGetAppIdFromFileName0</text>
+                        <text x="330" y="275" fill="#9ca3af" font-size="10">• FwpmFilterAdd0 (4x per EDR)</text>
+                        <text x="330" y="290" fill="#9ca3af" font-size="10">• IPv4 + IPv6 Blocking</text>
+                        <text x="330" y="305" fill="#9ca3af" font-size="10">• Inbound + Outbound</text>
+                        <text x="330" y="320" fill="#4ade80" font-size="10">✓ Full Implementation</text>
+                    </g>
+
+                    <!-- Stage 3 Details -->
+                    <g class="stage-details-svg">
+                        <rect x="590" y="210" width="200" height="80" rx="6" fill="rgba(255,107,107,0.05)"
+                              stroke="rgba(255,107,107,0.2)" stroke-width="1"/>
+                        <text x="600" y="230" fill="#ffc107" font-size="11" font-weight="bold">Service Control</text>
+                        <text x="600" y="245" fill="#9ca3af" font-size="10">• Connect to SCM</text>
+                        <text x="600" y="260" fill="#9ca3af" font-size="10">• Stop EDR Services</text>
+                        <text x="600" y="275" fill="#9ca3af" font-size="10">• Disable Auto-Start</text>
+                    </g>
+
+                    <!-- Exit Code Outcomes -->
+                    <g>
+                        <rect x="50" y="360" width="740" height="150" rx="8" fill="rgba(0,0,0,0.3)"
+                              stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+
+                        <text x="420" y="385" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">
+                            Test Outcomes
+                        </text>
+
+                        <!-- Exit 126 - Protected -->
+                        <g>
+                            <rect x="70" y="400" width="220" height="90" rx="6" fill="rgba(76,175,80,0.1)"
+                                  stroke="rgba(76,175,80,0.3)" stroke-width="1"/>
+                            <text x="180" y="420" text-anchor="middle" fill="#4caf50" font-size="12" font-weight="bold">
+                                Exit 126: Protected
+                            </text>
+                            <text x="80" y="440" fill="#9ca3af" font-size="10">• Service operations blocked</text>
+                            <text x="80" y="455" fill="#9ca3af" font-size="10">• EDR self-protection active</text>
+                            <text x="80" y="470" fill="#9ca3af" font-size="10">• Cloud connectivity maintained</text>
+                        </g>
+
+                        <!-- Exit 101 - Vulnerable -->
+                        <g>
+                            <rect x="310" y="400" width="220" height="90" rx="6" fill="rgba(255,87,34,0.1)"
+                                  stroke="rgba(255,87,34,0.3)" stroke-width="1"/>
+                            <text x="420" y="420" text-anchor="middle" fill="#ff5722" font-size="12" font-weight="bold">
+                                Exit 101: Vulnerable
+                            </text>
+                            <text x="320" y="440" fill="#9ca3af" font-size="10">• EDR services stopped</text>
+                            <text x="320" y="455" fill="#9ca3af" font-size="10">• Network filters applied</text>
+                            <text x="320" y="470" fill="#9ca3af" font-size="10">• EDR isolated from cloud</text>
+                        </g>
+
+                        <!-- Exit 999 - Test Error -->
+                        <g>
+                            <rect x="550" y="400" width="220" height="90" rx="6" fill="rgba(158,158,158,0.1)"
+                                  stroke="rgba(158,158,158,0.3)" stroke-width="1"/>
+                            <text x="660" y="420" text-anchor="middle" fill="#9e9e9e" font-size="12" font-weight="bold">
+                                Exit 999: Test Error
+                            </text>
+                            <text x="560" y="440" fill="#9ca3af" font-size="10">• Prerequisites not met</text>
+                            <text x="560" y="455" fill="#9ca3af" font-size="10">• No admin privileges</text>
+                            <text x="560" y="470" fill="#9ca3af" font-size="10">• BFE service unavailable</text>
+                        </g>
+                    </g>
+                </svg>
+            </div>
+
+            <!-- Timeline View -->
+            <div class="timeline-view" id="timeline-view">
+                <div class="timeline-item" data-stage="1">
+                    <div class="timeline-number" style="border-color: #ff6b6b; color: #ff6b6b;">1</div>
+                    <div class="timeline-content">
+                        <div class="timeline-title">EDR Process Discovery</div>
+                        <div class="timeline-meta">T1016 - System Network Configuration Discovery</div>
+                    </div>
+                </div>
+
+                <div class="timeline-item" data-stage="2">
+                    <div class="timeline-number" style="border-color: #ffc107; color: #ffc107;">2</div>
+                    <div class="timeline-content">
+                        <div class="timeline-title">Windows Filtering Platform Manipulation</div>
+                        <div class="timeline-meta">T1562.004 - Disable Windows Firewall</div>
+                    </div>
+                </div>
+
+                <div class="timeline-item" data-stage="3">
+                    <div class="timeline-number" style="border-color: #4ade80; color: #4ade80;">3</div>
+                    <div class="timeline-content">
+                        <div class="timeline-title">Service Control Manager Abuse</div>
+                        <div class="timeline-meta">T1489 - Service Stop | T1562.001 - Impair Defenses</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel - Detailed Information -->
+        <div class="details-panel" id="details-panel">
+            <button class="close-details" onclick="closeDetails()">✕</button>
+
+            <!-- Stage 1 Details -->
+            <div class="stage-details" id="stage-1-details">
+                <div class="stage-header">
+                    <h2>Stage 1: EDR Process Discovery</h2>
+                    <span class="stage-mitre">MITRE ATT&CK: T1016</span>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Technical Implementation</h3>
+                    <ul class="detail-list">
+                        <li>Creates process snapshot using CreateToolhelp32Snapshot</li>
+                        <li>Enumerates all running processes via Process32FirstW/NextW</li>
+                        <li>Compares process names against 40+ known EDR products</li>
+                        <li>Extracts process IDs for subsequent targeting</li>
+                    </ul>
+                    <div class="code-block">
+CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+Process32FirstW(snapshot, &processEntry)
+// Check against EDR list: msmpeng.exe, csagent.exe, etc.</div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Targeted EDR Products</h3>
+                    <ul class="detail-list">
+                        <li>Microsoft Defender & Defender for Endpoint</li>
+                        <li>CrowdStrike Falcon</li>
+                        <li>SentinelOne</li>
+                        <li>Carbon Black Response/Defense</li>
+                        <li>Cylance, Symantec, McAfee/Trellix</li>
+                        <li>Trend Micro, Palo Alto Cortex XDR</li>
+                        <li>FireEye/Mandiant, Sophos, ESET</li>
+                        <li>Kaspersky, Tanium, Cisco Secure Endpoint</li>
+                    </ul>
+                </div>
+
+                <div class="detection-indicator">
+                    <h4>Detection Opportunities</h4>
+                    <p>• Process enumeration patterns targeting security products<br>
+                       • Unusual access to process information<br>
+                       • Sysmon Event ID 10 (Process Access)<br>
+                       • Behavioral detection of EDR targeting</p>
+                </div>
+            </div>
+
+            <!-- Stage 2 Details -->
+            <div class="stage-details" id="stage-2-details">
+                <div class="stage-header">
+                    <h2>Stage 2: WFP Network Isolation</h2>
+                    <span class="stage-mitre">MITRE ATT&CK: T1562.004</span>
+                </div>
+
+                <div class="detail-section">
+                    <h3>WFP Implementation Details</h3>
+                    <ul class="detail-list">
+                        <li>Re-enumerates EDR processes to get full executable paths</li>
+                        <li>Initializes Windows Filtering Platform engine</li>
+                        <li>Creates custom provider and sublayer for filter management</li>
+                        <li>Converts process paths to AppID blobs using FwpmGetAppIdFromFileName0</li>
+                        <li>Creates 4 blocking filters per EDR process:</li>
+                        <li style="margin-left: 20px;">IPv4 Outbound (FWPM_LAYER_ALE_AUTH_CONNECT_V4)</li>
+                        <li style="margin-left: 20px;">IPv6 Outbound (FWPM_LAYER_ALE_AUTH_CONNECT_V6)</li>
+                        <li style="margin-left: 20px;">IPv4 Inbound (FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4)</li>
+                        <li style="margin-left: 20px;">IPv6 Inbound (FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6)</li>
+                    </ul>
+                    <div class="code-block">
+FwpmEngineOpen0(NULL, RPC_C_AUTHN_DEFAULT, NULL, NULL, &engineHandle)
+FwpmGetAppIdFromFileName0(processPath, &appId)
+FwpmFilterAdd0(engineHandle, &filter, NULL, &filterId)
+// Filter action: FWP_ACTION_BLOCK | FWP_ACTION_FLAG_TERMINATING</div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Impact on EDR</h3>
+                    <ul class="detail-list">
+                        <li>EDR processes continue running (appears normal)</li>
+                        <li>All cloud connectivity blocked silently</li>
+                        <li>Telemetry uploads fail without alerts</li>
+                        <li>Threat intelligence updates blocked</li>
+                        <li>Remote management capabilities disabled</li>
+                    </ul>
+                </div>
+
+                <div class="detection-indicator">
+                    <h4>Detection Opportunities</h4>
+                    <p>• Windows Event IDs: 5441, 5157, 5152<br>
+                       • WFP provider creation with unusual names<br>
+                       • Filter application targeting security products<br>
+                       • Sudden loss of EDR cloud connectivity<br>
+                       • Administrative WFP API usage</p>
+                </div>
+            </div>
+
+            <!-- Stage 3 Details -->
+            <div class="stage-details" id="stage-3-details">
+                <div class="stage-header">
+                    <h2>Stage 3: Service Disruption</h2>
+                    <span class="stage-mitre">MITRE ATT&CK: T1489, T1562.001</span>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Service Control Operations</h3>
+                    <ul class="detail-list">
+                        <li>Connects to Windows Service Control Manager</li>
+                        <li>Opens handles to EDR/AV services</li>
+                        <li>Attempts to stop each identified service</li>
+                        <li>Tries to disable service auto-start configuration</li>
+                        <li>Logs protection responses (Access Denied indicates protection)</li>
+                    </ul>
+                    <div class="code-block">
+mgr.Connect()
+s := mgr.OpenService(serviceName)
+s.Control(svc.Stop)
+s.UpdateConfig(mgr.Config{StartType: mgr.StartDisabled})</div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Targeted Services</h3>
+                    <ul class="detail-list">
+                        <li>Windows Defender: WinDefend, Sense, WdNisSvc</li>
+                        <li>CrowdStrike: CSAgent, CSFalconService</li>
+                        <li>SentinelOne: SentinelAgent, SentinelStaticEngine</li>
+                        <li>Carbon Black: CarbonBlack, RepMgr</li>
+                        <li>And many more mapped EDR services...</li>
+                    </ul>
+                </div>
+
+                <div class="detection-indicator">
+                    <h4>Detection Opportunities</h4>
+                    <p>• Service Control Manager API abuse<br>
+                       • Windows Event IDs: 7035, 7036, 4656, 4658<br>
+                       • Multiple service stop attempts in sequence<br>
+                       • Access denied errors (indicates protection)<br>
+                       • Service configuration change attempts</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Stage data for dynamic content
+        const stageData = {
+            1: {
+                title: "EDR Process Discovery",
+                technique: "T1016",
+                description: "Enumerates running processes to identify EDR/AV products",
+                apis: ["CreateToolhelp32Snapshot", "Process32FirstW", "Process32NextW"],
+                targets: "40+ EDR/AV products including Defender, CrowdStrike, SentinelOne"
+            },
+            2: {
+                title: "WFP Network Isolation",
+                technique: "T1562.004",
+                description: "Applies Windows Filtering Platform filters to block EDR cloud connectivity",
+                apis: ["FwpmEngineOpen0", "FwpmGetAppIdFromFileName0", "FwpmFilterAdd0"],
+                impact: "EDR isolated from cloud while processes continue running"
+            },
+            3: {
+                title: "Service Disruption",
+                technique: "T1489, T1562.001",
+                description: "Attempts to stop and disable EDR services via Service Control Manager",
+                apis: ["OpenService", "ControlService", "ChangeServiceConfig"],
+                outcome: "Services stopped/disabled if unprotected"
+            }
+        };
+
+        // View switching function
+        function switchView(view) {
+            const flowView = document.getElementById('flow-view');
+            const timelineView = document.getElementById('timeline-view');
+            const buttons = document.querySelectorAll('.view-btn');
+
+            buttons.forEach(btn => btn.classList.remove('active'));
+
+            if (view === 'flow') {
+                flowView.style.display = 'block';
+                timelineView.classList.remove('active');
+                buttons[0].classList.add('active');
+            } else {
+                flowView.style.display = 'none';
+                timelineView.classList.add('active');
+                buttons[1].classList.add('active');
+            }
+        }
+
+        // Show stage details
+        function showStageDetails(stageNum) {
+            const detailsPanel = document.getElementById('details-panel');
+            const allDetails = document.querySelectorAll('.stage-details');
+
+            // Hide all details first
+            allDetails.forEach(detail => detail.classList.remove('active'));
+
+            // Show selected stage details
+            const selectedDetail = document.getElementById(`stage-${stageNum}-details`);
+            if (selectedDetail) {
+                selectedDetail.classList.add('active');
+            }
+
+            // Show details panel
+            detailsPanel.classList.add('active');
+        }
+
+        // Close details panel
+        function closeDetails() {
+            const detailsPanel = document.getElementById('details-panel');
+            detailsPanel.classList.remove('active');
+        }
+
+        // Add click handlers for SVG stage nodes
+        document.querySelectorAll('.stage-node').forEach(node => {
+            node.addEventListener('click', function() {
+                const stage = this.getAttribute('data-stage');
+                showStageDetails(stage);
+            });
+        });
+
+        // Add click handlers for timeline items
+        document.querySelectorAll('.timeline-item').forEach(item => {
+            item.addEventListener('click', function() {
+                const stage = this.getAttribute('data-stage');
+                showStageDetails(stage);
+
+                // Update active state
+                document.querySelectorAll('.timeline-item').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // Add hover effects for stage nodes
+        document.querySelectorAll('.stage-node').forEach(node => {
+            node.addEventListener('mouseenter', function() {
+                this.querySelector('rect').style.fill = 'rgba(255,107,107,0.1)';
+            });
+
+            node.addEventListener('mouseleave', function() {
+                this.querySelector('rect').style.fill = 'rgba(0,0,0,0.5)';
+            });
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeDetails();
+            } else if (e.key >= '1' && e.key <= '3') {
+                showStageDetails(parseInt(e.key));
+            }
+        });
+
+        // Animation on load
+        window.addEventListener('load', function() {
+            // Animate stage nodes
+            const stageNodes = document.querySelectorAll('.stage-node');
+            stageNodes.forEach((node, index) => {
+                node.style.opacity = '0';
+                node.style.transform = 'translateY(20px)';
+                setTimeout(() => {
+                    node.style.transition = 'all 0.5s ease';
+                    node.style.opacity = '1';
+                    node.style.transform = 'translateY(0)';
+                }, index * 200);
+            });
+
+            // Animate arrows
+            const paths = document.querySelectorAll('path[stroke="#ff6b6b"]');
+            paths.forEach((path, index) => {
+                const length = path.getTotalLength();
+                path.style.strokeDasharray = length;
+                path.style.strokeDashoffset = length;
+                setTimeout(() => {
+                    path.style.transition = 'stroke-dashoffset 0.5s ease';
+                    path.style.strokeDashoffset = '0';
+                }, (index + 1) * 300 + 200);
+            });
+        });
+
+        // Add tooltip functionality
+        function createTooltip(text) {
+            const tooltip = document.createElement('div');
+            tooltip.className = 'tooltip';
+            tooltip.textContent = text;
+            tooltip.style.cssText = `
+                position: absolute;
+                background: rgba(0,0,0,0.8);
+                color: white;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+                pointer-events: none;
+                z-index: 1000;
+                opacity: 0;
+                transition: opacity 0.2s;
+            `;
+            document.body.appendChild(tooltip);
+            return tooltip;
+        }
+
+        // Log test metadata
+        console.log(`%cF0RT1KA Attack Flow Visualization`, 'color: #ff6b6b; font-size: 16px; font-weight: bold');
+        console.log(`Test UUID: 640e6458-5b6b-4153-87b4-8327599829a8`);
+        console.log(`Test Name: EDR Network Isolation via Windows Filtering Platform`);
+        console.log(`Techniques: T1016, T1562.004, T1489, T1562.001`);
+        console.log(`Implementation: Full SilentButDeadly WFP technique with AppID blobs`);
+    </script>
+</body>
+</html>

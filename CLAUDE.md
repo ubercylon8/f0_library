@@ -337,6 +337,78 @@ utils/                # Build and signing utilities
 
 **Note**: Always copy `test_logger.go` and `org_resolver.go` from `sample_tests/` to ensure consistency.
 
+## Test Score Format Requirements (MANDATORY)
+
+**ALL tests MUST use the exact score format expected by the security-test-browser.**
+
+The security-test-browser parses test documentation using specific regex patterns. Incorrect formatting will cause scores to not display in the web interface.
+
+### README.md Score Format
+
+```markdown
+**Test Score**: **9.2/10**
+```
+
+**Critical Rules:**
+- Colon OUTSIDE the bold markers: `**: **` (NOT `:**`)
+- Score value MUST be bold: `**9.2/10**`
+- Use period for decimals: `9.2` (NOT `9,2`)
+- Format: `**Test Score**: **X.X/10**`
+
+### info.md Score Format
+
+The info.md file MUST include a level 2 header with the score:
+
+```markdown
+## Test Score: 9.2/10
+```
+
+**Critical Rules:**
+- Use level 2 header: `##`
+- Space after colon: `: `
+- Score as plain text (no bold in header)
+- Place BEFORE "Score Breakdown" section
+
+**Complete info.md Score Section:**
+```markdown
+## Test Score: 9.2/10
+
+### Score Breakdown
+
+| Criterion | Score |
+|-----------|-------|
+| **Real-World Accuracy** | **2.8/3.0** |
+| **Technical Sophistication** | **3.0/3.0** |
+| **Safety Mechanisms** | **2.2/2.0** |
+| **Detection Opportunities** | **0.7/1.0** |
+| **Logging & Observability** | **1.5/1.5** |
+```
+
+### Score Validation
+
+Before committing test documentation, validate the score format:
+
+```bash
+# Validate specific test
+./utils/validate-score-format.sh <test-uuid>
+
+# Validate all tests
+./utils/validate-score-format.sh
+```
+
+The validation script checks:
+- ✓ README.md has `**Test Score**: **X.X/10**` format
+- ✓ info.md has `## Test Score: X.X/10` header
+- ✓ Both files show the same score value
+- ✓ Score breakdown table uses correct formatting
+
+**Why This Matters:**
+The security-test-browser backend (`metadataExtractor.ts`) uses these exact regex patterns to parse scores:
+- README.md: `/\*\*Test Score\*\*:\s*\*\*(\d+(?:\.\d+)?)\/10\*\*/i`
+- info.md: `/##\s*Test Score:\s*(\d+(?:\.\d+)?)\/10/i`
+
+Deviation from these formats will cause scores to not appear in the browser interface.
+
 ## Prerequisites
 
 - **Prelude Libraries**: Must be set up in `preludeorg-libraries/` directory
@@ -396,6 +468,74 @@ The agent handles:
 ✅ **DO** evaluate protection effectiveness before choosing exit code
 ✅ **DO** clean up build artifacts after embedding
 ✅ **DO** use established test structure patterns
+
+## Multi-Stage Test Build Requirements (MANDATORY)
+
+**ALL multi-stage tests MUST use the modern build_all.sh pattern.**
+
+### Modern build_all.sh Pattern (7-Step Process)
+
+**Reference Implementation**: `tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh`
+
+**REQUIRED Features:**
+- ✅ **Organization registry integration** - Uses `utils/resolve_org.sh` helper
+- ✅ **Command-line arguments** - `--org <identifier>` support (UUID or short name)
+- ✅ **Dual signing** - org cert + F0RT1KA via `codesign sign-nested`
+- ✅ **Signature verification** - Uses `osslsigncode verify` on all binaries
+- ✅ **SHA1 hash reporting** - Calculates and displays hashes for all binaries
+- ✅ **Automatic cleanup** - Removes temporary stage binaries from source directory
+- ✅ **NO interactive prompts** - Fully automated, CI/CD ready
+- ✅ **Professional output** - Step indicators, file sizes, deployment instructions
+
+**7-Step Build Workflow:**
+1. **Step 1/7**: Build stage binaries (unsigned)
+2. **Step 2/7**: Build cleanup utility
+3. **Step 3/7**: Dual-sign stage binaries + cleanup (org cert + F0RT1KA)
+4. **Step 4/7**: Verify signatures with osslsigncode
+5. **Step 5/7**: Build main orchestrator (embeds SIGNED stages via `//go:embed`)
+6. **Step 6/7**: Dual-sign main orchestrator
+7. **Step 7/7**: Calculate SHA1 hashes and cleanup temporary files
+
+**Why This Matters:**
+- **Multi-organization support** - Deployable across sb, tpsgl, rga organizations
+- **ASR bypass** - Dual signing with org cert bypasses Application Guard
+- **Binary integrity** - SHA1 hashes enable verification and audit trails
+- **CI/CD ready** - No interactive prompts, fully automated
+- **Professional** - Enterprise-grade build process
+
+**Usage Examples:**
+```bash
+# Use default organization from registry
+./build_all.sh
+
+# Specify organization by short name
+./build_all.sh --org sb
+./build_all.sh --org tpsgl
+./build_all.sh --org rga
+
+# Specify organization by UUID
+./build_all.sh --org 09b59276-9efb-4d3d-bbdd-4b4663ef0c42
+```
+
+**Legacy Pattern (DEPRECATED):**
+The old pattern with:
+- ❌ No organization support
+- ❌ Single signing only (F0RT1KA)
+- ❌ Interactive prompts ("Continue without signing? (y/n)")
+- ❌ No signature verification
+- ❌ No SHA1 hashing
+- ❌ No cleanup
+
+**Is NO LONGER ACCEPTABLE for new or updated tests.**
+
+**When Creating/Updating Multi-Stage Tests:**
+1. Copy `tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh` as template
+2. Update `TEST_UUID` variable
+3. Update `STAGES` array with your techniques
+4. Update test name in header comment
+5. Test with `./build_all.sh --org sb`
+
+See `@agent-sectest-builder` configuration for complete template.
 
 ## Github Repository Management
 
