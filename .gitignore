@@ -49,6 +49,7 @@ build/
 dist/
 temp_resources/
 staging/
+standalone_utilities/
 
 # Embedded test dependencies (large binaries)
 **/OpenSSH-Win64.zip
