@@ -10,12 +10,13 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 1. **ALL binaries MUST be dropped to `c:\F0`** - Hard requirement for all tests
 2. **ALL tests MUST be SINGLE-BINARY deployments** - Embed all dependencies using `//go:embed`
 3. **ALL tests MUST implement comprehensive logging** - Use test_logger.go pattern
-4. **ALL tests MUST conform to Schema v2.0** - Use updated InitLogger signature with metadata and executionContext
-5. **ALL tests MUST implement organization UUID support** - See Organization UUID Implementation section below
-6. **NEVER hardcode exit codes** - Always evaluate actual results before determining exit code
-7. **NEVER modify test_logger.go schema** - Schema must remain consistent across all tests
-8. Tests simulate real attack techniques - handle with appropriate security measures
-9. Map every test to specific MITRE ATT&CK techniques
+4. **ALL tests MUST capture embedded binary stdout/stderr to file** - Use `io.MultiWriter` for console + file output
+5. **ALL tests MUST conform to Schema v2.0** - Use updated InitLogger signature with metadata and executionContext
+6. **ALL tests MUST implement organization UUID support** - See Organization UUID Implementation section below
+7. **NEVER hardcode exit codes** - Always evaluate actual results before determining exit code
+8. **NEVER modify test_logger.go schema** - Schema must remain consistent across all tests
+9. Tests simulate real attack techniques - handle with appropriate security measures
+10. Map every test to specific MITRE ATT&CK techniques
 
 ## Organization UUID Implementation (MANDATORY)
 
@@ -421,6 +422,46 @@ Deviation from these formats will cause scores to not appear in the browser inte
 - Check `Endpoint.Quarantined()` after dropping binaries
 - Always clean up artifacts after test completion
 - Follow MITRE ATT&CK mapping standards
+
+## Stdout/Stderr Capture Pattern (MANDATORY)
+
+When executing embedded binaries, **ALWAYS** capture stdout/stderr to both console and file using `io.MultiWriter`. This preserves raw output for forensic analysis and debugging.
+
+**Required imports:**
+```go
+import (
+    "bytes"
+    "io"
+)
+```
+
+**Implementation pattern:**
+```go
+// Execute the binary and capture output to both console and file
+cmd := exec.Command(binaryPath)
+
+// Create buffer to capture output
+var outputBuffer bytes.Buffer
+
+// Use MultiWriter to write to both console and buffer
+stdoutMulti := io.MultiWriter(os.Stdout, &outputBuffer)
+stderrMulti := io.MultiWriter(os.Stderr, &outputBuffer)
+
+cmd.Stdout = stdoutMulti
+cmd.Stderr = stderrMulti
+
+err := cmd.Run()
+
+// Save raw output to file in c:\F0
+outputFilePath := filepath.Join(targetDir, "<binary-name>_output.txt")
+if writeErr := os.WriteFile(outputFilePath, outputBuffer.Bytes(), 0644); writeErr != nil {
+    LogMessage("WARNING", "Output Capture", fmt.Sprintf("Failed to save raw output: %v", writeErr))
+} else {
+    LogMessage("INFO", "Output Capture", fmt.Sprintf("Raw output saved to: %s (%d bytes)", outputFilePath, outputBuffer.Len()))
+}
+```
+
+**Output file naming convention:** `c:\F0\<binary-name>_output.txt`
 
 ## Test Architecture Patterns
 

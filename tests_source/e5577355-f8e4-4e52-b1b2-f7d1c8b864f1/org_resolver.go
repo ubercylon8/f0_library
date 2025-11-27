@@ -67,7 +67,6 @@ func loadRegistry() (*OrganizationRegistry, error) {
 	for _, path := range registryPaths {
 		registryData, err = os.ReadFile(path)
 		if err == nil {
-			// Successfully loaded registry from this path
 			break
 		}
 	}
@@ -85,6 +84,9 @@ func loadRegistry() (*OrganizationRegistry, error) {
 	// Cache the registry
 	cachedRegistry = &registry
 	registryLoaded = true
+
+	// Optional: log registry loaded (comment out for production)
+	// fmt.Printf("Loaded organization registry successfully\n")
 
 	return &registry, nil
 }
