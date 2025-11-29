@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "description": "F0RT1KA Elasticsearch Registry - Maps ES profile names to endpoints for direct test result export",
+  "defaultProfile": "",
+  "autoDetectSingleProfile": false,
+  "profiles": [
+    {
+      "uuid": "es-prod-001",
+      "shortName": "prod",
+      "fullName": "Production Elasticsearch",
+      "endpoint": "https://your-es-cluster.elastic-cloud.com:443",
+      "index": "f0-test-results",
+      "apiKeyEnvVar": "F0_ES_PROD_APIKEY",
+      "enabled": true,
+      "default": false
+    },
+    {
+      "uuid": "es-lab-001",
+      "shortName": "lab",
+      "fullName": "Lab Elasticsearch",
+      "endpoint": "https://lab-es.internal:9200",
+      "index": "f0-test-results-lab",
+      "apiKeyEnvVar": "F0_ES_LAB_APIKEY",
+      "enabled": true,
+      "default": false
+    }
+  ],
+  "metadata": {
+    "createdAt": "2025-11-28",
+    "purpose": "Direct Elasticsearch export from test orchestrator binaries",
+    "notes": [
+      "Copy this file to elasticsearch-registry.json and configure with real endpoints",
+      "API keys are stored in environment variables, NOT in this file",
+      "Set the appropriate env var (e.g., F0_ES_PROD_APIKEY) before building",
+      "Use --es <profile> flag with build_all.sh to enable ES export",
+      "If no --es flag is provided, tests will NOT export to ES (backward compatible)"
+    ]
+  }
+}
