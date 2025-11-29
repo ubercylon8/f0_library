@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getTestDetails, getFileContent, getAttackFlow } from '../services/api';
-import { TestDetails, TestFile, FileContent } from '../types/test';
+import { TestDetails, FileContent } from '../types/test';
 import TechniqueBadge from './TechniqueBadge';
 import FileViewer from './FileViewer';
 import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow } from 'lucide-react';
@@ -123,7 +123,6 @@ export default function TestDetailPage() {
   const sourceFiles = test.files.filter(f => f.category === 'source');
   const detectionFiles = test.files.filter(f => f.category === 'detection');
   const configFiles = test.files.filter(f => f.category === 'config');
-  const otherFiles = test.files.filter(f => f.category === 'other');
 
   return (
     <div className="h-full flex flex-col">

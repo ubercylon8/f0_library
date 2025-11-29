@@ -1,5 +1,5 @@
 import ReactMarkdown from 'react-markdown';
-import { FileText } from 'lucide-react';
+import remarkGfm from 'remark-gfm';
 
 interface MarkdownViewerProps {
   content: string;
@@ -11,6 +11,7 @@ export default function MarkdownViewer({ content }: MarkdownViewerProps) {
       <div className="max-w-4xl mx-auto px-6 py-8">
         <div className="prose prose-slate dark:prose-invert max-w-none">
           <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
             components={{
               h1: ({ children }) => (
                 <h1 className="text-3xl font-bold mb-4 mt-8 first:mt-0">{children}</h1>
