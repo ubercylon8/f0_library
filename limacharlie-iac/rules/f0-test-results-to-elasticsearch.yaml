@@ -1,0 +1,79 @@
+# F0RT1KA Test Results - Forward to Elasticsearch
+#
+# Purpose: Forward RECEIPT events from F0RT1KA security test executions
+#          to Elasticsearch for analytics and visualization
+#
+# Trigger: RECEIPT event where FILE_PATH contains "c:\F0"
+# Action: Forward event to Elasticsearch output (tailored stream)
+#
+# Filters:
+#   - Excludes ERROR = 200 (success/no action needed)
+#   - Excludes ERROR = 259 (STILL_ACTIVE/timeout)
+#   - Excludes certificate installer receipts
+#
+# What it captures:
+#   - Test execution exit codes (ERROR field)
+#   - Full stdout/stderr output (STDOUT field)
+#   - File path of executed binary (FILE_PATH field)
+#   - Sensor metadata (hostname, tags, organization)
+#   - Timestamps and investigation correlation IDs
+#
+# Event Structure Example:
+#   {
+#     "event": {
+#       "ERROR": 101,                          # Exit code (101=unprotected, 126=blocked, etc.)
+#       "FILE_PATH": "c:\\F0\\test-uuid.exe",  # Path to executed test
+#       "STDOUT": "..."                        # Full test output
+#     },
+#     "routing": {
+#       "hostname": "...",
+#       "oid": "org-uuid",                     # Organization ID
+#       "tags": ["f0_testing", ...]
+#     }
+#   }
+#
+# Deployment:
+#   1. First configure Elasticsearch output:
+#      limacharlie output add --config-file outputs/f0-elasticsearch-output-{org}.yaml
+#   2. Then deploy this rule:
+#      limacharlie dr add f0-test-results-to-elasticsearch.yaml
+#
+# Prerequisites:
+#   - Elasticsearch output named "f0-test-results-elasticsearch" must exist
+#   - Output must be configured to listen on "tailored" stream
+#
+# Related Files:
+#   - outputs/f0-elasticsearch-output-sb.yaml
+#   - outputs/f0-elasticsearch-output-tpsgl.yaml
+#   - outputs/f0-elasticsearch-output-rga.yaml
+
+rules:
+  f0-test-results-to-elasticsearch:
+    detect:
+      event: RECEIPT
+      op: and
+      rules:
+        # Match F0RT1KA test binary executions (path contains c:\F0)
+        - op: contains
+          path: event/FILE_PATH
+          value: "c:\\F0"
+        # Exclude certificate installer receipts (handled by separate monitoring rule)
+        - op: contains
+          path: event/FILE_PATH
+          value: f0rtika-cert-installer
+          not: true
+        # Exclude ERROR = 200 (success/no action)
+        - op: is
+          path: event/ERROR
+          value: 200
+          not: true
+        # Exclude ERROR = 259 (STILL_ACTIVE/timeout - process didn't complete in time)
+        - op: is
+          path: event/ERROR
+          value: 259
+          not: true
+
+    respond:
+      # Forward matched event to Elasticsearch via tailored stream
+      - action: output
+        name: f0-test-results-elasticsearch

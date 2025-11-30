@@ -1,0 +1,74 @@
+# F0RT1KA Test Results - Elasticsearch Output Organization Template
+#
+# This template configures:
+#   1. Elasticsearch output (tailored stream -> Elastic Cloud)
+#   2. D&R rule to forward F0RT1KA test RECEIPT events
+#
+# Usage:
+#   1. Replace placeholders:
+#      - <YOUR_ELASTIC_CLOUD_ID>  -> Your Elastic Cloud deployment ID
+#      - <YOUR_API_KEY>           -> Your Elasticsearch API key
+#      - <YOUR_INDEX_NAME>        -> Organization-specific index (e.g., f0rtika-results-sb)
+#
+#   2. Deploy to LimaCharlie:
+#      limacharlie use <org>
+#      limacharlie config push f0-test-results-org-template.yaml
+#
+# Index Naming Convention:
+#   - sb:    f0rtika-results-sb
+#   - tpsgl: f0rtika-results-tpsgl
+#   - rga:   f0rtika-results-rga
+#
+# Prerequisites:
+#   - Elastic Cloud deployment with index template for f0rtika-results-*
+#   - API key with write permissions to target index
+#
+# What This Forwards:
+#   - RECEIPT events where FILE_PATH contains "c:\F0"
+#   - Includes: exit code (ERROR), stdout (STDOUT), file path, sensor metadata
+#   - Excludes: certificate installer receipts
+#   - Excludes: ERROR = 200 (success/no action)
+#   - Excludes: ERROR = 259 (STILL_ACTIVE/timeout)
+
+# Outputs Configuration
+outputs:
+  # Elasticsearch output for F0RT1KA test results
+  f0-test-results-elasticsearch:
+    module: elastic
+    stream: tailored
+    cloud_id: "<YOUR_ELASTIC_CLOUD_ID>"
+    api_key: "<YOUR_API_KEY>"
+    index: "<YOUR_INDEX_NAME>"
+
+# Detection & Response Rules
+rules:
+  # Forward F0RT1KA test RECEIPT events to Elasticsearch
+  f0-test-results-to-elasticsearch:
+    detect:
+      event: RECEIPT
+      op: and
+      rules:
+        # Match F0RT1KA test binary executions (path contains c:\F0)
+        - op: contains
+          path: event/FILE_PATH
+          value: "c:\\F0"
+        # Exclude certificate installer receipts
+        - op: contains
+          path: event/FILE_PATH
+          value: f0rtika-cert-installer
+          not: true
+        # Exclude ERROR = 200 (success/no action)
+        - op: is
+          path: event/ERROR
+          value: 200
+          not: true
+        # Exclude ERROR = 259 (STILL_ACTIVE/timeout)
+        - op: is
+          path: event/ERROR
+          value: 259
+          not: true
+
+    respond:
+      # Forward to Elasticsearch via tailored stream
+      - action: output
+        name: f0-test-results-elasticsearch
