@@ -1,10 +1,13 @@
 # F0RT1KA LimaCharlie Infrastructure as Code
 
-Automated F0RT1KA certificate deployment using LimaCharlie Detection & Response rules and Infrastructure as Code.
+Automated F0RT1KA infrastructure using LimaCharlie Detection & Response rules and Infrastructure as Code.
 
 ## Overview
 
-This directory contains LimaCharlie Infrastructure as Code (IaC) components for automatically installing the F0RT1KA code signing certificate on Windows endpoints when LimaCharlie sensors enroll.
+This directory contains LimaCharlie Infrastructure as Code (IaC) components for:
+
+1. **Certificate Auto-Installation** - Automatically install the F0RT1KA code signing certificate on Windows endpoints when LimaCharlie sensors enroll
+2. **Test Results Export** - Forward F0RT1KA security test RECEIPT events to Elasticsearch for analytics and visualization
 
 **Advantages over embedded approach:**
 - ✅ Centralized management - One deployment for entire organization
@@ -18,16 +21,23 @@ This directory contains LimaCharlie Infrastructure as Code (IaC) components for 
 
 ```
 limacharlie-iac/
+├── outputs/                                      # Output destination configurations
+│   ├── f0-elasticsearch-output-sb.yaml           # Elasticsearch output for sb org
+│   ├── f0-elasticsearch-output-tpsgl.yaml        # Elasticsearch output for tpsgl org
+│   └── f0-elasticsearch-output-rga.yaml          # Elasticsearch output for rga org
 ├── payloads/
-│   └── install-f0rtika-cert.ps1      # PowerShell certificate installation script
+│   └── install-f0rtika-cert.ps1                  # PowerShell certificate installation script
 ├── rules/
-│   ├── f0rtika-cert-auto-install.yaml           # Main D&R rule for auto-installation
-│   ├── f0rtika-cert-install-monitor.yaml        # Monitoring rule for failures
-│   └── f0rtika-cert-install-success-monitor.yaml # Optional success tracking
+│   ├── f0rtika-cert-auto-install.yaml            # D&R rule for cert auto-installation
+│   ├── f0rtika-cert-install-monitor.yaml         # Monitoring rule for cert failures
+│   ├── f0rtika-cert-install-success-monitor.yaml # Optional cert success tracking
+│   └── f0-test-results-to-elasticsearch.yaml     # D&R rule for test results export
 ├── scripts/
-│   └── deploy-cert-installer.sh      # Multi-org deployment automation
-├── f0rtika-org-template.yaml         # Complete organization IaC template
-└── README.md                         # This file
+│   ├── deploy-cert-installer.sh                  # Cert installer deployment automation
+│   └── deploy-test-results-output.sh             # Elasticsearch output deployment
+├── f0rtika-org-template.yaml                     # Cert installer organization template
+├── f0-test-results-org-template.yaml             # Test results export organization template
+└── README.md                                     # This file
 ```
 
 ## Quick Start
@@ -444,6 +454,175 @@ done
    limacharlie use rga
    limacharlie config push f0rtika-org-template-rga.yaml
    ```
+
+---
+
+## Test Results Export to Elasticsearch
+
+### Overview
+
+Forward F0RT1KA security test RECEIPT events to Elastic Cloud for analytics, dashboards, and time-series analysis.
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         LimaCharlie Platform                            │
+│  ┌──────────────────┐    ┌────────────────────┐    ┌─────────────────┐  │
+│  │  Test Execution  │───▶│   RECEIPT Event    │───▶│    D&R Rule     │  │
+│  │  (c:\F0\*.exe)   │    │ (FILE_PATH, STDOUT)│    │ (f0-test-to-es) │  │
+│  └──────────────────┘    └────────────────────┘    └────────┬────────┘  │
+│                                                              │           │
+│  ┌────────────────────────────────────────────────┐          │           │
+│  │            Elasticsearch Output                │◀─────────┘           │
+│  │  (stream: tailored → Elastic Cloud)            │                      │
+│  └────────────────────┬───────────────────────────┘                      │
+└───────────────────────┼──────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Elastic Cloud                                    │
+│  ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐    │
+│  │ f0rtika-results-sb│  │f0rtika-results-   │  │f0rtika-results-rga│    │
+│  │                   │  │      tpsgl        │  │                   │    │
+│  └───────────────────┘  └───────────────────┘  └───────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**What Gets Exported:**
+- Exit code (`event.ERROR`) - 101=Unprotected, 126=Blocked, 105=Quarantined, 259=Timeout
+- Full stdout/stderr (`event.STDOUT`) - Complete test output with Schema v2.0 logging
+- File path (`event.FILE_PATH`) - Path to executed test binary
+- Sensor metadata (`routing.*`) - hostname, oid, tags, timestamps
+
+### Prerequisites
+
+1. **Elastic Cloud Account** with deployment created
+2. **Elasticsearch API Key** with write permissions to `f0rtika-results-*` indices
+3. **LimaCharlie CLI** authenticated to target organization
+
+### Quick Deployment
+
+**Using Deployment Script (Recommended):**
+```bash
+# Deploy to single organization
+./scripts/deploy-test-results-output.sh sb
+
+# Deploy to all organizations
+./scripts/deploy-test-results-output.sh all
+
+# Test mode (dry run)
+./scripts/deploy-test-results-output.sh --test sb
+
+# Using environment variables
+ELASTIC_CLOUD_ID=xxx ELASTIC_API_KEY=yyy ./scripts/deploy-test-results-output.sh sb
+```
+
+**Manual Deployment:**
+```bash
+# 1. Select organization
+limacharlie use sb
+
+# 2. Configure Elasticsearch output
+limacharlie output add f0-test-results-elasticsearch \
+  --module elastic \
+  --stream tailored \
+  --config "cloud_id=<YOUR_CLOUD_ID>" \
+  --config "api_key=<YOUR_API_KEY>" \
+  --config "index=f0rtika-results-sb"
+
+# 3. Deploy D&R rule
+limacharlie dr add -f rules/f0-test-results-to-elasticsearch.yaml
+```
+
+**Using Organization Template:**
+```bash
+# 1. Edit template with your credentials
+vim f0-test-results-org-template.yaml
+
+# 2. Deploy
+limacharlie use sb
+limacharlie config push f0-test-results-org-template.yaml
+```
+
+### Elasticsearch Index Configuration
+
+**Recommended Index Template (create in Kibana):**
+```json
+{
+  "index_patterns": ["f0rtika-results-*"],
+  "mappings": {
+    "properties": {
+      "event.ERROR": { "type": "integer" },
+      "event.FILE_PATH": { "type": "keyword" },
+      "event.STDOUT": { "type": "text" },
+      "routing.oid": { "type": "keyword" },
+      "routing.hostname": { "type": "keyword" },
+      "routing.event_type": { "type": "keyword" },
+      "routing.tags": { "type": "keyword" },
+      "routing.investigation_id": { "type": "keyword" },
+      "ts": { "type": "date", "format": "yyyy-MM-dd HH:mm:ss||epoch_millis" }
+    }
+  }
+}
+```
+
+### Kibana Queries
+
+```kql
+# All test results
+routing.event_type: "RECEIPT" AND event.FILE_PATH: *F0*
+
+# Unprotected (attack succeeded)
+event.ERROR: 101
+
+# Protected (execution blocked or quarantined)
+event.ERROR: 126 OR event.ERROR: 105
+
+# Timeout errors
+event.ERROR: 259
+
+# By organization
+routing.oid: "09b59276-9efb-4d3d-bbdd-4b4663ef0c42"
+
+# By hostname
+routing.hostname: "server01*"
+
+# Specific test UUID in path
+event.FILE_PATH: *12afe0fc-597b-4e79-9cc4-40b4675ee83c*
+```
+
+### Dashboard Ideas
+
+1. **Protection Rate Over Time**
+   - Line chart: Count of events where `event.ERROR` is 126 vs 101 over time
+   - Metric: Protection percentage = (126 count) / (total) * 100
+
+2. **Results by Organization**
+   - Pie chart: Event count by `routing.oid`
+   - Table: Pass/fail breakdown per organization
+
+3. **Test Execution Heatmap**
+   - Date histogram: Test execution frequency
+   - Split by: `routing.hostname`
+
+4. **Endpoint Coverage**
+   - Unique count of `routing.hostname` with tests
+   - Table: Endpoints sorted by last test execution time
+
+### Verification
+
+After deployment, run a test and verify:
+
+```bash
+# 1. Run test via LimaCharlie
+limacharlie run --sid <sensor-id> --path "c:\F0\test-uuid.exe" --timeout 420
+
+# 2. Check Elasticsearch
+curl -X GET "https://<elastic-cloud-host>:9243/f0rtika-results-sb/_search" \
+  -H "Authorization: ApiKey <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"query": {"match": {"routing.event_type": "RECEIPT"}}}'
+```
 
 ---
 

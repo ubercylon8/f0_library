@@ -1,0 +1,26 @@
+# F0RT1KA Test Results - Elasticsearch Output (tpsgl - Transact Pay)
+#
+# Purpose: Forward F0RT1KA security test RECEIPT events to Elasticsearch
+# Organization: tpsgl (b2f8dccb-6d23-492e-aa87-a0a8a6103189)
+# Stream: tailored (receives events from D&R rules using 'output' action)
+#
+# Deployment:
+#   1. Replace <YOUR_ELASTIC_CLOUD_ID> with your Elastic Cloud deployment ID
+#   2. Replace <YOUR_API_KEY> with your Elasticsearch API key
+#   3. Deploy: limacharlie output add --config-file f0-elasticsearch-output-tpsgl.yaml
+#
+# API Key Requirements:
+#   - Index privilege: write
+#   - Index pattern: f0rtika-results-tpsgl
+#
+# Related:
+#   - D&R Rule: f0-test-results-to-elasticsearch.yaml
+#   - Index Template: Create in Kibana for f0rtika-results-* pattern
+
+outputs:
+  f0-test-results-elasticsearch:
+    module: elastic
+    stream: tailored
+    cloud_id: "<YOUR_ELASTIC_CLOUD_ID>"
+    api_key: "<YOUR_API_KEY>"
+    index: f0rtika-results-tpsgl
