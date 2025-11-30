@@ -278,6 +278,61 @@ All PowerShell scripts must:
 - Include a function to check if running with admin privileges
 - Implement automatic execution policy bypass functionality
 
+## LimaCharlie D&R Rule Formatting
+
+When creating D&R rules for LimaCharlie, note the format differences between file-based and web UI deployment.
+
+**File Format** (for `limacharlie dr add` or `config push`):
+```yaml
+rules:
+  rule-name-here:
+    detect:
+      event: RECEIPT
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "c:\\F0"
+    respond:
+      - action: output
+        name: my-output
+```
+
+**Web UI Format** (paste directly into detect/respond fields):
+
+The web UI expects NO outer wrapper and NO leading indentation. List items (`-`) must start at column 0.
+
+Detect field:
+```yaml
+event: RECEIPT
+op: and
+rules:
+- op: contains
+  path: event/FILE_PATH
+  value: "c:\\F0"
+- op: is
+  path: event/ERROR
+  value: 259
+  not: true
+```
+
+Respond field:
+```yaml
+- action: output
+  name: my-output
+```
+
+**Common YAML Errors:**
+- `Operation missing 'op' field` - Usually wrong nesting level
+- `bad indentation of a mapping entry` - List items (`-`) have leading spaces; remove them
+
+**Key Differences:**
+| Aspect | File Format | Web UI Format |
+|--------|-------------|---------------|
+| Outer wrapper | `rules: { name: { detect: ... } }` | None |
+| Indentation | 2-space nested | List items at column 0 |
+| Rule name | In YAML structure | Separate field in UI |
+
 ## Build Utilities
 
 ### Build Tests

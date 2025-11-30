@@ -6,6 +6,11 @@
 # Trigger: RECEIPT event where FILE_PATH contains "c:\F0"
 # Action: Forward event to Elasticsearch output (tailored stream)
 #
+# Filters:
+#   - Excludes ERROR = 200 (success/no action needed)
+#   - Excludes ERROR = 259 (STILL_ACTIVE/timeout)
+#   - Excludes certificate installer receipts
+#
 # What it captures:
 #   - Test execution exit codes (ERROR field)
 #   - Full stdout/stderr output (STDOUT field)
@@ -56,6 +61,16 @@ rules:
         - op: contains
           path: event/FILE_PATH
           value: f0rtika-cert-installer
+          not: true
+        # Exclude ERROR = 200 (success/no action)
+        - op: is
+          path: event/ERROR
+          value: 200
+          not: true
+        # Exclude ERROR = 259 (STILL_ACTIVE/timeout - process didn't complete in time)
+        - op: is
+          path: event/ERROR
+          value: 259
           not: true
 
     respond:

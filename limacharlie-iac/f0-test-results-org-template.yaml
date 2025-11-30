@@ -26,7 +26,9 @@
 # What This Forwards:
 #   - RECEIPT events where FILE_PATH contains "c:\F0"
 #   - Includes: exit code (ERROR), stdout (STDOUT), file path, sensor metadata
-#   - Excludes: certificate installer receipts (handled separately)
+#   - Excludes: certificate installer receipts
+#   - Excludes: ERROR = 200 (success/no action)
+#   - Excludes: ERROR = 259 (STILL_ACTIVE/timeout)
 
 # Outputs Configuration
 outputs:
@@ -54,6 +56,16 @@ rules:
         - op: contains
           path: event/FILE_PATH
           value: f0rtika-cert-installer
+          not: true
+        # Exclude ERROR = 200 (success/no action)
+        - op: is
+          path: event/ERROR
+          value: 200
+          not: true
+        # Exclude ERROR = 259 (STILL_ACTIVE/timeout)
+        - op: is
+          path: event/ERROR
+          value: 259
           not: true
 
     respond:
