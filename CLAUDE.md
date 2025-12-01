@@ -13,10 +13,11 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 4. **ALL tests MUST capture embedded binary stdout/stderr to file** - Use `io.MultiWriter` for console + file output
 5. **ALL tests MUST conform to Schema v2.0** - Use updated InitLogger signature with metadata and executionContext
 6. **ALL tests MUST implement organization UUID support** - See Organization UUID Implementation section below
-7. **NEVER hardcode exit codes** - Always evaluate actual results before determining exit code
-8. **NEVER modify test_logger.go schema** - Schema must remain consistent across all tests
-9. Tests simulate real attack techniques - handle with appropriate security measures
-10. Map every test to specific MITRE ATT&CK techniques
+7. **ALL tests MUST include metadata header for Elasticsearch enrichment** - See Elasticsearch Catalog Sync section
+8. **NEVER hardcode exit codes** - Always evaluate actual results before determining exit code
+9. **NEVER modify test_logger.go schema** - Schema must remain consistent across all tests
+10. Tests simulate real attack techniques - handle with appropriate security measures
+11. Map every test to specific MITRE ATT&CK techniques
 
 ## Organization UUID Implementation (MANDATORY)
 
@@ -392,6 +393,63 @@ utils/                # Build and signing utilities
 8. `build_all.sh` - Build script for tests with embedded components (if needed)
 
 **Note**: Always copy `test_logger.go` and `org_resolver.go` from `sample_tests/` to ensure consistency.
+
+## Elasticsearch Catalog Sync (MANDATORY for new tests)
+
+Test results in Elasticsearch are enriched with metadata (test name, ATT&CK techniques, score) from a catalog index. For enrichment to work, **every test MUST**:
+
+### 1. Include Metadata Header in Go File
+
+The main test file (`<uuid>.go`) MUST include this comment block at the top:
+
+```go
+/*
+ID: <uuid>
+NAME: <Test Name>
+TECHNIQUES: T1234, T1567.001
+UNIT: response
+CREATED: 2024-01-15
+*/
+```
+
+**Critical fields for enrichment:**
+- `NAME:` - Human-readable test name (displayed in Kibana)
+- `TECHNIQUES:` - Comma-separated MITRE ATT&CK IDs
+
+### 2. Sync Catalog After Creating Test
+
+After creating or updating a test, sync the catalog to Elasticsearch:
+
+```bash
+# Activate Python venv
+source .venv/bin/activate
+
+# Sync test catalog
+python3 utils/sync-test-catalog-to-elasticsearch.py
+```
+
+### 3. Re-execute Enrich Policy
+
+In Kibana Dev Tools, re-execute the enrich policy to pick up new tests:
+
+```json
+POST /_enrich/policy/f0rtika-test-enrichment/_execute
+```
+
+### Enriched Fields in Elasticsearch
+
+After sync, RECEIPT events will have these fields under `f0rtika.*`:
+
+| Field | Description |
+|-------|-------------|
+| `f0rtika.test_uuid` | Test identifier (extracted from FILE_PATH) |
+| `f0rtika.test_name` | Human-readable test name |
+| `f0rtika.techniques` | MITRE ATT&CK technique IDs |
+| `f0rtika.score` | Test quality score (0-10) |
+| `f0rtika.error_name` | Human-readable exit code (Unprotected, ExecutionPrevented, etc.) |
+| `f0rtika.is_protected` | Boolean: was endpoint protected? |
+
+**See**: `limacharlie-iac/ELASTICSEARCH-ENRICHMENT-GUIDE.md` for full setup details.
 
 ## Test Score Format Requirements (MANDATORY)
 
