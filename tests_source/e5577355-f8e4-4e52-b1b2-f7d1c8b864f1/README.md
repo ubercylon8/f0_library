@@ -91,27 +91,6 @@ When successful, this technique:
 - **Base Filtering Engine (BFE) service** - Must be running
 - **Windows 7 or later** - WFP API availability
 
-## Build Instructions
-
-```bash
-# Build the test (Windows/amd64)
-cd tests_source/e5577355-f8e4-4e52-b1b2-f7d1c8b864f1/
-GOOS=windows GOARCH=amd64 go build -o ../../build/e5577355-f8e4-4e52-b1b2-f7d1c8b864f1/e5577355-f8e4-4e52-b1b2-f7d1c8b864f1.exe
-
-# Or use the build utility
-../../utils/gobuild build tests_source/e5577355-f8e4-4e52-b1b2-f7d1c8b864f1/
-
-# Sign the binary
-../../utils/codesign sign build/e5577355-f8e4-4e52-b1b2-f7d1c8b864f1/e5577355-f8e4-4e52-b1b2-f7d1c8b864f1.exe
-```
-
-## Execution
-
-```powershell
-# Run as Administrator (required for WFP operations)
-.\e5577355-f8e4-4e52-b1b2-f7d1c8b864f1.exe
-```
-
 ## Test Architecture
 
 **Pattern:** Standard Single-Binary
