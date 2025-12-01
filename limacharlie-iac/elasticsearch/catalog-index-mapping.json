@@ -1,8 +1,5 @@
 {
-  "settings": {
-    "number_of_shards": 1,
-    "number_of_replicas": 0
-  },
+  "_comment": "Elasticsearch Serverless: shards/replicas are auto-managed, no settings needed",
   "mappings": {
     "properties": {
       "test_uuid": {
