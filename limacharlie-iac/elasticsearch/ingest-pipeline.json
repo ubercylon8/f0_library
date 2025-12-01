@@ -1,0 +1,36 @@
+{
+  "description": "Enriches F0RT1KA test results with test metadata",
+  "processors": [
+    {
+      "script": {
+        "description": "Extract test UUID from FILE_PATH",
+        "lang": "painless",
+        "source": "String path = ctx.event?.FILE_PATH; if (path != null) { def matcher = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/.matcher(path.toLowerCase()); if (matcher.find()) { if (ctx.f0rtika == null) { ctx.f0rtika = new HashMap(); } ctx.f0rtika.test_uuid = matcher.group(1); } }"
+      }
+    },
+    {
+      "script": {
+        "description": "Map error code to human-readable name",
+        "lang": "painless",
+        "source": "def errorCode = ctx.event?.ERROR; if (errorCode != null) { def errorNames = new HashMap(); errorNames.put(101, 'Unprotected'); errorNames.put(105, 'FileQuarantinedOnExtraction'); errorNames.put(126, 'ExecutionPrevented'); errorNames.put(127, 'QuarantinedOnExecution'); errorNames.put(999, 'UnexpectedTestError'); if (ctx.f0rtika == null) { ctx.f0rtika = new HashMap(); } ctx.f0rtika.error_name = errorNames.getOrDefault(errorCode, 'Unknown'); ctx.f0rtika.is_protected = (errorCode == 105 || errorCode == 126 || errorCode == 127); }"
+      }
+    },
+    {
+      "enrich": {
+        "description": "Enrich with test metadata from catalog",
+        "policy_name": "f0rtika-test-enrichment",
+        "field": "f0rtika.test_uuid",
+        "target_field": "f0rtika.test_metadata",
+        "max_matches": 1,
+        "ignore_missing": true
+      }
+    },
+    {
+      "script": {
+        "description": "Flatten test metadata into f0rtika namespace",
+        "lang": "painless",
+        "source": "if (ctx.f0rtika?.test_metadata != null) { def meta = ctx.f0rtika.test_metadata; ctx.f0rtika.test_name = meta.test_name; ctx.f0rtika.techniques = meta.techniques; ctx.f0rtika.score = meta.score; ctx.f0rtika.remove('test_metadata'); }"
+      }
+    }
+  ]
+}

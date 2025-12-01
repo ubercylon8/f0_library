@@ -1,0 +1,7 @@
+{
+  "match": {
+    "indices": "f0rtika-test-catalog",
+    "match_field": "test_uuid",
+    "enrich_fields": ["test_name", "techniques", "score"]
+  }
+}
