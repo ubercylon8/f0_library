@@ -248,7 +248,7 @@
             </div>
 
             <div class="attack-flow-svg-container">
-                <svg class="attack-flow-svg" viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg">
+                <svg class="attack-flow-svg" viewBox="0 0 900 450" xmlns="http://www.w3.org/2000/svg">
                     <defs>
                         <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
                             <stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.8" />
@@ -281,7 +281,7 @@
                         </pattern>
                     </defs>
 
-                    <rect width="900" height="380" fill="url(#grid)" />
+                    <rect width="900" height="450" fill="url(#grid)" />
 
                     <!-- Title -->
                     <text x="450" y="30" text-anchor="middle" fill="#ff6b6b" font-size="14" font-weight="bold">3-Stage Attack Chain: Defense Evasion → Discovery → Impact</text>
@@ -326,51 +326,51 @@
                         <text x="740" y="112" text-anchor="middle" fill="#9ca3af" font-size="10">T1490 - VSS Deletion</text>
                     </g>
 
-                    <!-- Arrow to VHD -->
-                    <path d="M 740 135 L 740 165" stroke="#66bb6a" stroke-width="2" fill="none" marker-end="url(#arrowGreen)" opacity="0.7" stroke-dasharray="4,3"/>
+                    <!-- Arrow to VHD (extended for visual separation) -->
+                    <path d="M 740 135 L 740 235" stroke="#66bb6a" stroke-width="2" fill="none" marker-end="url(#arrowGreen)" opacity="0.7" stroke-dasharray="4,3"/>
 
                     <!-- VHD Isolation (Safety) -->
                     <g class="component" data-phase="4" onclick="showPhaseDetails(4)">
-                        <rect class="component-box" x="600" y="175" width="280" height="70" rx="8" fill="url(#greenGradient)" stroke="#66bb6a" stroke-width="1" opacity="0.25"/>
-                        <text x="740" y="200" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">VHD Isolation Layer</text>
-                        <text x="740" y="218" text-anchor="middle" fill="#9ca3af" font-size="10">100MB Virtual Disk | Zero System Impact</text>
-                        <text x="740" y="234" text-anchor="middle" fill="#66bb6a" font-size="9">All BitLocker operations contained</text>
+                        <rect class="component-box" x="600" y="245" width="280" height="70" rx="8" fill="url(#greenGradient)" stroke="#66bb6a" stroke-width="1" opacity="0.25"/>
+                        <text x="740" y="270" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">VHD Isolation Layer</text>
+                        <text x="740" y="288" text-anchor="middle" fill="#9ca3af" font-size="10">100MB Virtual Disk | Zero System Impact</text>
+                        <text x="740" y="304" text-anchor="middle" fill="#66bb6a" font-size="9">All BitLocker operations contained</text>
                     </g>
 
                     <!-- Exit Codes Summary -->
                     <g class="component" data-phase="5" onclick="showPhaseDetails(5)">
-                        <rect class="component-box" x="30" y="175" width="250" height="100" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-                        <text x="155" y="200" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold">Exit Codes</text>
-                        <text x="60" y="222" fill="#ff4444" font-size="10" font-weight="bold">101</text>
-                        <text x="90" y="222" fill="#9ca3af" font-size="9">Attack Succeeded</text>
-                        <text x="60" y="238" fill="#66bb6a" font-size="10" font-weight="bold">126</text>
-                        <text x="90" y="238" fill="#9ca3af" font-size="9">Blocked by EDR</text>
-                        <text x="60" y="254" fill="#ffc107" font-size="10" font-weight="bold">105</text>
-                        <text x="90" y="254" fill="#9ca3af" font-size="9">Quarantined</text>
-                        <text x="60" y="270" fill="#9ca3af" font-size="10" font-weight="bold">999</text>
-                        <text x="90" y="270" fill="#9ca3af" font-size="9">Prerequisites Missing</text>
+                        <rect class="component-box" x="30" y="245" width="250" height="100" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+                        <text x="155" y="270" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold">Exit Codes</text>
+                        <text x="60" y="292" fill="#ff4444" font-size="10" font-weight="bold">101</text>
+                        <text x="90" y="292" fill="#9ca3af" font-size="9">Attack Succeeded</text>
+                        <text x="60" y="308" fill="#66bb6a" font-size="10" font-weight="bold">126</text>
+                        <text x="90" y="308" fill="#9ca3af" font-size="9">Blocked by EDR</text>
+                        <text x="60" y="324" fill="#ffc107" font-size="10" font-weight="bold">105</text>
+                        <text x="90" y="324" fill="#9ca3af" font-size="9">Quarantined</text>
+                        <text x="60" y="340" fill="#9ca3af" font-size="10" font-weight="bold">999</text>
+                        <text x="90" y="340" fill="#9ca3af" font-size="9">Prerequisites Missing</text>
                     </g>
 
                     <!-- Detection Points -->
                     <g class="component" data-phase="6" onclick="showPhaseDetails(6)">
-                        <rect class="component-box" x="310" y="175" width="260" height="100" rx="8" fill="rgba(171,71,188,0.1)" stroke="#ab47bc" stroke-width="1" opacity="0.5"/>
-                        <text x="440" y="200" text-anchor="middle" fill="#ab47bc" font-size="11" font-weight="bold">Detection Opportunities</text>
-                        <text x="440" y="220" text-anchor="middle" fill="#9ca3af" font-size="9">wevtutil cl • netsh advfirewall</text>
-                        <text x="440" y="236" text-anchor="middle" fill="#9ca3af" font-size="9">wmic • manage-bde -status</text>
-                        <text x="440" y="252" text-anchor="middle" fill="#9ca3af" font-size="9">manage-bde -on • vssadmin delete</text>
-                        <text x="440" y="270" text-anchor="middle" fill="#ab47bc" font-size="9">6+ Detection Points</text>
+                        <rect class="component-box" x="310" y="245" width="260" height="100" rx="8" fill="rgba(171,71,188,0.1)" stroke="#ab47bc" stroke-width="1" opacity="0.5"/>
+                        <text x="440" y="270" text-anchor="middle" fill="#ab47bc" font-size="11" font-weight="bold">Detection Opportunities</text>
+                        <text x="440" y="290" text-anchor="middle" fill="#9ca3af" font-size="9">wevtutil cl • netsh advfirewall</text>
+                        <text x="440" y="306" text-anchor="middle" fill="#9ca3af" font-size="9">wmic • manage-bde -status</text>
+                        <text x="440" y="322" text-anchor="middle" fill="#9ca3af" font-size="9">manage-bde -on • vssadmin delete</text>
+                        <text x="440" y="340" text-anchor="middle" fill="#ab47bc" font-size="9">6+ Detection Points</text>
                     </g>
 
                     <!-- Timeline -->
-                    <text x="100" y="320" fill="#6b7280" font-size="9">T+0s</text>
-                    <text x="300" y="320" fill="#6b7280" font-size="9">T+5s</text>
-                    <text x="520" y="320" fill="#6b7280" font-size="9">T+15s</text>
-                    <text x="740" y="320" fill="#6b7280" font-size="9">T+30s</text>
+                    <text x="100" y="390" fill="#6b7280" font-size="9">T+0s</text>
+                    <text x="300" y="390" fill="#6b7280" font-size="9">T+5s</text>
+                    <text x="520" y="390" fill="#6b7280" font-size="9">T+15s</text>
+                    <text x="740" y="390" fill="#6b7280" font-size="9">T+30s</text>
 
-                    <rect x="50" y="335" width="800" height="3" rx="1" fill="rgba(255,255,255,0.1)"/>
-                    <rect x="50" y="335" width="0" height="3" rx="1" fill="#ff6b6b" id="progressBar"/>
+                    <rect x="50" y="405" width="800" height="3" rx="1" fill="rgba(255,255,255,0.1)"/>
+                    <rect x="50" y="405" width="0" height="3" rx="1" fill="#ff6b6b" id="progressBar"/>
 
-                    <text x="450" y="365" text-anchor="middle" fill="#6b7280" font-size="9">
+                    <text x="450" y="435" text-anchor="middle" fill="#6b7280" font-size="9">
                         MITRE ATT&amp;CK: T1070.001 | T1562.004 | T1082 | T1083 | T1486 | T1490
                     </text>
                 </svg>
