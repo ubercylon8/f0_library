@@ -5,7 +5,7 @@ import { TestDetails, FileContent } from '../types/test';
 import TechniqueBadge from './TechniqueBadge';
 import FileViewer from './FileViewer';
 import DefenseDashboard from './DefenseDashboard';
-import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2 } from 'lucide-react';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -18,10 +18,12 @@ export default function TestDetailPage() {
   const [fileLoading, setFileLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'file' | 'attack-flow'>('file');
+  const [hasUserInteracted, setHasUserInteracted] = useState(false); // Track if user clicked something
 
   useEffect(() => {
     if (uuid) {
       loadTestDetails(uuid);
+      setHasUserInteracted(false); // Reset on test change
     }
   }, [uuid]);
 
@@ -82,14 +84,28 @@ export default function TestDetailPage() {
   function handleFileSelect(filename: string) {
     setSelectedFile(filename);
     setActiveView('file');
+    setHasUserInteracted(true); // User clicked a file
   }
 
   function handleAttackFlowClick() {
+    setHasUserInteracted(true); // User clicked attack flow
     if (!attackFlowHtml) {
       loadAttackFlow();
     } else {
       setActiveView('attack-flow');
     }
+  }
+
+  // Helper to get clean display name for defense files
+  function getDefenseFileDisplayName(filename: string): string {
+    if (filename.includes('DEFENSE_GUIDANCE')) return 'Defense Guide';
+    if (filename.includes('_dr_rules')) return 'D&R Rules';
+    if (filename.includes('_hardening')) return 'Hardening Script';
+    if (filename.includes('_detections.kql')) return 'KQL Detections';
+    if (filename.includes('_rules.yar')) return 'YARA Rules';
+    // Fallback: get extension
+    const ext = filename.split('.').pop() || '';
+    return ext.toUpperCase() + ' File';
   }
 
   if (loading) {
@@ -126,68 +142,116 @@ export default function TestDetailPage() {
   const detectionFiles = test.files.filter(f => f.category === 'detection');
   const configFiles = test.files.filter(f => f.category === 'config');
 
+  // Determine if we should use compact header
+  // Show compact header after user clicks any file/view (not on initial load)
+  const isCompactMode = hasUserInteracted;
+
+  // Function to exit compact mode and show full header again
+  function handleExitCompactMode() {
+    setHasUserInteracted(false);
+  }
+
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="border-b border-border bg-background/95 backdrop-blur">
-        <div className="container mx-auto px-4 py-4">
-          <button
-            onClick={() => navigate('/')}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to tests
-          </button>
-
-          <div className="flex items-start justify-between gap-4 mb-3">
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold mb-2">{test.name}</h1>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                {test.severity && (
-                  <span className="font-medium uppercase text-orange-500">
-                    {test.severity}
-                  </span>
-                )}
-                {test.isMultiStage && (
-                  <div className="flex items-center gap-1">
-                    <Layers className="w-4 h-4" />
-                    <span>{test.stages.length} stages</span>
-                  </div>
-                )}
-                {test.createdDate && (
-                  <div className="flex items-center gap-1">
-                    <Calendar className="w-4 h-4" />
-                    <span>{test.createdDate}</span>
-                  </div>
-                )}
-                <span className="font-mono text-xs">{test.uuid}</span>
-              </div>
+      {/* Header - Compact or Full */}
+      {isCompactMode ? (
+        /* Compact Header for Attack Flow View */
+        <div className="border-b border-border bg-background/95 backdrop-blur">
+          <div className="container mx-auto px-4 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigate('/')}
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span className="hidden sm:inline">Back</span>
+              </button>
+              <div className="h-4 w-px bg-border" />
+              <h1 className="text-lg font-semibold truncate max-w-md lg:max-w-xl">{test.name}</h1>
+              <span className="hidden md:inline text-xs font-mono text-muted-foreground">
+                {test.uuid.slice(0, 8)}...
+              </span>
             </div>
+            <div className="flex items-center gap-3">
+              {test.score && (
+                <div className="flex items-center gap-1 text-amber-500">
+                  <Star className="w-4 h-4 fill-current" />
+                  <span className="font-bold">{test.score.toFixed(1)}</span>
+                </div>
+              )}
+              <button
+                onClick={handleExitCompactMode}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-accent transition-colors"
+                title="Exit fullscreen view"
+              >
+                <Minimize2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Exit</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Full Header for File/Document Views */
+        <div className="border-b border-border bg-background/95 backdrop-blur">
+          <div className="container mx-auto px-4 py-4">
+            <button
+              onClick={() => navigate('/')}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to tests
+            </button>
 
-            {test.score && (
-              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                <Star className="w-5 h-5 text-amber-500 fill-current" />
-                <div>
-                  <div className="text-2xl font-bold text-amber-500">{test.score.toFixed(1)}</div>
-                  <div className="text-xs text-muted-foreground">Test Score</div>
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="flex-1">
+                <h1 className="text-2xl font-bold mb-2">{test.name}</h1>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                  {test.severity && (
+                    <span className="font-medium uppercase text-orange-500">
+                      {test.severity}
+                    </span>
+                  )}
+                  {test.isMultiStage && (
+                    <div className="flex items-center gap-1">
+                      <Layers className="w-4 h-4" />
+                      <span>{test.stages.length} stages</span>
+                    </div>
+                  )}
+                  {test.createdDate && (
+                    <div className="flex items-center gap-1">
+                      <Calendar className="w-4 h-4" />
+                      <span>{test.createdDate}</span>
+                    </div>
+                  )}
+                  <span className="font-mono text-xs">{test.uuid}</span>
                 </div>
               </div>
+
+              {test.score && (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <Star className="w-5 h-5 text-amber-500 fill-current" />
+                  <div>
+                    <div className="text-2xl font-bold text-amber-500">{test.score.toFixed(1)}</div>
+                    <div className="text-xs text-muted-foreground">Test Score</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Techniques */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {test.techniques.map(technique => (
+                <TechniqueBadge key={technique} technique={technique} />
+              ))}
+            </div>
+
+            {/* Description */}
+            {test.description && (
+              <p className="text-sm text-muted-foreground">{test.description}</p>
             )}
           </div>
-
-          {/* Techniques */}
-          <div className="flex flex-wrap gap-2 mb-3">
-            {test.techniques.map(technique => (
-              <TechniqueBadge key={technique} technique={technique} />
-            ))}
-          </div>
-
-          {/* Description */}
-          {test.description && (
-            <p className="text-sm text-muted-foreground">{test.description}</p>
-          )}
         </div>
-      </div>
+      )}
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
@@ -252,16 +316,16 @@ export default function TestDetailPage() {
                     <button
                       key={file.name}
                       onClick={() => handleFileSelect(file.name)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
                           : 'hover:bg-accent'
                       }`}
                     >
-                      {file.name.includes('DEFENSE_GUIDANCE') && <span className="text-xs text-green-500 mr-2">Guide</span>}
-                      {file.name.includes('_dr_rules') && <span className="text-xs text-cyan-500 mr-2">D&R</span>}
-                      {file.name.includes('_hardening') && <span className="text-xs text-orange-500 mr-2">Harden</span>}
-                      {file.name.split('_').pop()}
+                      {file.name.includes('DEFENSE_GUIDANCE') && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
+                      {file.name.includes('_dr_rules') && <span className="w-2 h-2 rounded-full bg-cyan-500 flex-shrink-0" />}
+                      {file.name.includes('_hardening') && <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />}
+                      {getDefenseFileDisplayName(file.name)}
                     </button>
                   ))}
                 </div>
@@ -349,8 +413,8 @@ export default function TestDetailPage() {
 
         {/* Right Panel - Content Viewer */}
         <div className="flex-1 overflow-hidden flex flex-col">
-          {/* Defense Dashboard (shown at top when test has defense files) */}
-          {test.hasDefenseGuidance && (
+          {/* Defense Dashboard (hidden in compact mode for attack flow) */}
+          {test.hasDefenseGuidance && !isCompactMode && (
             <div className="p-4 pb-0">
               <DefenseDashboard test={test} />
             </div>
