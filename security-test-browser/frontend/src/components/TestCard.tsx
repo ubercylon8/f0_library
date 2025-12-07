@@ -1,5 +1,5 @@
 import { TestMetadata } from '../types/test';
-import { FileCode2, Calendar, Layers, Star, Shield, Workflow } from 'lucide-react';
+import { FileCode2, Calendar, Layers, Star, Shield, Workflow, ShieldCheck } from 'lucide-react';
 import TechniqueBadge from './TechniqueBadge';
 
 interface TestCardProps {
@@ -96,6 +96,13 @@ export default function TestCard({ test, onClick }: TestCardProps) {
           <div className="flex items-center gap-1 text-purple-500" title="Attack flow diagram available">
             <Workflow className="w-3 h-3" />
             <span className="text-[10px] font-medium">Flow</span>
+          </div>
+        )}
+
+        {test.hasDefenseGuidance && (
+          <div className="flex items-center gap-1 text-green-500" title="Defense guidance available">
+            <ShieldCheck className="w-3 h-3" />
+            <span className="text-[10px] font-medium">Defense</span>
           </div>
         )}
       </div>

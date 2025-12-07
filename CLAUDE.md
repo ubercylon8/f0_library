@@ -696,6 +696,34 @@ See `@agent-sectest-builder` configuration for complete template.
 - Initialize and create a private repository on Github
 - For all changes, additions and fixes, commit and create PRs when applicable
 
+## Complete Test Development Workflow (3-Agent Pipeline)
+
+F0RT1KA provides a complete red-to-blue workflow using specialized agents:
+
+1. **`@agent-sectest-builder`** - Creates the attack simulation test
+   - Analyzes threat intelligence and builds Go-based security tests
+   - Handles single-binary embedding, logging, scoring
+
+2. **`@agent-attack-flow-diagram-builder`** - Visualizes the attack flow
+   - Creates interactive HTML attack flow diagrams
+   - Maps MITRE ATT&CK techniques visually
+
+3. **`@agent-defense-guidance-builder`** - Creates defense documentation
+   - Generates KQL detection queries for Microsoft Sentinel/Defender
+   - Creates YARA rules for file/memory detection
+   - Produces LimaCharlie D&R rules ready for deployment
+   - Provides hardening scripts (PowerShell) and guidance
+   - Includes incident response playbooks
+
+**Output Files from Defense Guidance Agent:**
+| File | Purpose |
+|------|---------|
+| `<uuid>_DEFENSE_GUIDANCE.md` | Comprehensive defense document |
+| `<uuid>_detections.kql` | Microsoft Sentinel queries |
+| `<uuid>_rules.yar` | YARA detection rules |
+| `<uuid>_dr_rules.yaml` | LimaCharlie D&R rules |
+| `<uuid>_hardening.ps1` | PowerShell hardening scripts |
+
 ## Additional Documentation
 
 For detailed implementation guides, see:
@@ -704,3 +732,5 @@ For detailed implementation guides, see:
 - `sample_tests/multistage_template/` - Multi-stage test patterns
 - `rules/` - Development guidelines
 - Agent `@agent-sectest-builder` for test creation
+- Agent `@agent-attack-flow-diagram-builder` for attack visualization
+- Agent `@agent-defense-guidance-builder` for defense documentation

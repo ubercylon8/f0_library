@@ -4,7 +4,8 @@ import { getTestDetails, getFileContent, getAttackFlow } from '../services/api';
 import { TestDetails, FileContent } from '../types/test';
 import TechniqueBadge from './TechniqueBadge';
 import FileViewer from './FileViewer';
-import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow } from 'lucide-react';
+import DefenseDashboard from './DefenseDashboard';
+import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck } from 'lucide-react';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -120,6 +121,7 @@ export default function TestDetailPage() {
 
   // Categorize files
   const documentationFiles = test.files.filter(f => f.category === 'documentation');
+  const defenseFiles = test.files.filter(f => f.category === 'defense');
   const sourceFiles = test.files.filter(f => f.category === 'source');
   const detectionFiles = test.files.filter(f => f.category === 'detection');
   const configFiles = test.files.filter(f => f.category === 'config');
@@ -238,6 +240,34 @@ export default function TestDetailPage() {
               </div>
             )}
 
+            {/* Defense Guidance */}
+            {defenseFiles.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                  <ShieldCheck className="w-3 h-3" />
+                  Defense Guidance
+                </h3>
+                <div className="space-y-1">
+                  {defenseFiles.map(file => (
+                    <button
+                      key={file.name}
+                      onClick={() => handleFileSelect(file.name)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                        selectedFile === file.name && activeView === 'file'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'hover:bg-accent'
+                      }`}
+                    >
+                      {file.name.includes('DEFENSE_GUIDANCE') && <span className="text-xs text-green-500 mr-2">Guide</span>}
+                      {file.name.includes('_dr_rules') && <span className="text-xs text-cyan-500 mr-2">D&R</span>}
+                      {file.name.includes('_hardening') && <span className="text-xs text-orange-500 mr-2">Harden</span>}
+                      {file.name.split('_').pop()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Source Files */}
             {sourceFiles.length > 0 && (
               <div>
@@ -318,28 +348,38 @@ export default function TestDetailPage() {
         </div>
 
         {/* Right Panel - Content Viewer */}
-        <div className="flex-1 overflow-hidden">
-          {fileLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="w-6 h-6 animate-spin" />
-                <span>Loading...</span>
-              </div>
-            </div>
-          ) : activeView === 'attack-flow' && attackFlowHtml ? (
-            <iframe
-              srcDoc={attackFlowHtml}
-              className="w-full h-full border-0"
-              title="Attack Flow Diagram"
-              sandbox="allow-scripts allow-same-origin"
-            />
-          ) : fileContent ? (
-            <FileViewer file={fileContent} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              Select a file to view its content
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {/* Defense Dashboard (shown at top when test has defense files) */}
+          {test.hasDefenseGuidance && (
+            <div className="p-4 pb-0">
+              <DefenseDashboard test={test} />
             </div>
           )}
+
+          {/* Main Content Area */}
+          <div className="flex-1 overflow-hidden">
+            {fileLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  <span>Loading...</span>
+                </div>
+              </div>
+            ) : activeView === 'attack-flow' && attackFlowHtml ? (
+              <iframe
+                srcDoc={attackFlowHtml}
+                className="w-full h-full border-0"
+                title="Attack Flow Diagram"
+                sandbox="allow-scripts allow-same-origin"
+              />
+            ) : fileContent ? (
+              <FileViewer file={fileContent} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                Select a file to view its content
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

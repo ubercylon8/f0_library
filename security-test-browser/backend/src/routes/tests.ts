@@ -61,6 +61,7 @@ router.get('/', (req: Request, res: Response) => {
       hasInfoCard: test.hasInfoCard,
       hasSafetyDoc: test.hasSafetyDoc,
       hasDetectionFiles: test.hasDetectionFiles,
+      hasDefenseGuidance: test.hasDefenseGuidance,
     }));
 
     res.json({

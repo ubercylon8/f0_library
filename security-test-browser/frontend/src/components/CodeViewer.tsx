@@ -22,6 +22,7 @@ export default function CodeViewer({ content, language, filename }: CodeViewerPr
     'json': 'json',
     'kql': 'sql',  // KQL is similar to SQL
     'yara': 'clike',  // YARA has C-like syntax
+    'yaml': 'yaml',
   };
 
   const syntaxLanguage = languageMap[language] || 'text';
