@@ -1,5 +1,7 @@
 # Gunra Ransomware Simulation
 
+**Test Score**: **8.2/10**
+
 This VST simulates the behavior of Gunra Ransomware, a recently observed ransomware strain that employs advanced encryption methods and double-extortion tactics. The test replicates key malicious behaviors observed in Gunra ransomware attacks to validate endpoint detection and response (EDR) capabilities against ransomware threats.
 
 ## Overview
