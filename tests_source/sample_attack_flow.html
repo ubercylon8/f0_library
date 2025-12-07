@@ -19,15 +19,9 @@
             overflow: hidden;
         }
         
-        /* F0RT1KA Header */
+        /* F0RT1KA Header - Hidden when embedded in browser */
         .framework-header {
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.6));
-            border-bottom: 1px solid rgba(255, 107, 107, 0.2);
-            padding: 15px 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
+            display: none; /* Redundant - browser header shows F0RT1KA branding */
         }
         
         .framework-title {
@@ -50,7 +44,7 @@
         
         .dashboard-container {
             display: flex;
-            height: calc(100vh - 60px);
+            height: 100vh; /* Full height since header is hidden */
             position: relative;
         }
         
@@ -58,15 +52,17 @@
         .attack-flow-panel {
             flex: 1;
             min-width: 60%;
-            padding: 30px;
+            padding: 20px;
             overflow-y: auto;
             position: relative;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
-        
+
+        /* Test title header - Hidden when embedded in browser */
         .header {
-            text-align: center;
-            margin-bottom: 30px;
-            animation: fadeIn 0.8s ease-out;
+            display: none; /* Redundant - browser header shows test name */
         }
         
         .header h1 {
@@ -116,15 +112,17 @@
         .attack-flow-svg-container {
             background: rgba(0, 0, 0, 0.3);
             border-radius: 12px;
-            padding: 20px;
+            padding: 10px;
             position: relative;
-            min-height: 600px;
+            flex: 1;
+            min-height: 0; /* Allow flex shrinking */
+            overflow: hidden;
         }
-        
+
         .attack-flow-svg {
             width: 100%;
-            height: auto;
-            min-height: 550px;
+            height: 100%;
+            display: block;
         }
         
         /* Timeline View (Hidden by default) */
@@ -446,25 +444,56 @@
             animation: pulse 2s ease-in-out infinite;
         }
         
-        /* Navigation hints */
+        /* Navigation hints - Hidden when embedded */
         .nav-hint {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 0.85em;
-            color: #9ca3af;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            animation: fadeIn 1s ease-out 2s both;
+            display: none; /* Redundant - diagram title says "Click components for details" */
         }
-        
+
         .nav-hint-icon {
             color: #ff6b6b;
+        }
+
+        /* Sidebar toggle button */
+        .sidebar-toggle {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 28px;
+            height: 80px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            color: #ff6b6b;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            z-index: 200;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-toggle:hover {
+            background: rgba(255, 107, 107, 0.2);
+            width: 32px;
+        }
+
+        .sidebar-toggle .toggle-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-toggle.collapsed .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .sidebar-toggle.expanded {
+            right: 450px;
+        }
+
+        .details-panel.collapsed {
+            transform: translateX(100%) !important;
         }
         
         /* Stats overlay */
@@ -516,7 +545,7 @@
             
             <!-- Attack Flow View -->
             <div class="attack-flow-svg-container" id="attackFlowView">
-                <svg class="attack-flow-svg" viewBox="0 0 1200 650" xmlns="http://www.w3.org/2000/svg">
+                <svg class="attack-flow-svg" viewBox="0 0 1200 650" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
                     <defs>
                         <!-- Gradient Definitions -->
                         <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -685,6 +714,11 @@
                 <!-- Details will be populated dynamically -->
             </div>
         </div>
+
+        <!-- Sidebar Toggle Button -->
+        <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle details panel">
+            <span class="toggle-icon">◀</span>
+        </button>
     </div>
     
     <script>
@@ -932,6 +966,27 @@
         
         // Current active phase
         let currentPhase = null;
+
+        // Sidebar toggle state
+        var sidebarCollapsed = false;
+        function toggleSidebar() {
+            var detailsPanel = document.getElementById('detailsPanel');
+            var toggleBtn = document.getElementById('sidebarToggle');
+
+            sidebarCollapsed = !sidebarCollapsed;
+
+            if (sidebarCollapsed) {
+                detailsPanel.classList.add('collapsed');
+                toggleBtn.classList.remove('expanded');
+                toggleBtn.classList.add('collapsed');
+            } else {
+                detailsPanel.classList.remove('collapsed');
+                if (detailsPanel.classList.contains('active')) {
+                    toggleBtn.classList.add('expanded');
+                }
+                toggleBtn.classList.remove('collapsed');
+            }
+        }
         
         // Function to create MITRE links
         function createMitreLinks(mitreArray) {
@@ -1075,11 +1130,17 @@
             
             // Show details panel
             detailsPanel.classList.add('active');
-            
+
             // Update progress bar
             updateProgressBar(phaseNum);
+
+            // Position toggle button with sidebar
+            var toggleBtn = document.getElementById('sidebarToggle');
+            if (!sidebarCollapsed) {
+                toggleBtn.classList.add('expanded');
+            }
         }
-        
+
         // Close details panel
         function closeDetails() {
             document.getElementById('detailsPanel').classList.remove('active');
@@ -1089,6 +1150,10 @@
             document.querySelectorAll('.timeline-item').forEach(item => {
                 item.classList.remove('active');
             });
+
+            // Reset toggle button position
+            var toggleBtn = document.getElementById('sidebarToggle');
+            toggleBtn.classList.remove('expanded');
         }
         
         // Switch view
@@ -1133,11 +1198,12 @@
         // Initialize on load
         document.addEventListener('DOMContentLoaded', function() {
             initializeTimeline();
-            
-            // Show phase 1 details by default
-            setTimeout(() => {
+
+            // Sidebar starts expanded - show phase 1 details
+            sidebarCollapsed = false;
+            setTimeout(function() {
                 showPhaseDetails(1);
-            }, 1000);
+            }, 500);
         });
         
         // Keyboard navigation

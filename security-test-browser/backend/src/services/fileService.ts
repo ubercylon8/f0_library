@@ -20,6 +20,9 @@ export class FileService {
       else if (ext === '.html') type = 'html';
       else if (ext === '.sh') type = 'bash';
       else if (ext === '.json') type = 'json';
+      else if (ext === '.yaml' || ext === '.yml') type = 'yaml';
+      else if (ext === '.kql') type = 'kql';
+      else if (ext === '.yar') type = 'yara';
 
       return {
         content,

@@ -57,17 +57,9 @@
             z-index: 1;
         }
         
-        /* F0RT1KA Header */
+        /* F0RT1KA Header - Hidden when embedded in browser */
         .framework-header {
-            background: #000000;
-            border-bottom: 2px solid #00ff00;
-            padding: 15px 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            z-index: 10;
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+            display: none; /* Redundant - browser header shows F0RT1KA branding */
         }
         
         .framework-title {
@@ -95,7 +87,7 @@
         
         .dashboard-container {
             display: flex;
-            height: calc(100vh - 65px);
+            height: 100vh; /* Full height since header is hidden */
             position: relative;
             z-index: 10;
         }
@@ -107,6 +99,9 @@
             padding: 20px;
             overflow-y: auto;
             position: relative;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
         
         /* Custom scrollbar */
@@ -124,13 +119,9 @@
             border: 1px solid #00ff00;
         }
         
+        /* Test title header - Hidden when embedded in browser */
         .header {
-            text-align: center;
-            margin-bottom: 25px;
-            padding: 15px;
-            border: 1px solid #00ff00;
-            background: rgba(0, 255, 0, 0.02);
-            position: relative;
+            display: none; /* Redundant - browser header shows test name */
         }
         
         .header::before,
@@ -214,16 +205,18 @@
         .architecture-svg-container {
             background: #000000;
             border: 1px solid #00ff00;
-            padding: 20px;
+            padding: 10px;
             position: relative;
-            min-height: 550px;
+            flex: 1;
+            min-height: 0; /* Allow flex shrinking */
+            overflow: hidden;
             box-shadow: inset 0 0 20px rgba(0, 255, 0, 0.1);
         }
-        
+
         .architecture-svg {
             width: 100%;
-            height: auto;
-            min-height: 500px;
+            height: 100%;
+            display: block;
         }
         
         /* Timeline View */
@@ -594,27 +587,59 @@
             50% { opacity: 0.8; }
         }
         
-        /* Navigation hints */
+        /* Navigation hints - Hidden when embedded */
         .nav-hint {
-            position: absolute;
-            bottom: 15px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #000000;
-            border: 1px solid #00ff00;
-            padding: 8px 15px;
-            font-size: 0.8em;
-            color: #00ff00;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            display: none; /* Redundant - diagram title says "Click components for details" */
         }
-        
+
         .nav-hint-icon {
             color: #00ff00;
             animation: blink 2s infinite;
+        }
+
+        /* Sidebar toggle button - Terminal theme */
+        .sidebar-toggle {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 28px;
+            height: 80px;
+            background: #000000;
+            border: 1px solid #00ff00;
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            color: #00ff00;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            z-index: 200;
+            transition: all 0.3s ease;
+            font-family: 'Share Tech Mono', 'Courier New', monospace;
+        }
+
+        .sidebar-toggle:hover {
+            background: rgba(0, 255, 0, 0.1);
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+            width: 32px;
+        }
+
+        .sidebar-toggle .toggle-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-toggle.collapsed .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .sidebar-toggle.expanded {
+            right: 450px;
+        }
+
+        .details-panel.collapsed {
+            transform: translateX(100%) !important;
         }
         
         /* Stats overlay */
@@ -680,7 +705,7 @@
                 <div class="ascii-decoration">
 ═══════════════════════════════════════════════════════════════════════════════
                 </div>
-                <svg class="architecture-svg" viewBox="0 0 1200 600" xmlns="http://www.w3.org/2000/svg">
+                <svg class="architecture-svg" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
                     <defs>
                         <!-- Grid Pattern -->
                         <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -839,6 +864,11 @@
                 <!-- Details will be populated dynamically -->
             </div>
         </div>
+
+        <!-- Sidebar Toggle Button -->
+        <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle details panel">
+            <span class="toggle-icon">◀</span>
+        </button>
     </div>
     
     <script>
@@ -1086,7 +1116,28 @@
         
         // Current active phase
         let currentPhase = null;
-        
+
+        // Sidebar toggle state
+        var sidebarCollapsed = false;
+        function toggleSidebar() {
+            var detailsPanel = document.getElementById('detailsPanel');
+            var toggleBtn = document.getElementById('sidebarToggle');
+
+            sidebarCollapsed = !sidebarCollapsed;
+
+            if (sidebarCollapsed) {
+                detailsPanel.classList.add('collapsed');
+                toggleBtn.classList.remove('expanded');
+                toggleBtn.classList.add('collapsed');
+            } else {
+                detailsPanel.classList.remove('collapsed');
+                if (detailsPanel.classList.contains('active')) {
+                    toggleBtn.classList.add('expanded');
+                }
+                toggleBtn.classList.remove('collapsed');
+            }
+        }
+
         // Function to create MITRE links
         function createMitreLinks(mitreArray) {
             return mitreArray.map(technique => {
@@ -1237,11 +1288,17 @@
             
             // Show details panel
             detailsPanel.classList.add('active');
-            
+
             // Update progress bar
             updateProgressBar(phaseNum);
+
+            // Position toggle button with sidebar
+            var toggleBtn = document.getElementById('sidebarToggle');
+            if (!sidebarCollapsed) {
+                toggleBtn.classList.add('expanded');
+            }
         }
-        
+
         // Close details panel
         function closeDetails() {
             document.getElementById('detailsPanel').classList.remove('active');
@@ -1251,6 +1308,10 @@
             document.querySelectorAll('.timeline-item').forEach(item => {
                 item.classList.remove('active');
             });
+
+            // Reset toggle button position
+            var toggleBtn = document.getElementById('sidebarToggle');
+            toggleBtn.classList.remove('expanded');
         }
         
         // Switch view
@@ -1284,11 +1345,12 @@
         // Initialize on load
         document.addEventListener('DOMContentLoaded', function() {
             initializeTimeline();
-            
-            // Show phase 1 details by default
-            setTimeout(() => {
+
+            // Sidebar starts expanded - show phase 1 details
+            sidebarCollapsed = false;
+            setTimeout(function() {
                 showPhaseDetails(1);
-            }, 1000);
+            }, 500);
         });
         
         // Keyboard navigation

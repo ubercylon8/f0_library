@@ -26,15 +26,9 @@
             overflow: hidden;
         }
 
-        /* F0RT1KA Header */
+        /* F0RT1KA Header - Hidden when embedded in browser */
         .framework-header {
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.6));
-            border-bottom: 1px solid rgba(255, 107, 107, 0.2);
-            padding: 15px 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
+            display: none; /* Hidden - redundant in security test browser */
         }
 
         .framework-title {
@@ -57,7 +51,7 @@
 
         .dashboard-container {
             display: flex;
-            height: calc(100vh - 60px);
+            height: 100vh; /* Full height since header is hidden */
             position: relative;
         }
 
@@ -65,15 +59,17 @@
         .attack-flow-panel {
             flex: 1;
             min-width: 60%;
-            padding: 30px;
+            padding: 20px;
             overflow-y: auto;
             position: relative;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
 
+        /* Test title header - Hidden when embedded in browser */
         .header {
-            text-align: center;
-            margin-bottom: 30px;
-            animation: fadeIn 0.8s ease-out;
+            display: none; /* Hidden - redundant in security test browser */
         }
 
         .header h1 {
@@ -94,7 +90,8 @@
             display: flex;
             justify-content: center;
             gap: 10px;
-            margin-bottom: 25px;
+            margin-bottom: 15px;
+            flex-shrink: 0; /* Don't shrink the buttons */
         }
 
         .view-btn {
@@ -119,19 +116,21 @@
             color: #ffffff;
         }
 
-        /* SVG Attack Flow Container */
+        /* SVG Attack Flow Container - Fills available space */
         .attack-flow-svg-container {
             background: rgba(0, 0, 0, 0.3);
             border-radius: 12px;
-            padding: 20px;
+            padding: 10px;
             position: relative;
-            min-height: 600px;
+            flex: 1;
+            min-height: 0; /* Allow flex shrinking */
+            overflow: hidden;
         }
 
         .attack-flow-svg {
             width: 100%;
-            height: auto;
-            min-height: 550px;
+            height: 100%;
+            display: block;
         }
 
         /* Timeline View (Hidden by default) */
@@ -401,6 +400,51 @@
             color: #ff6b6b;
         }
 
+        /* Sidebar toggle button */
+        .sidebar-toggle {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 28px;
+            height: 80px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            color: #ff6b6b;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            z-index: 200;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-toggle:hover {
+            background: rgba(255, 107, 107, 0.15);
+            width: 32px;
+        }
+
+        .sidebar-toggle .toggle-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-toggle.collapsed .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        /* Sidebar collapsed state */
+        .details-panel.collapsed {
+            transform: translateX(100%) !important;
+        }
+
+        /* Adjust toggle position when sidebar is visible */
+        .sidebar-toggle.expanded {
+            right: 450px;
+        }
+
         /* Mobile responsive */
         @media (max-width: 1200px) {
             .details-panel {
@@ -453,21 +497,9 @@
             animation: pulse 2s ease-in-out infinite;
         }
 
-        /* Navigation hints */
+        /* Navigation hints - Hidden in embedded mode */
         .nav-hint {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 0.85em;
-            color: #9ca3af;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            animation: fadeIn 1s ease-out 2s both;
+            display: none; /* Hidden - redundant, "Click components for details" shown in title */
         }
 
         .nav-hint-icon {
@@ -547,6 +579,11 @@
         <div class="framework-subtitle">Test Score: 9.2/10</div>
     </div>
 
+    <!-- Sidebar Toggle Button - User can collapse to maximize diagram visibility -->
+    <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle details panel">
+        <span class="toggle-icon">◀</span>
+    </button>
+
     <div class="dashboard-container">
         <!-- Left Panel - Attack Flow View -->
         <div class="attack-flow-panel">
@@ -562,7 +599,7 @@
 
             <!-- Attack Flow View -->
             <div class="attack-flow-svg-container" id="attackFlowView">
-                <svg class="attack-flow-svg" viewBox="0 0 1200 650" xmlns="http://www.w3.org/2000/svg">
+                <svg class="attack-flow-svg" viewBox="0 0 1200 650" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
                     <defs>
                         <!-- Gradient Definitions -->
                         <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1329,8 +1366,12 @@
 
             detailsContent.innerHTML = html;
 
-            // Show details panel
+            // Show details panel (unless collapsed)
             detailsPanel.classList.add('active');
+            if (sidebarCollapsed) {
+                detailsPanel.classList.add('collapsed');
+            }
+            updateToggleButtonState();
 
             // Update progress bar
             updateProgressBar(phaseKey);
@@ -1345,6 +1386,40 @@
             document.querySelectorAll('.timeline-item').forEach(function(item) {
                 item.classList.remove('active');
             });
+            updateToggleButtonState();
+        }
+
+        // Toggle sidebar visibility
+        var sidebarCollapsed = false;
+        function toggleSidebar() {
+            var detailsPanel = document.getElementById('detailsPanel');
+            var toggleBtn = document.getElementById('sidebarToggle');
+
+            sidebarCollapsed = !sidebarCollapsed;
+
+            if (sidebarCollapsed) {
+                detailsPanel.classList.add('collapsed');
+                toggleBtn.classList.remove('expanded');
+                toggleBtn.classList.add('collapsed');
+            } else {
+                detailsPanel.classList.remove('collapsed');
+                if (detailsPanel.classList.contains('active')) {
+                    toggleBtn.classList.add('expanded');
+                }
+                toggleBtn.classList.remove('collapsed');
+            }
+        }
+
+        // Update toggle button state based on panel visibility
+        function updateToggleButtonState() {
+            var detailsPanel = document.getElementById('detailsPanel');
+            var toggleBtn = document.getElementById('sidebarToggle');
+
+            if (detailsPanel.classList.contains('active') && !sidebarCollapsed) {
+                toggleBtn.classList.add('expanded');
+            } else {
+                toggleBtn.classList.remove('expanded');
+            }
         }
 
         // Switch view
@@ -1400,10 +1475,12 @@
         document.addEventListener('DOMContentLoaded', function() {
             initializeTimeline();
 
-            // Show phase 0 details by default
+            // Sidebar starts expanded - shows phase 0 details by default
+            // User can collapse it if they want more diagram space
+            sidebarCollapsed = false;
             setTimeout(function() {
                 showPhaseDetails(0);
-            }, 1000);
+            }, 500);
         });
 
         // Keyboard navigation
