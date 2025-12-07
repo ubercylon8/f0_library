@@ -1,5 +1,19 @@
 # SafePay Go-Native Ransomware Simulation
 
+## Test Score: 9.0/10
+
+### Score Breakdown
+
+| Criterion | Score |
+|-----------|-------|
+| **Real-World Accuracy** | **2.8/3.0** |
+| **Technical Sophistication** | **2.7/3.0** |
+| **Safety Mechanisms** | **1.6/2.0** |
+| **Detection Opportunities** | **0.9/1.0** |
+| **Logging & Observability** | **1.0/1.0** |
+
+**Justification**: Pure Go implementation of SafePay ransomware with full kill chain: directory structure creation, mass file generation (800-1000 files), multi-phase data staging with WinRAR, selective deletion, Base64 encryption simulation, and ransom note generation. Superior logging and performance. No actual encryption - uses safe Base64 encoding for simulation.
+
 ## Overview
 This test implements a complete SafePay ransomware simulation entirely in Go, eliminating PowerShell dependencies. It provides enhanced performance, reliability, and control while maintaining identical detection opportunities as the original PowerShell-based test.
 

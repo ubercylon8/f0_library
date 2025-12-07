@@ -1,5 +1,8 @@
 # EDRSilencer Detection
 
+**Test Score**: **7.8/10**
+
+## Overview
 This test evaluates the capability of security solutions to detect and prevent the execution of EDRSilencer, a defensive evasion tool designed to block outbound traffic from EDR processes using Windows Filtering Platform (WFP) APIs.
 
 ## How

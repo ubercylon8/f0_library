@@ -1,5 +1,7 @@
 # SafePay Go-Native Ransomware Simulation
 
+**Test Score**: **9.0/10**
+
 This F0RT1KA test implements a complete SafePay ransomware simulation entirely in Go, eliminating PowerShell dependencies and providing enhanced performance and control.
 
 ## Overview

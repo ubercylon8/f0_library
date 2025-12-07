@@ -1,5 +1,7 @@
 # SafePay Ransomware Simulation & Data Staging Test
 
+**Test Score**: **8.6/10**
+
 This F0RT1KA test simulates the SafePay ransomware's behavior, including file encryption and data staging techniques using WinRAR.
 
 ## Overview

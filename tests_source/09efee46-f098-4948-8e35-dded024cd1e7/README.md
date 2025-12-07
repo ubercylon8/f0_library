@@ -1,5 +1,8 @@
 # Sliver C2 Client Detection
 
+**Test Score**: **7.5/10**
+
+## Overview
 This test evaluates the capability of security solutions to detect and prevent the execution of a Sliver C2 client. Sliver is a legitimate red team Command and Control (C2) framework used by security professionals, but can also be abused by threat actors to maintain persistence and control over compromised systems.
 
 ## How

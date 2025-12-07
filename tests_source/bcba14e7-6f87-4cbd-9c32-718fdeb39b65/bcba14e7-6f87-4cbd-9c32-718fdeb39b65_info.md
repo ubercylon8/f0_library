@@ -1,9 +1,23 @@
 # EDRSilencer Detection Test
 
-**Test ID**: bcba14e7-6f87-4cbd-9c32-718fdeb39b65  
-**Test binary SHA1**: [placeholder - would be actual SHA1 in production]  
-**Created**: 2024-10-07 10:00:00.000000  
+**Test ID**: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+**Test binary SHA1**: [placeholder - would be actual SHA1 in production]
+**Created**: 2024-10-07 10:00:00.000000
 **Test schedule**: Not scheduled
+
+## Test Score: 7.8/10
+
+### Score Breakdown
+
+| Criterion | Score |
+|-----------|-------|
+| **Real-World Accuracy** | **2.3/3.0** |
+| **Technical Sophistication** | **2.2/3.0** |
+| **Safety Mechanisms** | **1.6/2.0** |
+| **Detection Opportunities** | **0.7/1.0** |
+| **Logging & Observability** | **1.0/1.0** |
+
+**Justification**: Uses actual EDRSilencer tool to block EDR communications via WFP APIs. Good safety with automatic cleanup using "unblockall" parameter - all WFP filters are removed before completion. Simpler technique than SilentButDeadly but tests the same defense evasion category.
 
 ## Overview
 This test evaluates endpoint protection against EDRSilencer, a tool designed to disable security controls by blocking outbound traffic from EDR processes using Windows Filtering Platform (WFP) APIs.

@@ -1,5 +1,8 @@
 # Akira Ransomware BYOVD Attack Chain (Hybrid Testing)
 
+**Test Score**: **8.9/10**
+
+## Overview
 This VST simulates the Bring Your Own Vulnerable Driver (BYOVD) attack chain used by Akira ransomware to achieve privilege escalation and disable Windows Defender. The test uses a **hybrid approach**: real vulnerable driver for signature detection testing followed by safe simulated drivers for behavioral detection.
 
 ## How

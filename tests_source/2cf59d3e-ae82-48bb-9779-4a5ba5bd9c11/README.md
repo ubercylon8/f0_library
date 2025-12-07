@@ -1,5 +1,7 @@
 # SafePay UAC Bypass & Defense Evasion Test
 
+**Test Score**: **8.3/10**
+
 This F0RT1KA test simulates the UAC bypass and defense evasion techniques employed by SafePay malware, including CMSTPLUA COM object abuse and registry persistence.
 
 ## Overview

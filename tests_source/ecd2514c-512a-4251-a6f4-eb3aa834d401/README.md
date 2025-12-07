@@ -1,6 +1,8 @@
 # CyberEye RAT - Windows Defender Disabling via PowerShell
 
-## Test Overview
+**Test Score**: **7.4/10**
+
+## Overview
 This test simulates the CyberEye RAT's technique of disabling Windows Defender using PowerShell commands and registry modifications. The test evaluates whether security solutions can detect and prevent malicious PowerShell scripts that attempt to disable endpoint protection.
 
 ## Test Steps

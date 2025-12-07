@@ -1,5 +1,7 @@
 # EDR-Freeze Defense Evasion Test
 
+**Test Score**: **8.6/10**
+
 ## Overview
 This security test evaluates endpoint protection capabilities against the EDR-Freeze technique, which exploits Windows Error Reporting (WerFaultSecure.exe) to suspend security processes including Windows Defender and EDR agents.
 

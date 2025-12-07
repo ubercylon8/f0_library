@@ -1,6 +1,8 @@
 # TrollDisappearKey AMSI Bypass Detection Test
 
-## Test Overview
+**Test Score**: **7.9/10**
+
+## Overview
 This test evaluates the endpoint's ability to detect and prevent TrollDisappearKey, an AMSI (Anti-Malware Scan Interface) bypass tool that manipulates registry queries to break AMSI provider loading. The tool hooks registry functions and redirects AMSI provider queries to prevent security vendor DLLs from being loaded, enabling the execution of malicious .NET assemblies without AMSI scanning.
 
 ## Test Steps

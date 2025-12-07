@@ -1,5 +1,7 @@
 # Data Exfiltration and Encryption Simulation
 
+**Test Score**: **9.1/10**
+
 ## Overview
 This test simulates advanced data exfiltration and encryption techniques commonly observed in sophisticated cyber attacks. It evaluates EDR/AV capabilities to detect cloud storage reconnaissance, data staging and exfiltration patterns, process masquerading, and encryption behavioral indicators without actual data destruction or transmission.
 
