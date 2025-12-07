@@ -20,6 +20,7 @@ export interface TestMetadata {
   hasInfoCard: boolean;
   hasSafetyDoc: boolean;
   hasDetectionFiles: boolean;
+  hasDefenseGuidance: boolean;
 }
 
 export interface ScoreBreakdown {
@@ -40,9 +41,9 @@ export interface StageInfo {
 export interface TestFile {
   name: string;
   path: string;
-  type: 'go' | 'powershell' | 'markdown' | 'html' | 'bash' | 'kql' | 'yara' | 'other';
+  type: 'go' | 'powershell' | 'markdown' | 'html' | 'bash' | 'kql' | 'yara' | 'yaml' | 'other';
   size: number;
-  category: 'source' | 'documentation' | 'diagram' | 'config' | 'detection' | 'other';
+  category: 'source' | 'documentation' | 'diagram' | 'config' | 'detection' | 'defense' | 'other';
 }
 
 export interface TestDetails extends TestMetadata {

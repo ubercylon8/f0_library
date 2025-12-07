@@ -14,7 +14,7 @@ export default function FileViewer({ file }: FileViewerProps) {
   }
 
   // Render code files with syntax highlighting
-  if (['go', 'powershell', 'bash', 'json'].includes(file.type)) {
+  if (['go', 'powershell', 'bash', 'json', 'kql', 'yara', 'yaml'].includes(file.type)) {
     return <CodeViewer content={file.content} language={file.type} filename={file.name} />;
   }
 

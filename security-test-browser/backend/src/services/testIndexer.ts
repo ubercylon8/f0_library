@@ -17,6 +17,12 @@ export class TestIndexer {
    * Categorize a file based on its name and extension
    */
   private categorizeFile(fileName: string): TestFile['category'] {
+    // Defense guidance files - check BEFORE general .md check
+    if (fileName.includes('_DEFENSE_GUIDANCE') ||
+        fileName.includes('_dr_rules') ||
+        fileName.includes('_hardening')) {
+      return 'defense';
+    }
     if (fileName.endsWith('.md')) {
       return 'documentation';
     }
@@ -56,6 +62,9 @@ export class TestIndexer {
       case '.yara':
       case '.yar':
         return 'yara';
+      case '.yaml':
+      case '.yml':
+        return 'yaml';
       default:
         return 'other';
     }
@@ -92,14 +101,15 @@ export class TestIndexer {
       }
     }
 
-    // Sort files: documentation first, then source, then detection, then config, then others
+    // Sort files: documentation first, then defense, then source, then detection, then config, then others
     const categoryOrder: Record<TestFile['category'], number> = {
       'documentation': 1,
       'diagram': 2,
-      'source': 3,
-      'detection': 4,
-      'config': 5,
-      'other': 6,
+      'defense': 3,
+      'source': 4,
+      'detection': 5,
+      'config': 6,
+      'other': 7,
     };
 
     files.sort((a, b) => {
@@ -145,6 +155,7 @@ export class TestIndexer {
       const attackFlowFile = files.find(f => f.name.endsWith('_attack_flow.html') || f.name.includes('attack_flow'));
       const hasAttackFlow = !!attackFlowFile;
       const hasDetectionFiles = files.some(f => f.category === 'detection');
+      const hasDefenseGuidance = files.some(f => f.category === 'defense');
 
       const testDetails: TestDetails = {
         ...metadata,
@@ -155,6 +166,7 @@ export class TestIndexer {
         hasInfoCard,
         hasSafetyDoc,
         hasDetectionFiles,
+        hasDefenseGuidance,
       };
 
       return testDetails;
