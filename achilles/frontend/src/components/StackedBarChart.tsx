@@ -97,7 +97,7 @@ export default function StackedBarChart({
 
   if (loading) {
     return (
-      <div className="bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -105,28 +105,27 @@ export default function StackedBarChart({
 
   if (data.length === 0) {
     return (
-      <div className="bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
         <p className="text-muted-foreground">No data available</p>
       </div>
     );
   }
 
   const isVertical = layout === 'vertical';
-  const chartHeight = isVertical ? Math.max(280, chartData.length * 35 + 60) : 280;
 
   return (
-    <div className="bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col">
       <h3 className="font-semibold text-lg mb-2">{title}</h3>
       {renderLegend()}
 
-      <div style={{ height: `${Math.min(chartHeight, 400)}px` }}>
+      <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartData}
             layout={isVertical ? 'vertical' : 'horizontal'}
             margin={
               isVertical
-                ? { top: 10, right: 20, left: 120, bottom: 10 }
+                ? { top: 10, right: 20, left: 10, bottom: 10 }
                 : { top: 10, right: 20, left: 10, bottom: 30 }
             }
           >
@@ -142,11 +141,11 @@ export default function StackedBarChart({
                 <YAxis
                   type="category"
                   dataKey="name"
-                  tick={{ fill: textColor, fontSize: 11 }}
+                  tick={{ fill: textColor, fontSize: 12 }}
                   tickLine={{ stroke: gridColor }}
                   axisLine={{ stroke: gridColor }}
-                  tickFormatter={(value) => truncateName(value, 18)}
-                  width={110}
+                  tickFormatter={(value) => truncateName(value, 16)}
+                  width={100}
                 />
               </>
             ) : (

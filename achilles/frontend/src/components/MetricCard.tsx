@@ -42,14 +42,14 @@ export default function MetricCard({
 
   if (loading) {
     return (
-      <div className="bg-secondary/50 border border-border rounded-xl p-6 flex items-center justify-center min-h-[140px] shadow-sm">
+      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 flex items-center justify-center min-h-[140px] shadow-sm">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-center gap-2 mb-3">
         {Icon && <Icon className="w-4 h-4 text-primary" />}
         <h3 className="font-medium text-sm text-muted-foreground">{title}</h3>

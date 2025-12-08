@@ -92,7 +92,7 @@ export default function ErrorTypePieChart({
 
   if (loading) {
     return (
-      <div className="bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -100,14 +100,14 @@ export default function ErrorTypePieChart({
 
   if (data.length === 0) {
     return (
-      <div className="bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
         <p className="text-muted-foreground">No data available</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col">
       <h3 className="font-semibold text-lg mb-4">{title}</h3>
 
       <div className="flex items-center h-[200px]">

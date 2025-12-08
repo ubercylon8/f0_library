@@ -357,10 +357,19 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* Dashboard Grid - 12 column layout */}
-        <div className="grid grid-cols-12 gap-4">
-          {/* Row 1: Metrics + Trend Chart */}
-          <div className="col-span-12 md:col-span-6 lg:col-span-2">
+        {/* Dashboard Grid - Bento Grid Layout with fixed row heights */}
+        <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
+          {/* Row 1: Defense Score Trend (full width, 2 rows) */}
+          <div className="col-span-12 row-span-2">
+            <TrendChart
+              data={trendData}
+              loading={loadingTrend}
+              title="Defense Score Trend"
+            />
+          </div>
+
+          {/* Row 3: Metrics (1 row each) */}
+          <div className="col-span-12 md:col-span-4 lg:col-span-4 row-span-1">
             <MetricCard
               title="Defense Score"
               value={defenseScore?.overall || 0}
@@ -373,7 +382,7 @@ export default function DashboardPage() {
               loading={loadingScore}
             />
           </div>
-          <div className="col-span-6 md:col-span-3 lg:col-span-2">
+          <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
             <MetricCard
               title="Unique Endpoints"
               value={uniqueHostnames}
@@ -381,7 +390,7 @@ export default function DashboardPage() {
               loading={loadingHostnames}
             />
           </div>
-          <div className="col-span-6 md:col-span-3 lg:col-span-2">
+          <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
             <MetricCard
               title="Unique Tests"
               value={uniqueTestCount}
@@ -389,23 +398,16 @@ export default function DashboardPage() {
               loading={loadingTestCount}
             />
           </div>
-          <div className="col-span-12 lg:col-span-6">
-            <TrendChart
-              data={trendData}
-              loading={loadingTrend}
-              title="Defense Score Trend"
-            />
-          </div>
 
-          {/* Row 2: Pie Chart + Donut + Technique Distribution */}
-          <div className="col-span-12 md:col-span-6 lg:col-span-4">
+          {/* Row 4-5: Pie Chart + Donut + Technique Distribution (2 rows each) */}
+          <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
             <ErrorTypePieChart
               data={errorTypeData}
               loading={loadingErrorType}
               title="Results by Error Type"
             />
           </div>
-          <div className="col-span-12 md:col-span-6 lg:col-span-4">
+          <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
             <ProtectionRateDonut
               protected={defenseScore?.protected || 0}
               total={defenseScore?.total || 0}
@@ -413,7 +415,7 @@ export default function DashboardPage() {
               title="Protection Rate"
             />
           </div>
-          <div className="col-span-12 lg:col-span-4">
+          <div className="col-span-12 lg:col-span-4 row-span-2">
             <StackedBarChart
               data={techniqueDistData}
               loading={loadingTechniqueDist}
@@ -422,15 +424,15 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* Row 3: Defense Score by Test + by Technique */}
-          <div className="col-span-12 lg:col-span-6">
+          {/* Row 6-7: Defense Score by Test + by Technique (2 rows each) */}
+          <div className="col-span-12 lg:col-span-6 row-span-2">
             <BarChart
               data={byTestData}
               title="Defense Score by Test"
               loading={loadingByTest}
             />
           </div>
-          <div className="col-span-12 lg:col-span-6">
+          <div className="col-span-12 lg:col-span-6 row-span-2">
             <BarChart
               data={byTechniqueData}
               title="Defense Score by Technique"
@@ -438,8 +440,8 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* Row 4: Test Coverage + Host-Test Matrix */}
-          <div className="col-span-12 lg:col-span-6">
+          {/* Row 8-9: Test Coverage + Host-Test Matrix (2 rows each) */}
+          <div className="col-span-12 lg:col-span-6 row-span-2">
             <StackedBarChart
               data={testCoverageData}
               loading={loadingTestCoverage}
@@ -447,7 +449,7 @@ export default function DashboardPage() {
               layout="vertical"
             />
           </div>
-          <div className="col-span-12 lg:col-span-6">
+          <div className="col-span-12 lg:col-span-6 row-span-2">
             <HeatmapChart
               data={hostTestMatrix}
               loading={loadingMatrix}
@@ -455,8 +457,8 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* Row 5: Recent Executions (full width) */}
-          <div className="col-span-12">
+          {/* Row 10-11: Recent Executions (2 rows, full width) */}
+          <div className="col-span-12 row-span-2">
             <ExecutionsTable
               data={executions}
               loading={loadingExecutions}
