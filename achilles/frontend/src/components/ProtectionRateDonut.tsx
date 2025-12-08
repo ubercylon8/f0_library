@@ -63,14 +63,14 @@ export default function ProtectionRateDonut({
 
   if (loading) {
     return (
-      <div className="bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col">
       <div className="flex items-center gap-2 mb-4">
         <Shield className="w-5 h-5 text-primary" />
         <h3 className="font-semibold text-lg">{title}</h3>
