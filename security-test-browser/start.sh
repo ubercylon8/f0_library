@@ -1,49 +1,194 @@
 #!/bin/bash
 
 # F0RT1KA Security Test Browser - Startup Script
+# Smart startup with port detection and fallback
 
-echo "======================================================"
-echo "  F0RT1KA SECURITY TEST BROWSER"
-echo "======================================================"
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Default ports
+BACKEND_PORT=3001
+FRONTEND_PORT=5173
+
+# Port range for fallback
+BACKEND_PORT_MAX=3010
+FRONTEND_PORT_MAX=5180
+
+# Function to check if a port is in use
+is_port_in_use() {
+    local port=$1
+    if command -v lsof &> /dev/null; then
+        lsof -i:"$port" &> /dev/null
+    elif command -v ss &> /dev/null; then
+        ss -tuln | grep -q ":$port "
+    elif command -v netstat &> /dev/null; then
+        netstat -tuln | grep -q ":$port "
+    else
+        # Fallback: try to connect
+        (echo >/dev/tcp/localhost/"$port") &>/dev/null
+    fi
+}
+
+# Function to find an available port
+find_available_port() {
+    local start_port=$1
+    local max_port=$2
+    local port=$start_port
+
+    while [ $port -le $max_port ]; do
+        if ! is_port_in_use $port; then
+            echo $port
+            return 0
+        fi
+        ((port++))
+    done
+
+    # No available port found
+    echo -1
+    return 1
+}
+
+# Function to kill process on a port
+kill_port() {
+    local port=$1
+    if command -v lsof &> /dev/null; then
+        local pid=$(lsof -t -i:"$port" 2>/dev/null)
+        if [ -n "$pid" ]; then
+            kill $pid 2>/dev/null || true
+            sleep 1
+        fi
+    fi
+}
+
+echo "╔═══════════════════════════════════════════════════════════╗"
+echo "║                                                           ║"
+echo "║   F0RT1KA Security Test Browser                           ║"
+echo "║   Starting development servers...                         ║"
+echo "║                                                           ║"
+echo "╚═══════════════════════════════════════════════════════════╝"
 echo ""
 
-# Check if backend dependencies are installed
+# Check for --kill-existing flag
+KILL_EXISTING=false
+for arg in "$@"; do
+    case $arg in
+        --kill|-k)
+            KILL_EXISTING=true
+            ;;
+        --backend-port=*)
+            BACKEND_PORT="${arg#*=}"
+            ;;
+        --frontend-port=*)
+            FRONTEND_PORT="${arg#*=}"
+            ;;
+        --help|-h)
+            echo "Usage: $0 [options]"
+            echo ""
+            echo "Options:"
+            echo "  --kill, -k              Kill existing processes on default ports"
+            echo "  --backend-port=PORT     Specify backend port (default: 3001)"
+            echo "  --frontend-port=PORT    Specify frontend port (default: 5173)"
+            echo "  --help, -h              Show this help message"
+            echo ""
+            exit 0
+            ;;
+    esac
+done
+
+# Kill existing processes if requested
+if [ "$KILL_EXISTING" = true ]; then
+    echo "Killing existing processes..."
+    kill_port $BACKEND_PORT
+    kill_port $FRONTEND_PORT
+fi
+
+# Find available ports
+echo "Checking port availability..."
+
+if is_port_in_use $BACKEND_PORT; then
+    echo "  Port $BACKEND_PORT is in use, finding alternative..."
+    BACKEND_PORT=$(find_available_port $BACKEND_PORT $BACKEND_PORT_MAX)
+    if [ "$BACKEND_PORT" -eq -1 ]; then
+        echo "Error: Could not find available port for backend (tried $BACKEND_PORT-$BACKEND_PORT_MAX)"
+        echo "Use --kill to terminate existing processes"
+        exit 1
+    fi
+    echo "  Using port $BACKEND_PORT for backend"
+else
+    echo "  Backend port $BACKEND_PORT is available"
+fi
+
+if is_port_in_use $FRONTEND_PORT; then
+    echo "  Port $FRONTEND_PORT is in use, finding alternative..."
+    FRONTEND_PORT=$(find_available_port $FRONTEND_PORT $FRONTEND_PORT_MAX)
+    if [ "$FRONTEND_PORT" -eq -1 ]; then
+        echo "Error: Could not find available port for frontend (tried $FRONTEND_PORT-$FRONTEND_PORT_MAX)"
+        echo "Use --kill to terminate existing processes"
+        exit 1
+    fi
+    echo "  Using port $FRONTEND_PORT for frontend"
+else
+    echo "  Frontend port $FRONTEND_PORT is available"
+fi
+
+echo ""
+
+# Check if npm dependencies are installed
 if [ ! -d "backend/node_modules" ]; then
     echo "Installing backend dependencies..."
     cd backend && npm install && cd ..
 fi
 
-# Check if frontend dependencies are installed
 if [ ! -d "frontend/node_modules" ]; then
     echo "Installing frontend dependencies..."
     cd frontend && npm install && cd ..
 fi
 
-echo ""
-echo "Starting servers..."
-echo ""
-echo "Backend API will run on: http://localhost:3001"
-echo "Frontend app will run on: http://localhost:5173"
-echo ""
-echo "Press Ctrl+C in each terminal to stop the servers"
-echo ""
-echo "======================================================"
-echo ""
+# Export ports as environment variables for the apps
+export PORT=$BACKEND_PORT
+export VITE_API_URL="http://localhost:$BACKEND_PORT"
 
-# Open two terminal windows
-echo "Opening backend server..."
-gnome-terminal -- bash -c "cd backend && npm run dev; exec bash" 2>/dev/null || \
-xterm -e "cd backend && npm run dev; exec bash" 2>/dev/null || \
-echo "Please open a terminal and run: cd backend && npm run dev"
+# Start backend in background
+echo "Starting backend server on port $BACKEND_PORT..."
+cd backend
+PORT=$BACKEND_PORT npm run dev &
+BACKEND_PID=$!
+cd ..
 
+# Wait for backend to start
 sleep 2
 
-echo "Opening frontend server..."
-gnome-terminal -- bash -c "cd frontend && npm run dev; exec bash" 2>/dev/null || \
-xterm -e "cd frontend && npm run dev; exec bash" 2>/dev/null || \
-echo "Please open a terminal and run: cd frontend && npm run dev"
+# Start frontend with custom port
+echo "Starting frontend server on port $FRONTEND_PORT..."
+cd frontend
+npm run dev -- --port $FRONTEND_PORT &
+FRONTEND_PID=$!
+cd ..
 
 echo ""
-echo "Servers starting..."
-echo "Once both servers are running, open http://localhost:5173 in your browser"
+echo "═══════════════════════════════════════════════════════════"
+echo "  Backend:  http://localhost:$BACKEND_PORT"
+echo "  Frontend: http://localhost:$FRONTEND_PORT"
 echo ""
+echo "  Press Ctrl+C to stop both servers"
+echo "═══════════════════════════════════════════════════════════"
+echo ""
+
+# Handle cleanup on exit
+cleanup() {
+    echo ""
+    echo "Shutting down servers..."
+    kill $BACKEND_PID 2>/dev/null || true
+    kill $FRONTEND_PID 2>/dev/null || true
+    # Also kill any child processes
+    pkill -P $BACKEND_PID 2>/dev/null || true
+    pkill -P $FRONTEND_PID 2>/dev/null || true
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+# Wait for either process to exit
+wait
