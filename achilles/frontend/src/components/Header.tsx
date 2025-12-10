@@ -17,10 +17,10 @@ export default function Header({ onSettingsClick, onRefreshClick, isRefreshing }
         {/* Logo and Title */}
         <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <div className="flex items-center justify-center w-16 h-16 rounded-lg bg-primary/10">
-            <Target className="w-10 h-10 text-primary" />
+            <Target className="w-12 h-12 text-primary" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">ACHILLES</h1>
+            <h1 className="text-4xl font-bold tracking-tight">ACHILLES</h1>
             <p className="text-sm text-muted-foreground">Test Results Visualizer</p>
           </div>
         </Link>
