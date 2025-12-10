@@ -149,6 +149,7 @@ fi
 # Export ports as environment variables for the apps
 export PORT=$BACKEND_PORT
 export VITE_API_URL="http://localhost:$BACKEND_PORT"
+export VITE_BACKEND_PORT=$BACKEND_PORT
 
 # Start backend in background
 echo "Starting backend server on port $BACKEND_PORT..."
@@ -160,10 +161,11 @@ cd ..
 # Wait for backend to start
 sleep 2
 
-# Start frontend with custom port
+# Start frontend with custom port and backend proxy config
 echo "Starting frontend server on port $FRONTEND_PORT..."
+echo "  (proxying /api to backend on port $BACKEND_PORT)"
 cd frontend
-npm run dev -- --port $FRONTEND_PORT &
+VITE_BACKEND_PORT=$BACKEND_PORT npm run dev -- --port $FRONTEND_PORT &
 FRONTEND_PID=$!
 cd ..
 
