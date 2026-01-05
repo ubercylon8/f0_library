@@ -76,4 +76,3 @@ utils/__pycache__/
 # Multi-stage test temporary binaries (cleaned after build)
 *-T*.exe
 *-T*.dll
-achilles/frontend/.vite/

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Validate test score format compliance for security-test-browser
+# Validate test score format compliance for F0RT1KA tests
 # Checks that README.md and info.md files use the correct score format
 
 set -e
@@ -29,7 +29,7 @@ echo "F0RT1KA Test Score Format Validator"
 echo "================================================================="
 echo ""
 echo "This script validates that test documentation uses the correct"
-echo "score format expected by the security-test-browser."
+echo "score format for F0RT1KA tests."
 echo ""
 echo "Expected formats:"
 echo "  README.md: **Test Score**: **9.2/10**"
