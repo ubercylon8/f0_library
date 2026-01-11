@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "MCP_DOCKER": {
+      "command": "powershell.exe",
+      "args": ["-Command", "docker mcp gateway run"],
+      "type": "stdio"
+    }
+  }
+}
