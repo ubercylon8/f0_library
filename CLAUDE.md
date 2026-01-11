@@ -30,7 +30,8 @@ Every new test MUST include the following components:
 1. **Copy org_resolver.go**
    ```bash
    # Copy from sample_tests/multistage_template/org_resolver.go
-   cp sample_tests/multistage_template/org_resolver.go tests_source/<uuid>/
+   # Use intel-driven/ for threat-based tests, phase-aligned/ for pentest readiness tests
+   cp sample_tests/multistage_template/org_resolver.go tests_source/<category>/<uuid>/
    ```
 
 2. **Add UUID dependency**
@@ -339,7 +340,8 @@ Respond field:
 ### Build Tests
 ```bash
 # Build specific test (Windows/amd64 by default)
-./utils/gobuild build tests_source/<uuid>/
+./utils/gobuild build tests_source/intel-driven/<uuid>/    # Intel-driven tests
+./utils/gobuild build tests_source/phase-aligned/<uuid>/   # Phase-aligned tests
 
 # Build all tests
 ./utils/gobuild build-all
@@ -363,23 +365,35 @@ powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
 ## Project Structure
 
 ```
-tests_source/         # New tests go here
-sample_tests/         # Reference implementations
-  ├── multistage_template/  # Multi-stage test reference
-rules/                # Development guidelines
-signing-certs/        # Code signing certificates
-limacharlie-iac/      # LimaCharlie Infrastructure as Code
-  ├── payloads/       # PowerShell scripts and payloads
-  ├── rules/          # Detection & Response rules
-  ├── scripts/        # Deployment automation
-  └── README.md       # Deployment guide
-utils/                # Build and signing utilities
-  ├── gobuild         # Cross-platform test builder
-  ├── codesign        # Code signing utility
+tests_source/                 # All security tests
+  ├── intel-driven/           # Tests from threat intelligence (APT reports, CVEs)
+  │   └── <uuid>/             # Individual threat-based tests
+  └── phase-aligned/          # Tests organized by pentest phases (DORA/TIBER-EU)
+      └── <uuid>/             # Phase-aligned suite tests
+sample_tests/                 # Reference implementations
+  └── multistage_template/    # Multi-stage test reference
+pentest_suites/               # Pentest readiness suite artifacts
+rules/                        # Development guidelines
+signing-certs/                # Code signing certificates
+limacharlie-iac/              # LimaCharlie Infrastructure as Code
+  ├── payloads/               # PowerShell scripts and payloads
+  ├── rules/                  # Detection & Response rules
+  ├── scripts/                # Deployment automation
+  └── README.md               # Deployment guide
+utils/                        # Build and signing utilities
+  ├── gobuild                 # Cross-platform test builder
+  ├── codesign                # Code signing utility
   ├── Check-DefenderProtection.ps1  # Defender status checker
   ├── validate-attack-flow-html.sh  # Attack flow validator
-  └── README.md       # Utility documentation
+  └── README.md               # Utility documentation
 ```
+
+### Test Categories
+
+| Category | Location | Created By | Purpose |
+|----------|----------|------------|---------|
+| Intel-Driven | `tests_source/intel-driven/` | `@agent-sectest-builder` | Tests from threat intelligence, APT reports, CVEs |
+| Phase-Aligned | `tests_source/phase-aligned/` | `@agent-pentest-readiness-builder` | DORA/TIBER-EU pentest phase validation |
 
 ## Required Files for Each Test
 
@@ -629,7 +643,7 @@ The agent handles:
 
 ### Modern build_all.sh Pattern (7-Step Process)
 
-**Reference Implementation**: `tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh`
+**Reference Implementation**: `tests_source/intel-driven/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh`
 
 **REQUIRED Features:**
 - ✅ **Organization registry integration** - Uses `utils/resolve_org.sh` helper
@@ -683,7 +697,7 @@ The old pattern with:
 **Is NO LONGER ACCEPTABLE for new or updated tests.**
 
 **When Creating/Updating Multi-Stage Tests:**
-1. Copy `tests_source/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh` as template
+1. Copy `tests_source/intel-driven/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh` as template
 2. Update `TEST_UUID` variable
 3. Update `STAGES` array with your techniques
 4. Update test name in header comment
@@ -696,24 +710,47 @@ See `@agent-sectest-builder` configuration for complete template.
 - Initialize and create a private repository on Github
 - For all changes, additions and fixes, commit and create PRs when applicable
 
-## Complete Test Development Workflow (3-Agent Pipeline)
+## Complete Test Development Workflow (4-Agent Pipeline)
 
 F0RT1KA provides a complete red-to-blue workflow using specialized agents:
 
-1. **`@agent-sectest-builder`** - Creates the attack simulation test
+1. **`@agent-sectest-builder`** - Creates individual attack simulation tests
    - Analyzes threat intelligence and builds Go-based security tests
    - Handles single-binary embedding, logging, scoring
 
-2. **`@agent-attack-flow-diagram-builder`** - Visualizes the attack flow
+2. **`@agent-pentest-readiness-builder`** - Creates phase-aligned test suites for DORA/TIBER-EU
+   - Builds test suites organized by pentest phases (reconnaissance through exfiltration)
+   - Generates readiness scores and compliance evidence
+   - Produces gap analysis and remediation roadmaps
+   - Supports results analysis workflow for post-execution reporting
+
+3. **`@agent-attack-flow-diagram-builder`** - Visualizes the attack flow
    - Creates interactive HTML attack flow diagrams
    - Maps MITRE ATT&CK techniques visually
 
-3. **`@agent-defense-guidance-builder`** - Creates defense documentation
+4. **`@agent-defense-guidance-builder`** - Creates defense documentation
    - Generates KQL detection queries for Microsoft Sentinel/Defender
    - Creates YARA rules for file/memory detection
    - Produces LimaCharlie D&R rules ready for deployment
    - Provides hardening scripts (PowerShell) and guidance
    - Includes incident response playbooks
+
+**Agent Selection Guide:**
+| Need | Agent |
+|------|-------|
+| Test specific threat/technique | `@agent-sectest-builder` |
+| Validate TIBER-EU phase readiness | `@agent-pentest-readiness-builder` |
+| Visualize attack flow | `@agent-attack-flow-diagram-builder` |
+| Generate detection rules | `@agent-defense-guidance-builder` |
+
+**Output Files from Pentest Readiness Agent:**
+| File | Purpose |
+|------|---------|
+| `<suite-id>_coverage_matrix.md` | Technique coverage documentation |
+| `<suite-id>_gap_analysis.md` | Identified detection gaps |
+| `<suite-id>_metadata.json` | Dashboard visualization data |
+| `<suite-id>_dora_evidence.md` | DORA Article 25/26 compliance evidence |
+| `<suite-id>_remediation_roadmap.md` | Prioritized gap remediation |
 
 **Output Files from Defense Guidance Agent:**
 | File | Purpose |
@@ -730,7 +767,10 @@ For detailed implementation guides, see:
 - `limacharlie-iac/README.md` - Certificate deployment
 - `DUAL_SIGNING_STRATEGY.md` - Code signing details
 - `sample_tests/multistage_template/` - Multi-stage test patterns
+- `pentesting/agentic_pentest.md` - DORA/TIBER-EU pentest methodology
+- `pentesting/PENTEST_READINESS_GUIDE.md` - Pentest readiness builder usage guide
 - `rules/` - Development guidelines
-- Agent `@agent-sectest-builder` for test creation
+- Agent `@agent-sectest-builder` for individual test creation
+- Agent `@agent-pentest-readiness-builder` for DORA/TIBER-EU readiness suites
 - Agent `@agent-attack-flow-diagram-builder` for attack visualization
 - Agent `@agent-defense-guidance-builder` for defense documentation

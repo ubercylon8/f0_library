@@ -2,8 +2,8 @@
 """
 F0RT1KA Test Catalog Sync Utility
 
-Synchronizes test metadata from tests_source/ to Elasticsearch for use
-with the f0rtika-results-enrichment ingest pipeline.
+Synchronizes test metadata from tests_source/{intel-driven,phase-aligned}/ to
+Elasticsearch for use with the f0rtika-results-enrichment ingest pipeline.
 
 Usage:
     python3 utils/sync-test-catalog-to-elasticsearch.py [--dry-run]
@@ -28,7 +28,7 @@ import re
 import json
 import argparse
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 # Elasticsearch client (optional import)
 try:
@@ -41,31 +41,37 @@ except ImportError:
 class TestMetadataExtractor:
     """Extracts metadata from F0RT1KA test source files."""
 
+    CATEGORIES = ["intel-driven", "phase-aligned"]
+
     def __init__(self, tests_source_dir: Path):
         self.tests_source_dir = tests_source_dir
         self.uuid_pattern = re.compile(
             r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'
         )
 
-    def scan_test_directories(self) -> List[str]:
-        """Find all valid test UUID directories."""
+    def scan_test_directories(self) -> List[Tuple[str, str]]:
+        """Find all valid test UUID directories in all categories."""
         if not self.tests_source_dir.exists():
             return []
 
-        test_uuids = []
-        for item in self.tests_source_dir.iterdir():
-            if item.is_dir() and self.uuid_pattern.match(item.name):
-                test_uuids.append(item.name)
+        tests = []
+        for category in self.CATEGORIES:
+            category_dir = self.tests_source_dir / category
+            if category_dir.exists():
+                for item in category_dir.iterdir():
+                    if item.is_dir() and self.uuid_pattern.match(item.name):
+                        tests.append((category, item.name))
 
-        return sorted(test_uuids)
+        return sorted(tests, key=lambda x: (x[0], x[1]))
 
-    def extract_from_go_file(self, test_uuid: str) -> Dict[str, Any]:
+    def extract_from_go_file(self, category: str, test_uuid: str) -> Dict[str, Any]:
         """Extract ID, NAME, TECHNIQUES from Go file header comment."""
-        test_dir = self.tests_source_dir / test_uuid
+        test_dir = self.tests_source_dir / category / test_uuid
         go_file = test_dir / f"{test_uuid}.go"
 
         result = {
             "test_uuid": test_uuid,
+            "category": category,
             "test_name": None,
             "techniques": []
         }
@@ -95,9 +101,9 @@ class TestMetadataExtractor:
 
         return result
 
-    def extract_score_from_readme(self, test_uuid: str) -> Optional[float]:
+    def extract_score_from_readme(self, category: str, test_uuid: str) -> Optional[float]:
         """Extract test score from README.md."""
-        readme_file = self.tests_source_dir / test_uuid / "README.md"
+        readme_file = self.tests_source_dir / category / test_uuid / "README.md"
 
         if not readme_file.exists():
             return None
@@ -120,13 +126,13 @@ class TestMetadataExtractor:
 
         return None
 
-    def extract_metadata(self, test_uuid: str) -> Dict[str, Any]:
+    def extract_metadata(self, category: str, test_uuid: str) -> Dict[str, Any]:
         """Extract all metadata for a test."""
         # Start with Go file extraction
-        metadata = self.extract_from_go_file(test_uuid)
+        metadata = self.extract_from_go_file(category, test_uuid)
 
         # Add score from README
-        score = self.extract_score_from_readme(test_uuid)
+        score = self.extract_score_from_readme(category, test_uuid)
         if score is not None:
             metadata["score"] = score
 
@@ -182,6 +188,7 @@ class ElasticsearchSync:
                 "mappings": {
                     "properties": {
                         "test_uuid": {"type": "keyword"},
+                        "category": {"type": "keyword"},
                         "test_name": {"type": "keyword"},
                         "techniques": {"type": "keyword"},
                         "score": {"type": "float"}
@@ -251,28 +258,34 @@ def main():
     print()
 
     # Extract metadata from all tests
-    print(f"Scanning {args.tests_dir}...")
+    print(f"Scanning {args.tests_dir}/{{intel-driven,phase-aligned}}/...")
     extractor = TestMetadataExtractor(args.tests_dir)
-    test_uuids = extractor.scan_test_directories()
-    print(f"Found {len(test_uuids)} test directories")
+    tests = extractor.scan_test_directories()
+
+    # Count by category
+    intel_count = len([t for t in tests if t[0] == "intel-driven"])
+    phase_count = len([t for t in tests if t[0] == "phase-aligned"])
+    print(f"Found {len(tests)} test directories")
+    print(f"  intel-driven: {intel_count}")
+    print(f"  phase-aligned: {phase_count}")
     print()
 
     # Extract metadata for each test
     all_metadata = []
     print("Extracting metadata...")
-    for test_uuid in test_uuids:
-        metadata = extractor.extract_metadata(test_uuid)
+    for category, test_uuid in tests:
+        metadata = extractor.extract_metadata(category, test_uuid)
         all_metadata.append(metadata)
 
         # Print preview
         name = metadata.get("test_name", "Unknown")
-        techniques = ", ".join(metadata.get("techniques", []))[:40]
         score = metadata.get("score", "N/A")
+        cat_short = category[:5]
 
         if metadata.get("test_name"):
-            print(f"  {test_uuid[:8]}... | {name[:35]:<35} | Score: {score}")
+            print(f"  [{cat_short}] {test_uuid[:8]}... | {name[:30]:<30} | Score: {score}")
         else:
-            print(f"  {test_uuid[:8]}... | (No metadata found)")
+            print(f"  [{cat_short}] {test_uuid[:8]}... | (No metadata found)")
 
     print()
 

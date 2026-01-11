@@ -45,7 +45,7 @@ USAGE:
 
 COMMANDS:
     build <test-path>    Build a specific test
-    build-all           Build all tests in tests_source/
+    build-all           Build all tests in tests_source/{intel-driven,phase-aligned}/
     clean               Clean build directory
     list                List available tests
 
@@ -60,19 +60,19 @@ OPTIONS:
 
 EXAMPLES:
     # Build a specific test for Windows
-    $(basename "$0") build tests_source/ecd2514c-512a-4251-a6f4-eb3aa834d401
+    $(basename "$0") build tests_source/intel-driven/ecd2514c-512a-4251-a6f4-eb3aa834d401
 
     # Build for Linux
-    $(basename "$0") --os linux build tests_source/ecd2514c-512a-4251-a6f4-eb3aa834d401
+    $(basename "$0") --os linux build tests_source/intel-driven/ecd2514c-512a-4251-a6f4-eb3aa834d401
 
     # Build all tests
     $(basename "$0") build-all
 
     # Build with custom output directory
-    $(basename "$0") --output dist/ build tests_source/ecd2514c-512a-4251-a6f4-eb3aa834d401
+    $(basename "$0") --output dist/ build tests_source/intel-driven/ecd2514c-512a-4251-a6f4-eb3aa834d401
 
 NOTES:
-    - Tests are built from the tests_source/ directory
+    - Tests are organized in tests_source/{intel-driven,phase-aligned}/
     - Each test must have a go.mod file
     - Binary names match the test UUID
     - Cross-compilation requires Go 1.21+
@@ -201,16 +201,17 @@ build_all_tests() {
     local target_os="$1"
     local target_arch="$2"
     local output_dir="$3"
-    
+
     print_info "Building all tests for $target_os/$target_arch"
-    
+
     local built_count=0
     local failed_count=0
-    
-    for test_dir in tests_source/*/; do
+
+    # Iterate over tests in both intel-driven/ and phase-aligned/ categories
+    for test_dir in tests_source/*/*/; do
         if [[ -d "$test_dir" ]]; then
             local uuid=$(get_test_uuid "$test_dir")
-            
+
             if validate_test_dir "$test_dir"; then
                 if build_test "$test_dir" "$target_os" "$target_arch" "$output_dir"; then
                     ((built_count++))
@@ -223,34 +224,60 @@ build_all_tests() {
             fi
         fi
     done
-    
+
     print_info "Build summary: $built_count successful, $failed_count failed"
-    
+
     if [[ $failed_count -gt 0 ]]; then
         return 1
     fi
-    
+
     return 0
 }
 
 # List available tests
 list_tests() {
     print_info "Available tests in tests_source/:"
-    
+
     local count=0
-    for test_dir in tests_source/*/; do
-        if [[ -d "$test_dir" ]]; then
-            local uuid=$(get_test_uuid "$test_dir")
-            
-            if validate_test_dir "$test_dir" &>/dev/null; then
-                echo "  ✓ $uuid"
-                ((count++))
-            else
-                echo "  ✗ $uuid (invalid)"
+    local uuid
+
+    # List intel-driven tests
+    if [[ -d "tests_source/intel-driven" ]]; then
+        echo ""
+        echo "  intel-driven/"
+        for test_dir in tests_source/intel-driven/*/; do
+            if [[ -d "$test_dir" ]]; then
+                uuid=$(get_test_uuid "$test_dir")
+
+                if validate_test_dir "$test_dir" &>/dev/null; then
+                    echo "    ✓ $uuid"
+                    count=$((count + 1))
+                else
+                    echo "    ✗ $uuid (invalid)"
+                fi
             fi
-        fi
-    done
-    
+        done
+    fi
+
+    # List phase-aligned tests
+    if [[ -d "tests_source/phase-aligned" ]]; then
+        echo ""
+        echo "  phase-aligned/"
+        for test_dir in tests_source/phase-aligned/*/; do
+            if [[ -d "$test_dir" ]]; then
+                uuid=$(get_test_uuid "$test_dir")
+
+                if validate_test_dir "$test_dir" &>/dev/null; then
+                    echo "    ✓ $uuid"
+                    count=$((count + 1))
+                else
+                    echo "    ✗ $uuid (invalid)"
+                fi
+            fi
+        done
+    fi
+
+    echo ""
     print_info "Total: $count valid tests"
 }
 
