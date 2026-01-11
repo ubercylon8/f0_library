@@ -8,16 +8,17 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 ## Critical Development Rules (NEVER VIOLATE)
 
 1. **ALL binaries MUST be dropped to `c:\F0`** - Hard requirement for all tests
-2. **ALL tests MUST be SINGLE-BINARY deployments** - Embed all dependencies using `//go:embed`
-3. **ALL tests MUST implement comprehensive logging** - Use test_logger.go pattern
-4. **ALL tests MUST capture embedded binary stdout/stderr to file** - Use `io.MultiWriter` for console + file output
-5. **ALL tests MUST conform to Schema v2.0** - Use updated InitLogger signature with metadata and executionContext
-6. **ALL tests MUST implement organization UUID support** - See Organization UUID Implementation section below
-7. **ALL tests MUST include metadata header for Elasticsearch enrichment** - See Elasticsearch Catalog Sync section
-8. **NEVER hardcode exit codes** - Always evaluate actual results before determining exit code
-9. **NEVER modify test_logger.go schema** - Schema must remain consistent across all tests
-10. Tests simulate real attack techniques - handle with appropriate security measures
-11. Map every test to specific MITRE ATT&CK techniques
+2. **Simulation artifacts (test documents, PDFs, etc.) MUST be created in `c:\Users\fortika-test`** - This path is NOT whitelisted, allowing EDR to detect file operations
+3. **ALL tests MUST be SINGLE-BINARY deployments** - Embed all dependencies using `//go:embed`
+4. **ALL tests MUST implement comprehensive logging** - Use test_logger.go pattern
+5. **ALL tests MUST capture embedded binary stdout/stderr to file** - Use `io.MultiWriter` for console + file output
+6. **ALL tests MUST conform to Schema v2.0** - Use updated InitLogger signature with metadata and executionContext
+7. **ALL tests MUST implement organization UUID support** - See Organization UUID Implementation section below
+8. **ALL tests MUST include metadata header for Elasticsearch enrichment** - See Elasticsearch Catalog Sync section
+9. **NEVER hardcode exit codes** - Always evaluate actual results before determining exit code
+10. **NEVER modify test_logger.go schema** - Schema must remain consistent across all tests
+11. Tests simulate real attack techniques - handle with appropriate security measures
+12. Map every test to specific MITRE ATT&CK techniques
 
 ## Organization UUID Implementation (MANDATORY)
 
