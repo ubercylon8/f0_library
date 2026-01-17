@@ -20,6 +20,41 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 11. Tests simulate real attack techniques - handle with appropriate security measures
 12. Map every test to specific MITRE ATT&CK techniques
 
+## Autonomous Operations Mode
+
+**This project operates in AUTONOMOUS MODE.** Claude Code should proceed without asking for confirmation on standard development operations.
+
+### Why Autonomous Mode?
+
+- **Git provides safety net** - All changes can be reverted via `git checkout` or `git reset`
+- **Development velocity** - Security test development requires rapid iteration
+- **Batch operations** - Building/signing multiple tests shouldn't require per-test approval
+
+### Autonomous Actions (DO NOT ASK FOR PERMISSION)
+
+1. **File operations** - Create, edit, delete files in the project
+2. **Git operations** - Add, commit, push, branch, checkout
+3. **Build operations** - Run gobuild, go build, go mod tidy
+4. **Sign operations** - Run codesign, build_all.sh scripts
+5. **Python scripts** - Run sync scripts, validation utilities
+6. **Directory operations** - Create, move, copy, delete directories
+7. **Test fixes** - Fix build errors, import issues, duplicate functions
+
+### When TO Ask for Permission
+
+Only ask when:
+- **Destructive git operations** - `git push --force`, `git reset --hard` to remote
+- **External service changes** - Modifying LimaCharlie production rules
+- **Credential operations** - Anything involving certificates or signing keys
+- **Ambiguous requirements** - User intent is unclear
+
+### Commit Style
+
+When committing, use conventional commit format and push without asking:
+```bash
+git add -A && git commit -m "fix: description" && git push
+```
+
 ## Organization UUID Implementation (MANDATORY)
 
 **ALL tests MUST implement organization UUID support** for multi-org analytics and Elasticsearch tracking.
