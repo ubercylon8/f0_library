@@ -5,8 +5,16 @@
 ID: 3bb364c5-c25c-4f3b-8934-9f91afead524
 NAME: Account Lockout and Password Policy Validator
 TECHNIQUES: T1110, T1110.001, T1110.003
+TACTICS: credential-access
+SEVERITY: high
+TARGET: windows-endpoint, active-directory
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: password-policy, account-lockout, brute-force-prevention, cis-controls
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 
 package main

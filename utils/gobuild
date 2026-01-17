@@ -1,7 +1,13 @@
 #!/bin/bash
 
 # F0RT1KA Test Builder
-# Utility for building security tests with cross-platform support
+# Utility for building and signing security tests with cross-platform support
+#
+# Supports:
+# - Single test builds
+# - Category-wide builds (cyber-hygiene, intel-driven, mitre-top10, phase-aligned)
+# - Dual signing with organization + F0RT1KA certificates
+# - Automatic detection of custom build_all.sh scripts
 
 set -e
 
@@ -10,12 +16,22 @@ DEFAULT_OS="windows"
 DEFAULT_ARCH="amd64"
 BUILD_DIR="build"
 VERBOSE=false
+ORG=""
+CATEGORY=""
+
+# All supported categories
+ALL_CATEGORIES=("cyber-hygiene" "intel-driven" "mitre-top10" "phase-aligned")
+
+# Script location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Print colored output
@@ -35,159 +51,196 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+print_header() {
+    echo -e "${CYAN}$1${NC}"
+}
+
 # Show usage information
 show_usage() {
     cat << EOF
 F0RT1KA Test Builder
 
 USAGE:
-    $(basename "$0") [OPTIONS] [COMMAND]
+    $(basename "$0") [OPTIONS] COMMAND [ARGS]
 
 COMMANDS:
-    build <test-path>    Build a specific test
-    build-all           Build all tests in tests_source/{intel-driven,phase-aligned}/
-    clean               Clean build directory
-    list                List available tests
+    build <test-path>       Build a specific test (no signing)
+    build-sign <test-path>  Build and dual-sign a specific test
+    build-all               Build all tests (no signing)
+    build-sign-all          Build and dual-sign all tests
+    clean                   Clean build directory
+    list                    List available tests
 
 OPTIONS:
-    --os <OS>           Target OS (default: windows)
-                        Supported: windows, linux, darwin
-    --arch <ARCH>       Target architecture (default: amd64)
-                        Supported: amd64, 386, arm64
-    --output <DIR>      Output directory (default: build/)
-    --verbose           Enable verbose output
-    --help              Show this help message
+    --org <identifier>      Organization for dual signing (required for build-sign)
+                            Accepts UUID or short name: sb, tpsgl, rga
+    --category <cat>        Filter to specific category (for build-all commands)
+                            Categories: cyber-hygiene, intel-driven, mitre-top10, phase-aligned
+    --os <OS>               Target OS (default: windows)
+    --arch <ARCH>           Target architecture (default: amd64)
+    --output <DIR>          Output directory (default: build/)
+    --verbose               Enable verbose output
+    --help                  Show this help message
 
 EXAMPLES:
-    # Build a specific test for Windows
-    $(basename "$0") build tests_source/intel-driven/ecd2514c-512a-4251-a6f4-eb3aa834d401
+    # Build a single test (no signing)
+    $(basename "$0") build tests_source/cyber-hygiene/05c39526-5374-419f-bf1e-68468400f3c6
 
-    # Build for Linux
-    $(basename "$0") --os linux build tests_source/intel-driven/ecd2514c-512a-4251-a6f4-eb3aa834d401
+    # Build and sign a test with RGA organization
+    $(basename "$0") --org rga build-sign tests_source/cyber-hygiene/05c39526-5374-419f-bf1e-68468400f3c6
 
-    # Build all tests
-    $(basename "$0") build-all
+    # Build and sign all cyber-hygiene tests
+    $(basename "$0") --org rga --category cyber-hygiene build-sign-all
 
-    # Build with custom output directory
-    $(basename "$0") --output dist/ build tests_source/intel-driven/ecd2514c-512a-4251-a6f4-eb3aa834d401
+    # Build and sign all tests across all categories
+    $(basename "$0") --org sb build-sign-all
+
+    # Build all tests in a category (no signing)
+    $(basename "$0") --category intel-driven build-all
 
 NOTES:
-    - Tests are organized in tests_source/{intel-driven,phase-aligned}/
-    - Each test must have a go.mod file
-    - Binary names match the test UUID
-    - Cross-compilation requires Go 1.21+
+    - Tests with custom build_all.sh scripts will use those instead
+    - Dual signing uses: org certificate + F0RT1KA certificate
+    - Organization registry: signing-certs/organization-registry.json
 EOF
+}
+
+# Source organization resolver
+source_org_resolver() {
+    local resolver="${PROJECT_ROOT}/utils/resolve_org.sh"
+    if [[ -f "$resolver" ]]; then
+        source "$resolver"
+        return 0
+    else
+        print_error "Organization resolver not found: $resolver"
+        return 1
+    fi
 }
 
 # Validate OS and architecture
 validate_platform() {
     local os="$1"
     local arch="$2"
-    
+
     case "$os" in
         windows|linux|darwin) ;;
         *) print_error "Unsupported OS: $os"; exit 1 ;;
     esac
-    
+
     case "$arch" in
         amd64|386|arm64) ;;
         *) print_error "Unsupported architecture: $arch"; exit 1 ;;
     esac
 }
 
+# Validate category
+validate_category() {
+    local cat="$1"
+    for valid_cat in "${ALL_CATEGORIES[@]}"; do
+        if [[ "$cat" == "$valid_cat" ]]; then
+            return 0
+        fi
+    done
+    print_error "Invalid category: $cat"
+    print_info "Valid categories: ${ALL_CATEGORIES[*]}"
+    return 1
+}
+
 # Get test UUID from path
 get_test_uuid() {
     local test_path="$1"
-    basename "$test_path"
+    # Remove trailing slash and get basename
+    basename "${test_path%/}"
+}
+
+# Get category from test path
+get_test_category() {
+    local test_path="$1"
+    # Extract category from path like tests_source/cyber-hygiene/uuid/
+    echo "$test_path" | sed -E 's|.*tests_source/([^/]+)/.*|\1|'
+}
+
+# Check if test has custom build script
+has_custom_build_script() {
+    local test_path="$1"
+    [[ -f "${test_path}/build_all.sh" ]]
 }
 
 # Check if test directory is valid
 validate_test_dir() {
     local test_path="$1"
     local uuid=$(get_test_uuid "$test_path")
-    
+
     if [[ ! -d "$test_path" ]]; then
         print_error "Test directory not found: $test_path"
         return 1
     fi
-    
+
     if [[ ! -f "$test_path/go.mod" ]]; then
         print_error "go.mod not found in: $test_path"
         return 1
     fi
-    
+
     if [[ ! -f "$test_path/$uuid.go" ]]; then
         print_error "Test file $uuid.go not found in: $test_path"
         return 1
     fi
-    
+
     return 0
 }
 
-# Build a single test
+# Build a single test (no signing)
 build_test() {
     local test_path="$1"
     local target_os="$2"
     local target_arch="$3"
     local output_dir="$4"
-    
+
     local uuid=$(get_test_uuid "$test_path")
-    local test_file="$test_path/$uuid.go"
     local binary_name="$uuid"
-    
+
     # Add .exe extension for Windows
     if [[ "$target_os" == "windows" ]]; then
         binary_name="${binary_name}.exe"
     fi
-    
+
     local output_path="$output_dir/$uuid/$binary_name"
-    
+
     print_info "Building test: $uuid"
-    print_info "Source: $test_file"
-    print_info "Target: $target_os/$target_arch"
-    print_info "Output: $output_path"
-    
+    [[ "$VERBOSE" == "true" ]] && print_info "Source: $test_path/$uuid.go"
+    [[ "$VERBOSE" == "true" ]] && print_info "Target: $target_os/$target_arch"
+
     # Create output directory
     mkdir -p "$output_dir/$uuid"
-    
+
     # Change to test directory for build
     pushd "$test_path" > /dev/null
-    
-    # Clean up dependencies and download
-    print_info "Tidying Go module dependencies..."
-    if ! go mod tidy 2>/dev/null; then
-        print_warning "Failed to tidy dependencies, attempting download anyway"
-    fi
-    
-    print_info "Downloading Go module dependencies..."
-    if ! go mod download 2>/dev/null; then
-        print_warning "Failed to download some dependencies, attempting build anyway"
-    fi
-    
+
+    # Clean up dependencies
+    go mod tidy 2>/dev/null || true
+    go mod download 2>/dev/null || true
+
     # Set environment variables for cross-compilation
     export GOOS="$target_os"
     export GOARCH="$target_arch"
     export CGO_ENABLED=0
-    
-    # Build command
-    local build_cmd="go build -o ../../$output_path $uuid.go"
-    
+
+    # Find all .go files to include (main file + helpers like test_logger.go, org_resolver.go)
+    local go_files=$(ls *.go 2>/dev/null | grep -v "_test.go" | tr '\n' ' ')
+
+    # Build command - calculate relative path to output
+    local rel_output_path
+    rel_output_path=$(realpath --relative-to="$test_path" "$PROJECT_ROOT/$output_path")
+
     if [[ "$VERBOSE" == "true" ]]; then
-        build_cmd="go build -v -o ../../$output_path $uuid.go"
-        print_info "Build command: $build_cmd"
+        print_info "Build command: go build -o $rel_output_path $go_files"
     fi
-    
+
     # Execute build
-    if eval "$build_cmd"; then
+    if go build -o "$rel_output_path" $go_files; then
         popd > /dev/null
-        print_success "Built: $output_path"
-        
-        # Show binary info
-        if [[ -f "$output_path" ]]; then
-            local size=$(ls -lh "$output_path" | awk '{print $5}')
-            print_info "Binary size: $size"
-        fi
-        
+        local size=$(ls -lh "$output_path" | awk '{print $5}')
+        print_success "Built: $uuid ($size)"
         return 0
     else
         popd > /dev/null
@@ -196,41 +249,183 @@ build_test() {
     fi
 }
 
-# Build all tests
+# Sign a binary with dual signing (org + F0RT1KA)
+sign_binary() {
+    local binary_path="$1"
+    local org_cert="$2"
+
+    if [[ ! -f "$binary_path" ]]; then
+        print_error "Binary not found: $binary_path"
+        return 1
+    fi
+
+    # Get organization certificate file
+    local cert_file
+    cert_file=$(resolve_org_to_cert "$org_cert")
+    if [[ $? -ne 0 ]] || [[ -z "$cert_file" ]]; then
+        print_error "Could not resolve organization '$org_cert' to certificate"
+        list_organizations
+        return 1
+    fi
+
+    local org_cert_path="${PROJECT_ROOT}/signing-certs/${cert_file}"
+    local f0rtika_cert="${PROJECT_ROOT}/signing-certs/F0RT1KA.pfx"
+
+    if [[ ! -f "$org_cert_path" ]]; then
+        print_error "Organization certificate not found: $org_cert_path"
+        return 1
+    fi
+
+    if [[ ! -f "$f0rtika_cert" ]]; then
+        print_error "F0RT1KA certificate not found: $f0rtika_cert"
+        return 1
+    fi
+
+    # Dual sign using codesign utility
+    if "${PROJECT_ROOT}/utils/codesign" sign-nested "$binary_path" "$org_cert_path" "$f0rtika_cert"; then
+        print_success "Signed: $(basename "$binary_path") (${org_cert} + F0RT1KA)"
+        return 0
+    else
+        print_error "Signing failed for: $(basename "$binary_path")"
+        return 1
+    fi
+}
+
+# Build and sign a single test
+build_sign_test() {
+    local test_path="$1"
+    local target_os="$2"
+    local target_arch="$3"
+    local output_dir="$4"
+    local org="$5"
+
+    local uuid=$(get_test_uuid "$test_path")
+
+    # Check for custom build script
+    if has_custom_build_script "$test_path"; then
+        print_info "Using custom build script for: $uuid"
+        pushd "$test_path" > /dev/null
+        if ./build_all.sh --org "$org"; then
+            popd > /dev/null
+            print_success "Custom build completed: $uuid"
+            return 0
+        else
+            popd > /dev/null
+            print_error "Custom build failed: $uuid"
+            return 1
+        fi
+    fi
+
+    # Standard build + sign
+    if ! build_test "$test_path" "$target_os" "$target_arch" "$output_dir"; then
+        return 1
+    fi
+
+    local binary_name="$uuid"
+    [[ "$target_os" == "windows" ]] && binary_name="${binary_name}.exe"
+    local binary_path="$output_dir/$uuid/$binary_name"
+
+    if ! sign_binary "$binary_path" "$org"; then
+        return 1
+    fi
+
+    # Verify signature exists (note: self-signed certs will show "failed" chain verification but signature is present)
+    if command -v osslsigncode &> /dev/null; then
+        local verify_output
+        verify_output=$(osslsigncode verify "$binary_path" 2>&1 || true)
+        if echo "$verify_output" | grep -q "Number of verified signatures: 2"; then
+            [[ "$VERBOSE" == "true" ]] && print_info "Dual signature verified (2 signatures present)"
+        elif echo "$verify_output" | grep -q "Number of verified signatures: 1"; then
+            [[ "$VERBOSE" == "true" ]] && print_info "Single signature verified"
+        fi
+    fi
+
+    # Calculate and display SHA1
+    local sha1=$(shasum -a 1 "$binary_path" | awk '{print $1}')
+    print_info "SHA1: ${sha1:0:16}..."
+
+    return 0
+}
+
+# Build all tests (with optional category filter)
 build_all_tests() {
     local target_os="$1"
     local target_arch="$2"
     local output_dir="$3"
+    local sign="$4"
+    local org="$5"
+    local filter_category="$6"
 
-    print_info "Building all tests for $target_os/$target_arch"
+    local categories_to_build=()
+
+    if [[ -n "$filter_category" ]]; then
+        categories_to_build=("$filter_category")
+    else
+        categories_to_build=("${ALL_CATEGORIES[@]}")
+    fi
+
+    print_header "================================================================="
+    if [[ "$sign" == "true" ]]; then
+        print_header "Building and Signing Tests (org: $org)"
+    else
+        print_header "Building Tests"
+    fi
+    print_header "Categories: ${categories_to_build[*]}"
+    print_header "================================================================="
+    echo ""
 
     local built_count=0
     local failed_count=0
+    local skipped_count=0
 
-    # Iterate over tests in both intel-driven/ and phase-aligned/ categories
-    for test_dir in tests_source/*/*/; do
-        if [[ -d "$test_dir" ]]; then
-            local uuid=$(get_test_uuid "$test_dir")
+    for category in "${categories_to_build[@]}"; do
+        local category_dir="${PROJECT_ROOT}/tests_source/${category}"
 
-            if validate_test_dir "$test_dir"; then
-                if build_test "$test_dir" "$target_os" "$target_arch" "$output_dir"; then
-                    ((built_count++))
-                else
-                    ((failed_count++))
-                fi
-            else
-                print_warning "Skipping invalid test directory: $test_dir"
-                ((failed_count++))
-            fi
+        if [[ ! -d "$category_dir" ]]; then
+            [[ "$VERBOSE" == "true" ]] && print_warning "Category directory not found: $category"
+            continue
         fi
+
+        print_header "--- ${category} ---"
+
+        for test_dir in "$category_dir"/*/; do
+            if [[ -d "$test_dir" ]]; then
+                local uuid=$(get_test_uuid "$test_dir")
+
+                # Skip non-UUID directories (like README.md)
+                if [[ ! "$uuid" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]; then
+                    continue
+                fi
+
+                if ! validate_test_dir "$test_dir" 2>/dev/null; then
+                    print_warning "Skipping invalid: $uuid"
+                    skipped_count=$((skipped_count + 1))
+                    continue
+                fi
+
+                if [[ "$sign" == "true" ]]; then
+                    if build_sign_test "$test_dir" "$target_os" "$target_arch" "$output_dir" "$org"; then
+                        built_count=$((built_count + 1))
+                    else
+                        failed_count=$((failed_count + 1))
+                    fi
+                else
+                    if build_test "$test_dir" "$target_os" "$target_arch" "$output_dir"; then
+                        built_count=$((built_count + 1))
+                    else
+                        failed_count=$((failed_count + 1))
+                    fi
+                fi
+            fi
+        done
+        echo ""
     done
 
-    print_info "Build summary: $built_count successful, $failed_count failed"
+    print_header "================================================================="
+    print_header "Summary: $built_count built, $failed_count failed, $skipped_count skipped"
+    print_header "================================================================="
 
-    if [[ $failed_count -gt 0 ]]; then
-        return 1
-    fi
-
+    [[ $failed_count -gt 0 ]] && return 1
     return 0
 }
 
@@ -238,53 +433,53 @@ build_all_tests() {
 list_tests() {
     print_info "Available tests in tests_source/:"
 
-    local count=0
-    local uuid
+    local total_count=0
 
-    # List intel-driven tests
-    if [[ -d "tests_source/intel-driven" ]]; then
-        echo ""
-        echo "  intel-driven/"
-        for test_dir in tests_source/intel-driven/*/; do
-            if [[ -d "$test_dir" ]]; then
-                uuid=$(get_test_uuid "$test_dir")
+    for category in "${ALL_CATEGORIES[@]}"; do
+        local category_dir="${PROJECT_ROOT}/tests_source/${category}"
 
-                if validate_test_dir "$test_dir" &>/dev/null; then
-                    echo "    ✓ $uuid"
+        if [[ -d "$category_dir" ]]; then
+            echo ""
+            echo "  ${category}/"
+
+            local count=0
+            for test_dir in "$category_dir"/*/; do
+                if [[ -d "$test_dir" ]]; then
+                    local uuid=$(get_test_uuid "$test_dir")
+
+                    # Skip non-UUID directories
+                    if [[ ! "$uuid" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]; then
+                        continue
+                    fi
+
+                    local marker="✓"
+                    local extra=""
+
+                    if ! validate_test_dir "$test_dir" &>/dev/null; then
+                        marker="✗"
+                        extra=" (invalid)"
+                    elif has_custom_build_script "$test_dir"; then
+                        extra=" [custom build]"
+                    fi
+
+                    echo "    $marker $uuid$extra"
                     count=$((count + 1))
-                else
-                    echo "    ✗ $uuid (invalid)"
                 fi
-            fi
-        done
-    fi
+            done
 
-    # List phase-aligned tests
-    if [[ -d "tests_source/phase-aligned" ]]; then
-        echo ""
-        echo "  phase-aligned/"
-        for test_dir in tests_source/phase-aligned/*/; do
-            if [[ -d "$test_dir" ]]; then
-                uuid=$(get_test_uuid "$test_dir")
-
-                if validate_test_dir "$test_dir" &>/dev/null; then
-                    echo "    ✓ $uuid"
-                    count=$((count + 1))
-                else
-                    echo "    ✗ $uuid (invalid)"
-                fi
-            fi
-        done
-    fi
+            echo "    ($count tests)"
+            total_count=$((total_count + count))
+        fi
+    done
 
     echo ""
-    print_info "Total: $count valid tests"
+    print_info "Total: $total_count tests"
 }
 
 # Clean build directory
 clean_build() {
     local output_dir="$1"
-    
+
     if [[ -d "$output_dir" ]]; then
         print_info "Cleaning build directory: $output_dir"
         rm -rf "$output_dir"
@@ -301,7 +496,7 @@ main() {
     local output_dir="$BUILD_DIR"
     local command=""
     local test_path=""
-    
+
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -317,6 +512,14 @@ main() {
                 output_dir="$2"
                 shift 2
                 ;;
+            --org)
+                ORG="$2"
+                shift 2
+                ;;
+            --category)
+                CATEGORY="$2"
+                shift 2
+                ;;
             --verbose)
                 VERBOSE=true
                 shift
@@ -330,8 +533,17 @@ main() {
                 test_path="$2"
                 shift 2
                 ;;
+            build-sign)
+                command="build-sign"
+                test_path="$2"
+                shift 2
+                ;;
             build-all)
                 command="build-all"
+                shift
+                ;;
+            build-sign-all)
+                command="build-sign-all"
                 shift
                 ;;
             clean)
@@ -349,27 +561,48 @@ main() {
                 ;;
         esac
     done
-    
+
     # Validate platform
     validate_platform "$target_os" "$target_arch"
-    
+
+    # Validate category if specified
+    if [[ -n "$CATEGORY" ]]; then
+        validate_category "$CATEGORY" || exit 1
+    fi
+
     # Execute command
     case "$command" in
         build)
             if [[ -z "$test_path" ]]; then
                 print_error "Test path required for build command"
-                show_usage
                 exit 1
             fi
-            
-            if validate_test_dir "$test_path"; then
-                build_test "$test_path" "$target_os" "$target_arch" "$output_dir"
-            else
+            validate_test_dir "$test_path" || exit 1
+            build_test "$test_path" "$target_os" "$target_arch" "$output_dir"
+            ;;
+        build-sign)
+            if [[ -z "$test_path" ]]; then
+                print_error "Test path required for build-sign command"
                 exit 1
             fi
+            if [[ -z "$ORG" ]]; then
+                print_error "--org is required for build-sign command"
+                exit 1
+            fi
+            source_org_resolver || exit 1
+            validate_test_dir "$test_path" || exit 1
+            build_sign_test "$test_path" "$target_os" "$target_arch" "$output_dir" "$ORG"
             ;;
         build-all)
-            build_all_tests "$target_os" "$target_arch" "$output_dir"
+            build_all_tests "$target_os" "$target_arch" "$output_dir" "false" "" "$CATEGORY"
+            ;;
+        build-sign-all)
+            if [[ -z "$ORG" ]]; then
+                print_error "--org is required for build-sign-all command"
+                exit 1
+            fi
+            source_org_resolver || exit 1
+            build_all_tests "$target_os" "$target_arch" "$output_dir" "true" "$ORG" "$CATEGORY"
             ;;
         clean)
             clean_build "$output_dir"

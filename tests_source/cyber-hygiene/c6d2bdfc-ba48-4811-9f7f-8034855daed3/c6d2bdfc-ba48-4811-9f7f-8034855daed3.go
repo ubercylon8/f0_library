@@ -5,8 +5,16 @@
 ID: c6d2bdfc-ba48-4811-9f7f-8034855daed3
 NAME: Print Spooler Hardening Validator
 TECHNIQUES: T1547.012, T1569.002, T1068
+TACTICS: privilege-escalation, execution
+SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: print-spooler, printnightmare, cve-2021-34527, cisa-ed-21-04, cis-controls
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 
 // Print Spooler Hardening Validator - Cyber Hygiene Test

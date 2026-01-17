@@ -2,8 +2,8 @@
 """
 F0RT1KA Test Catalog Sync Utility
 
-Synchronizes test metadata from tests_source/{intel-driven,phase-aligned}/ to
-Elasticsearch for use with the f0rtika-results-enrichment ingest pipeline.
+Synchronizes test metadata from tests_source/{cyber-hygiene,intel-driven,mitre-top10,phase-aligned}/
+to Elasticsearch for use with the f0rtika-results-enrichment ingest pipeline.
 
 Usage:
     python3 utils/sync-test-catalog-to-elasticsearch.py [--dry-run]
@@ -29,6 +29,7 @@ import json
 import argparse
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
+from datetime import datetime
 
 # Elasticsearch client (optional import)
 try:
@@ -41,7 +42,21 @@ except ImportError:
 class TestMetadataExtractor:
     """Extracts metadata from F0RT1KA test source files."""
 
-    CATEGORIES = ["intel-driven", "phase-aligned"]
+    # All supported test categories (auto-derived from directory)
+    CATEGORIES = ["cyber-hygiene", "intel-driven", "mitre-top10", "phase-aligned"]
+
+    # Default values for optional fields
+    DEFAULTS = {
+        "severity": "medium",
+        "complexity": "medium",
+        "target": [],
+        "threat_actor": None,
+        "subcategory": None,
+        "tags": [],
+        "tactics": [],
+        "author": None,
+        "created": None,
+    }
 
     def __init__(self, tests_source_dir: Path):
         self.tests_source_dir = tests_source_dir
@@ -64,16 +79,24 @@ class TestMetadataExtractor:
 
         return sorted(tests, key=lambda x: (x[0], x[1]))
 
+    def _parse_comma_separated(self, value: str) -> List[str]:
+        """Parse a comma-separated string into a list of trimmed values."""
+        if not value:
+            return []
+        return [v.strip() for v in value.split(',') if v.strip()]
+
     def extract_from_go_file(self, category: str, test_uuid: str) -> Dict[str, Any]:
-        """Extract ID, NAME, TECHNIQUES from Go file header comment."""
+        """Extract all metadata fields from Go file header comment."""
         test_dir = self.tests_source_dir / category / test_uuid
         go_file = test_dir / f"{test_uuid}.go"
 
+        # Start with defaults and auto-derived category
         result = {
             "test_uuid": test_uuid,
-            "category": category,
+            "category": category,  # Auto-derived from directory
             "test_name": None,
-            "techniques": []
+            "techniques": [],
+            **self.DEFAULTS.copy()
         }
 
         if not go_file.exists():
@@ -81,7 +104,7 @@ class TestMetadataExtractor:
 
         try:
             with open(go_file, 'r', encoding='utf-8') as f:
-                content = f.read(2000)  # Read first 2KB for header
+                content = f.read(4000)  # Read first 4KB for header
 
             # Extract NAME from comment block
             name_match = re.search(r'^NAME:\s*(.+)$', content, re.MULTILINE)
@@ -91,10 +114,59 @@ class TestMetadataExtractor:
             # Extract TECHNIQUES from comment block (handle both singular and plural)
             tech_match = re.search(r'^TECHNIQUES?:\s*(.+)$', content, re.MULTILINE)
             if tech_match:
-                techniques_str = tech_match.group(1).strip()
-                # Split by comma and clean up
-                techniques = [t.strip() for t in techniques_str.split(',')]
-                result["techniques"] = techniques
+                result["techniques"] = self._parse_comma_separated(tech_match.group(1))
+
+            # Extract TACTICS (new field)
+            tactics_match = re.search(r'^TACTICS?:\s*(.+)$', content, re.MULTILINE)
+            if tactics_match:
+                result["tactics"] = self._parse_comma_separated(tactics_match.group(1))
+
+            # Extract SEVERITY (new field)
+            severity_match = re.search(r'^SEVERITY:\s*(\w+)$', content, re.MULTILINE)
+            if severity_match:
+                severity = severity_match.group(1).strip().lower()
+                if severity in ["critical", "high", "medium", "low", "informational"]:
+                    result["severity"] = severity
+
+            # Extract TARGET (new field - can be comma-separated)
+            target_match = re.search(r'^TARGET:\s*(.+)$', content, re.MULTILINE)
+            if target_match:
+                result["target"] = self._parse_comma_separated(target_match.group(1))
+
+            # Extract COMPLEXITY (new field)
+            complexity_match = re.search(r'^COMPLEXITY:\s*(\w+)$', content, re.MULTILINE)
+            if complexity_match:
+                complexity = complexity_match.group(1).strip().lower()
+                if complexity in ["low", "medium", "high"]:
+                    result["complexity"] = complexity
+
+            # Extract THREAT_ACTOR (new field - can be comma-separated for multiple groups)
+            threat_actor_match = re.search(r'^THREAT_ACTOR:\s*(.+)$', content, re.MULTILINE)
+            if threat_actor_match:
+                value = threat_actor_match.group(1).strip()
+                # Handle "N/A" or empty as None
+                if value.lower() not in ["n/a", "none", ""]:
+                    result["threat_actor"] = value
+
+            # Extract SUBCATEGORY (new field)
+            subcategory_match = re.search(r'^SUBCATEGORY:\s*(.+)$', content, re.MULTILINE)
+            if subcategory_match:
+                result["subcategory"] = subcategory_match.group(1).strip().lower()
+
+            # Extract TAGS (new field - comma-separated keywords)
+            tags_match = re.search(r'^TAGS:\s*(.+)$', content, re.MULTILINE)
+            if tags_match:
+                result["tags"] = self._parse_comma_separated(tags_match.group(1))
+
+            # Extract AUTHOR (new field)
+            author_match = re.search(r'^AUTHOR:\s*(.+)$', content, re.MULTILINE)
+            if author_match:
+                result["author"] = author_match.group(1).strip()
+
+            # Extract CREATED date
+            created_match = re.search(r'^CREATED:\s*(\d{4}-\d{2}-\d{2})$', content, re.MULTILINE)
+            if created_match:
+                result["created"] = created_match.group(1)
 
         except Exception as e:
             print(f"  Warning: Error reading {go_file}: {e}")
@@ -136,7 +208,14 @@ class TestMetadataExtractor:
         if score is not None:
             metadata["score"] = score
 
-        return metadata
+        # Clean up None values for cleaner output (keep empty lists)
+        cleaned = {}
+        for key, value in metadata.items():
+            if value is None and key not in ["test_name", "threat_actor", "subcategory", "author", "created"]:
+                continue
+            cleaned[key] = value
+
+        return cleaned
 
 
 class ElasticsearchSync:
@@ -180,6 +259,7 @@ class ElasticsearchSync:
             with open(mapping_file, 'r') as f:
                 mapping = json.load(f)
         else:
+            # Default mapping with all new fields
             mapping = {
                 "settings": {
                     "number_of_shards": 1,
@@ -187,11 +267,20 @@ class ElasticsearchSync:
                 },
                 "mappings": {
                     "properties": {
-                        "test_uuid": {"type": "keyword"},
+                        "test_uuid": {"type": "keyword", "doc_values": True},
                         "category": {"type": "keyword"},
+                        "subcategory": {"type": "keyword"},
                         "test_name": {"type": "keyword"},
                         "techniques": {"type": "keyword"},
-                        "score": {"type": "float"}
+                        "tactics": {"type": "keyword"},
+                        "severity": {"type": "keyword"},
+                        "target": {"type": "keyword"},
+                        "complexity": {"type": "keyword"},
+                        "threat_actor": {"type": "keyword"},
+                        "tags": {"type": "keyword"},
+                        "score": {"type": "float"},
+                        "created": {"type": "date", "format": "yyyy-MM-dd"},
+                        "author": {"type": "keyword"}
                     }
                 }
             }
@@ -245,6 +334,11 @@ def main():
         default=Path("tests_source"),
         help="Path to tests_source directory"
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show all extracted fields in preview"
+    )
     args = parser.parse_args()
 
     # Change to repo root if running from utils/
@@ -254,20 +348,25 @@ def main():
         args.tests_dir = repo_root / "tests_source"
 
     print("F0RT1KA Test Catalog Sync")
-    print("=" * 50)
+    print("=" * 60)
     print()
 
     # Extract metadata from all tests
-    print(f"Scanning {args.tests_dir}/{{intel-driven,phase-aligned}}/...")
+    categories_str = "{" + ",".join(TestMetadataExtractor.CATEGORIES) + "}"
+    print(f"Scanning {args.tests_dir}/{categories_str}/...")
     extractor = TestMetadataExtractor(args.tests_dir)
     tests = extractor.scan_test_directories()
 
     # Count by category
-    intel_count = len([t for t in tests if t[0] == "intel-driven"])
-    phase_count = len([t for t in tests if t[0] == "phase-aligned"])
+    category_counts = {}
+    for category in TestMetadataExtractor.CATEGORIES:
+        count = len([t for t in tests if t[0] == category])
+        if count > 0:
+            category_counts[category] = count
+
     print(f"Found {len(tests)} test directories")
-    print(f"  intel-driven: {intel_count}")
-    print(f"  phase-aligned: {phase_count}")
+    for cat, count in sorted(category_counts.items()):
+        print(f"  {cat}: {count}")
     print()
 
     # Extract metadata for each test
@@ -280,12 +379,29 @@ def main():
         # Print preview
         name = metadata.get("test_name", "Unknown")
         score = metadata.get("score", "N/A")
-        cat_short = category[:5]
+        cat_short = category[:10]
+        severity = metadata.get("severity", "-")[:4]
+        threat_actor = metadata.get("threat_actor", "-")
+        if threat_actor and len(threat_actor) > 12:
+            threat_actor = threat_actor[:12] + ".."
 
         if metadata.get("test_name"):
-            print(f"  [{cat_short}] {test_uuid[:8]}... | {name[:30]:<30} | Score: {score}")
+            if args.verbose:
+                print(f"  [{cat_short}] {test_uuid[:8]}...")
+                print(f"    Name: {name}")
+                print(f"    Techniques: {metadata.get('techniques', [])}")
+                print(f"    Tactics: {metadata.get('tactics', [])}")
+                print(f"    Severity: {metadata.get('severity', 'N/A')}")
+                print(f"    Target: {metadata.get('target', [])}")
+                print(f"    Complexity: {metadata.get('complexity', 'N/A')}")
+                print(f"    Threat Actor: {metadata.get('threat_actor', 'N/A')}")
+                print(f"    Tags: {metadata.get('tags', [])}")
+                print(f"    Score: {score}")
+                print()
+            else:
+                print(f"  [{cat_short:<10}] {test_uuid[:8]}... | {name[:25]:<25} | {severity:<4} | {threat_actor or '-':<14} | {score}")
         else:
-            print(f"  [{cat_short}] {test_uuid[:8]}... | (No metadata found)")
+            print(f"  [{cat_short:<10}] {test_uuid[:8]}... | (No metadata found)")
 
     print()
 
@@ -293,11 +409,16 @@ def main():
     valid_metadata = [m for m in all_metadata if m.get("test_name")]
     print(f"Valid entries: {len(valid_metadata)} of {len(all_metadata)}")
 
+    # Count new vs legacy format
+    new_format_count = sum(1 for m in valid_metadata if m.get("tactics") or m.get("severity") != "medium")
+    print(f"  New format (with enhanced metadata): {new_format_count}")
+    print(f"  Legacy format (minimal): {len(valid_metadata) - new_format_count}")
+
     if args.dry_run:
         print()
         print("DRY RUN - No changes made to Elasticsearch")
         print()
-        print("Sample document:")
+        print("Sample document (first valid entry):")
         if valid_metadata:
             print(json.dumps(valid_metadata[0], indent=2))
         return

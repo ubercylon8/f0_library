@@ -46,6 +46,7 @@ signing-certs/
 
 # Build artifacts
 build/
+build-*/
 dist/
 temp_resources/
 staging/
@@ -65,6 +66,9 @@ rules/
 
 # Python cache files
 utils/__pycache__/
+
+# Python virtual environment
+.venv/
 
 # Playwright MCP cache
 .playwright-mcp/

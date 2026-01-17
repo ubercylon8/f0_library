@@ -4,9 +4,17 @@
 /*
 ID: 67165014-0377-4300-8197-ab459bd9249b
 NAME: PowerShell Security and Logging Validator
-TECHNIQUES: T1059.001,T1027,T1140,T1105
+TECHNIQUES: T1059.001, T1027, T1140, T1105
+TACTICS: execution, defense-evasion
+SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: powershell, logging, constrained-language, script-block-logging, cis-controls
 UNIT: response
 CREATED: 2025-01-11
+AUTHOR: sectest-builder
 */
 
 package main

@@ -4,9 +4,17 @@
 /*
 ID: 3135f66e-2c50-45ea-9b38-63d78870d16b
 NAME: Attack Surface Reduction Rules Validator
-TECHNIQUES: T1059.001,T1059.005,T1055,T1566.001
+TECHNIQUES: T1059.001, T1059.005, T1055, T1566.001
+TACTICS: defense-evasion, execution
+SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: asr, defender, microsoft, attack-surface-reduction, cis-controls
 UNIT: response
 CREATED: 2025-01-11
+AUTHOR: sectest-builder
 */
 
 package main
@@ -425,12 +433,4 @@ func countConfiguredRules(rules []ASRRule) int {
 		}
 	}
 	return count
-}
-
-// truncateString truncates a string to maxLen characters
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }

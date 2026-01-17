@@ -5,8 +5,16 @@
 ID: b4b50f92-f19a-4aba-a119-6f0e26d54ba5
 NAME: SMB Protocol Hardening Validator
 TECHNIQUES: T1021.002, T1570, T1210, T1557
+TACTICS: lateral-movement, credential-access
+SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: smb, smbv1, smb-signing, wannacry, notpetya, cis-controls
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 
 // SMB Protocol Hardening Validator - Cyber Hygiene Test
@@ -659,13 +667,6 @@ func printCheckSummary(name string, result CheckResult) {
 		status = "PASS"
 	}
 	Endpoint.Say("[%s] %-30s Value: %s", status, name, result.Value)
-}
-
-// isAdmin checks if the process is running with administrator privileges
-func isAdmin() bool {
-	cmd := exec.Command("net", "session")
-	err := cmd.Run()
-	return err == nil
 }
 
 // main is the entry point

@@ -5,8 +5,16 @@
 ID: 05c39526-5374-419f-bf1e-68468400f3c6
 NAME: Local Administrator Password Solution (LAPS) Validator
 TECHNIQUES: T1078.003, T1021.002, T1550.002
+TACTICS: credential-access, lateral-movement
+SEVERITY: high
+TARGET: active-directory, windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: laps, local-admin, password-management, nsa-top10, cis-controls
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 
 // Local Administrator Password Solution (LAPS) Validator - Cyber Hygiene Test

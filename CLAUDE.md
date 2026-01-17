@@ -411,25 +411,47 @@ utils/                        # Build and signing utilities
 
 ## Elasticsearch Catalog Sync (MANDATORY for new tests)
 
-Test results in Elasticsearch are enriched with metadata (test name, ATT&CK techniques, score) from a catalog index. For enrichment to work, **every test MUST**:
+Test results in Elasticsearch are enriched with metadata from a catalog index. The sync script supports 4 test categories: `cyber-hygiene`, `intel-driven`, `mitre-top10`, `phase-aligned`.
 
 ### 1. Include Metadata Header in Go File
 
-The main test file (`<uuid>.go`) MUST include this comment block at the top:
+The main test file (`<uuid>.go`) MUST include the metadata comment block. **Enhanced format (v2.0)** includes new taxonomy fields:
 
 ```go
 /*
 ID: <uuid>
 NAME: <Test Name>
 TECHNIQUES: T1234, T1567.001
+TACTICS: defense-evasion, execution
+SEVERITY: high
+TARGET: windows-endpoint, active-directory
+COMPLEXITY: medium
+THREAT_ACTOR: APT29
+SUBCATEGORY: apt
+TAGS: powershell, credential-theft, memory-patching
 UNIT: response
-CREATED: 2024-01-15
+CREATED: 2026-01-17
+AUTHOR: sectest-builder
 */
 ```
 
-**Critical fields for enrichment:**
-- `NAME:` - Human-readable test name (displayed in Kibana)
-- `TECHNIQUES:` - Comma-separated MITRE ATT&CK IDs
+**Field Reference:**
+
+| Field | Required | Description | Example Values |
+|-------|----------|-------------|----------------|
+| `ID` | Yes | Test UUID | `eafce2fc-75fd-4c62-92dc-32cabe5cf206` |
+| `NAME` | Yes | Human-readable name | `SafePay Ransomware Simulation` |
+| `TECHNIQUES` | Yes | ATT&CK technique IDs | `T1562.001, T1059.001` |
+| `TACTICS` | New | ATT&CK tactics (kebab-case) | `defense-evasion, execution` |
+| `SEVERITY` | New | Impact level | `critical`, `high`, `medium`, `low`, `informational` |
+| `TARGET` | New | Target platforms | `windows-endpoint`, `active-directory`, `cloud-aws` |
+| `COMPLEXITY` | New | Execution complexity | `low` (<30s), `medium` (30s-5min), `high` (>5min) |
+| `THREAT_ACTOR` | New | APT attribution | `APT29`, `Lazarus`, `SafePay`, `N/A` |
+| `SUBCATEGORY` | New | Secondary classification | `ransomware`, `apt`, `c2`, `baseline` |
+| `TAGS` | New | Searchable keywords | `powershell, defender-evasion` |
+| `AUTHOR` | New | Test creator | `sectest-builder` |
+
+**Backward Compatibility:** New fields are optional. Existing tests with minimal headers continue to work with sensible defaults (severity=medium, complexity=medium).
 
 ### 2. Sync Catalog After Creating Test
 
@@ -459,10 +481,33 @@ After sync, RECEIPT events will have these fields under `f0rtika.*`:
 |-------|-------------|
 | `f0rtika.test_uuid` | Test identifier (extracted from FILE_PATH) |
 | `f0rtika.test_name` | Human-readable test name |
+| `f0rtika.category` | Test category (auto-derived from directory) |
+| `f0rtika.subcategory` | Secondary classification |
 | `f0rtika.techniques` | MITRE ATT&CK technique IDs |
+| `f0rtika.tactics` | MITRE ATT&CK tactic names |
+| `f0rtika.severity` | Impact level (critical/high/medium/low/informational) |
+| `f0rtika.target` | Target platforms array |
+| `f0rtika.complexity` | Execution complexity (low/medium/high) |
+| `f0rtika.threat_actor` | APT group attribution |
+| `f0rtika.tags` | Searchable keyword array |
 | `f0rtika.score` | Test quality score (0-10) |
 | `f0rtika.error_name` | Human-readable exit code (Unprotected, ExecutionPrevented, etc.) |
 | `f0rtika.is_protected` | Boolean: was endpoint protected? |
+
+**Example Queries:**
+```
+# All intel-driven ransomware tests
+f0rtika.category: "intel-driven" AND f0rtika.subcategory: "ransomware"
+
+# Tests targeting Active Directory
+f0rtika.target: "active-directory"
+
+# Unprotected critical severity tests
+f0rtika.is_protected: false AND f0rtika.severity: "critical"
+
+# Tests attributed to specific threat actor
+f0rtika.threat_actor: "APT29"
+```
 
 **See**: `limacharlie-iac/ELASTICSEARCH-ENRICHMENT-GUIDE.md` for full setup details.
 

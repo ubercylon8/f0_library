@@ -1,5 +1,5 @@
 {
-  "description": "Enriches F0RT1KA test results with test metadata",
+  "description": "Enriches F0RT1KA test results with test metadata from catalog",
   "processors": [
     {
       "script": {
@@ -10,7 +10,7 @@
     },
     {
       "script": {
-        "description": "Map error code to human-readable name",
+        "description": "Map error code to human-readable name and protection status",
         "lang": "painless",
         "source": "def errorCode = ctx.event?.ERROR; if (errorCode != null) { def errorNames = new HashMap(); errorNames.put(101, 'Unprotected'); errorNames.put(105, 'FileQuarantinedOnExtraction'); errorNames.put(126, 'ExecutionPrevented'); errorNames.put(127, 'QuarantinedOnExecution'); errorNames.put(999, 'UnexpectedTestError'); if (ctx.f0rtika == null) { ctx.f0rtika = new HashMap(); } ctx.f0rtika.error_name = errorNames.getOrDefault(errorCode, 'Unknown'); ctx.f0rtika.is_protected = (errorCode == 105 || errorCode == 126 || errorCode == 127); }"
       }
@@ -27,9 +27,9 @@
     },
     {
       "script": {
-        "description": "Flatten test metadata into f0rtika namespace",
+        "description": "Flatten test metadata into f0rtika namespace (all taxonomy fields)",
         "lang": "painless",
-        "source": "if (ctx.f0rtika?.test_metadata != null) { def meta = ctx.f0rtika.test_metadata; ctx.f0rtika.test_name = meta.test_name; ctx.f0rtika.techniques = meta.techniques; ctx.f0rtika.score = meta.score; ctx.f0rtika.remove('test_metadata'); }"
+        "source": "if (ctx.f0rtika?.test_metadata != null) { def meta = ctx.f0rtika.test_metadata; ctx.f0rtika.test_name = meta.test_name; ctx.f0rtika.category = meta.category; ctx.f0rtika.subcategory = meta.subcategory; ctx.f0rtika.techniques = meta.techniques; ctx.f0rtika.tactics = meta.tactics; ctx.f0rtika.severity = meta.severity; ctx.f0rtika.target = meta.target; ctx.f0rtika.complexity = meta.complexity; ctx.f0rtika.threat_actor = meta.threat_actor; ctx.f0rtika.tags = meta.tags; ctx.f0rtika.score = meta.score; ctx.f0rtika.created = meta.created; ctx.f0rtika.author = meta.author; ctx.f0rtika.remove('test_metadata'); }"
       }
     }
   ]

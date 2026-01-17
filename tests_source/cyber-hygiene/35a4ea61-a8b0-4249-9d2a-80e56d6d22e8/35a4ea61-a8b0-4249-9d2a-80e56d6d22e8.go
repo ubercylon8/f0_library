@@ -5,8 +5,16 @@
 ID: 35a4ea61-a8b0-4249-9d2a-80e56d6d22e8
 NAME: LSASS Protection Validator
 TECHNIQUES: T1003.001, T1003.002, T1550.002
+TACTICS: credential-access
+SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: lsass, credential-guard, mimikatz-prevention, ppl, vbs, cis-controls
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 
 // LSASS Protection Validator - Cyber Hygiene Test
@@ -37,7 +45,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -441,13 +448,6 @@ func printCheckSummary(name string, result CheckResult) {
 		status = "PASS"
 	}
 	Endpoint.Say("[%s] %-45s Value: %s", status, name, result.Value)
-}
-
-// isAdmin checks if the process is running with administrator privileges
-func isAdmin() bool {
-	cmd := exec.Command("net", "session")
-	err := cmd.Run()
-	return err == nil
 }
 
 // main is the entry point

@@ -5,8 +5,16 @@
 ID: 742bf5df-ee2c-49ce-a477-1afbde3b6f2c
 NAME: Microsoft Defender Configuration Validator
 TECHNIQUES: T1562.001, T1562.004, T1070
+TACTICS: defense-evasion
+SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: defender, antivirus, real-time-protection, tamper-protection, cis-controls
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 
 // Microsoft Defender Configuration Validator - Cyber Hygiene Test

@@ -1,5 +1,6 @@
 {
   "_comment": "Elasticsearch Serverless: shards/replicas are auto-managed, no settings needed",
+  "_doc_comment": "F0RT1KA Test Catalog Index - Stores test metadata for enrichment of RECEIPT events",
   "mappings": {
     "properties": {
       "test_uuid": {
@@ -9,11 +10,54 @@
       "test_name": {
         "type": "keyword"
       },
+      "category": {
+        "type": "keyword",
+        "_comment": "Auto-derived from directory: cyber-hygiene, intel-driven, mitre-top10, phase-aligned"
+      },
+      "subcategory": {
+        "type": "keyword",
+        "_comment": "Secondary classification: ransomware, apt, c2, baseline, etc."
+      },
       "techniques": {
-        "type": "keyword"
+        "type": "keyword",
+        "_comment": "MITRE ATT&CK technique IDs (e.g., T1078.003)"
+      },
+      "tactics": {
+        "type": "keyword",
+        "_comment": "MITRE ATT&CK tactic names in kebab-case (e.g., defense-evasion)"
+      },
+      "severity": {
+        "type": "keyword",
+        "_comment": "Impact level: critical, high, medium, low, informational"
+      },
+      "target": {
+        "type": "keyword",
+        "_comment": "Target platforms/components: active-directory, windows-endpoint, web-app, cloud-aws, etc."
+      },
+      "complexity": {
+        "type": "keyword",
+        "_comment": "Execution complexity: low (<30s), medium (30s-5min), high (>5min)"
+      },
+      "threat_actor": {
+        "type": "keyword",
+        "_comment": "APT group attribution: APT29, Lazarus, REvil, SafePay, etc."
+      },
+      "tags": {
+        "type": "keyword",
+        "_comment": "Free-form searchable keywords for filtering"
       },
       "score": {
-        "type": "float"
+        "type": "float",
+        "_comment": "Test quality score (0-10 scale)"
+      },
+      "created": {
+        "type": "date",
+        "format": "yyyy-MM-dd",
+        "_comment": "Test creation date"
+      },
+      "author": {
+        "type": "keyword",
+        "_comment": "Test creator identifier"
       }
     }
   }

@@ -12,6 +12,24 @@
 //   - <TestName> → Your test name
 //   - <Description> → Brief description
 //   - <MITRE_ID> → MITRE ATT&CK technique ID (e.g., T1003.001)
+//
+// IMPORTANT: Update the metadata header block below with your test details
+
+/*
+ID: <uuid>
+NAME: <TestName>
+TECHNIQUES: <MITRE_ID>
+TACTICS: <tactic-name>
+SEVERITY: medium
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: <keyword1>, <keyword2>
+UNIT: response
+CREATED: 2026-01-17
+AUTHOR: sectest-builder
+*/
 
 package main
 

@@ -5,8 +5,16 @@
 ID: bac53a6e-dd97-4764-bb10-2ee605f24808
 NAME: CrowdStrike Falcon Configuration Validator
 TECHNIQUES: T1562.001, T1562.004, T1070
+TACTICS: defense-evasion
+SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: crowdstrike, falcon, edr, tamper-protection, cis-controls
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 
 // CrowdStrike Falcon Configuration Validator - Cyber Hygiene Test

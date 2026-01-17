@@ -1,7 +1,22 @@
 {
+  "_comment": "F0RT1KA Test Enrichment Policy - Enriches RECEIPT events with test metadata from catalog",
   "match": {
     "indices": "f0rtika-test-catalog",
     "match_field": "test_uuid",
-    "enrich_fields": ["test_name", "techniques", "score"]
+    "enrich_fields": [
+      "test_name",
+      "category",
+      "subcategory",
+      "techniques",
+      "tactics",
+      "severity",
+      "target",
+      "complexity",
+      "threat_actor",
+      "tags",
+      "score",
+      "created",
+      "author"
+    ]
   }
 }

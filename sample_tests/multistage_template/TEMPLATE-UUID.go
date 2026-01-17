@@ -10,17 +10,34 @@
 // 2. Copy test_logger.go and org_resolver.go to your test directory
 // 3. Replace TEMPLATE-UUID with your actual test UUID (lowercase)
 // 4. Update TEST_NAME with your test name
-// 5. Update test metadata (techniques, tactics, scoring) in main()
-// 6. Define your killchain stages in the killchain array
-// 7. Create stage binaries (copy stage-template.go for each technique)
-// 8. Build stage binaries and sign them BEFORE embedding
-// 9. Update //go:embed directives to embed your signed stage binaries
-// 10. Implement any test-specific initialization or cleanup logic
+// 5. Update the metadata header block below with your test details
+// 6. Update test metadata (techniques, tactics, scoring) in main()
+// 7. Define your killchain stages in the killchain array
+// 8. Create stage binaries (copy stage-template.go for each technique)
+// 9. Build stage binaries and sign them BEFORE embedding
+// 10. Update //go:embed directives to embed your signed stage binaries
+// 11. Implement any test-specific initialization or cleanup logic
 //
 // CRITICAL: Stage binaries MUST be signed BEFORE embedding!
 // See build_all.sh for the complete build process.
 
 //go:build windows
+
+/*
+ID: TEMPLATE-UUID
+NAME: Multi-Stage Attack Chain Template
+TECHNIQUES: T1134.001, T1055.001, T1003.001
+TACTICS: privilege-escalation, defense-evasion, credential-access
+SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: high
+THREAT_ACTOR: N/A
+SUBCATEGORY: apt
+TAGS: multi-stage, privilege-escalation, credential-theft
+UNIT: response
+CREATED: 2026-01-17
+AUTHOR: sectest-builder
+*/
 
 package main
 

@@ -4,9 +4,17 @@
 /*
 ID: 19d1d49c-d278-41a3-bfad-8bb318bdde45
 NAME: Windows Audit Logging Configuration Validator
-TECHNIQUES: (defensive)
+TECHNIQUES: T1070.001, T1562.002
+TACTICS: defense-evasion
+SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: audit-logging, event-log, detection, cis-controls, nsa-top10
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 package main
 

@@ -5,8 +5,16 @@
 ID: 38539d88-7446-48c0-990b-343d65b12538
 NAME: Network Protocol Hardening Validator
 TECHNIQUES: T1557.001, T1040, T1557
+TACTICS: credential-access, collection
+SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: llmnr, netbios, wpad, responder-prevention, network-hardening, cis-controls
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 
 // Network Protocol Hardening Validator - Cyber Hygiene Test
