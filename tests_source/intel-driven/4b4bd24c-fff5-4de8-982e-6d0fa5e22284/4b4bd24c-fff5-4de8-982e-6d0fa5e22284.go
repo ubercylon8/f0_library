@@ -5,6 +5,7 @@
 ID: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
 NAME: Data Exfiltration and Encryption Simulation
 TECHNIQUE: T1020,T1041,T1486,T1055,T1083
+SEVERITY: critical
 UNIT: response
 CREATED: 2025-08-23
 */

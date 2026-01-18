@@ -5,6 +5,7 @@
 ID: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
 NAME: SafePay Go-Native Ransomware Simulation
 TECHNIQUE: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+SEVERITY: critical
 UNIT: response
 CREATED: 2025-01-09
 */

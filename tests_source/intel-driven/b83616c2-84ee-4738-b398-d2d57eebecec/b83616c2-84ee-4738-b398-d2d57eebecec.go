@@ -5,6 +5,7 @@
 ID: b83616c2-84ee-4738-b398-d2d57eebecec
 NAME: NativeDump (NimDump) Detection
 TECHNIQUE: T1003.001
+SEVERITY: critical
 UNIT: response
 CREATED: 2025-01-03 15:30:00.000000
 */

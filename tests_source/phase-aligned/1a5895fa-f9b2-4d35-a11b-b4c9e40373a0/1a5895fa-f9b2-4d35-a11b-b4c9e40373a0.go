@@ -5,6 +5,7 @@
 ID: 1a5895fa-f9b2-4d35-a11b-b4c9e40373a0
 NAME: NTLM Relay Detection Test
 TECHNIQUES: T1557.001
+SEVERITY: high
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01

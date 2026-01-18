@@ -5,6 +5,7 @@
 ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
 NAME: System Recovery Inhibition (Safe Mode)
 TECHNIQUES: T1490
+SEVERITY: critical
 UNIT: response
 CREATED: 2026-01-11
 */

@@ -8,6 +8,7 @@
 ID: 5ed12ef2-5e29-49a2-8f26-269d8e9edcea
 NAME: Multi-Stage Ransomware Killchain
 TECHNIQUES: T1204.002, T1134.001, T1083, T1486, T1491.001
+SEVERITY: critical
 UNIT: response
 CREATED: 2024-01-15
 */

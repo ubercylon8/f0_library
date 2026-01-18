@@ -5,6 +5,7 @@
 ID: c1f0fe6f-6907-4f95-820d-47e0a39abe54
 NAME: TrollDisappearKey AMSI Bypass Detection
 TECHNIQUE: T1562.001
+SEVERITY: high
 UNIT: response
 CREATED: 2025-01-05 12:00:00.000000
 */

@@ -5,6 +5,7 @@
 ID: b6c73735-0c24-4a1e-8f0a-3c24af39671b
 NAME: MDE Authentication Bypass Command Interception
 TECHNIQUE: T1562.001, T1014, T1090.003, T1140
+SEVERITY: high
 UNIT: response
 CREATED: 2025-01-22
 */

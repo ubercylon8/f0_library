@@ -5,6 +5,7 @@
 ID: eafce2fc-75fd-4c62-92dc-32cabe5cf206
 NAME: Tailscale Remote Access and Data Exfiltration
 TECHNIQUE: T1105,T1219,T1543.003,T1021.004,T1041
+SEVERITY: high
 UNIT: response
 CREATED: 2025-01-15
 */

@@ -5,6 +5,7 @@
 ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
 NAME: Pre-Encryption File Enumeration
 TECHNIQUES: T1083, T1119, T1082
+SEVERITY: medium
 UNIT: response
 CREATED: 2026-01-11
 */

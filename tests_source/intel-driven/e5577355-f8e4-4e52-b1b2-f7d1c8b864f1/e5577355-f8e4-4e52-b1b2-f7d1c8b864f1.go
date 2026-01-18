@@ -5,6 +5,7 @@
 ID: e5577355-f8e4-4e52-b1b2-f7d1c8b864f1
 NAME: SilentButDeadly WFP EDR Network Isolation
 TECHNIQUE: T1562.001
+SEVERITY: high
 UNIT: response
 CREATED: 2025-11-26
 */

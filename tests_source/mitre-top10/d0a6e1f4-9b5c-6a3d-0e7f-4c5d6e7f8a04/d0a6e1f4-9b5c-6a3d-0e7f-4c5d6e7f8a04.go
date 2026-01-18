@@ -5,6 +5,7 @@
 ID: d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04
 NAME: WMI Execution Simulation
 TECHNIQUES: T1047, T1546.003
+SEVERITY: high
 UNIT: response
 CREATED: 2026-01-11
 */

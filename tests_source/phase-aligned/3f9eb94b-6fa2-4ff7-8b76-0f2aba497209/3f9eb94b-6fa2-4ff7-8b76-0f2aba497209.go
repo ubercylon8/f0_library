@@ -5,6 +5,7 @@
 ID: 3f9eb94b-6fa2-4ff7-8b76-0f2aba497209
 NAME: Pass-the-Ticket Detection Test
 TECHNIQUES: T1550.003
+SEVERITY: high
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01

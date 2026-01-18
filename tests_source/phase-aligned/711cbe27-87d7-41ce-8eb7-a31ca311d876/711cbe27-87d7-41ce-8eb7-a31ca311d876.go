@@ -5,6 +5,7 @@
 ID: 711cbe27-87d7-41ce-8eb7-a31ca311d876
 NAME: AS-REP Roasting Detection Test
 TECHNIQUES: T1558.004
+SEVERITY: high
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01

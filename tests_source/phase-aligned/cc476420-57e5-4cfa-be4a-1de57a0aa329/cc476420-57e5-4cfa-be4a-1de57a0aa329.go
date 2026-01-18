@@ -5,6 +5,7 @@
 ID: cc476420-57e5-4cfa-be4a-1de57a0aa329
 NAME: WinRM Execution Detection Test
 TECHNIQUES: T1021.006
+SEVERITY: medium
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01

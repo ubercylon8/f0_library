@@ -5,6 +5,7 @@
 ID: b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08
 NAME: Ransomware Encryption (Safe Mode)
 TECHNIQUES: T1486, T1491.001
+SEVERITY: critical
 UNIT: response
 CREATED: 2025-01-11
 */

@@ -5,6 +5,7 @@
 ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
 NAME: Local Account Enumeration
 TECHNIQUES: T1078.003, T1087.001, T1558.003
+SEVERITY: high
 UNIT: response
 CREATED: 2026-01-11
 */

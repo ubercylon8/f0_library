@@ -5,6 +5,7 @@
 ID: 06d298bc-9604-4dda-8e04-7609eaf4723f
 NAME: SMB Lateral Movement Detection Test
 TECHNIQUES: T1021.002
+SEVERITY: high
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01

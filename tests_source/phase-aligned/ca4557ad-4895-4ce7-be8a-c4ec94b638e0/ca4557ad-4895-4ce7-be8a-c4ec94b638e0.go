@@ -5,6 +5,7 @@
 ID: ca4557ad-4895-4ce7-be8a-c4ec94b638e0
 NAME: CrackMapExec Detection Test
 TECHNIQUES: T1021.002,T1110.003
+SEVERITY: high
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01

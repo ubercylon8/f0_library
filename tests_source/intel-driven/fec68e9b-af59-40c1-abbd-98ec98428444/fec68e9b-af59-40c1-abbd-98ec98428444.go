@@ -5,6 +5,7 @@
 ID: fec68e9b-af59-40c1-abbd-98ec98428444
 NAME: MDE Process Injection and API Authentication Bypass
 TECHNIQUE: T1055, T1055.001, T1562.001, T1014, T1557, T1071.001, T1140
+SEVERITY: high
 UNIT: response
 CREATED: 2025-01-24
 VERSION: 1.0

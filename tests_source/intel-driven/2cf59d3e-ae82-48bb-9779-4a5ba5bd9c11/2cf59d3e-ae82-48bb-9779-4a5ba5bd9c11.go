@@ -5,6 +5,7 @@
 ID: 2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11
 NAME: SafePay UAC Bypass & Defense Evasion
 TECHNIQUE: T1548.002, T1562.001, T1547.001
+SEVERITY: high
 UNIT: response
 CREATED: 2025-07-30 00:00:00.000000
 */

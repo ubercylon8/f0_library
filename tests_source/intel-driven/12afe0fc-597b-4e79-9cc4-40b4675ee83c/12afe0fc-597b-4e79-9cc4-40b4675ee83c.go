@@ -12,6 +12,23 @@
 // - Expected: RECEIPT event with exit code 101 (not 259)
 
 //go:build windows
+// +build windows
+
+/*
+ID: 12afe0fc-597b-4e79-9cc4-40b4675ee83c
+NAME: LimaCharlie Timeout Validation Harness
+TECHNIQUES: T1497.001
+TACTICS: defense-evasion
+SEVERITY: informational
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: baseline
+TAGS: utility, timeout-test, validation
+UNIT: response
+CREATED: 2026-01-18
+AUTHOR: sectest-builder
+*/
 
 package main
 

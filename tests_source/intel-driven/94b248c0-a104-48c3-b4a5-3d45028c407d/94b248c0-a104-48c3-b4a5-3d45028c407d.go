@@ -4,6 +4,7 @@
 ID: 94b248c0-a104-48c3-b4a5-3d45028c407d
 NAME: Gunra Ransomware Simulation
 TECHNIQUE: T1486, T1490, T1082
+SEVERITY: critical
 UNIT: response
 CREATED: 2024-10-13
 */

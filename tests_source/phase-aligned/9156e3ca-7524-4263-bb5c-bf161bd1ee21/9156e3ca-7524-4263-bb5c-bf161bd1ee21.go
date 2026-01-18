@@ -5,6 +5,7 @@
 ID: 9156e3ca-7524-4263-bb5c-bf161bd1ee21
 NAME: Pass-the-Hash Detection Test
 TECHNIQUES: T1550.002
+SEVERITY: high
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01

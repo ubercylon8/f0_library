@@ -5,6 +5,7 @@
 ID: 581e0f20-13f0-4374-9686-be3abd110ae0
 NAME: Ransomware Encryption via BitLocker
 TECHNIQUES: T1070.001, T1562.004, T1082, T1083, T1486, T1490
+SEVERITY: critical
 UNIT: response
 CREATED: 2024-12-01
 */

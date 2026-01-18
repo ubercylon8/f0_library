@@ -5,6 +5,7 @@
 ID: 09efee46-f098-4948-8e35-dded024cd1e7
 NAME: Sliver C2 Client Detection
 TECHNIQUE: T1219
+SEVERITY: high
 UNIT: response
 CREATED: 2025-04-22 14:30:00.000000
 */

@@ -5,6 +5,7 @@
 ID: 7e93865c-0033-4db3-af3c-a9f4215c1c49
 NAME: Process Injection via CreateRemoteThread
 TECHNIQUE: T1055.002
+SEVERITY: high
 UNIT: response
 CREATED: 2025-10-25
 */

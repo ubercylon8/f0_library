@@ -5,6 +5,7 @@
 ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
 NAME: CyberEye RAT - Windows Defender Disabling via PowerShell
 TECHNIQUE: T1562.001
+SEVERITY: high
 UNIT: response
 CREATED: 2025-07-02
 */

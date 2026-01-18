@@ -5,6 +5,7 @@
 ID: c3634a9c-e8c9-44a8-992b-0faeca14f612
 NAME: Akira Ransomware BYOVD Attack Chain
 TECHNIQUE: T1068,T1562.001
+SEVERITY: critical
 UNIT: response
 CREATED: 2024-12-30
 */

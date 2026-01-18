@@ -5,6 +5,7 @@
 ID: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
 NAME: EDRSilencer Detection
 TECHNIQUE: T1562.001
+SEVERITY: high
 UNIT: response
 CREATED: 2024-10-07 10:00:00.000000
 */

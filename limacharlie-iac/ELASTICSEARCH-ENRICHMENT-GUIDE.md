@@ -17,10 +17,30 @@ After enrichment, documents will have these fields under the `f0rtika` namespace
 |-------|-------------|---------|
 | `f0rtika.test_uuid` | Test identifier extracted from FILE_PATH | `5ed12ef2-5e29-49a2-8f26-269d8e9edcea` |
 | `f0rtika.test_name` | Human-readable test name | `Multi-Stage Ransomware Killchain` |
+| `f0rtika.category` | Test category (auto-derived) | `intel-driven` |
+| `f0rtika.subcategory` | Secondary classification | `ransomware` |
 | `f0rtika.techniques` | MITRE ATT&CK technique IDs | `["T1204.002", "T1134.001"]` |
+| `f0rtika.tactics` | MITRE ATT&CK tactic names | `["impact", "defense-evasion"]` |
+| `f0rtika.severity` | Impact level (Framework v2) | `critical` |
+| `f0rtika.target` | Target platforms | `["windows-endpoint"]` |
+| `f0rtika.complexity` | Execution complexity | `medium` |
+| `f0rtika.threat_actor` | APT group attribution | `SafePay` |
+| `f0rtika.tags` | Searchable keywords | `["ransomware", "bitlocker"]` |
 | `f0rtika.score` | Test quality score (0-10) | `8.5` |
 | `f0rtika.error_name` | Human-readable exit code name | `Unprotected` |
 | `f0rtika.is_protected` | Boolean: was endpoint protected? | `false` |
+
+### Severity Framework v2
+
+The `f0rtika.severity` field follows the F0RT1KA Severity Framework v2:
+
+| Severity | Description | Example Techniques |
+|----------|-------------|-------------------|
+| `critical` | System/domain compromise | T1486 (ransomware), T1003.001 (LSASS), T1068 (kernel) |
+| `high` | Significant access/lateral movement | T1562 (EDR), T1055 (injection), T1550 (PtH/PtT) |
+| `medium` | Reconnaissance/persistence | T1087 (enum), T1053 (scheduled tasks) |
+| `low` | Information disclosure | T1082 (system info), T1057 (process discovery) |
+| `informational` | No security impact | Utility tests, validation harnesses |
 
 ### Error Code Reference
 

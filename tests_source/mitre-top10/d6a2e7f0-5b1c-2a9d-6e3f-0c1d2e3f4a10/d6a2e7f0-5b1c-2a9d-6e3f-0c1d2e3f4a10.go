@@ -5,6 +5,7 @@
 ID: d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10
 NAME: Security Service Stop Simulation
 TECHNIQUES: T1489, T1562.001
+SEVERITY: high
 UNIT: response
 CREATED: 2025-01-11
 */

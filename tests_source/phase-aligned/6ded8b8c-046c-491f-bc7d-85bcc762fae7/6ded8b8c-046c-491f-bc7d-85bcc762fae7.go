@@ -5,6 +5,7 @@
 ID: 6ded8b8c-046c-491f-bc7d-85bcc762fae7
 NAME: Kerberoasting Detection Test
 TECHNIQUES: T1558.003
+SEVERITY: high
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01
