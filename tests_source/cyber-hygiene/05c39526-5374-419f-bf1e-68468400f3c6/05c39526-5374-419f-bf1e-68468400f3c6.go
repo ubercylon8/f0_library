@@ -123,6 +123,9 @@ func test() {
 
 	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
 
+	// Save diagnostic info (must be after InitLogger)
+	saveDiagnosticOutput()
+
 	defer func() {
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
@@ -695,8 +698,7 @@ func main() {
 	// Ensure C:\F0 exists for log output
 	os.MkdirAll("c:\\F0", 0755)
 
-	// Save diagnostic info
-	saveDiagnosticOutput()
+	// Note: saveDiagnosticOutput() is called inside test() after InitLogger()
 
 	done := make(chan bool, 1)
 	go func() {
