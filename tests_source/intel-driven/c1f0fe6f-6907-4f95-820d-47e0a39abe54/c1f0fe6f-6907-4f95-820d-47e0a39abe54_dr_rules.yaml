@@ -172,8 +172,8 @@ rules:
 
 
   # ==========================================================================
-  # Rule 5: File Creation in F0RT1KA Test Directory (AMSI Tools)
-  # Purpose: Detect AMSI bypass tool drops in F0RT1KA test directory
+  # Rule 5: AMSI Bypass Tool File Drop in User-Writable Directories
+  # Purpose: Detect AMSI bypass tool drops in common attacker staging locations
   # Confidence: HIGH
   # ==========================================================================
   f0rtika-amsi-tool-file-drop:
@@ -182,17 +182,30 @@ rules:
       event: FILE_CREATE
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: c:\\F0\\
+        # Detect in common attacker drop locations (user-writable directories)
         - op: or
           rules:
             - op: contains
               path: event/FILE_PATH
-              value: troll
+              value: \\AppData\\
             - op: contains
               path: event/FILE_PATH
-              value: amsi
+              value: \\Temp\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Downloads\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Users\\Public\\
+        # Match AMSI bypass tool name patterns
+        - op: or
+          rules:
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)troll.*disappear
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)amsi.*bypass
             - op: contains
               path: event/FILE_PATH
               value: seatbelt
@@ -205,7 +218,7 @@ rules:
           mitre_attack: T1562.001
           confidence: high
           severity: high
-          description: AMSI bypass related file created in F0RT1KA test directory
+          description: AMSI bypass tool file created in user-writable staging directory
 
 
   # ==========================================================================

@@ -41,17 +41,19 @@ This document provides comprehensive defense guidance for detecting, preventing,
 | `vssadmin.exe` | `vssadmin delete shadows /for=<drive> /quiet` | T1490 |
 
 **File System Artifacts**:
-| Path | Description |
-|------|-------------|
-| `C:\F0\bitlocker_test.vhd` | VHD file for isolated encryption |
-| `C:\F0\target_volumes.txt` | Discovery results |
-| `C:\F0\stage*_output.txt` | Stage execution logs |
-| `C:\F0\test_execution_log.json` | Test results |
+| Path Pattern | Description |
+|--------------|-------------|
+| `%TEMP%\*.vhd` or `%LOCALAPPDATA%\Temp\*.vhd` | VHD file for isolated encryption |
+| `%APPDATA%\*\target*.txt` or `%TEMP%\target*.txt` | Discovery results |
+| `C:\Users\Public\*` | Common attacker staging directory |
+| `%USERPROFILE%\Downloads\*` | Initial payload landing zone |
+| `C:\ProgramData\*` | Alternative staging location |
 
 **Registry/Event Log**:
-- Custom event log channel creation (`F0RT1KA-Test`)
-- BitLocker key protector registration
-- Security Event ID 1102 (Log cleared)
+- Custom event log channel creation (unusual channel names)
+- BitLocker key protector registration (especially password-based)
+- Security Event ID 1102 (Audit log cleared)
+- Event ID 770/775 (BitLocker encryption started/completed)
 
 ---
 
@@ -375,11 +377,12 @@ manage-bde -status > "C:\IR_Evidence\bitlocker_status.txt"
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| F0RT1KA Test Logs | `C:\F0\*` | `Copy-Item "C:\F0\*" -Destination "C:\IR_Evidence\F0_artifacts\" -Recurse` |
+| Suspicious Executables | `%TEMP%`, `%APPDATA%`, `C:\Users\Public` | `Get-ChildItem -Path $env:TEMP,$env:APPDATA,"C:\Users\Public" -Filter "*.exe" -Recurse` |
 | BitLocker Recovery Keys | TPM/AD/Azure AD | `manage-bde -protectors -get C:` |
 | Event Logs | Windows Events | See below |
 | Prefetch Files | `C:\Windows\Prefetch\` | `Copy-Item "C:\Windows\Prefetch\*" -Destination "C:\IR_Evidence\Prefetch\"` |
 | Recent VHD Files | System-wide | `Get-ChildItem -Path C:\ -Filter "*.vhd" -Recurse -ErrorAction SilentlyContinue` |
+| Staging Directories | Common attacker paths | `Get-ChildItem -Path "C:\ProgramData","$env:LOCALAPPDATA\Temp" -Recurse -ErrorAction SilentlyContinue` |
 
 #### Event Log Collection
 ```powershell
@@ -418,14 +421,25 @@ wevtutil epl "Microsoft-Windows-PowerShell/Operational" "C:\IR_Evidence\EventLog
 #### Remove Attack Artifacts
 
 ```powershell
-# Remove F0RT1KA test artifacts (AFTER evidence collection)
-Remove-Item -Path "C:\F0\*" -Recurse -Force -ErrorAction SilentlyContinue
+# Remove suspicious files from common attacker staging directories (AFTER evidence collection)
+$stagingPaths = @(
+    "$env:TEMP",
+    "$env:LOCALAPPDATA\Temp",
+    "$env:APPDATA",
+    "C:\Users\Public",
+    "C:\ProgramData"
+)
+foreach ($path in $stagingPaths) {
+    Get-ChildItem -Path $path -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.CreationTime -gt (Get-Date).AddDays(-1) } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+}
 
-# Remove any created VHD files
-Get-ChildItem -Path C:\ -Filter "bitlocker_test.vhd" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
+# Remove any created VHD files (check all common locations)
+Get-ChildItem -Path C:\ -Filter "*.vhd" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
 
-# Remove test firewall rules
-netsh advfirewall firewall delete rule name="F0RT1KA-Test-Rule"
+# Remove suspicious firewall rules (review before deleting)
+netsh advfirewall firewall show rule name=all | Select-String -Pattern "suspicious|unknown" -Context 3
 
 # Remove emergency containment rules
 netsh advfirewall firewall delete rule name="Emergency-Block-All-Outbound"
@@ -480,8 +494,9 @@ Get-NetFirewallProfile | Select-Object Name, Enabled
 # Verify event logging
 Get-WinEvent -LogName Security -MaxEvents 5
 
-# Check for remaining F0RT1KA artifacts
-Get-ChildItem "C:\F0" -ErrorAction SilentlyContinue
+# Check for remaining suspicious artifacts in common staging locations
+Get-ChildItem -Path "$env:TEMP","$env:APPDATA","C:\Users\Public","C:\ProgramData" -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -eq ".exe" -and $_.CreationTime -gt (Get-Date).AddDays(-7) }
 ```
 
 ---

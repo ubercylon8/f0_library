@@ -30,30 +30,25 @@ The Sliver C2 framework represents a significant threat to enterprise security. 
 ### Attack Flow
 
 ```
-[1] Binary Extraction
+Real-World Attack Chain:
+
+[1] Initial Access (Phishing, Exploit, etc.)
     |
     v
-[2] Drop sliver_client.exe to C:\F0
+[2] Drop Sliver implant to user-writable directory
+    (%TEMP%, %APPDATA%, Downloads, etc.)
     |
     v
-[3] Wait 3 Seconds (Defensive Reaction Window)
+[3] Execute Sliver implant
     |
     v
-[4] Check: File Quarantined?
-    |
-    +---> YES: Exit 105 (PROTECTED - File Quarantined)
-    |
-    +---> NO: Continue to Execution
-          |
-          v
-[5] Execute: sliver_client.exe --help
+[4] Establish C2 communication (mTLS, HTTPS, DNS, WireGuard)
     |
     v
-[6] Check: Execution Blocked?
+[5] Receive operator commands
     |
-    +---> YES: Exit 126 (PROTECTED - Execution Prevented)
-    |
-    +---> NO: Exit 101 (UNPROTECTED - C2 Client Executed)
+    v
+[6] Execute post-exploitation modules
 ```
 
 ### Real-World Context
@@ -199,12 +194,21 @@ Run the provided PowerShell hardening script with Administrator privileges:
 # Enable Windows Defender Application Control (WDAC)
 # Or AppLocker for environments without WDAC support
 
-# Example AppLocker rule to block executables from C:\F0
-New-AppLockerPolicy -RuleType Path -Deny -Path "C:\F0\*"
+# Block executables from common attacker drop locations
+$blockPaths = @(
+    "$env:TEMP\*",
+    "$env:APPDATA\*",
+    "$env:LOCALAPPDATA\Temp\*",
+    "$env:USERPROFILE\Downloads\*",
+    "$env:PUBLIC\*"
+)
+foreach ($path in $blockPaths) {
+    New-AppLockerPolicy -RuleType Path -Deny -Path $path
+}
 ```
 
 **Key Controls:**
-- Block executables from user-writable directories
+- Block executables from user-writable directories (%TEMP%, %APPDATA%, Downloads)
 - Allow only signed, trusted applications
 - Implement deny-by-default policies
 
@@ -281,7 +285,7 @@ For enterprise deployment via Group Policy:
 |------------|------------------|----------|
 | Sliver Binary Detection | Known Sliver signatures detected | P1 |
 | C2 Tool Execution | C2 framework binary executed | P1 |
-| Suspicious Binary in C:\F0 | File creation in test directory | P2 |
+| Suspicious Binary in User-Writable Dir | File creation in %TEMP%, %APPDATA%, Downloads | P2 |
 | Go Binary with C2 Patterns | Behavioral indicators present | P2 |
 
 ### 2. Initial Triage (First 5 minutes)
@@ -292,10 +296,10 @@ For enterprise deployment via Group Policy:
 - [ ] **Check timeline** - When did activity begin?
 
 **Triage Questions:**
-1. Is this a scheduled security test execution?
-2. Is the file located in `c:\F0\` (test directory)?
+1. Is this a scheduled security test or authorized red team exercise?
+2. What directory was the binary dropped to? (Common: %TEMP%, %APPDATA%, Downloads)
 3. What is the parent process that dropped/executed the binary?
-4. Are there any network connections from the process?
+4. Are there any network connections from the process (check for C2 beaconing)?
 
 ### 3. Containment (15-30 minutes)
 
@@ -311,11 +315,14 @@ netsh advfirewall set allprofiles firewallpolicy blockinbound,blockoutbound
 
 - [ ] **Terminate malicious processes**
 ```powershell
-# Kill Sliver client process
+# Kill Sliver client process by name
 Get-Process | Where-Object {$_.ProcessName -match "sliver"} | Stop-Process -Force
 
-# Kill by path if known
-Get-Process | Where-Object {$_.Path -like "C:\F0\*"} | Stop-Process -Force
+# Kill suspicious processes from user-writable locations
+$suspiciousPaths = @("*\AppData\*", "*\Temp\*", "*\Downloads\*", "*\Public\*")
+foreach ($path in $suspiciousPaths) {
+    Get-Process | Where-Object {$_.Path -like $path -and $_.ProcessName -notmatch "(chrome|firefox|edge)"} | Stop-Process -Force
+}
 ```
 
 - [ ] **Quarantine the binary**
@@ -323,7 +330,12 @@ Get-Process | Where-Object {$_.Path -like "C:\F0\*"} | Stop-Process -Force
 # Move binary to quarantine folder for analysis
 $quarantine = "C:\IR\Quarantine\$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 New-Item -Path $quarantine -ItemType Directory -Force
-Move-Item -Path "C:\F0\sliver_client.exe" -Destination $quarantine -Force
+
+# Quarantine from common attacker drop locations (adjust path as needed)
+$suspectedPath = "C:\Users\$env:USERNAME\AppData\Local\Temp\sliver_client.exe"
+if (Test-Path $suspectedPath) {
+    Move-Item -Path $suspectedPath -Destination $quarantine -Force
+}
 ```
 
 - [ ] **Preserve volatile evidence**
@@ -348,7 +360,7 @@ Get-DnsClientCache | Export-Csv "$irPath\dns_cache.csv" -NoTypeInformation
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| Sliver binary | `C:\F0\sliver_client.exe` | `Copy-Item "C:\F0\*" "C:\IR\artifacts\"` |
+| Sliver binary | User-writable dirs (%TEMP%, %APPDATA%) | `Copy-Item "$env:TEMP\sliver*" "C:\IR\artifacts\"` |
 | Process memory | Memory | `procdump -ma <pid> C:\IR\` |
 | Event logs | System | `wevtutil epl Security C:\IR\Security.evtx` |
 | Prefetch files | `C:\Windows\Prefetch\` | `Copy-Item "C:\Windows\Prefetch\SLIVER*" "C:\IR\Prefetch\"` |
@@ -379,7 +391,11 @@ Get-WinEvent -FilterHashtable @{
 #### File Removal
 ```powershell
 # Remove attack artifacts (AFTER evidence collection)
-Remove-Item -Path "C:\F0\sliver*" -Force -ErrorAction SilentlyContinue
+# Search common attacker drop locations
+$searchPaths = @("$env:TEMP", "$env:APPDATA", "$env:LOCALAPPDATA", "$env:USERPROFILE\Downloads", "$env:PUBLIC")
+foreach ($path in $searchPaths) {
+    Remove-Item -Path "$path\sliver*" -Force -ErrorAction SilentlyContinue
+}
 
 # Remove any persistence mechanisms
 # Check scheduled tasks
@@ -391,8 +407,11 @@ Get-Service | Where-Object {$_.BinaryPathName -like "*sliver*"} | Stop-Service -
 
 #### Verify Removal
 ```powershell
-# Verify binary is removed
-Test-Path "C:\F0\sliver_client.exe"  # Should return False
+# Verify binaries are removed from common locations
+$searchPaths = @("$env:TEMP", "$env:APPDATA", "$env:LOCALAPPDATA", "$env:USERPROFILE\Downloads")
+foreach ($path in $searchPaths) {
+    Get-ChildItem -Path $path -Filter "sliver*" -ErrorAction SilentlyContinue  # Should return nothing
+}
 
 # Verify no persistence
 Get-ScheduledTask | Where-Object {$_.Actions.Execute -like "*sliver*"}
@@ -414,8 +433,11 @@ Get-Service | Where-Object {$_.BinaryPathName -like "*sliver*"}
 # Verify Defender is functional
 Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AntivirusSignatureLastUpdated
 
-# Verify no suspicious processes
-Get-Process | Where-Object {$_.Path -like "C:\F0\*"}
+# Verify no suspicious processes from user-writable directories
+$suspiciousPaths = @("*\AppData\*", "*\Temp\*", "*\Downloads\*", "*\Public\*")
+foreach ($path in $suspiciousPaths) {
+    Get-Process | Where-Object {$_.Path -like $path} | Select-Object ProcessName, Path
+}
 
 # Verify no suspicious network connections
 Get-NetTCPConnection | Where-Object {$_.OwningProcess -ne 0 -and $_.State -eq "Established"} |
@@ -456,10 +478,11 @@ Get-NetTCPConnection | Where-Object {$_.OwningProcess -ne 0 -and $_.State -eq "E
 
 | Phase | Expected Alert | Timing |
 |-------|----------------|--------|
-| Binary Extraction | File creation in `c:\F0\` | Immediate |
-| File Detection | Signature/heuristic alert | Within 3 seconds |
-| Process Execution | NEW_PROCESS event | If file not quarantined |
-| Command Line Detection | C2 argument detection | At execution |
+| Binary Drop | File creation in user-writable directory | Immediate |
+| File Detection | Signature/heuristic alert on Sliver binary | Within seconds |
+| Process Execution | NEW_PROCESS event with C2 characteristics | If file not quarantined |
+| C2 Communication | Network beaconing to external IP | After execution |
+| Command Line Detection | Sliver-specific arguments (--mtls, --wg, --dns) | At execution |
 
 ---
 

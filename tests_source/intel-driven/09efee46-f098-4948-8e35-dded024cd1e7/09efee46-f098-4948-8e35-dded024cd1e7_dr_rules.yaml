@@ -79,8 +79,8 @@ rules:
 
 
   # ==========================================================================
-  # RULE 2: C2 Binary File Drop in Monitored Directories
-  # Purpose: Detect file creation of C2 binaries in sensitive locations
+  # RULE 2: C2 Binary File Drop in User-Writable Directories
+  # Purpose: Detect file creation of C2 binaries in common attacker drop locations
   # Confidence: HIGH
   # ==========================================================================
   c2-binary-file-drop:
@@ -98,13 +98,9 @@ rules:
             - op: ends with
               path: event/FILE_PATH
               value: ".dll"
-        # In a monitored location
+        # In user-writable locations (common attacker drop paths)
         - op: or
           rules:
-            # F0RT1KA test directory
-            - op: contains
-              path: event/FILE_PATH
-              value: "\\F0\\"
             # Temp directories
             - op: contains
               path: event/FILE_PATH
@@ -115,7 +111,18 @@ rules:
               value: "\\AppData\\Local\\"
             - op: contains
               path: event/FILE_PATH
+              value: "\\AppData\\Roaming\\"
+            - op: contains
+              path: event/FILE_PATH
               value: "\\Downloads\\"
+            # Public folder
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Public\\"
+            # ProgramData
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\ProgramData\\"
         # Matches C2 naming patterns
         - op: or
           rules:
@@ -134,13 +141,13 @@ rules:
 
     respond:
       - action: report
-        name: C2 Binary Dropped in Monitored Directory
+        name: C2 Binary Dropped in User-Writable Directory
         metadata:
           severity: high
           mitre_attack: T1219
           confidence: high
           test_id: 09efee46-f098-4948-8e35-dded024cd1e7
-          description: Potential C2 framework binary was created in a monitored directory
+          description: Potential C2 framework binary was created in a user-writable directory
 
       - action: task
         command: file_info
@@ -148,38 +155,61 @@ rules:
 
 
   # ==========================================================================
-  # RULE 3: Process Execution from F0RT1KA Test Directory
-  # Purpose: Detect any binary execution from c:\F0 test directory
-  # Confidence: HIGH
+  # RULE 3: Suspicious Binary Execution from User-Writable Directories
+  # Purpose: Detect binary execution from common attacker drop locations with C2 indicators
+  # Confidence: MEDIUM-HIGH
+  # Note: Targets %TEMP%, %APPDATA%, Downloads - common attacker staging locations
   # ==========================================================================
-  f0rtika-test-directory-execution:
+  suspicious-user-directory-execution:
     detect:
       target: edr
       event: NEW_PROCESS
       op: and
       rules:
+        # From user-writable directories
         - op: or
           rules:
-            - op: starts with
+            - op: contains
               path: event/FILE_PATH
-              value: "c:\\F0\\"
-            - op: starts with
+              value: "\\Temp\\"
+            - op: contains
               path: event/FILE_PATH
-              value: "C:\\F0\\"
+              value: "\\AppData\\Local\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Public\\"
+        # With C2-related naming or command line
+        - op: or
+          rules:
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)(client|agent|beacon|implant|payload|sliver)\.exe$
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--mtls"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--wg"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--beacon"
 
     respond:
       - action: report
-        name: Process Execution from F0RT1KA Test Directory
+        name: Suspicious Binary Execution from User Directory
         metadata:
           severity: high
           mitre_attack: T1219
-          confidence: high
+          confidence: medium-high
           test_id: 09efee46-f098-4948-8e35-dded024cd1e7
-          description: Binary executed from F0RT1KA security test directory
+          description: Binary with C2 characteristics executed from user-writable directory
 
       - action: task
         command: history_dump
-        investigation: F0RT1KA-Test-Execution
+        investigation: Suspicious-User-Directory-Execution
 
 
   # ==========================================================================
@@ -230,8 +260,8 @@ rules:
 
 
   # ==========================================================================
-  # RULE 5: Suspicious Network Connection from Non-Standard Location
-  # Purpose: Detect outbound connections from binaries in suspicious paths
+  # RULE 5: Suspicious Network Connection from User-Writable Location
+  # Purpose: Detect outbound connections from binaries in user-writable paths
   # Confidence: MEDIUM
   # ==========================================================================
   suspicious-location-network-activity:
@@ -240,18 +270,24 @@ rules:
       event: NEW_TCP4_CONNECTION
       op: and
       rules:
-        # From suspicious locations
+        # From user-writable locations (common attacker drop paths)
         - op: or
           rules:
-            - op: contains
-              path: event/FILE_PATH
-              value: "\\F0\\"
             - op: contains
               path: event/FILE_PATH
               value: "\\Temp\\"
             - op: contains
               path: event/FILE_PATH
               value: "\\AppData\\Local\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Roaming\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Public\\"
         # Not to localhost
         - op: is
           path: event/DESTINATION
@@ -278,13 +314,13 @@ rules:
 
     respond:
       - action: report
-        name: Suspicious Network Connection from Non-Standard Location
+        name: Suspicious Network Connection from User-Writable Location
         metadata:
           severity: medium
           mitre_attack: T1219
           confidence: medium
           test_id: 09efee46-f098-4948-8e35-dded024cd1e7
-          description: Binary from suspicious location making outbound connections
+          description: Binary from user-writable location making outbound connections on common C2 ports
 
 
   # ==========================================================================
@@ -324,10 +360,16 @@ rules:
           rules:
             - op: matches
               path: event/FILE_PATH
-              re: (?i)(client|agent|beacon|implant|payload)\.exe$
+              re: (?i)(client|agent|beacon|implant|payload|sliver)\.exe$
             - op: contains
               path: event/FILE_PATH
-              value: "\\F0\\"
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
 
     respond:
       - action: report
@@ -371,8 +413,8 @@ rules:
 
 
   # ==========================================================================
-  # RULE 8: File Quarantine Detection
-  # Purpose: Detect when security software quarantines a file
+  # RULE 8: File Quarantine Detection for C2 Binaries
+  # Purpose: Detect when security software quarantines a C2-related file
   # Confidence: HIGH (indicates protection is working)
   # ==========================================================================
   file-quarantine-event:
@@ -381,15 +423,31 @@ rules:
       event: FILE_DELETE
       op: and
       rules:
-        # File was in monitored location
+        # File matches C2 patterns or was in user-writable location
         - op: or
           rules:
-            - op: contains
-              path: event/FILE_PATH
-              value: "\\F0\\"
             - op: matches
               path: event/FILE_PATH
               re: (?i)sliver
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)(beacon|implant|payload).*\.exe$
+            - op: and
+              rules:
+                - op: or
+                  rules:
+                    - op: contains
+                      path: event/FILE_PATH
+                      value: "\\Temp\\"
+                    - op: contains
+                      path: event/FILE_PATH
+                      value: "\\AppData\\"
+                    - op: contains
+                      path: event/FILE_PATH
+                      value: "\\Downloads\\"
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: ".exe"
         # Deleted by AV/EDR process
         - op: or
           rules:
@@ -408,13 +466,13 @@ rules:
 
     respond:
       - action: report
-        name: Security Software Quarantined Suspicious File
+        name: Security Software Quarantined C2-Related File
         metadata:
           severity: informational
           mitre_attack: T1219
           confidence: high
           test_id: 09efee46-f098-4948-8e35-dded024cd1e7
-          description: Security software successfully quarantined a suspicious file
+          description: Security software successfully quarantined a suspicious C2-related file
 
 
 # ============================================================================

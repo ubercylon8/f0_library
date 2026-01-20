@@ -92,14 +92,18 @@ This technique involves injecting code into a target process using a classic Win
 See: `7e93865c-0033-4db3-af3c-a9f4215c1c49_detections.kql`
 
 **Query Categories:**
-1. Process Handle Access with Injection Permissions
-2. Cross-Process Memory Allocation (PAGE_EXECUTE_READWRITE)
-3. WriteProcessMemory Operations
-4. CreateRemoteThread Detection
-5. Remote Thread Start Address Anomalies
-6. Behavioral Correlation - Full Injection Chain
-7. F0RT1KA Test Framework Detection
-8. Suspicious Parent-Child Process Relationships
+1. CreateRemoteThread Detection via Sysmon
+2. Process Access with Injection Permissions
+3. Process Injection Targeting Notepad
+4. DeviceProcessEvents - Remote Thread Creation
+5. VirtualAllocEx with Executable Permissions
+6. WriteProcessMemory Detection
+7. Behavioral Correlation - Full Injection Chain
+8. Injection from Non-Standard Paths
+9. Injection Tool Execution from Suspicious Locations
+10. Notepad Started by Suspicious Parent
+11. Anomalous Thread Start Address Detection
+12. Suspicious File Activity in Attacker Staging Directories
 
 ### LimaCharlie D&R Rules
 
@@ -108,9 +112,13 @@ See: `7e93865c-0033-4db3-af3c-a9f4215c1c49_dr_rules.yaml`
 **Rule Categories:**
 1. Remote Thread Creation Detection
 2. Sensitive Process Access Monitoring
-3. Cross-Process Memory Operations
-4. Injection Tool Execution Detection
-5. Multi-Indicator Behavioral Correlation
+3. Injection Tool Execution Detection
+4. Notepad Injection Target Detection
+5. Cross-Process Memory Write Detection
+6. Suspicious Notepad Parent Detection
+7. Injection Tool Execution from User-Writable Directories
+8. Suspicious Binary Creation in Attacker Staging Directories
+9. Suspicious NTDLL Usage Detection
 
 ### YARA Rules
 
@@ -121,7 +129,6 @@ See: `7e93865c-0033-4db3-af3c-a9f4215c1c49_rules.yar`
 2. Shellcode Pattern Detection
 3. CreateRemoteThread API Usage
 4. Cross-Process Memory Operation Imports
-5. F0RT1KA Framework Binary Detection
 
 ---
 
@@ -311,7 +318,7 @@ Value: 1
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| F0RT1KA Test Logs | `c:\F0\*_log.json` | `Copy-Item "c:\F0\*" -Destination "C:\IR\F0_artifacts\" -Recurse` |
+| Suspected Malware | User-writable directories | `Copy-Item "$env:TEMP\*" -Destination "C:\IR\temp_artifacts\" -Recurse` |
 | Security Event Log | System | `wevtutil epl Security C:\IR\Security.evtx` |
 | Sysmon Log | System | `wevtutil epl Microsoft-Windows-Sysmon/Operational C:\IR\Sysmon.evtx` |
 | Process Memory | Memory | `procdump -ma <pid> C:\IR\` |
@@ -370,10 +377,19 @@ Get-CimInstance Win32_Process | Where-Object {
 #### File Removal (AFTER evidence collection)
 
 ```powershell
-# Remove F0RT1KA test artifacts
-Remove-Item -Path "c:\F0\*" -Recurse -Force -ErrorAction SilentlyContinue
+# Remove suspected malware from common attacker staging locations
+$AttackerPaths = @(
+    "$env:TEMP",
+    "$env:APPDATA",
+    "$env:LOCALAPPDATA\Temp",
+    "$env:PUBLIC\Downloads"
+)
+foreach ($path in $AttackerPaths) {
+    # Review files before deletion - look for suspicious executables
+    Get-ChildItem -Path $path -Filter "*.exe" -ErrorAction SilentlyContinue
+}
 
-# Remove suspected malware binary
+# Remove suspected malware binary (replace with actual path from investigation)
 Remove-Item -Path "<malware-path>" -Force -ErrorAction SilentlyContinue
 ```
 
@@ -404,11 +420,18 @@ Get-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Er
 #### Validation Commands
 
 ```powershell
-# Verify no suspicious processes
-Get-Process | Where-Object { $_.Path -like "*c:\F0*" }
+# Verify no suspicious processes running from user-writable locations
+$SuspiciousPaths = @("$env:TEMP", "$env:APPDATA", "$env:LOCALAPPDATA\Temp", "$env:PUBLIC")
+Get-Process | Where-Object {
+    $proc = $_
+    $SuspiciousPaths | ForEach-Object { $proc.Path -like "$_*" }
+} | Select-Object ProcessName, Path, Id
 
-# Verify F0 directory is clean
-Get-ChildItem "c:\F0\" -ErrorAction SilentlyContinue
+# Check for suspicious executables in common attacker staging locations
+foreach ($path in $SuspiciousPaths) {
+    Get-ChildItem -Path $path -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue |
+        Select-Object FullName, CreationTime, LastWriteTime
+}
 
 # Verify Defender is operational
 Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AMServiceEnabled

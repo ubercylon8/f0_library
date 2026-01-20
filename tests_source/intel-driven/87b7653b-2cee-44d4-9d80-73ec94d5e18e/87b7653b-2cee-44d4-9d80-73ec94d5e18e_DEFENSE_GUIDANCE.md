@@ -41,7 +41,7 @@ This document provides comprehensive defensive guidance for protecting against t
 ### 1.2 Attack Flow
 
 ```
-[1] Drop EDR-Freeze.exe to C:\F0
+[1] Drop EDR-Freeze.exe to attacker staging directory (e.g., %TEMP%, %APPDATA%, C:\Users\Public)
          |
          v
 [2] Identify Defender Process (MsMpEng.exe, MpDefenderCoreService.exe, NisSrv.exe)
@@ -99,7 +99,7 @@ This document provides comprehensive defensive guidance for protecting against t
 | **M1047** | Audit | Periodically verify security tools function properly. Monitor for unexpected exclusion paths. Audit WerFaultSecure usage patterns. | HIGH |
 | **M1040** | Behavior Prevention on Endpoint | Configure endpoint security to block process injection sequences. Enable ASR rules. | HIGH |
 | **M1038** | Execution Prevention | Use application control (AppLocker/WDAC) to prevent unauthorized tool execution. | HIGH |
-| **M1022** | Restrict File and Directory Permissions | Prevent file writes to sensitive directories (C:\F0, temp folders). | MEDIUM |
+| **M1022** | Restrict File and Directory Permissions | Prevent file writes to sensitive directories (temp folders, %APPDATA%, C:\Users\Public). | MEDIUM |
 | **M1024** | Restrict Registry Permissions | Prevent unauthorized Registry modifications to security services. | MEDIUM |
 | **M1018** | User Account Management | Limit user privileges to prevent security service manipulation. | MEDIUM |
 | **M1026** | Privileged Account Management | Restrict process manipulation capabilities to administrative accounts only. | MEDIUM |
@@ -112,7 +112,7 @@ This document provides comprehensive defensive guidance for protecting against t
 | WerFaultSecure abuse patterns | P1 - Critical | HIGH | T1562.001, T1574 |
 | Security process suspension | P1 - Critical | HIGH | T1562.001 |
 | Certutil malicious downloads | P2 - High | HIGH | T1105 |
-| File staging in C:\F0 | P2 - High | MEDIUM | T1074 |
+| File staging in suspicious directories | P2 - High | MEDIUM | T1074 |
 | PPL process creation | P3 - Medium | MEDIUM | T1055, T1574 |
 | Behavioral correlation | P1 - Critical | VERY HIGH | Full chain |
 
@@ -133,7 +133,7 @@ See file: `87b7653b-2cee-44d4-9d80-73ec94d5e18e_detections.kql`
 | 3 | Security Process Suspension Anomalies | HIGH | Detects thread suspension in security processes |
 | 4 | WerFaultSecure PPL Creation | HIGH | Detects PPL process creation patterns |
 | 5 | Full Attack Chain Correlation | VERY HIGH | Correlates multiple indicators for high-confidence detection |
-| 6 | File Staging in Suspicious Locations | MEDIUM | Detects file creation in C:\F0 and temp directories |
+| 6 | File Staging in Suspicious Locations | MEDIUM | Detects file creation in attacker staging directories (Temp, Public, AppData) |
 | 7 | CreateProcessAsPPL Detection | HIGH | Detects PPL process creation attempts |
 | 8 | Defender Process Anomalies | CRITICAL | Detects termination/suspension of Defender processes |
 | 9 | LOLBin Network Downloads | HIGH | Detects LOLBins downloading from known repositories |
@@ -149,7 +149,7 @@ See file: `87b7653b-2cee-44d4-9d80-73ec94d5e18e_dr_rules.yaml`
 |-----------|------------|-------------|
 | edr-freeze-werfaultsecure-abuse | NEW_PROCESS | Detects WerFaultSecure targeting security processes |
 | edr-freeze-certutil-download | NEW_PROCESS | Detects certutil downloading executables |
-| edr-freeze-file-staging | FILE_CREATE | Detects executable staging in C:\F0 |
+| edr-freeze-file-staging | FILE_CREATE | Detects executable staging in suspicious directories |
 | edr-freeze-tool-execution | NEW_PROCESS | Detects EDR-Freeze.exe execution |
 | edr-freeze-ppl-creation | NEW_PROCESS | Detects PPL process creation attempts |
 
@@ -181,7 +181,7 @@ See file: `87b7653b-2cee-44d4-9d80-73ec94d5e18e_hardening.ps1`
 | ASR Rules | Block credential stealing, process injection, Office macro code | Medium |
 | Defender Tamper Protection | Prevents unauthorized changes to Defender settings | Low |
 | Certutil Restrictions | AppLocker rules to restrict certutil execution | Low-Medium |
-| C:\F0 Directory Monitoring | NTFS auditing on attack staging directory | Low |
+| Suspicious Directory Monitoring | NTFS auditing on common attack staging directories (Temp, Public, AppData) | Low |
 | WerFaultSecure Monitoring | Enhanced auditing for WER components | Low |
 
 ### 4.2 Complex Hardening Guidance
@@ -336,8 +336,9 @@ New-CIPolicy -Level Publisher -FilePath "C:\Policies\BasePolicy.xml" -UserPEs
 
 2. **Add Deny Rules for Known Attack Tools:**
 ```powershell
-# Block EDR-Freeze patterns
-$DenyRule = New-CIPolicyRule -DriverFilePath "C:\F0\EDR-Freeze.exe" -Level Hash -Deny
+# Block EDR-Freeze patterns by hash or publisher
+# First, capture hash from a known sample
+$DenyRule = New-CIPolicyRule -DriverFilePath "C:\Evidence\EDR-Freeze.exe" -Level Hash -Deny
 Merge-CIPolicy -PolicyPaths "C:\Policies\BasePolicy.xml" -OutputFilePath "C:\Policies\MergedPolicy.xml" -Rules $DenyRule
 ```
 
@@ -439,9 +440,10 @@ $RuleXml = @"
 
 - [ ] **Verify alert legitimacy**
   ```powershell
-  # Check for F0RT1KA test markers
-  Get-ChildItem "C:\F0" -ErrorAction SilentlyContinue
-  Get-Content "C:\F0\*_log.json" -ErrorAction SilentlyContinue
+  # Check for indicators of authorized security testing
+  # Look for EDR-Freeze artifacts in common staging directories
+  Get-ChildItem "$env:TEMP\EDR-Freeze*" -ErrorAction SilentlyContinue
+  Get-ChildItem "C:\Users\Public\EDR-Freeze*" -ErrorAction SilentlyContinue
   ```
 
 - [ ] **Isolate affected host(s)**
@@ -504,9 +506,9 @@ $RuleXml = @"
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| Test execution logs | `C:\F0\*_log.json` | `Copy-Item "C:\F0\*" -Destination "$EvidenceDir\F0_artifacts\" -Recurse` |
-| EDR-Freeze binary | `C:\F0\EDR-Freeze.exe` | `Copy-Item "C:\F0\EDR-Freeze.exe" "$EvidenceDir\"` |
-| Downloaded malware | `C:\F0\Seatbelt.exe` | `Copy-Item "C:\F0\Seatbelt.exe" "$EvidenceDir\" -ErrorAction SilentlyContinue` |
+| EDR-Freeze binary | Common staging directories | `Get-ChildItem -Path "$env:TEMP","C:\Users\Public","$env:APPDATA" -Filter "EDR-Freeze*" -Recurse \| Copy-Item -Destination "$EvidenceDir\"` |
+| Downloaded malware | Common staging directories | `Get-ChildItem -Path "$env:TEMP","C:\Users\Public","$env:APPDATA" -Filter "Seatbelt*" -Recurse \| Copy-Item -Destination "$EvidenceDir\"` |
+| Suspicious executables | Temp/Public directories | `Get-ChildItem -Path "$env:TEMP","C:\Users\Public" -Filter "*.exe" \| Copy-Item -Destination "$EvidenceDir\"` |
 | Security Event Logs | System | `wevtutil epl Security "$EvidenceDir\Security.evtx"` |
 | Sysmon Logs | Sysmon | `wevtutil epl "Microsoft-Windows-Sysmon/Operational" "$EvidenceDir\Sysmon.evtx"` |
 | WER Logs | `C:\ProgramData\Microsoft\Windows\WER\` | `Copy-Item "C:\ProgramData\Microsoft\Windows\WER\*" "$EvidenceDir\WER\" -Recurse` |
@@ -553,15 +555,19 @@ Get-WinEvent -FilterHashtable @{LogName='Security'; StartTime=(Get-Date).AddHour
 #### File Removal (AFTER evidence collection)
 
 ```powershell
-# Remove attack artifacts
-Remove-Item -Path "C:\F0\EDR-Freeze.exe" -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "C:\F0\Seatbelt.exe" -Force -ErrorAction SilentlyContinue
+# Remove attack artifacts from common staging directories
+$StagingDirs = @("$env:TEMP", "C:\Users\Public", "$env:APPDATA", "$env:LOCALAPPDATA\Temp")
 
-# Remove any other suspicious executables in C:\F0
-Get-ChildItem "C:\F0\*.exe" | Remove-Item -Force
+foreach ($Dir in $StagingDirs) {
+    Remove-Item -Path "$Dir\EDR-Freeze*" -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$Dir\Seatbelt*" -Force -ErrorAction SilentlyContinue
+}
 
-# Verify removal
-Get-ChildItem "C:\F0" -ErrorAction SilentlyContinue
+# Verify removal - check for suspicious recently modified executables
+foreach ($Dir in $StagingDirs) {
+    Get-ChildItem "$Dir\*.exe" -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-1) }
+}
 ```
 
 #### Service Verification
@@ -589,8 +595,8 @@ Start-MpScan -ScanType QuickScan
 Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" -ErrorAction SilentlyContinue
 Get-ItemProperty "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" -ErrorAction SilentlyContinue
 
-# Check scheduled tasks
-Get-ScheduledTask | Where-Object { $_.Actions.Execute -like "*EDR*" -or $_.Actions.Execute -like "*F0*" }
+# Check scheduled tasks for suspicious entries
+Get-ScheduledTask | Where-Object { $_.Actions.Execute -like "*EDR*" -or $_.Actions.Execute -like "*Freeze*" }
 ```
 
 ---
@@ -610,8 +616,14 @@ Get-ScheduledTask | Where-Object { $_.Actions.Execute -like "*EDR*" -or $_.Actio
 
 ```powershell
 # Verify clean state
+$StagingDirs = @("$env:TEMP", "C:\Users\Public", "$env:APPDATA")
+$SuspiciousExes = $StagingDirs | ForEach-Object {
+    Get-ChildItem "$_\*.exe" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match "EDR|Freeze|Seatbelt" }
+}
+
 $CleanCheck = @{
-    "F0 Directory Empty" = (Get-ChildItem "C:\F0\*.exe" -ErrorAction SilentlyContinue).Count -eq 0
+    "Staging Dirs Clean" = ($SuspiciousExes.Count -eq 0)
     "Defender Running" = (Get-Service WinDefend).Status -eq "Running"
     "Real-time Protection" = (Get-MpComputerStatus).RealTimeProtectionEnabled
     "No Suspended WerFault" = (Get-Process WerFaultSecure -ErrorAction SilentlyContinue) -eq $null
@@ -645,7 +657,7 @@ netsh advfirewall firewall delete rule name="IR-Allow-RDP"
 | **Detection** | Deploy WerFaultSecure monitoring query to production | HIGH |
 | **Detection** | Enable Sysmon with thread suspension logging | HIGH |
 | **Prevention** | Enable all recommended ASR rules | HIGH |
-| **Prevention** | Deploy WDAC policy blocking unsigned executables from C:\F0 | MEDIUM |
+| **Prevention** | Deploy WDAC policy blocking unsigned executables from staging directories | MEDIUM |
 | **Prevention** | Restrict certutil execution via AppLocker | MEDIUM |
 | **Response** | Create automated containment runbook | MEDIUM |
 | **Visibility** | Enable PowerShell Script Block Logging | HIGH |

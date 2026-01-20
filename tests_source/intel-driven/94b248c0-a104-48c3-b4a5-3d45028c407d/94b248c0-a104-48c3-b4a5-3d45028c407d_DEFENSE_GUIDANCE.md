@@ -42,15 +42,14 @@ Gunra Ransomware is a recently observed threat that targets Windows systems glob
 [File Enumeration] --> [File Encryption (.ENCRT)] --> [Ransom Note Drop (R3ADM3.txt)]
 ```
 
-**Test Execution Steps:**
+**Real-World Attack Steps:**
 1. Anti-debugging check (T1622)
 2. System information discovery - hostname, username, OS (T1082)
-3. Test environment setup in `c:\F0\94b248c0-a104-48c3-b4a5-3d45028c407d`
-4. Shadow copy access check via vssadmin (T1490)
-5. File enumeration in test directory (T1083)
-6. File encryption simulation with .ENCRT extension (T1486)
-7. Ransom note deployment (T1486)
-8. Verification of successful encryption
+3. Shadow copy deletion via vssadmin (T1490)
+4. File enumeration in user directories (T1083)
+5. File encryption with .ENCRT extension (T1486)
+6. Ransom note deployment (R3ADM3.txt) (T1486)
+7. Double-extortion threat: data exfiltration and leak site publication
 
 ---
 
@@ -86,8 +85,14 @@ Gunra Ransomware is a recently observed threat that targets Windows systems glob
 |-----------|------|-------------|
 | `.ENCRT` | File Extension | Gunra encrypted file extension |
 | `R3ADM3.txt` | Filename | Gunra ransom note filename |
-| `c:\F0\94b248c0-a104-48c3-b4a5-3d45028c407d\` | Directory | F0RT1KA test directory |
 | `[ENCRYPTED BY GUNRA` | File Content | Encryption marker in encrypted files |
+
+**Typical Target Directories:**
+- `%USERPROFILE%\Documents\`
+- `%USERPROFILE%\Desktop\`
+- `%USERPROFILE%\Pictures\`
+- `%APPDATA%\`
+- Network shares and mapped drives
 
 ### Process Indicators
 
@@ -127,7 +132,7 @@ The complete KQL detection queries are in: `94b248c0-a104-48c3-b4a5-3d45028c407d
 | 6 | System Information Discovery Pattern | Medium | T1082 |
 | 7 | Rapid File Enumeration Detection | Medium | T1083 |
 | 8 | Anti-Debugging API Detection | Medium | T1622 |
-| 9 | F0RT1KA Test Directory Activity | High | N/A |
+| 9 | User Directory Ransomware Activity | High | T1486 |
 | 10 | Combined Ransomware Behavioral Detection | High | T1486, T1490 |
 | 11 | Generic Ransomware Extension Monitoring | Medium-High | T1486 |
 
@@ -166,7 +171,7 @@ limacharlie dr add -f 94b248c0-a104-48c3-b4a5-3d45028c407d_dr_rules.yaml
 | mass-file-modification | FILE_MODIFIED | Medium | Report |
 | system-information-discovery | NEW_PROCESS | Medium | Report |
 | file-directory-enumeration | NEW_PROCESS | Low-Medium | Report |
-| f0rtika-test-execution | FILE_CREATE | High | Report (Test Tracking) |
+| user-directory-encryption | FILE_CREATE | High | Report |
 | ransomware-process-name | NEW_PROCESS | High | Report, History Dump |
 
 ### YARA Rules
@@ -362,7 +367,7 @@ Get-ScheduledTask | Export-Csv "C:\IR\scheduled_tasks.csv"
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| Test execution logs | `c:\F0\*_log.json` | `Copy-Item "c:\F0\*" -Destination "C:\IR\F0_artifacts\" -Recurse` |
+| Ransomware artifacts | `%TEMP%\*`, `%APPDATA%\*` | `Copy-Item "$env:TEMP\*" -Destination "C:\IR\temp_artifacts\" -Recurse` |
 | Ransom notes | Various directories | `Get-ChildItem -Path C:\ -Filter "R3ADM3.txt" -Recurse` |
 | Encrypted files | User directories | `Get-ChildItem -Path C:\ -Filter "*.ENCRT" -Recurse` |
 | Event logs | System | See below |
@@ -399,8 +404,17 @@ wevtutil epl "Microsoft-Windows-Windows Defender/Operational" "C:\IR\Defender.ev
 
 ```powershell
 # Remove ransomware artifacts (AFTER evidence collection)
-# Remove F0RT1KA test directory
-Remove-Item -Path "c:\F0\94b248c0-a104-48c3-b4a5-3d45028c407d" -Recurse -Force -ErrorAction SilentlyContinue
+# Search and remove ransomware executables from common attacker staging directories
+$stagingPaths = @(
+    "$env:TEMP",
+    "$env:APPDATA",
+    "$env:LOCALAPPDATA",
+    "$env:USERPROFILE\Downloads"
+)
+foreach ($path in $stagingPaths) {
+    Get-ChildItem -Path $path -Filter "*.exe" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CreationTime -gt (Get-Date).AddDays(-1) }
+}
 
 # Search and list all ransom notes (review before deletion)
 Get-ChildItem -Path C:\ -Filter "R3ADM3.txt" -Recurse -ErrorAction SilentlyContinue
@@ -451,9 +465,15 @@ Get-Service VSS | Select-Object Status, StartType
 
 ```powershell
 # Verify clean state - no ransomware artifacts
-Get-ChildItem "c:\F0\" -ErrorAction SilentlyContinue
 Get-ChildItem -Path C:\ -Filter "R3ADM3.txt" -Recurse -ErrorAction SilentlyContinue
 Get-ChildItem -Path C:\ -Filter "*.ENCRT" -Recurse -ErrorAction SilentlyContinue
+
+# Check common attacker staging directories for suspicious executables
+$stagingPaths = @("$env:TEMP", "$env:APPDATA", "$env:LOCALAPPDATA")
+foreach ($path in $stagingPaths) {
+    Get-ChildItem -Path $path -Filter "*.exe" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CreationTime -gt (Get-Date).AddDays(-7) }
+}
 
 # Verify shadow copies restored
 vssadmin list shadows

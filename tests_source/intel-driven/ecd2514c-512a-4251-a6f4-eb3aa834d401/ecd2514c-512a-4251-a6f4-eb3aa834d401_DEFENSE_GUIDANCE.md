@@ -32,7 +32,7 @@ This document provides comprehensive defense guidance for detecting, preventing,
 
 The CyberEye RAT employs a PowerShell-based attack chain to systematically disable Windows Defender protection mechanisms. The technique involves:
 
-1. **Script Deployment**: Drops a malicious PowerShell script (`CyberEye-TTPs.ps1`) to `c:\F0`
+1. **Script Deployment**: Drops a malicious PowerShell script to a user-writable directory (e.g., `%TEMP%`, `%APPDATA%`)
 2. **Execution Policy Bypass**: Executes PowerShell with `-ExecutionPolicy Bypass` to circumvent script restrictions
 3. **Privilege Verification**: Confirms administrative access before proceeding
 4. **Registry Manipulation**: Modifies critical Windows Defender registry keys to disable protection:
@@ -46,10 +46,10 @@ The CyberEye RAT employs a PowerShell-based attack chain to systematically disab
 [Script Drop]        [PowerShell Execution]      [Registry Modification]       [Defender Disabled]
      |                        |                           |                           |
      v                        v                           v                           v
-c:\F0\CyberEye-  -->  powershell.exe           -->  HKLM:\...\Windows     -->  Protection
-TTPs.ps1              -ExecutionPolicy              Defender\Features\         mechanisms
+%TEMP%\*.ps1    -->  powershell.exe           -->  HKLM:\...\Windows     -->  Protection
+%APPDATA%\*          -ExecutionPolicy              Defender\Features\         mechanisms
                       Bypass -File                  TamperProtection=0         neutralized
-                      c:\F0\...                     + Policy keys
+                      <script_path>                 + Policy keys
 ```
 
 ### 1.3 Registry Keys Targeted
@@ -93,7 +93,7 @@ TTPs.ps1              -ExecutionPolicy              Defender\Features\         m
 | Registry modification to TamperProtection | High | Low | P1 |
 | Registry modification to DisableAntiSpyware | High | Low | P1 |
 | PowerShell with -ExecutionPolicy Bypass accessing Defender keys | High | Medium | P1 |
-| PowerShell script in c:\F0 directory | High | Low | P1 |
+| PowerShell script containing Defender-disabling keywords | High | Low | P1 |
 | Real-Time Protection registry modifications | High | Low | P2 |
 | Service query for WinDefend after registry changes | Medium | Medium | P3 |
 
@@ -109,7 +109,7 @@ See `ecd2514c-512a-4251-a6f4-eb3aa834d401_detections.kql` for complete detection
 2. **Windows Defender Anti-Spyware Disabled** - Detects DisableAntiSpyware policy creation
 3. **Windows Defender Real-Time Protection Disabled** - Detects RTP component disabling
 4. **PowerShell Execution Policy Bypass with Defender Script** - Detects suspicious PowerShell execution
-5. **Script Activity in F0RT1KA Test Directory** - Monitors c:\F0 for script files
+5. **Suspicious Script with Defender Keywords** - Monitors for scripts targeting Windows Defender
 6. **Behavioral Correlation - Defender Disable Sequence** - Multi-indicator detection
 7. **WinDefend Service Query After Registry Modification** - Post-attack reconnaissance detection
 8. **PowerShell Defender Registry Access** - Command-line pattern matching
@@ -120,7 +120,7 @@ See `ecd2514c-512a-4251-a6f4-eb3aa834d401_dr_rules.yaml` for deployment-ready ru
 
 1. **Defender Registry Tampering Detection** - Registry modification monitoring
 2. **PowerShell Execution Policy Bypass** - Process creation analysis
-3. **F0 Directory Script Activity** - File creation detection
+3. **Suspicious Script with CyberEye Indicators** - Script execution detection
 4. **Behavioral Correlation** - Multi-event correlation
 
 ### 3.3 YARA Rules
@@ -283,7 +283,7 @@ Set-MpPreference -AttackSurfaceReductionRules_Ids `
 | DisableAntiSpyware Policy Created | Registry value DisableAntiSpyware set to 1 | High | P1 |
 | PowerShell Bypass with Defender Script | powershell.exe -ExecutionPolicy Bypass with Defender keywords | High | P1 |
 | RTP Components Disabled | Multiple Real-Time Protection values modified | High | P2 |
-| Script in c:\F0 | PowerShell script created in F0RT1KA test directory | Medium | P2 |
+| CyberEye Script Execution | PowerShell execution with "CyberEye" or Defender-disabling patterns | High | P2 |
 
 ### 5.3 Initial Triage Questions
 
@@ -312,9 +312,9 @@ Set-MpPreference -AttackSurfaceReductionRules_Ids `
 
 - [ ] **Terminate suspicious PowerShell processes**
   ```powershell
-  # Kill PowerShell processes with suspicious command lines
+  # Kill PowerShell processes with suspicious command lines (targeting Defender or CyberEye indicators)
   Get-WmiObject Win32_Process -Filter "Name='powershell.exe'" |
-    Where-Object { $_.CommandLine -like "*Bypass*" -and $_.CommandLine -like "*F0*" } |
+    Where-Object { $_.CommandLine -like "*Bypass*" -and ($_.CommandLine -like "*Defender*" -or $_.CommandLine -like "*CyberEye*" -or $_.CommandLine -like "*TamperProtection*") } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
   ```
 
@@ -340,7 +340,7 @@ Set-MpPreference -AttackSurfaceReductionRules_Ids `
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| Attack script | `c:\F0\CyberEye-TTPs.ps1` | `Copy-Item "c:\F0\*" -Destination "C:\IR_Evidence\F0_artifacts\" -Recurse` |
+| Suspicious scripts | `%TEMP%\*.ps1`, `%APPDATA%\*.ps1` | `Copy-Item "$env:TEMP\*.ps1", "$env:APPDATA\*.ps1" -Destination "C:\IR_Evidence\scripts\"` |
 | Script execution log | `%TEMP%\DefenderTest_*.log` | `Copy-Item "$env:TEMP\DefenderTest_*.log" "C:\IR_Evidence\"` |
 | PowerShell logs | Event Log | `wevtutil epl "Microsoft-Windows-PowerShell/Operational" "C:\IR_Evidence\PowerShell.evtx"` |
 | Security events | Event Log | `wevtutil epl Security "C:\IR_Evidence\Security.evtx"` |
@@ -392,8 +392,10 @@ if (Test-Path $rtpPath) {
 
 ```powershell
 # Remove attack artifacts (AFTER evidence collection)
-Remove-Item -Path "c:\F0\CyberEye-TTPs.ps1" -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "c:\F0\Cleanup-CyberEye-TTPs.ps1" -Force -ErrorAction SilentlyContinue
+# Search for and remove CyberEye-related scripts from common locations
+Get-ChildItem -Path "$env:TEMP", "$env:APPDATA", "C:\Users\Public" -Filter "*.ps1" -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match "CyberEye|Defender|TamperProtection" } |
+    Remove-Item -Force
 Remove-Item -Path "$env:TEMP\DefenderTest_*.log" -Force -ErrorAction SilentlyContinue
 ```
 
@@ -430,8 +432,9 @@ Write-Host "AntiSpyware Enabled: $($status.AntispywareEnabled)"
 Write-Host "Behavior Monitor Enabled: $($status.BehaviorMonitorEnabled)"
 Write-Host "On Access Protection: $($status.OnAccessProtectionEnabled)"
 
-# Verify no attack artifacts remain
-Test-Path "c:\F0\CyberEye-TTPs.ps1"  # Should be False
+# Verify no attack artifacts remain in common locations
+$cyberEyeScripts = Get-ChildItem -Path "$env:TEMP", "$env:APPDATA", "C:\Users\Public" -Filter "*CyberEye*.ps1" -Recurse -ErrorAction SilentlyContinue
+Write-Host "CyberEye scripts remaining: $($cyberEyeScripts.Count)"  # Should be 0
 
 # Remove network isolation
 Remove-NetFirewallRule -DisplayName "IR-Isolate-*" -ErrorAction SilentlyContinue

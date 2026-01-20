@@ -121,18 +121,20 @@ DeviceImageLoadEvents
 
 
 // ============================================================
-// 5. F0 Directory Tool Staging Detection
+// 5. Suspicious EDR-Targeting Tool Staging
 // ============================================================
-// Purpose: Detects executable files created in c:\F0 directory (F0RT1KA staging)
+// Purpose: Detects executables with EDR-targeting naming patterns in user-writable directories
 // Confidence: Medium
-// False Positives: Legitimate F0RT1KA testing
-// Threshold: Correlate with test execution schedules
+// False Positives: Legitimate security tools with similar naming
+// Threshold: Alert on detection and correlate with other EDR-related activity
 // ============================================================
 
 DeviceFileEvents
 | where ActionType == "FileCreated"
-| where FolderPath startswith "C:\\F0\\" or FolderPath startswith "c:\\F0\\"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\Local\\Temp", "\\Users\\Public", "\\Downloads\\")
 | where FileName endswith ".exe" or FileName endswith ".dll"
+| where FileName has_any ("EDRSilencer", "EDRKiller", "blockEDR", "WFP", "Silencer", "EDRBlock")
+    or FileName has_any ("Defender", "Sentinel", "CrowdStrike", "Falcon", "Carbon")
 | project
     TimeGenerated,
     DeviceName,
@@ -143,8 +145,11 @@ DeviceFileEvents
     InitiatingProcessFileName,
     InitiatingProcessCommandLine
 | extend
-    Severity = "Medium",
-    ThreatType = "Tool Staging - F0 Directory",
+    Severity = case(
+        FileName has_any ("EDRSilencer", "EDRKiller", "blockEDR"), "High",
+        "Medium"
+    ),
+    ThreatType = "Tool Staging - Potential EDR-Targeting Tool",
     MitreAttack = "T1562.001",
     TestID = "bcba14e7-6f87-4cbd-9c32-718fdeb39b65"
 
@@ -272,8 +277,9 @@ DeviceProcessEvents
 
 let FileStaging = DeviceFileEvents
 | where ActionType == "FileCreated"
-| where FolderPath startswith "C:\\F0\\"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\Local\\Temp", "\\Users\\Public", "\\Downloads\\", "\\ProgramData\\")
 | where FileName endswith ".exe"
+| where FileName has_any ("EDRSilencer", "edrsilencer", "silencer", "FireBlock", "EDR-Freeze", "Backstab")
 | project StagingTime = TimeGenerated, DeviceName, StagedFile = FileName, StagedPath = FolderPath;
 
 let ToolExecution = DeviceProcessEvents
@@ -375,16 +381,18 @@ DeviceProcessEvents
 
 
 // ============================================================
-// 12. Anomalous Process from F0 Directory
+// 12. Anomalous Process from User-Writable Directory
 // ============================================================
-// Purpose: Detects any process execution from the F0RT1KA staging directory
+// Purpose: Detects EDR-targeting tool execution from user-writable directories
 // Confidence: Medium
-// False Positives: Scheduled F0RT1KA tests
-// Threshold: Validate against test schedule
+// False Positives: Legitimate portable security tools
+// Threshold: Correlate with tool naming patterns
 // ============================================================
 
 DeviceProcessEvents
-| where FolderPath startswith "C:\\F0\\" or FolderPath startswith "c:\\F0\\"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\Local\\Temp", "\\Users\\Public", "\\Downloads\\", "\\ProgramData\\")
+| where FileName has_any ("EDRSilencer", "edrsilencer", "silencer", "FireBlock", "EDR-Freeze", "Backstab", "EDRSandBlast")
+    or ProcessCommandLine has_any ("blockedr", "unblockall", "FwpmFilterAdd")
 | project
     TimeGenerated,
     DeviceName,
@@ -396,8 +404,8 @@ DeviceProcessEvents
     InitiatingProcessFileName,
     InitiatingProcessCommandLine
 | extend
-    Severity = "Medium",
-    ThreatType = "Suspicious Execution - F0 Directory",
+    Severity = "High",
+    ThreatType = "Suspicious Execution - EDR Targeting Tool from User-Writable Directory",
     MitreAttack = "T1562.001",
     TestID = "bcba14e7-6f87-4cbd-9c32-718fdeb39b65"
 

@@ -135,7 +135,7 @@ Detection queries are provided in `fec68e9b-af59-40c1-abbd-98ec98428444_detectio
 | Privileged Handle Acquisition to EDR | Critical | T1055, T1055.001 |
 | WriteProcessMemory to Security Processes | Critical | T1055, T1562.001 |
 | CRYPT32.dll Memory Access | High | T1014 |
-| File Drops to C:\F0 | High | T1105 |
+| Executable Drops to Suspicious Paths | High | T1105 |
 | Watchdog Process Pattern | High | T1055 |
 | Unauthenticated MDE API Requests | High | T1071.001, T1557 |
 | Rapid API Command Interception | High | T1557 |
@@ -165,7 +165,7 @@ Detection rules are provided in `fec68e9b-af59-40c1-abbd-98ec98428444_dr_rules.y
 | Rule Name | Event Type | Description |
 |-----------|------------|-------------|
 | f0rtika-mde-handle-acquisition | SENSITIVE_PROCESS_ACCESS | Handle acquisition to MDE |
-| f0rtika-file-drop-f0 | FILE_CREATE | Executable drops to C:\F0 |
+| f0rtika-suspicious-exe-drop | FILE_CREATE | Executable drops to suspicious paths |
 | f0rtika-mde-watchdog-spawn | NEW_PROCESS | Watchdog process creation |
 | f0rtika-unauthorized-mde-network | NEW_TCP4_CONNECTION | Non-MDE to MDE endpoints |
 | f0rtika-proxy-configuration | NEW_PROCESS | netsh proxy changes |
@@ -354,7 +354,7 @@ Only SYSTEM and administrators should have access.
 | EDR Handle Acquisition | OpenProcess to MsSense.exe with VM_WRITE | Critical | P1 |
 | Memory Manipulation | WriteProcessMemory to CRYPT32.dll | Critical | P1 |
 | API Abuse | Non-MDE process to winatp-gw | High | P2 |
-| Test Artifact Drop | Files in C:\F0 directory | High | P2 |
+| Suspicious Executable Drop | Executables in unusual locations | High | P2 |
 | Attack Chain | 3+ indicators in 30 minutes | Critical | P1 |
 
 ### Initial Triage Questions
@@ -380,8 +380,8 @@ Only SYSTEM and administrators should have access.
   # Look for watchdog process
   Get-Process | Where-Object { $_.ProcessName -like "*watchdog*" }
 
-  # Check F0RT1KA artifacts
-  Get-ChildItem "C:\F0" -ErrorAction SilentlyContinue
+  # Check for suspicious artifacts in common attacker paths
+  Get-ChildItem "$env:TEMP", "$env:APPDATA", "C:\Users\Public" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '\.(exe|dll|ps1)$' -and $_.CreationTime -gt (Get-Date).AddHours(-24) }
   ```
 
 - [ ] **Terminate suspicious processes**
@@ -406,10 +406,10 @@ Only SYSTEM and administrators should have access.
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| Test execution logs | `C:\F0\test_execution_log.json` | `Copy-Item "C:\F0\*" -Destination "C:\IR\F0_artifacts\" -Recurse` |
-| Process injection report | `C:\F0\process_injection_report.json` | Included in above |
-| Memory patch report | `C:\F0\memory_patch_report.json` | Included in above |
-| API interception report | `C:\F0\api_interception_report.json` | Included in above |
+| Process injection artifacts | Various suspicious paths | Collect from `$env:TEMP`, `$env:APPDATA`, `C:\Users\Public` |
+| Memory dump | Affected processes | Use WinPMEM or similar |
+| Network artifacts | Proxy configurations | `netsh winhttp show proxy` |
+| MDE telemetry | MDE portal | Review recent detections |
 | Windows Event Logs | Various | See below |
 
 #### Event Log Collection
@@ -438,11 +438,12 @@ Get-WinEvent -FilterHashtable @{LogName='Security';ID=4688} -MaxEvents 1000 |
 
 ### 4. Eradication
 
-#### Remove Test Artifacts
+#### Remove Malicious Artifacts
 ```powershell
-# AFTER evidence collection
-Remove-Item -Path "C:\F0\*" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "C:\F0" -Force -ErrorAction SilentlyContinue
+# AFTER evidence collection - remove suspicious executables from common paths
+Get-ChildItem "$env:TEMP", "$env:APPDATA", "C:\Users\Public", "C:\ProgramData" -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -match '\.(exe|dll|ps1)$' -and $_.CreationTime -gt (Get-Date).AddHours(-24) } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 ```
 
 #### Restore MDE Functionality
@@ -457,12 +458,8 @@ Get-Service -Name "Sense", "WinDefend" | Select Name, Status
 
 #### If Memory Patches Were Applied
 ```powershell
-# Run emergency restore if available
-if (Test-Path "C:\F0\emergency_restore.ps1") {
-    & "C:\F0\emergency_restore.ps1" -Force
-}
-
-# Or reboot to clear memory patches
+# Reboot to clear memory patches and restore original function bytes
+# This is the most reliable way to restore CRYPT32.dll to original state
 Restart-Computer -Force
 ```
 
@@ -470,7 +467,7 @@ Restart-Computer -Force
 
 #### System Restoration Checklist
 
-- [ ] Verify all test artifacts removed
+- [ ] Verify all malicious artifacts removed
 - [ ] Confirm MDE service is running and reporting
 - [ ] Verify tamper protection is enabled
 - [ ] Check MDE portal for device status
@@ -480,8 +477,11 @@ Restart-Computer -Force
 
 #### Validation Commands
 ```powershell
-# Verify clean state
-Get-ChildItem "C:\F0" -ErrorAction SilentlyContinue  # Should not exist
+# Verify clean state - check for recently created suspicious executables
+$suspiciousPaths = @("$env:TEMP", "$env:APPDATA", "C:\Users\Public", "C:\ProgramData")
+$recentFiles = Get-ChildItem $suspiciousPaths -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -match '\.(exe|dll|ps1)$' -and $_.CreationTime -gt (Get-Date).AddHours(-24) }
+if ($recentFiles) { Write-Warning "Found suspicious recent files: $($recentFiles.FullName -join ', ')" }
 
 # Verify MDE is operational
 $status = Get-MpComputerStatus

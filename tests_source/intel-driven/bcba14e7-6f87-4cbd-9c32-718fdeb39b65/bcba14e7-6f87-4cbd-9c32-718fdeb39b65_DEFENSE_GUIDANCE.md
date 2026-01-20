@@ -22,7 +22,7 @@ EDRSilencer is an open-source tool designed to disable security controls by bloc
 ### Attack Flow
 
 1. **Initial Access**: Adversary gains access to target system with administrator privileges
-2. **Tool Deployment**: EDRSilencer binary is dropped to `c:\F0\` directory
+2. **Tool Deployment**: EDRSilencer binary is dropped to a user-writable directory (e.g., `%TEMP%`, `%APPDATA%`)
 3. **EDR Discovery**: Tool identifies running EDR processes from a predefined list
 4. **WFP Filter Creation**: Creates Windows Filtering Platform filters to block IPv4/IPv6 outbound traffic
 5. **EDR Blindness**: Security tools cannot communicate with cloud backends, preventing alerts and telemetry
@@ -95,7 +95,7 @@ See `bcba14e7-6f87-4cbd-9c32-718fdeb39b65_detections.kql` for complete queries.
 | EDRSilencer Binary Execution | High | Detects EDRSilencer.exe process creation |
 | WFP Filter API Calls | Medium | Detects FwpmFilterAdd0 API usage |
 | EDR Process Network Blocking | High | Detects blocking of security process communications |
-| F0 Directory Tool Staging | Medium | Detects executable files in c:\F0 |
+| Suspicious Tool Staging | Medium | Detects executables with EDR-targeting names in user-writable directories |
 | Security Process Communication Anomalies | High | Detects EDR telemetry gaps |
 | Behavioral Correlation | Critical | Multi-indicator attack chain detection |
 
@@ -110,7 +110,7 @@ See `bcba14e7-6f87-4cbd-9c32-718fdeb39b65_dr_rules.yaml` for complete rules.
 | edrsilencer-binary-execution | NEW_PROCESS | Detects EDRSilencer.exe execution |
 | edrsilencer-blockedr-command | NEW_PROCESS | Detects blockedr command parameter |
 | wfp-filter-manipulation | NEW_PROCESS | Detects WFP-related API abuse |
-| f0-directory-file-staging | FILE_CREATE | Detects executable staging in c:\F0 |
+| suspicious-executable-staging | FILE_CREATE | Detects EDR-targeting executables in user-writable directories |
 | security-tool-communication-block | NEW_TCP4_CONNECTION | Detects blocked EDR communications |
 
 ### YARA Rules
@@ -257,7 +257,7 @@ Value: 5 (Enabled)
 | EDRSilencer Binary Execution | Process name = "EDRSilencer.exe" | High | P1 |
 | WFP Filter Manipulation | Process using fwpuclnt.dll with blockedr parameter | High | P1 |
 | EDR Communication Failure | EDR process cannot reach cloud endpoints | Medium | P2 |
-| F0 Directory Tool Staging | Executable created in c:\F0 | Medium | P2 |
+| Suspicious Tool Staging | Executable created in user-writable directory (Temp, AppData, Downloads) | Medium | P2 |
 | Security Process Network Block | Blocked connections from EDR processes | High | P1 |
 
 #### Initial Triage Questions
@@ -310,8 +310,13 @@ Value: 5 (Enabled)
   # Kill EDRSilencer process
   Stop-Process -Name "EDRSilencer" -Force -ErrorAction SilentlyContinue
 
-  # Kill any process running from c:\F0
-  Get-Process | Where-Object { $_.Path -like "c:\F0\*" } | Stop-Process -Force
+  # Kill any suspicious processes running from user-writable directories
+  Get-Process | Where-Object {
+      $_.Path -like "$env:TEMP\*" -or
+      $_.Path -like "$env:LOCALAPPDATA\Temp\*" -or
+      $_.Path -like "C:\Users\Public\*" -or
+      $_.Path -like "*\Downloads\*"
+  } | Where-Object { $_.Name -like "*silencer*" -or $_.Name -like "*edr*" } | Stop-Process -Force
   ```
 
 - [ ] **Preserve volatile evidence**
@@ -340,13 +345,13 @@ Value: 5 (Enabled)
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| EDRSilencer binary | `c:\F0\EDRSilencer.exe` | `Copy-Item "c:\F0\*" -Destination "C:\IR\F0_artifacts\" -Recurse` |
+| EDRSilencer binary | User-writable directories (Temp, AppData, Downloads, Public) | `Get-ChildItem -Path $env:TEMP,$env:LOCALAPPDATA,"C:\Users\Public","$env:USERPROFILE\Downloads" -Filter "*.exe" -Recurse \| Copy-Item -Destination "C:\IR\suspicious_artifacts\" -Force` |
 | WFP Filter State | Memory/WFP Engine | `netsh wfp show filters file="C:\IR\wfp_filters.xml"` |
 | WFP Audit Logs | Event Log | `wevtutil epl "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall" "C:\IR\firewall.evtx"` |
 | Security Event Log | Event Log | `wevtutil epl Security "C:\IR\Security.evtx"` |
 | Sysmon Logs | Event Log | `wevtutil epl "Microsoft-Windows-Sysmon/Operational" "C:\IR\Sysmon.evtx"` |
 | Prefetch | `C:\Windows\Prefetch\` | `Copy-Item "C:\Windows\Prefetch\EDRSILENCER*" -Destination "C:\IR\Prefetch\"` |
-| Test Execution Log | `c:\F0\` | `Copy-Item "c:\F0\*_log.json" -Destination "C:\IR\logs\"` |
+| Suspicious Logs | User-writable directories | `Get-ChildItem -Path $env:TEMP,$env:LOCALAPPDATA -Filter "*_log.json" -Recurse \| Copy-Item -Destination "C:\IR\logs\" -Force` |
 
 #### Memory Acquisition
 ```powershell
@@ -408,8 +413,12 @@ netsh wfp show filters > C:\IR\wfp_filter_list.txt
 #### File Removal
 ```powershell
 # Remove attack artifacts (AFTER evidence collection)
-Remove-Item -Path "c:\F0\EDRSilencer.exe" -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "c:\F0\*" -Recurse -Force -ErrorAction SilentlyContinue
+# Search common staging locations for EDRSilencer artifacts
+$stagingPaths = @($env:TEMP, "$env:LOCALAPPDATA\Temp", "C:\Users\Public", "$env:USERPROFILE\Downloads")
+foreach ($path in $stagingPaths) {
+    Get-ChildItem -Path $path -Filter "*silencer*" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
+    Get-ChildItem -Path $path -Filter "*edr*" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
+}
 ```
 
 #### Verify EDR Recovery
@@ -434,14 +443,18 @@ Update-MpSignature
 - [ ] Verify all WFP filters created by EDRSilencer are removed
 - [ ] Confirm EDR services are running and communicating with cloud
 - [ ] Verify security signatures are current
-- [ ] Remove malicious artifacts from c:\F0
+- [ ] Remove malicious artifacts from staging directories (Temp, AppData, Downloads, Public)
 - [ ] Re-enable network connectivity (remove IR firewall rules)
 - [ ] Document all changes made during response
 
 #### Validation Commands
 ```powershell
-# Verify clean state
-Get-ChildItem "c:\F0\" -ErrorAction SilentlyContinue  # Should be empty/not exist
+# Verify clean state - check common staging directories for suspicious executables
+$stagingPaths = @($env:TEMP, "$env:LOCALAPPDATA\Temp", "C:\Users\Public", "$env:USERPROFILE\Downloads")
+foreach ($path in $stagingPaths) {
+    Get-ChildItem -Path $path -Filter "*silencer*.exe" -Recurse -ErrorAction SilentlyContinue
+    Get-ChildItem -Path $path -Filter "*edr*.exe" -Recurse -ErrorAction SilentlyContinue
+}
 
 # Verify no malicious WFP filters remain
 netsh wfp show filters | Select-String -Pattern "EDR|Silencer|Block"
@@ -496,7 +509,7 @@ netsh advfirewall import "C:\IR\firewall_backup.wfw"
 |-----|---------------|-------------------|
 | WFP Filter Auditing | Not enabled | Enable Windows Filtering Platform audit logs |
 | EDR Connectivity Monitor | Not monitored | Implement heartbeat monitoring with alerting |
-| Tool Staging Detection | Limited | Monitor c:\F0 and temp directories for executables |
+| Tool Staging Detection | Limited | Monitor user-writable directories (Temp, AppData, Downloads, Public) for suspicious executables |
 | Process Execution Logging | Basic | Enable Sysmon with comprehensive configuration |
 
 ---

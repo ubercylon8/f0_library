@@ -266,32 +266,43 @@ DeviceEvents
 
 
 // ============================================================================
-// QUERY 9: F0RT1KA Test Directory Activity
-// Purpose: Monitor F0RT1KA test execution in c:\F0 directory
-// Confidence: HIGH (for testing framework monitoring)
-// Note: Useful for SOC to distinguish tests from real attacks
+// QUERY 9: User Directory Ransomware Activity
+// Purpose: Detect ransomware encryption activity in user profile directories
+// Confidence: HIGH
+// MITRE ATT&CK: T1486 - Data Encrypted for Impact
+// False Positives: Legitimate encryption tools, backup software
 // ============================================================================
 
 DeviceFileEvents
 | where TimeGenerated > ago(24h)
-| where FolderPath startswith "C:\\F0\\" or FolderPath startswith "c:\\F0\\"
+| where ActionType in ("FileCreated", "FileRenamed", "FileModified")
+// Target common user directories (Documents, Desktop, Pictures, Downloads, AppData)
+| where FolderPath matches regex @"(?i)C:\\Users\\[^\\]+\\(Documents|Desktop|Pictures|Downloads|AppData)"
+    or FolderPath matches regex @"(?i)%USERPROFILE%"
+| where FileName endswith ".ENCRT" or FileName =~ "R3ADM3.txt"
 | summarize
     FileOperations = count(),
     EncryptedFiles = countif(FileName endswith ".ENCRT"),
     RansomNotes = countif(FileName =~ "R3ADM3.txt"),
-    FileTypes = make_set(extract(@"\.([^.]+)$", 1, FileName)),
+    AffectedFolders = make_set(FolderPath, 20),
     FirstEvent = min(TimeGenerated),
     LastEvent = max(TimeGenerated)
-    by DeviceName, FolderPath, InitiatingProcessFileName
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessAccountName
+| where EncryptedFiles >= 3 or RansomNotes > 0
 | extend
-    IsGunraTest = iff(FolderPath has "94b248c0-a104-48c3-b4a5-3d45028c407d", true, false),
     Duration = datetime_diff('second', LastEvent, FirstEvent),
-    Severity = iff(EncryptedFiles > 0 and RansomNotes > 0, "High", "Medium"),
-    ThreatType = iff(IsGunraTest, "F0RT1KA Test - Gunra Ransomware", "Suspicious F0 Directory Activity"),
+    Severity = case(
+        EncryptedFiles >= 50 and RansomNotes > 0, "Critical",
+        EncryptedFiles >= 10, "High",
+        RansomNotes > 0, "High",
+        "Medium"
+    ),
+    ThreatType = "Ransomware - User Directory Encryption (Gunra IOCs)",
+    MitreAttack = "T1486",
     Confidence = "High"
-| project TimeGenerated = FirstEvent, DeviceName, FolderPath, FileOperations,
-    EncryptedFiles, RansomNotes, Duration, IsGunraTest, Severity,
-    ThreatType, Confidence
+| project TimeGenerated = FirstEvent, DeviceName, InitiatingProcessFileName,
+    InitiatingProcessAccountName, FileOperations, EncryptedFiles, RansomNotes,
+    Duration, AffectedFolders, Severity, ThreatType, MitreAttack, Confidence
 
 
 // ============================================================================

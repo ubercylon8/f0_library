@@ -116,7 +116,7 @@ rule F0RTIKA_DataExfiltrationScript {
         $func2 = "Test-Administrator" ascii wide nocase
 
         // Staging indicators
-        $stage1 = "C:\\F0\\staging" ascii wide nocase
+        $stage1 = "\\staging\\" ascii wide nocase
         $stage2 = "staged_data.zip" ascii wide nocase
         $stage3 = "$stagingDir" ascii wide nocase
         $stage4 = "Staged file for exfiltration" ascii wide nocase
@@ -205,10 +205,10 @@ rule F0RTIKA_MasqueradedEncryptor {
         $status2 = "ENCRYPTION_SIMULATION_COMPLETE" ascii wide
         $status3 = "exfiltration_status.txt" ascii wide
 
-        // Test directory patterns
-        $path1 = "c:\\F0\\" ascii wide nocase
-        $path2 = "C:\\F0\\test_target" ascii wide nocase
-        $path3 = "c:\\F0\\staging" ascii wide nocase
+        // Suspicious staging directory patterns
+        $path1 = "\\Temp\\" ascii wide nocase
+        $path2 = "\\AppData\\Local\\Temp\\" ascii wide nocase
+        $path3 = "\\staging\\" ascii wide nocase
 
         // Encryption simulation patterns
         $enc1 = ".encrypted" ascii wide
@@ -380,8 +380,8 @@ rule F0RTIKA_ExfiltrationTestBinary {
         $go1 = "github.com/preludeorg" ascii
         $go2 = "runtime.main" ascii
 
-        // Dropper patterns
-        $dropper1 = "c:\\F0" ascii wide nocase
+        // Dropper patterns (behavior-based)
+        $dropper1 = "\\Temp\\" ascii wide nocase
         $dropper2 = "Endpoint.Quarantined" ascii
         $dropper3 = "Endpoint.Stop" ascii
 

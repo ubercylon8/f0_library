@@ -35,9 +35,9 @@ Attack Chain:
 ```
 
 **Key Indicators:**
-- File: `troll_disappear_key.exe` dropped to `c:\F0\`
+- Executable: `troll_disappear_key.exe` (may be dropped to `%TEMP%`, `%APPDATA%`, user-writable directories)
 - Registry key manipulation: `HKLM\Software\Microsoft\AMSI\Providers`
-- Remote .NET assembly download from GitHub
+- Remote .NET assembly download from GitHub or similar hosting
 - `WebClient.DownloadData()` for assembly retrieval
 - `Assembly.Load()` for in-memory execution
 
@@ -224,9 +224,9 @@ Value: 0
 
 #### Initial Triage Questions
 
-1. Is this a known F0RT1KA test execution or unexpected activity?
+1. Is this a known security test execution or unexpected activity?
 2. What user account initiated the process?
-3. Was the binary dropped to `c:\F0\` (test framework) or elsewhere?
+3. Where was the binary dropped? (common: `%TEMP%`, `%APPDATA%`, `Downloads`, user-writable directories)
 4. Are there network connections to GitHub or other remote sources?
 5. What other processes were spawned by the suspicious binary?
 
@@ -247,10 +247,10 @@ Value: 0
 
 - [ ] **Terminate malicious processes**
   ```powershell
-  # Kill TrollDisappearKey and related processes
-  Get-Process | Where-Object { $_.Name -like "*troll*" -or $_.Path -like "*c:\F0\*" } | Stop-Process -Force
+  # Kill TrollDisappearKey and related processes by name pattern
+  Get-Process | Where-Object { $_.Name -like "*troll*" -or $_.Name -like "*disappear*" } | Stop-Process -Force
 
-  # Kill any suspicious .NET processes loading assemblies
+  # Kill any suspicious .NET processes loading assemblies (Seatbelt, etc.)
   Get-Process | Where-Object { $_.MainModule.FileName -like "*seatbelt*" } | Stop-Process -Force
   ```
 
@@ -285,9 +285,8 @@ Value: 0
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| TrollDisappearKey binary | `c:\F0\troll_disappear_key.exe` | `Copy-Item "c:\F0\*" -Destination "$IRPath\F0_artifacts\" -Recurse` |
-| Downloaded assemblies | `c:\F0\Seatbelt.exe` | Included in above |
-| Test execution logs | `c:\F0\*_log.json` | Included in above |
+| TrollDisappearKey binary | `%TEMP%`, `%APPDATA%`, user directories | `Get-ChildItem -Path $env:TEMP,$env:APPDATA -Filter "*troll*" -Recurse \| Copy-Item -Destination "$IRPath\malware_samples\" -Force` |
+| Downloaded assemblies | Various user-writable locations | `Get-ChildItem -Path $env:TEMP,$env:APPDATA -Filter "Seatbelt*" -Recurse \| Copy-Item -Destination "$IRPath\malware_samples\" -Force` |
 | AMSI provider registry | `HKLM:\SOFTWARE\Microsoft\AMSI` | `reg export "HKLM\SOFTWARE\Microsoft\AMSI" "$IRPath\amsi_registry.reg"` |
 | Prefetch files | `C:\Windows\Prefetch\` | `Copy-Item "C:\Windows\Prefetch\*TROLL*" -Destination "$IRPath\Prefetch\"` |
 | Event logs | System, Security, PowerShell | See below |
@@ -326,16 +325,22 @@ procdump -ma $suspiciousPID "$IRPath\suspicious_process.dmp"
 #### File Removal
 ```powershell
 # Remove attack artifacts (AFTER evidence collection)
-$artifactsToRemove = @(
-    "c:\F0\troll_disappear_key.exe",
-    "c:\F0\Seatbelt.exe",
-    "c:\F0\temp_assembly.exe"
+# Search common attacker drop locations for AMSI bypass tools
+$searchPaths = @(
+    $env:TEMP,
+    $env:APPDATA,
+    "$env:USERPROFILE\Downloads",
+    "$env:LOCALAPPDATA\Temp"
 )
 
-foreach ($artifact in $artifactsToRemove) {
-    if (Test-Path $artifact) {
-        Remove-Item -Path $artifact -Force -ErrorAction SilentlyContinue
-        Write-Host "Removed: $artifact"
+$malwarePatterns = @("*troll*disappear*", "*seatbelt*", "*amsi*bypass*")
+
+foreach ($path in $searchPaths) {
+    foreach ($pattern in $malwarePatterns) {
+        Get-ChildItem -Path $path -Filter $pattern -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Remove-Item -Path $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-Host "Removed: $($_.FullName)"
+        }
     }
 }
 ```
@@ -390,9 +395,10 @@ if ($testResult -eq 0) {
 
 #### Validation Commands
 ```powershell
-# Verify TrollDisappearKey artifacts removed
-$artifactsExist = Test-Path "c:\F0\troll_disappear_key.exe"
-Write-Host "TrollDisappearKey exists: $artifactsExist"
+# Verify TrollDisappearKey artifacts removed from common locations
+$foundArtifacts = Get-ChildItem -Path $env:TEMP,$env:APPDATA -Filter "*troll*disappear*" -Recurse -ErrorAction SilentlyContinue
+Write-Host "TrollDisappearKey artifacts found: $($foundArtifacts.Count)"
+if ($foundArtifacts.Count -gt 0) { $foundArtifacts | ForEach-Object { Write-Host "  - $($_.FullName)" } }
 
 # Verify AMSI is functional
 try {

@@ -207,32 +207,29 @@ DeviceProcessEvents
     MitreAttack
 
 // ============================================================
-// Detection 6: F0RT1KA Test Artifacts in C:\F0 Directory
+// Detection 6: Suspicious Data Exfiltration Artifacts in User-Writable Directories
 // Test ID: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
 // MITRE ATT&CK: Multiple
 // Confidence: High
 // ============================================================
-// Purpose: Detects file operations in F0RT1KA test directory that match
-//          data exfiltration and encryption simulation artifacts
-// False Positives: Authorized F0RT1KA test executions
+// Purpose: Detects suspicious artifacts commonly used in data exfiltration
+//          attacks in user-writable staging directories
+// False Positives: Legitimate backup tools, administrative scripts
 // Threshold: Alert on creation of known malicious artifact patterns
 // ============================================================
 
 DeviceFileEvents
 | where Timestamp > ago(24h)
-| where FolderPath startswith "C:\\F0\\"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Users\\Public", "\\ProgramData\\", "\\Downloads\\")
 | where FileName in~ (
-    "azure_reconnaissance.ps1",
-    "data_exfiltration.ps1",
-    "conhost.exe",
     "azure_storage_info.json",
     "staged_data.zip",
     "exfiltration_status.txt",
     "DECRYPT_INSTRUCTIONS.txt"
-)
+) or (FileName endswith ".ps1" and FileName has_any ("recon", "exfil", "staging"))
 | extend
     Severity = "High",
-    ThreatType = "F0RT1KA_ExfiltrationSimulation",
+    ThreatType = "DataExfiltrationArtifacts",
     MitreAttack = "T1020,T1041,T1486,T1055",
     TestID = "4b4bd24c-fff5-4de8-982e-6d0fa5e22284"
 | project
@@ -387,7 +384,7 @@ let AzureRecon = DeviceFileEvents
 let DataStaging = DeviceFileEvents
 | where Timestamp > ago(1h)
 | where FolderPath contains "staging" or FileName endswith ".zip"
-| where FolderPath startswith "C:\\F0"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Users\\Public", "\\ProgramData\\", "\\Downloads\\")
 | summarize
     StagingEvents = count(),
     StagingFirstSeen = min(Timestamp),
@@ -546,8 +543,7 @@ DeviceProcessEvents
     "staging",
     "storage",
     "reconnaissance",
-    "compress",
-    "C:\\F0"
+    "compress"
 )
 | extend
     Severity = "High",

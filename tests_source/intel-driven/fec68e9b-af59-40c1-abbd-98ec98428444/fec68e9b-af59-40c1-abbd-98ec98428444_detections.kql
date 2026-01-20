@@ -113,25 +113,30 @@ DeviceEvents
 
 
 // ============================================================
-// DETECTION 5: File Drops to C:\F0 Directory
+// DETECTION 5: Executable Drops to Suspicious Locations
 // Confidence: High
 // MITRE ATT&CK: T1105 (Ingress Tool Transfer), T1036 (Masquerading)
 // ============================================================
-// Purpose: Detects F0RT1KA test artifacts being dropped to target directory
-// False Positives: Legitimate F0RT1KA security testing (authorized)
-// Threshold: Context-dependent - alert for unauthorized testing
+// Purpose: Detects executables dropped to common attacker staging locations
+// False Positives: Legitimate software installations, updates
+// Threshold: Alert when combined with MDE-targeting indicators
 // ============================================================
 
+let suspiciousPaths = dynamic(["\\Temp\\", "\\AppData\\Local\\Temp\\", "\\Users\\Public\\", "\\ProgramData\\", "\\Downloads\\"]);
 DeviceFileEvents
 | where Timestamp > ago(24h)
 | where ActionType == "FileCreated" or ActionType == "FileModified"
-| where FolderPath startswith "c:\\F0" or FolderPath startswith "C:\\F0"
+| where FolderPath has_any (suspiciousPaths)
 | extend
     FileExtension = tostring(split(FileName, ".")[-1]),
     IsExecutable = FileExtension in~ ("exe", "dll", "ps1", "bat", "cmd", "vbs", "js")
+| where IsExecutable
+// Focus on files related to process injection or MDE targeting
+| where FileName has_any ("inject", "watchdog", "patch", "hook", "sense", "mde")
+    or InitiatingProcessCommandLine has_any ("MsSense", "SenseIR", "CRYPT32", "inject")
 | extend
-    Severity = iff(IsExecutable, "High", "Medium"),
-    ThreatType = "F0RT1KA Test Artifact",
+    Severity = "High",
+    ThreatType = "Suspicious Executable Drop",
     MitreAttack = "T1105",
     TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
 | project TimeGenerated, DeviceName, FileName, FolderPath, FileExtension,
@@ -309,9 +314,10 @@ let ProcessEnum =
 let FileDrops =
     DeviceFileEvents
     | where Timestamp > ago(1h)
-    | where FolderPath startswith "c:\\F0"
+    | where FolderPath has_any ("\\Temp\\", "\\AppData\\Local\\Temp\\", "\\Users\\Public\\", "\\ProgramData\\")
     | where FileName endswith ".exe" or FileName endswith ".ps1"
-    | project TimeGenerated, DeviceName, Indicator = "FileDrop", InitiatingProcessFileName;
+    | where FileName has_any ("inject", "watchdog", "patch", "hook", "sense", "mde")
+    | project TimeGenerated, DeviceName, Indicator = "SuspiciousFileDrop", InitiatingProcessFileName;
 let NetworkAccess =
     DeviceNetworkEvents
     | where Timestamp > ago(1h)
@@ -332,7 +338,7 @@ union ProcessEnum, FileDrops, NetworkAccess, RegistryAccess
     FirstSeen = min(TimeGenerated),
     LastSeen = max(TimeGenerated)
     by DeviceName, bin(TimeGenerated, 30m)
-| where IndicatorCount >= 3
+| where IndicatorCount >= 2  // Lower threshold since we're using behavior-based detection
 | extend
     Severity = "Critical",
     ThreatType = "MDE Attack Chain Detected",

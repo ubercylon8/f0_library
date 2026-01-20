@@ -49,9 +49,9 @@ rule F0RT1KA_Process_Injection_CreateRemoteThread
 
         // F0RT1KA framework markers
         $framework1 = "F0RT1KA" ascii wide
-        $framework2 = "c:\\F0" ascii wide nocase
-        $framework3 = "Endpoint.Unprotected" ascii wide
-        $framework4 = "Endpoint.ExecutionPrevented" ascii wide
+        $framework2 = "Endpoint.Unprotected" ascii wide
+        $framework3 = "Endpoint.ExecutionPrevented" ascii wide
+        $framework4 = "test_execution_log" ascii wide
 
         // Test-specific strings
         $test1 = "Attempting process injection" ascii wide
@@ -409,10 +409,6 @@ rule F0RT1KA_Framework_Binary
         $framework2 = "f0rt1ka" ascii wide nocase
         $framework3 = "F0RTIKA" ascii wide
 
-        // Framework directory
-        $dir1 = "c:\\F0\\" ascii wide nocase
-        $dir2 = "c:/F0/" ascii wide nocase
-
         // Exit code constants
         $exitcode1 = "Endpoint.Unprotected" ascii wide
         $exitcode2 = "Endpoint.ExecutionPrevented" ascii wide
@@ -434,7 +430,7 @@ rule F0RT1KA_Framework_Binary
         filesize < 100MB and
         (
             any of ($framework*) or
-            (any of ($dir*) and any of ($exitcode*)) or
+            (any of ($exitcode*) and any of ($logger*)) or
             (any of ($prelude*) and any of ($logger*))
         )
 }

@@ -16,7 +16,7 @@
 # Rule Index:
 #   1. edr-freeze-werfaultsecure-abuse - WerFaultSecure targeting security processes
 #   2. edr-freeze-certutil-download - Certutil downloading executables
-#   3. edr-freeze-file-staging - Executable staging in C:\F0
+#   3. edr-freeze-file-staging - Executable staging in suspicious directories
 #   4. edr-freeze-tool-execution - EDR-Freeze.exe direct execution
 #   5. edr-freeze-ppl-creation - PPL process creation attempts
 #   6. edr-freeze-seatbelt-detection - Seatbelt tool detection
@@ -146,10 +146,10 @@ rules:
 
 
   # ============================================================
-  # Rule 3: File Staging in C:\F0 Directory
+  # Rule 3: File Staging in Suspicious Directories
   # ============================================================
-  # Detection: Executable files created in C:\F0 directory
-  #            (F0RT1KA test staging area)
+  # Detection: Executable files created in common attacker staging
+  #            directories (Temp, Public, AppData)
   # Confidence: MEDIUM
   # MITRE ATT&CK: T1074
   # ============================================================
@@ -159,10 +159,28 @@ rules:
       event: FILE_CREATE
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: "c:\\F0\\"
-          case sensitive: false
+        - op: or
+          rules:
+            - op: starts with
+              path: event/FILE_PATH
+              value: "c:\\temp\\"
+              case sensitive: false
+            - op: starts with
+              path: event/FILE_PATH
+              value: "c:\\users\\public\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\Temp\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Roaming\\"
+              case sensitive: false
+            - op: starts with
+              path: event/FILE_PATH
+              value: "c:\\programdata\\"
+              case sensitive: false
         - op: or
           rules:
             - op: ends with
@@ -173,15 +191,34 @@ rules:
               path: event/FILE_PATH
               value: ".dll"
               case sensitive: false
+        # Focus on suspicious process lineage
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: cmd.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: powershell.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: certutil.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: bitsadmin.exe
+              case sensitive: false
 
     respond:
       - action: report
-        name: EDR-Freeze File Staging Detected
+        name: EDR-Freeze Suspicious File Staging Detected
         metadata:
           severity: medium
           mitre_attack: T1074
           test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
-          description: Executable file created in C:\F0 staging directory
+          description: Executable file created in suspicious staging directory by command-line interpreter
           confidence: medium
 
 

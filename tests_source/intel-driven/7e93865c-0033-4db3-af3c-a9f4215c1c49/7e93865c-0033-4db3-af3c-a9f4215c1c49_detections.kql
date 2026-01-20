@@ -299,19 +299,25 @@ SysmonEvent
 
 
 // ============================================================================
-// 9. F0RT1KA Test Framework Detection
+// 9. Injection Tool Execution from Suspicious Locations
 // ============================================================================
-// Detects execution of F0RT1KA Process Injection test
-// Useful for distinguishing tests from real attacks
-// Confidence: HIGH (for test identification)
-// False Positives: None (test-specific)
-// Threshold: Informational
+// Detects execution of potential injection tools from user-writable directories
+// where attackers commonly stage their payloads
+// Confidence: HIGH
+// False Positives: Legitimate portable tools in user directories
+// Threshold: Alert when combined with other injection indicators
 // ============================================================================
 
 DeviceProcessEvents
-| where ProcessCommandLine has "7e93865c-0033-4db3-af3c-a9f4215c1c49"
-    or ProcessCommandLine has "Process Injection via CreateRemoteThread"
-    or FolderPath contains "\\F0\\"
+| where FolderPath has_any (
+    "\\AppData\\Local\\Temp\\",
+    "\\AppData\\Roaming\\",
+    "\\Users\\Public\\",
+    "\\ProgramData\\",
+    "\\Downloads\\"
+)
+| where FileName endswith ".exe"
+| where InitiatingProcessFileName !in~ ("explorer.exe", "cmd.exe", "powershell.exe")
 | project
     TimeGenerated,
     DeviceName,
@@ -319,13 +325,14 @@ DeviceProcessEvents
     FileName,
     FolderPath,
     ProcessCommandLine,
-    InitiatingProcessFileName
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath
 | extend
-    Severity = "Informational",
-    ThreatType = "F0RT1KA Security Test Execution",
+    Severity = "Medium",
+    ThreatType = "Suspicious Execution from User-Writable Directory",
     MitreAttack = "T1055.002",
     TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49",
-    Description = "F0RT1KA Process Injection test identified"
+    Description = "Executable launched from attacker staging location - correlate with injection indicators"
 
 
 // ============================================================================
@@ -400,17 +407,32 @@ SysmonEvent
 
 
 // ============================================================================
-// 12. File Activity in F0 Directory
+// 12. Suspicious File Activity - Attacker Staging Directories
 // ============================================================================
-// Detects file creation in F0RT1KA staging directory
-// Confidence: HIGH (for test identification)
-// False Positives: None
-// Threshold: Informational
+// Detects executable file creation in user-writable directories commonly
+// used by attackers to stage payloads before injection
+// Confidence: MEDIUM
+// False Positives: Legitimate software downloads, installers
+// Threshold: Correlate with injection behavior indicators
 // ============================================================================
 
 DeviceFileEvents
 | where ActionType == "FileCreated"
-| where FolderPath startswith "C:\\F0\\" or FolderPath startswith "c:\\F0\\"
+| where FileName endswith ".exe" or FileName endswith ".dll" or FileName endswith ".bin"
+| where FolderPath has_any (
+    "\\AppData\\Local\\Temp\\",
+    "\\AppData\\Roaming\\",
+    "\\Users\\Public\\",
+    "\\ProgramData\\",
+    "\\Downloads\\"
+)
+| where InitiatingProcessFileName !in~ (
+    "explorer.exe",
+    "msiexec.exe",
+    "setup.exe",
+    "MicrosoftEdgeUpdate.exe",
+    "GoogleUpdate.exe"
+)
 | project
     TimeGenerated,
     DeviceName,
@@ -419,12 +441,14 @@ DeviceFileEvents
     FileName,
     FolderPath,
     InitiatingProcessFileName,
-    InitiatingProcessCommandLine
+    InitiatingProcessCommandLine,
+    InitiatingProcessFolderPath
 | extend
-    Severity = "Low",
-    ThreatType = "F0RT1KA Test Artifact",
+    Severity = "Medium",
+    ThreatType = "Suspicious Binary in User-Writable Directory",
     MitreAttack = "T1055.002",
-    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49",
+    Description = "Executable created in attacker staging location - potential injection payload"
 
 
 // ============================================================================

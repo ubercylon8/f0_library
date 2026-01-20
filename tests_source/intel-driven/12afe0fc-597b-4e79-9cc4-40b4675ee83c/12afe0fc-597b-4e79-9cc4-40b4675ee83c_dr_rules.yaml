@@ -58,36 +58,59 @@ rules:
 
 
   # ==========================================================================
-  # RULE 2: F0 Directory File Activity
-  # Purpose: Detect file creation in F0RT1KA working directory
-  # Confidence: HIGH
+  # RULE 2: Suspicious Directory Executable File Activity
+  # Purpose: Detect executable file creation in user-writable directories
+  # Confidence: MEDIUM-HIGH
   # ==========================================================================
-  f0-directory-file-activity:
+  suspicious-directory-file-activity:
     detect:
       target: edr
       event: FILE_CREATE
-      op: or
+      op: and
       rules:
-        # Match F0 directory variations
-        - op: matches
-          path: event/FILE_PATH
-          re: (?i)^c:\\F0\\
-        - op: matches
-          path: event/FILE_PATH
-          re: (?i)^c:/F0/
-        - op: contains
-          path: event/FILE_PATH
-          value: "\\F0\\"
+        # Match user-writable directories commonly abused by attackers
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Roaming\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\ProgramData\\"
+        # Focus on executable files
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".dll"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".ps1"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".bat"
 
     respond:
       - action: report
-        name: F0RT1KA Framework Directory Activity
+        name: Suspicious Executable in User-Writable Directory
         metadata:
           severity: medium
           mitre_attack: T1497.001
-          confidence: high
-          description: File created in F0RT1KA framework directory (c:\F0)
-          investigation: Check if this is scheduled security testing
+          confidence: medium-high
+          description: Executable file created in user-writable directory (%TEMP%, %APPDATA%, Downloads)
+          investigation: Check if this is legitimate software installation or malicious activity
 
 
   # ==========================================================================
@@ -135,7 +158,7 @@ rules:
 
 
   # ==========================================================================
-  # RULE 4: Sequential Child Process Spawning
+  # RULE 4: Sequential Child Process Spawning from Suspicious Location
   # Purpose: Detect parent processes spawning multiple children sequentially
   # Confidence: MEDIUM
   # Note: This is a simplified rule - full detection requires event correlation
@@ -146,28 +169,36 @@ rules:
       event: NEW_PROCESS
       op: and
       rules:
-        # Process from F0 directory
-        - op: contains
-          path: event/FILE_PATH
-          value: "\\F0\\"
+        # Process from suspicious user-writable directory
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
         # Has parent process info
         - op: exists
           path: routing/parent
 
     respond:
       - action: report
-        name: F0 Directory Child Process Spawned
+        name: Child Process Spawned from Suspicious Location
         metadata:
           severity: low
           mitre_attack: T1497.001
           confidence: medium
-          description: Child process spawned from F0 directory
+          description: Child process spawned from user-writable directory
           investigation: Correlate with other child processes from same parent
 
       # Track for correlation
       - action: task
         command: history_dump
-        investigation: F0-Sequential-Child-Process
+        investigation: Suspicious-Sequential-Child-Process
 
 
   # ==========================================================================
@@ -182,7 +213,7 @@ rules:
       event: NEW_PROCESS
       op: and
       rules:
-        # From suspicious locations
+        # From suspicious user-writable locations
         - op: or
           rules:
             - op: contains
@@ -196,8 +227,11 @@ rules:
               value: "\\AppData\\Local\\Temp\\"
             - op: contains
               path: event/FILE_PATH
-              value: "\\F0\\"
-        # Exclude known processes
+              value: "\\AppData\\Roaming\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\ProgramData\\"
+        # Exclude known legitimate processes
         - op: is
           path: event/FILE_PATH
           value: "C:\\Windows\\Temp\\mpam-"
@@ -210,7 +244,7 @@ rules:
           severity: low
           mitre_attack: T1497.001
           confidence: medium
-          description: Process executed from temp/download/F0 location
+          description: Process executed from user-writable temp/download location
           investigation: Check process duration and behavior
 
 
@@ -259,80 +293,96 @@ rules:
 
 
   # ==========================================================================
-  # RULE 7: Process Exit Code Monitoring
-  # Purpose: Detect processes with specific F0RT1KA exit codes
+  # RULE 7: Process Exit Code Monitoring from Suspicious Location
+  # Purpose: Detect processes with specific exit codes from user-writable dirs
   # Confidence: MEDIUM
   # Note: Requires RECEIPT events with exit code telemetry
   # ==========================================================================
-  f0rtika-exit-code-detection:
+  suspicious-exit-code-detection:
     detect:
       target: edr
       event: RECEIPT
       op: and
       rules:
-        # F0RT1KA exit codes
+        # Specific exit codes that may indicate security tool behavior
         - op: or
           rules:
             - op: is
               path: event/ERROR
-              value: 101  # Endpoint.Unprotected
+              value: 101  # Common test exit code
             - op: is
               path: event/ERROR
-              value: 105  # Endpoint.FileQuarantinedOnExtraction
+              value: 105  # Quarantine indicator
             - op: is
               path: event/ERROR
-              value: 126  # Endpoint.ExecutionPrevented
+              value: 126  # Execution prevented
             - op: is
               path: event/ERROR
-              value: 999  # Endpoint.UnexpectedTestError
-        # From F0 directory
-        - op: contains
-          path: event/FILE_PATH
-          value: "\\F0\\"
+              value: 999  # Error indicator
+        # From suspicious user-writable locations
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
 
     respond:
       - action: report
-        name: F0RT1KA Test Exit Code Detected
+        name: Process Exit Code from Suspicious Location
         metadata:
           severity: informational
           mitre_attack: T1497.001
-          confidence: high
-          description: F0RT1KA test completed with exit code in RECEIPT event
+          confidence: medium
+          description: Process completed with notable exit code from user-writable directory
 
 
   # ==========================================================================
-  # RULE 8: Test Execution Log File Creation
-  # Purpose: Detect F0RT1KA JSON log file creation
-  # Confidence: HIGH
+  # RULE 8: Suspicious Log File Creation in User-Writable Directory
+  # Purpose: Detect JSON log file creation in suspicious locations
+  # Confidence: MEDIUM
   # ==========================================================================
-  test-execution-log-creation:
+  suspicious-log-file-creation:
     detect:
       target: edr
       event: FILE_CREATE
       op: and
       rules:
-        # Test execution log filename
+        # JSON log filename patterns
         - op: or
           rules:
             - op: ends with
               path: event/FILE_PATH
-              value: "test_execution_log.json"
+              value: "_execution_log.json"
             - op: matches
               path: event/FILE_PATH
               re: (?i)_log\.json$
-        # In F0 directory
-        - op: contains
-          path: event/FILE_PATH
-          value: "\\F0\\"
+        # In suspicious user-writable directory
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
 
     respond:
       - action: report
-        name: F0RT1KA Test Execution Log Created
+        name: Suspicious Log File Created
         metadata:
           severity: informational
           mitre_attack: T1497.001
-          confidence: high
-          description: F0RT1KA test execution log file created
+          confidence: medium
+          description: Execution log file created in user-writable directory
 
 
   # ==========================================================================
@@ -352,10 +402,18 @@ rules:
       event: NEW_PROCESS
       op: and
       rules:
-        # F0 directory activity
-        - op: contains
-          path: event/FILE_PATH
-          value: "\\F0\\"
+        # Suspicious user-writable directory activity
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
         # Stage pattern in name
         - op: matches
           path: event/FILE_PATH
@@ -368,7 +426,7 @@ rules:
           severity: high
           mitre_attack: T1497.001
           confidence: high
-          description: Multiple indicators of timeout/sandbox evasion detected
+          description: Multiple indicators of timeout/sandbox evasion detected from user-writable directory
 
       - action: task
         command: history_dump

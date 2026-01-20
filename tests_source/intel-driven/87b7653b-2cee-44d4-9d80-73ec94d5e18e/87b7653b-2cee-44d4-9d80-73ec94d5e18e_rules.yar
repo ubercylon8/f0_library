@@ -121,12 +121,14 @@ rule EDR_Freeze_Embedded_Binary
         $embed2 = "edrFreezeExe" ascii
         $embed3 = "go:embed" ascii
 
-        // F0RT1KA framework indicators
-        $f0_1 = "preludeorg" ascii
-        $f0_2 = "c:\\F0" ascii wide nocase
-        $f0_3 = "C:\\F0" ascii wide
+        // Common attacker staging paths (behavioral indicators)
+        $stage1 = "\\Temp\\" ascii wide nocase
+        $stage2 = "\\AppData\\" ascii wide nocase
+        $stage3 = "\\Users\\Public\\" ascii wide nocase
+        $stage4 = "\\ProgramData\\" ascii wide nocase
+        $stage5 = "\\Downloads\\" ascii wide nocase
 
-        // Test UUID
+        // Test UUID (for tracking authorized testing only)
         $uuid = "87b7653b-2cee-44d4-9d80-73ec94d5e18e" ascii wide nocase
 
     condition:
@@ -135,7 +137,7 @@ rule EDR_Freeze_Embedded_Binary
         any of ($go*) and
         (
             any of ($embed*) or
-            ($uuid and any of ($f0_*))
+            (2 of ($stage*) and any of ($embed*))
         )
 }
 
@@ -422,17 +424,21 @@ rule F0RT1KA_EDR_Freeze_Test
         note = "This rule detects authorized security testing - verify with security team"
 
     strings:
-        // Test UUID
+        // Test UUID (for tracking)
         $uuid = "87b7653b-2cee-44d4-9d80-73ec94d5e18e" ascii wide nocase
 
-        // F0RT1KA framework strings
-        $f0_1 = "F0RT1KA" ascii wide
-        $f0_2 = "preludeorg" ascii
-        $f0_3 = "c:\\F0\\" ascii wide nocase
-        $f0_4 = "C:\\F0\\" ascii wide
+        // EDR-Freeze behavioral strings
+        $edr1 = "EDR-Freeze" ascii wide
+        $edr2 = "WerFaultSecure" ascii wide
+        $edr3 = "MiniDumpWriteDump" ascii wide
+
+        // Security tool names (targets)
+        $target1 = "MsMpEng" ascii wide
+        $target2 = "MpDefenderCoreService" ascii wide
+        $target3 = "NisSrv" ascii wide
 
         // Test framework patterns
-        $test1 = "EDR-Freeze Defense Evasion Test" ascii wide
+        $test1 = "EDR-Freeze Defense Evasion" ascii wide
         $test2 = "Test ID:" ascii wide
         $test3 = "Quarantined" ascii wide
         $test4 = "ExecutionPrevented" ascii wide
@@ -446,8 +452,8 @@ rule F0RT1KA_EDR_Freeze_Test
         filesize < 25MB and
         (
             $uuid or
-            (any of ($f0_*) and any of ($test*)) or
-            (any of ($go*) and any of ($f0_*) and any of ($test*))
+            (any of ($edr*) and any of ($target*)) or
+            (any of ($go*) and any of ($test*) and any of ($edr*))
         )
 }
 

@@ -35,9 +35,8 @@ DeviceProcessEvents
     "winlogon.exe", "System", "smss.exe", "MsMpEng.exe",
     "dwm.exe", "explorer.exe", "RuntimeBroker.exe"
 )
-// Focus on potentially suspicious locations
-| where FolderPath !startswith "C:\\Windows\\System32\\"
-    or FolderPath has "c:\\F0"
+// Focus on potentially suspicious user-writable locations
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\ProgramData\\")
 | project TimeGenerated, DeviceName, FileName, FolderPath,
     ProcessCommandLine, AccountName, ProcessAge,
     InitiatingProcessFileName, InitiatingProcessCommandLine
@@ -55,17 +54,19 @@ DeviceProcessEvents
 
 
 // ============================================================================
-// QUERY 2: F0RT1KA Framework Directory Activity
-// Purpose: Detect file operations in the F0RT1KA working directory
-// Confidence: HIGH
-// False Positives: Legitimate F0RT1KA security testing
-// Threshold: Any file creation in c:\F0
+// QUERY 2: Suspicious User-Writable Directory Activity
+// Purpose: Detect executable file operations in user-writable directories
+// Confidence: MEDIUM-HIGH
+// False Positives: Legitimate installers, development tools, browser downloads
+// Threshold: Executable file creation in %TEMP%, %APPDATA%, Downloads
 // ============================================================================
 
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
-| where FolderPath startswith "c:\\F0" or FolderPath startswith "C:\\F0"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\ProgramData\\")
 | where ActionType in ("FileCreated", "FileModified", "FileRenamed")
+// Focus on executable files
+| where FileName endswith ".exe" or FileName endswith ".dll" or FileName endswith ".ps1" or FileName endswith ".bat"
 | summarize
     FileCount = count(),
     FileNames = make_set(FileName),
@@ -79,9 +80,8 @@ DeviceFileEvents
         FileCount >= 5, "Medium",
         "Low"
     ),
-    ThreatType = "F0RT1KA Framework Activity",
-    MitreAttack = "T1497.001",
-    TestID = "12afe0fc-597b-4e79-9cc4-40b4675ee83c"
+    ThreatType = "Suspicious Executable in User-Writable Directory",
+    MitreAttack = "T1497.001"
 | project FirstEvent, DeviceName, InitiatingProcessFileName,
     FileCount, FileNames, Duration, Severity, ThreatType, MitreAttack
 
@@ -147,14 +147,13 @@ DeviceProcessEvents
     InitiatingProcessFileName, InitiatingProcessFolderPath
 | extend
     Severity = case(
-        FolderPath has "c:\\F0", "High",
+        FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\"), "High",
         FolderPath !startswith "C:\\Program Files", "Medium",
         "Low"
     ),
     ThreatType = "Staged Binary Execution Pattern",
     MitreAttack = "T1497.001",
-    Confidence = "Medium-High",
-    TestID = "12afe0fc-597b-4e79-9cc4-40b4675ee83c"
+    Confidence = "Medium-High"
 
 
 // ============================================================================
@@ -229,15 +228,15 @@ DeviceProcessEvents
 | where ProcessVersionInfoFileDescription has "Go"
     or ProcessVersionInfoProductName has "Go"
     or InitiatingProcessFileName has "go"
-// From suspicious locations
-| where FolderPath has_any ("\\Temp\\", "\\Downloads\\", "\\F0\\", "\\AppData\\")
+// From suspicious user-writable locations
+| where FolderPath has_any ("\\Temp\\", "\\Downloads\\", "\\AppData\\", "\\ProgramData\\")
 | project TimeGenerated, DeviceName, FileName, FolderPath,
     ProcessCommandLine, AccountName,
     ProcessVersionInfoFileDescription, ProcessVersionInfoProductName
 | extend
     Severity = case(
-        FolderPath has "\\F0\\", "High",
-        FolderPath has "\\Temp\\", "Medium",
+        FolderPath has "\\Temp\\", "High",
+        FolderPath has_any ("\\AppData\\", "\\Downloads\\"), "Medium",
         "Low"
     ),
     ThreatType = "Go Binary from Non-Standard Location",
@@ -245,25 +244,26 @@ DeviceProcessEvents
 
 
 // ============================================================================
-// QUERY 8: Process Exit Code 101 Detection
-// Purpose: Detect processes exiting with F0RT1KA exit code 101
-// Confidence: HIGH (for F0RT1KA framework)
-// False Positives: Other applications using exit code 101
+// QUERY 8: Process Exit Code Detection from Suspicious Locations
+// Purpose: Detect processes with specific exit codes from user-writable dirs
+// Confidence: MEDIUM
+// False Positives: Legitimate applications with matching exit codes
 // ============================================================================
 
 DeviceProcessEvents
 | where TimeGenerated > ago(2h)
 | where ActionType == "ProcessExited" or ActionType has "Exit"
+// From suspicious user-writable locations
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\ProgramData\\")
 // Note: Exit code availability varies by telemetry source
 | where AdditionalFields has "101" or ProcessExitCode == 101
-| where FolderPath has "F0" or FolderPath has "f0"
 | project TimeGenerated, DeviceName, FileName, FolderPath,
     ProcessExitCode, ProcessDuration = AdditionalFields
 | extend
     Severity = "Medium",
-    ThreatType = "F0RT1KA Test Exit Code (101 - Unprotected)",
+    ThreatType = "Process Exit Code 101 from Suspicious Location",
     MitreAttack = "T1497.001",
-    Confidence = "High"
+    Confidence = "Medium"
 
 
 // ============================================================================
@@ -274,13 +274,14 @@ DeviceProcessEvents
 // Threshold: 2+ indicators within 10-minute window
 // ============================================================================
 
-let F0Activity = DeviceFileEvents
+let SuspiciousActivity = DeviceFileEvents
 | where TimeGenerated > ago(2h)
-| where FolderPath startswith "c:\\F0" or FolderPath startswith "C:\\F0"
-| summarize F0FileCount = count() by DeviceName, bin(TimeGenerated, 10m);
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\")
+| where FileName endswith ".exe" or FileName endswith ".dll"
+| summarize SuspiciousFileCount = count() by DeviceName, bin(TimeGenerated, 10m);
 let LongProcesses = DeviceProcessEvents
 | where TimeGenerated > ago(2h)
-| where FolderPath has "F0"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\")
 | extend ProcessAge = datetime_diff('minute', now(), TimeGenerated)
 | where ProcessAge >= 5
 | summarize LongProcessCount = count() by DeviceName, bin(TimeGenerated, 10m);
@@ -289,16 +290,16 @@ let StageExecutions = DeviceProcessEvents
 | where FileName matches regex @"(?i)stage[-_]"
 | summarize StageCount = count() by DeviceName, bin(TimeGenerated, 10m);
 // Correlate all indicators
-F0Activity
+SuspiciousActivity
 | join kind=leftouter (LongProcesses) on DeviceName, TimeGenerated
 | join kind=leftouter (StageExecutions) on DeviceName, TimeGenerated
 | extend IndicatorCount = (
-    iff(F0FileCount > 0, 1, 0) +
+    iff(SuspiciousFileCount > 0, 1, 0) +
     iff(isnotnull(LongProcessCount), 1, 0) +
     iff(isnotnull(StageCount), 1, 0)
 )
 | where IndicatorCount >= 2
-| project TimeGenerated, DeviceName, F0FileCount, LongProcessCount, StageCount,
+| project TimeGenerated, DeviceName, SuspiciousFileCount, LongProcessCount, StageCount,
     IndicatorCount
 | extend
     Severity = "High",
@@ -313,12 +314,13 @@ F0Activity
 // ============================================================================
 
 let TimeoutRelatedEvents = union
-    // F0 Directory Activity
+    // Suspicious Directory Activity
     (DeviceFileEvents
     | where TimeGenerated > ago(24h)
-    | where FolderPath startswith "c:\\F0" or FolderPath startswith "C:\\F0"
+    | where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\")
+    | where FileName endswith ".exe" or FileName endswith ".dll"
     | summarize EventCount = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
-    | extend DetectionType = "F0 Directory Activity"
+    | extend DetectionType = "Suspicious Directory Activity"
     ),
     // Stage Binary Execution
     (DeviceProcessEvents

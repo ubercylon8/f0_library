@@ -160,15 +160,10 @@ rules:
         - op: matches
           path: event/FILE_PATH
           re: (?i)lsass.*\.(dmp|bin|dump)$
-        # Disguised dump file (test pattern)
-        - op: and
-          rules:
-            - op: contains
-              path: event/FILE_PATH
-              value: "\\F0\\"
-            - op: ends with
-              path: event/FILE_PATH
-              value: ".docx"
+        # Disguised dump file patterns (LSASS in filename with document extension)
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)lsass.*\.(docx|xlsx|pdf)$
         # Memory dump patterns
         - op: matches
           path: event/FILE_PATH
@@ -239,36 +234,54 @@ rules:
 
 
   # ==========================================================================
-  # RULE 5: Process Execution from F0RT1KA Test Directory
-  # Purpose: Detect any process execution from the F0RT1KA test directory
-  # Confidence: HIGH
+  # RULE 5: Process Execution from Suspicious User-Writable Directories
+  # Purpose: Detect credential dumper execution from common attacker staging paths
+  # Confidence: MEDIUM-HIGH
   # ==========================================================================
-  f0rtika-test-directory-execution:
+  suspicious-directory-credential-tool:
     detect:
       target: edr
       event: NEW_PROCESS
-      op: or
+      op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: "c:\\F0\\"
-        - op: starts with
-          path: event/FILE_PATH
-          value: "C:\\F0\\"
+        # Execution from user-writable directories
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+        # Combined with credential dumper patterns
+        - op: or
+          rules:
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)(dump|native|nim|lsass).*\.exe$
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "lsass"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".dmp"
 
     respond:
       - action: report
-        name: Process Execution from F0RT1KA Test Directory
+        name: Credential Dumper Execution from Suspicious Directory
         metadata:
           severity: high
           mitre_attack: T1003.001
-          confidence: high
+          confidence: medium-high
           test_id: b83616c2-84ee-4738-b398-d2d57eebecec
-          description: Binary executed from F0RT1KA security test directory
+          description: Potential credential dumping tool executed from user-writable directory
 
       - action: task
         command: history_dump
-        investigation: F0RT1KA-Test-Execution
+        investigation: Suspicious-Directory-Execution
 
 
   # ==========================================================================
@@ -393,7 +406,7 @@ rules:
       event: NEW_PROCESS
       op: and
       rules:
-        # Execution from suspicious location
+        # Execution from suspicious user-writable location
         - op: or
           rules:
             - op: contains
@@ -401,10 +414,10 @@ rules:
               value: "\\Temp\\"
             - op: contains
               path: event/FILE_PATH
-              value: "\\F0\\"
+              value: "\\AppData\\Local\\"
             - op: contains
               path: event/FILE_PATH
-              value: "\\AppData\\Local\\"
+              value: "\\AppData\\Roaming\\"
             - op: contains
               path: event/FILE_PATH
               value: "\\Downloads\\"
@@ -450,15 +463,10 @@ rules:
       event: FILE_DELETE
       op: and
       rules:
-        # File was in monitored location or matches dumper patterns
-        - op: or
-          rules:
-            - op: contains
-              path: event/FILE_PATH
-              value: "\\F0\\"
-            - op: matches
-              path: event/FILE_PATH
-              re: (?i)(dump|native|nim|lsass|library[-_]?update)
+        # File matches credential dumper patterns
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)(dump|native|nim|lsass|library[-_]?update|mimikatz|procdump)
         # Deleted by AV/EDR process
         - op: or
           rules:

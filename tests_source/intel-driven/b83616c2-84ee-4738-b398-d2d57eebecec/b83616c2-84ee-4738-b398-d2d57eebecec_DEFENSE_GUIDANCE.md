@@ -33,10 +33,10 @@ NativeDump (and its Nim language variant NimDump) represents an advanced credent
 [1] Binary Extraction
     |
     v
-[2] Drop library_update.exe to c:\F0
+[2] Drop disguised binary (e.g., library_update.exe) to user-writable location
     |
     v
-[3] Wait 3 Seconds (Defensive Reaction Window)
+[3] Wait (Defensive Reaction Window)
     |
     v
 [4] Check: File Quarantined?
@@ -46,7 +46,7 @@ NativeDump (and its Nim language variant NimDump) represents an advanced credent
     +---> NO: Continue to Execution
           |
           v
-[5] Execute: library_update.exe -r -o:c:\F0\document.docx
+[5] Execute: NimDump with output to disguised file (e.g., -r -o:document.docx)
     |
     v
 [6] NimDump Attempts:
@@ -335,7 +335,7 @@ For enterprise deployment via Group Policy:
 | SeDebugPrivilege Enabled | Token manipulation for debug privilege | P1 |
 | Minidump File Created | Dump file written to disk | P1 |
 | NimDump Binary Detected | Known signature or behavior | P1 |
-| Suspicious Binary in c:\F0 | File creation in test directory | P2 |
+| Suspicious Binary in Temp/AppData | File creation in user-writable directory | P2 |
 
 ### 2. Initial Triage (First 5 minutes)
 
@@ -346,9 +346,9 @@ For enterprise deployment via Group Policy:
 
 **Critical Triage Questions:**
 1. Is this a scheduled security test execution?
-2. Is the file located in `c:\F0\` (test directory)?
-3. What process attempted to access LSASS?
-4. Was a dump file successfully created?
+2. What process attempted to access LSASS?
+3. Was a dump file successfully created?
+4. What is the file path and parent process?
 5. Has the dump file been exfiltrated?
 
 ### 3. Containment (15-30 minutes)
@@ -365,11 +365,11 @@ netsh advfirewall set allprofiles firewallpolicy blockinbound,blockoutbound
 
 - [ ] **Terminate credential dumping process**
 ```powershell
-# Kill by process name
-Get-Process | Where-Object {$_.ProcessName -like "*library_update*"} | Stop-Process -Force
+# Kill by process name (adjust pattern based on observed binary)
+Get-Process | Where-Object {$_.ProcessName -like "*library_update*" -or $_.ProcessName -like "*dump*"} | Stop-Process -Force
 
-# Kill by path
-Get-Process | Where-Object {$_.Path -like "C:\F0\*"} | Stop-Process -Force
+# Kill by suspicious path patterns
+Get-Process | Where-Object {$_.Path -like "*\Temp\*" -or $_.Path -like "*\AppData\Local\*"} | Stop-Process -Force
 ```
 
 - [ ] **Secure the dump file (if created)**
@@ -378,9 +378,17 @@ Get-Process | Where-Object {$_.Path -like "C:\F0\*"} | Stop-Process -Force
 $quarantine = "C:\IR\Quarantine\$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 New-Item -Path $quarantine -ItemType Directory -Force
 
-# Quarantine any dump files
-Get-ChildItem -Path "c:\F0" -Include "*.docx","*.dmp","*.bin" -Recurse |
-    Move-Item -Destination $quarantine -Force
+# Quarantine dump files from common attacker locations
+$suspiciousPaths = @(
+    "$env:TEMP",
+    "$env:LOCALAPPDATA",
+    "$env:APPDATA",
+    "$env:USERPROFILE\Downloads"
+)
+foreach ($path in $suspiciousPaths) {
+    Get-ChildItem -Path $path -Include "*.dmp","*.mdmp","*.bin","lsass*" -Recurse -ErrorAction SilentlyContinue |
+        Move-Item -Destination $quarantine -Force
+}
 ```
 
 - [ ] **Preserve volatile evidence**
@@ -405,13 +413,12 @@ whoami /priv > "$irPath\current_privileges.txt"
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| Dump file | `c:\F0\document.docx` (or other paths) | `Copy-Item "c:\F0\*" "C:\IR\artifacts\"` |
-| Dumping binary | `c:\F0\library_update.exe` | `Copy-Item` + hash |
-| Test execution logs | `c:\F0\*_log.json` | `Copy-Item` |
+| Dump file | `%TEMP%`, `%APPDATA%`, `%LOCALAPPDATA%` | Search for `.dmp`, `.mdmp`, `lsass*` files |
+| Dumping binary | User-writable directories | Identify from process tree, hash binary |
 | Process memory | Memory | `procdump -ma <pid> C:\IR\` |
 | Security event logs | System | `wevtutil epl Security C:\IR\Security.evtx` |
 | Sysmon logs | System | `wevtutil epl "Microsoft-Windows-Sysmon/Operational" C:\IR\Sysmon.evtx` |
-| Prefetch files | `C:\Windows\Prefetch\` | `Copy-Item "C:\Windows\Prefetch\LIBRARY*" "C:\IR\Prefetch\"` |
+| Prefetch files | `C:\Windows\Prefetch\` | `Copy-Item "C:\Windows\Prefetch\*DUMP*" "C:\IR\Prefetch\"` |
 
 #### Memory Acquisition
 ```powershell
@@ -452,11 +459,15 @@ Get-WinEvent -FilterHashtable @{
 #### File Removal
 ```powershell
 # Remove attack artifacts (AFTER evidence collection)
-Remove-Item -Path "c:\F0\library_update.exe" -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "c:\F0\document.docx" -Force -ErrorAction SilentlyContinue
+# Adjust paths based on actual locations identified during investigation
 
-# Clean up any other dropped files
-Remove-Item -Path "c:\F0\*.dmp" -Force -ErrorAction SilentlyContinue
+# Remove dumping binaries from common locations
+$suspiciousPaths = @("$env:TEMP", "$env:LOCALAPPDATA", "$env:APPDATA", "$env:USERPROFILE\Downloads")
+foreach ($path in $suspiciousPaths) {
+    Remove-Item -Path "$path\*dump*" -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$path\*.dmp" -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$path\*.mdmp" -Force -ErrorAction SilentlyContinue
+}
 ```
 
 #### Credential Reset (CRITICAL)
@@ -471,15 +482,16 @@ Remove-Item -Path "c:\F0\*.dmp" -Force -ErrorAction SilentlyContinue
 
 #### Verify Removal
 ```powershell
-# Verify binary is removed
-Test-Path "c:\F0\library_update.exe"  # Should return False
-
-# Verify dump file is removed
-Test-Path "c:\F0\document.docx"  # Should return False
+# Verify no dump files remain in common attacker locations
+$suspiciousPaths = @("$env:TEMP", "$env:LOCALAPPDATA", "$env:APPDATA", "$env:USERPROFILE\Downloads")
+foreach ($path in $suspiciousPaths) {
+    Get-ChildItem -Path $path -Include "*.dmp","*.mdmp","lsass*" -Recurse -ErrorAction SilentlyContinue |
+        Select-Object FullName  # Should return empty
+}
 
 # Verify no persistence
-Get-ScheduledTask | Where-Object {$_.Actions.Execute -like "*library*"}
-Get-Service | Where-Object {$_.BinaryPathName -like "*library*"}
+Get-ScheduledTask | Where-Object {$_.Actions.Execute -like "*dump*"}
+Get-Service | Where-Object {$_.BinaryPathName -like "*dump*"}
 ```
 
 ### 6. Recovery
@@ -551,11 +563,11 @@ Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders
 
 | Phase | Expected Alert | Timing |
 |-------|----------------|--------|
-| Binary Extraction | File creation in `c:\F0\` | Immediate |
-| File Detection | Signature/heuristic alert | Within 3 seconds |
+| Binary Extraction | File creation in user-writable directory | Immediate |
+| File Detection | Signature/heuristic alert | Seconds after creation |
 | Process Execution | NEW_PROCESS event | If file not quarantined |
 | LSASS Access | SENSITIVE_PROCESS_ACCESS alert | At execution |
-| Dump File Creation | FILE_CREATE alert | If not blocked |
+| Dump File Creation | FILE_CREATE alert for .dmp/.mdmp | If not blocked |
 
 ---
 

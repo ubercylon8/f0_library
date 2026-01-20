@@ -134,12 +134,12 @@ DeviceFileEvents
 | where ActionType == "FileCreated"
 | where FileName endswith ".dmp"
     or FileName endswith ".mdmp"
-    or FileName matches regex @"(?i)(lsass|credential|dump|memory).*\.(dmp|bin|docx)"
-    or (FolderPath has "c:\\F0" and FileName endswith ".docx")  // Test-specific disguise
+    or FileName matches regex @"(?i)(lsass|credential|dump|memory).*\.(dmp|bin)"
+    or FileName matches regex @"(?i)lsass.*\.(docx|xlsx|pdf)$"  // Disguised dump files
 | where InitiatingProcessFileName !in~ ("WerFault.exe", "wermgr.exe", "svchost.exe")
 | extend DumpType = case(
     FileName has "lsass", "LSASS Dump File",
-    FileName endswith ".docx" and FolderPath has "\\F0", "Disguised Dump File (F0RT1KA Test)",
+    FileName matches regex @"(?i)\.(docx|xlsx|pdf)$", "Potentially Disguised Dump File",
     FileName has "credential", "Credential Dump File",
     "Generic Dump File"
 )
@@ -183,30 +183,32 @@ SecurityEvent
 
 
 // ============================================================================
-// QUERY 6: Process Execution from F0RT1KA Test Directory
-// Purpose: Detect any process execution from the F0RT1KA test directory
-// Confidence: HIGH
-// False Positives: Scheduled F0RT1KA security testing
-// Threshold: Any process execution from c:\F0
+// QUERY 6: Process Execution from Suspicious User-Writable Directories
+// Purpose: Detect process execution from common attacker staging directories
+// Confidence: MEDIUM-HIGH
+// False Positives: Legitimate software in temp/downloads, installers
+// Threshold: Execution from temp/appdata combined with suspicious patterns
 // ============================================================================
 
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
-| where FolderPath startswith "c:\\F0\\" or FolderPath startswith "C:\\F0\\"
-| extend TestType = case(
-    FileName =~ "library_update.exe", "NimDump LSASS Dumper Test",
-    FileName has "dump", "Credential Dump Test",
-    FileName endswith ".exe", "Unknown Test Execution",
-    "Non-executable"
+| where FolderPath matches regex @"(?i)\\(temp|tmp|appdata\\local\\temp|downloads)\\"
+| where FileName matches regex @"(?i)(dump|native|nim|library[-_]?update|lsass).*\.exe$"
+    or ProcessCommandLine has_any ("lsass", "-o:", "--output", ".dmp")
+| extend ExecutionRisk = case(
+    FileName =~ "library_update.exe", "NimDump LSASS Dumper (Disguised)",
+    FileName has "dump", "Potential Credential Dumper",
+    ProcessCommandLine has "lsass", "LSASS Targeting Command",
+    "Suspicious Pattern Match"
 )
 | project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
-    ProcessCommandLine, SHA256, TestType, InitiatingProcessFileName
+    ProcessCommandLine, SHA256, ExecutionRisk, InitiatingProcessFileName
 | extend
     Severity = "High",
-    ThreatType = "F0RT1KA Test Execution",
+    ThreatType = "Suspicious Execution from User-Writable Directory",
     MitreAttack = "T1003.001",
     TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
-    Confidence = "High"
+    Confidence = "Medium-High"
 
 
 // ============================================================================
@@ -297,13 +299,13 @@ let DumpFileCreation = DeviceFileEvents
 | where TimeGenerated > ago(2h)
 | where ActionType == "FileCreated"
 | where FileName endswith ".dmp" or FileName endswith ".mdmp"
-    or (FileName endswith ".docx" and FolderPath has "\\F0")
+    or FileName matches regex @"(?i)lsass.*\.(dmp|bin|docx)$"
 | summarize DumpCount = count() by DeviceName, bin(TimeGenerated, 30m)
 | project Computer = DeviceName, DumpTime = TimeGenerated, DumpCount;
 let SuspiciousExecution = DeviceProcessEvents
 | where TimeGenerated > ago(2h)
-| where FolderPath startswith "c:\\F0"
-    or FileName matches regex @"(?i)(dump|native|nim|library[-_]?update)"
+| where FolderPath matches regex @"(?i)\\(temp|appdata|downloads)\\"
+    and FileName matches regex @"(?i)(dump|native|nim|library[-_]?update)"
 | summarize ExecCount = count() by DeviceName, bin(TimeGenerated, 30m)
 | project Computer = DeviceName, ExecTime = TimeGenerated, ExecCount;
 // Correlate indicators
@@ -395,13 +397,13 @@ let DumpFileAlerts = DeviceFileEvents
 | where TimeGenerated > ago(24h)
 | where ActionType == "FileCreated"
 | where FileName endswith ".dmp" or FileName endswith ".mdmp"
-    or (FileName endswith ".docx" and FolderPath has "\\F0")
+    or FileName matches regex @"(?i)lsass.*\.(dmp|bin|docx)$"
 | summarize FileEvents = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
 | extend DetectionType = "Dump File Creation";
 let ToolAlerts = DeviceProcessEvents
 | where TimeGenerated > ago(24h)
 | where FileName matches regex @"(?i)(mimikatz|native[-_]?dump|nim[-_]?dump|library[-_]?update|procdump|nanodump)"
-    or FolderPath startswith "c:\\F0"
+    or (FolderPath matches regex @"(?i)\\(temp|appdata|downloads)\\" and ProcessCommandLine has_any ("lsass", "-o:", ".dmp"))
 | summarize ToolEvents = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
 | extend DetectionType = "Credential Tool Execution";
 union

@@ -156,22 +156,42 @@ rules:
 
 
   # ============================================================
-  # Rule 5: F0 Directory Executable Creation
+  # Rule 5: EDR-Targeting Tool Staging in User-Writable Directory
   # ============================================================
   # Confidence: Medium
-  # Description: Detects executable file creation in F0RT1KA staging directory
-  # False Positives: Scheduled F0RT1KA tests
+  # Description: Detects EDR-targeting executable creation in user-writable directories
+  # False Positives: Legitimate portable security tools
   # ============================================================
-  f0-directory-executable-staging:
+  edr-tool-staging-user-writable:
     detect:
       target: edr
       event: FILE_CREATE
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: "c:\\F0\\"
-          case sensitive: false
+        # File created in user-writable directory
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\Temp"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Users\\Public"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\ProgramData\\"
+              case sensitive: false
+        # Is an executable
         - op: or
           rules:
             - op: ends with
@@ -182,41 +202,104 @@ rules:
               path: event/FILE_PATH
               value: .dll
               case sensitive: false
+        # Has EDR-targeting naming pattern
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: silencer
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: edrblock
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: fireblock
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: edr-freeze
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: backstab
+              case sensitive: false
 
     respond:
       - action: report
-        name: Executable Staged in F0 Directory
+        name: EDR-Targeting Tool Staged in User-Writable Directory
         metadata:
-          severity: medium
+          severity: high
           mitre_attack: T1562.001
           test_id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
-          description: Executable file created in F0RT1KA staging directory
+          description: Executable with EDR-targeting naming pattern created in user-writable directory
 
 
   # ============================================================
-  # Rule 6: F0 Directory Process Execution
+  # Rule 6: EDR-Targeting Tool Execution from User-Writable Directory
   # ============================================================
   # Confidence: Medium
-  # Description: Detects any process execution from F0 directory
-  # False Positives: Scheduled F0RT1KA tests
+  # Description: Detects EDR-targeting tool execution from user-writable directories
+  # False Positives: Legitimate portable security tools
   # ============================================================
-  f0-directory-process-execution:
+  edr-tool-execution-user-writable:
     detect:
       target: edr
       event: NEW_PROCESS
-      op: starts with
-      path: event/FILE_PATH
-      value: "c:\\F0\\"
-      case sensitive: false
+      op: and
+      rules:
+        # Process from user-writable directory
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\Temp"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Users\\Public"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\ProgramData\\"
+              case sensitive: false
+        # Has EDR-targeting naming or command pattern
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: silencer
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: edrblock
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: blockedr
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: FwpmFilterAdd
+              case sensitive: false
 
     respond:
       - action: report
-        name: Process Execution from F0 Directory
+        name: EDR-Targeting Tool Executed from User-Writable Directory
         metadata:
-          severity: medium
+          severity: high
           mitre_attack: T1562.001
           test_id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
-          description: Process executed from F0RT1KA staging directory
+          description: Process with EDR-targeting pattern executed from user-writable directory
 
 
   # ============================================================
@@ -462,16 +545,16 @@ rules:
           path: event/FILE_PATH
           value: fwpuclnt.dll
           case sensitive: false
-        # Process from staging or temp directories
+        # Process from user-writable directories (common staging locations)
         - op: or
           rules:
-            - op: starts with
-              path: event/PROCESS_FILE_PATH
-              value: "c:\\F0\\"
-              case sensitive: false
             - op: contains
               path: event/PROCESS_FILE_PATH
               value: "\\Temp\\"
+              case sensitive: false
+            - op: contains
+              path: event/PROCESS_FILE_PATH
+              value: "\\AppData\\Local\\Temp\\"
               case sensitive: false
             - op: contains
               path: event/PROCESS_FILE_PATH
@@ -479,7 +562,11 @@ rules:
               case sensitive: false
             - op: contains
               path: event/PROCESS_FILE_PATH
-              value: "\\AppData\\Local\\Temp\\"
+              value: "\\Users\\Public\\"
+              case sensitive: false
+            - op: contains
+              path: event/PROCESS_FILE_PATH
+              value: "\\ProgramData\\"
               case sensitive: false
 
     respond:
@@ -489,7 +576,7 @@ rules:
           severity: high
           mitre_attack: T1562.001
           test_id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
-          description: Process from high-risk location loaded WFP manipulation library
+          description: Process from user-writable directory loaded WFP manipulation library
 
 
   # ============================================================
@@ -520,20 +607,28 @@ rules:
               path: event/COMMAND_LINE
               value: unblockall
               case sensitive: false
-        # From F0 or temp location
+        # From user-writable directory (common attacker staging locations)
         - op: or
           rules:
-            - op: starts with
-              path: event/FILE_PATH
-              value: "c:\\F0\\"
-              case sensitive: false
             - op: contains
               path: event/FILE_PATH
               value: "\\Temp\\"
               case sensitive: false
             - op: contains
               path: event/FILE_PATH
+              value: "\\AppData\\Local\\Temp\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
               value: "\\Downloads\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Users\\Public\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\ProgramData\\"
               case sensitive: false
 
     respond:
@@ -543,4 +638,4 @@ rules:
           severity: critical
           mitre_attack: T1562.001
           test_id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
-          description: EDRSilencer attack pattern detected - file staging and execution from suspicious location
+          description: EDRSilencer attack pattern detected - file staging and execution from user-writable directory

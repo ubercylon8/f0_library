@@ -149,7 +149,7 @@ rules:
               case sensitive: false
             - op: contains
               path: event/COMMAND_LINE
-              value: "c:\\F0"
+              value: "TamperProtection"
               case sensitive: false
             - op: contains
               path: event/COMMAND_LINE
@@ -158,12 +158,12 @@ rules:
 
     respond:
       - action: report
-        name: F0RT1KA - PowerShell Bypass with Defender/F0 Target
+        name: F0RT1KA - PowerShell Bypass Targeting Windows Defender
         metadata:
           test_id: ecd2514c-512a-4251-a6f4-eb3aa834d401
           mitre_attack: T1562.001
           severity: high
-          description: PowerShell execution with bypass flag targeting Defender or F0 directory
+          description: PowerShell execution with bypass flag targeting Windows Defender components
 
       - action: add tag
         tag: f0rtika-powershell-bypass
@@ -171,34 +171,44 @@ rules:
 
 
   # ============================================================
-  # Rule 5: Script File Creation in F0 Directory
+  # Rule 5: Suspicious Script with CyberEye/Defender Naming
   # MITRE ATT&CK: T1562.001
   # Confidence: High
-  # Description: Detects PowerShell script creation in c:\F0 directory
+  # Description: Detects PowerShell script creation with CyberEye or Defender-targeting naming
   # ============================================================
-  f0rtika-script-in-f0-directory:
+  f0rtika-cybereye-script-creation:
     detect:
       target: edr
       event: FILE_CREATE
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: "c:\\F0"
-          case sensitive: false
         - op: ends with
           path: event/FILE_PATH
           value: ".ps1"
           case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "CyberEye"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "Defender"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "TamperProtection"
+              case sensitive: false
 
     respond:
       - action: report
-        name: F0RT1KA - PowerShell Script Created in F0 Directory
+        name: F0RT1KA - Suspicious Defender-Targeting Script Created
         metadata:
           test_id: ecd2514c-512a-4251-a6f4-eb3aa834d401
           mitre_attack: T1562.001
           severity: high
-          description: PowerShell script file created in F0RT1KA test directory
+          description: PowerShell script with Defender-targeting naming pattern created
 
       - action: add tag
         tag: f0rtika-script-drop

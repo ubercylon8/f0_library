@@ -29,19 +29,19 @@ These techniques are actively used by the SafePay ransomware family and represen
 [Initial Access] --> [Script Drop] --> [UAC Bypass] --> [Persistence] --> [Defense Evasion]
      |                   |                 |                |                    |
      v                   v                 v                v                    v
-  Execution        c:\F0\*.ps1       CMSTPLUA COM     Registry Run      Defender Disable
-                                     Auto-Elevate       Keys             GUI Automation
+  Execution        %TEMP%\*.ps1      CMSTPLUA COM     Registry Run      Defender Disable
+                   %APPDATA%\*       Auto-Elevate       Keys             GUI Automation
 ```
 
 ### Key Indicators
 
 | Indicator Type | Value |
 |---------------|-------|
-| **Script Path** | `c:\F0\safepay_uac_bypass.ps1` |
 | **COM GUID** | `{3E5FC7F9-9A51-4367-9063-A120244FBEC7}` (CMSTPLUA) |
 | **Registry Path** | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
 | **Registry Name** | `SafePayService` |
 | **Registry Value** | `6F22-C16F-0C71-688A` |
+| **Common Drop Locations** | `%TEMP%`, `%APPDATA%\Local\Temp`, `C:\Users\Public` |
 
 ---
 
@@ -203,7 +203,7 @@ Get-MpComputerStatus | Select-Object IsTamperProtected
 |----------------|------------------|------------|----------|
 | CMSTPLUA UAC Bypass | COM object creation with GUID {3E5FC7F9-9A51-4367-9063-A120244FBEC7} | High | P1 |
 | SafePay Registry Persistence | Run key value = "6F22-C16F-0C71-688A" | High | P1 |
-| Suspicious PowerShell Bypass | `-ExecutionPolicy Bypass` with script from c:\F0 | High | P2 |
+| Suspicious PowerShell Bypass | `-ExecutionPolicy Bypass` with script from %TEMP% or user-writable location | High | P2 |
 | Defender Tampering Attempt | GUI automation targeting Windows Security | Medium | P2 |
 | Registry Run Key Modification | New value at CurrentVersion\Run from suspicious process | Medium | P3 |
 
@@ -243,10 +243,13 @@ Get-MpComputerStatus | Select-Object IsTamperProtected
 
 - [ ] **Terminate malicious processes**
   ```powershell
-  # Kill any PowerShell processes running from c:\F0
+  # Kill any PowerShell processes running suspicious scripts (from temp/user-writable locations)
   Get-Process -Name powershell, pwsh -ErrorAction SilentlyContinue | Where-Object {
-      $_.MainModule.FileName -match "c:\\F0" -or
-      (Get-WmiObject Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine -match "c:\\F0"
+      $cmdLine = (Get-WmiObject Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
+      $cmdLine -match "\\Temp\\" -or
+      $cmdLine -match "\\AppData\\Local\\Temp" -or
+      $cmdLine -match "safepay" -or
+      $cmdLine -match "uac_bypass"
   } | Stop-Process -Force
   ```
 
@@ -279,9 +282,8 @@ Get-MpComputerStatus | Select-Object IsTamperProtected
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| F0RT1KA test artifacts | `c:\F0\*` | `Copy-Item "c:\F0\*" -Destination "$IRPath\F0_artifacts\" -Recurse` |
-| PowerShell script | `c:\F0\safepay_uac_bypass.ps1` | `Copy-Item "c:\F0\safepay_uac_bypass.ps1" -Destination "$IRPath\"` |
-| Test execution log | `c:\F0\*_log.json` | `Copy-Item "c:\F0\*_log.json" -Destination "$IRPath\"` |
+| Malicious scripts | `%TEMP%\*.ps1`, `%APPDATA%\*.ps1` | `Copy-Item "$env:TEMP\*.ps1" -Destination "$IRPath\scripts\"` |
+| User temp directory | `%LOCALAPPDATA%\Temp\*` | `Copy-Item "$env:LOCALAPPDATA\Temp\*" -Destination "$IRPath\temp_artifacts\" -Recurse` |
 | Security event log | `Security.evtx` | `wevtutil epl Security "$IRPath\Security.evtx"` |
 | PowerShell logs | `Microsoft-Windows-PowerShell` | `wevtutil epl "Microsoft-Windows-PowerShell/Operational" "$IRPath\PowerShell.evtx"` |
 | Prefetch files | `C:\Windows\Prefetch\` | `Copy-Item "C:\Windows\Prefetch\*POWERSHELL*" -Destination "$IRPath\Prefetch\"` |
@@ -317,12 +319,15 @@ Get-WinEvent -LogName "Microsoft-Windows-Security-Auditing" -FilterXPath "*[Syst
 #### File Removal
 ```powershell
 # Remove attack artifacts (AFTER evidence collection)
-Remove-Item -Path "c:\F0\safepay_uac_bypass.ps1" -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "c:\F0\*" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "c:\F0" -Force -ErrorAction SilentlyContinue
+# Search for and remove malicious scripts from common drop locations
+Get-ChildItem -Path "$env:TEMP", "$env:LOCALAPPDATA\Temp", "C:\Users\Public" -Filter "*.ps1" -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match "safepay|uac_bypass" } |
+    Remove-Item -Force
 
-# Verify removal
-Test-Path "c:\F0"  # Should return False
+# Remove any persistence-related scripts
+Get-ChildItem -Path "$env:APPDATA", "$env:LOCALAPPDATA" -Filter "*.ps1" -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match "safepay|uac_bypass|persistence" } |
+    Remove-Item -Force
 ```
 
 #### Registry Cleanup
@@ -365,9 +370,11 @@ Start-MpScan -ScanType QuickScan
 # Verify clean state
 Write-Host "=== Verification Results ===" -ForegroundColor Cyan
 
-# Check F0 directory
-$f0Exists = Test-Path "c:\F0"
-Write-Host "c:\F0 directory exists: $f0Exists" -ForegroundColor $(if($f0Exists){"Red"}else{"Green"})
+# Check for SafePay-related scripts in common locations
+$suspiciousScripts = Get-ChildItem -Path "$env:TEMP", "$env:LOCALAPPDATA\Temp", "C:\Users\Public" -Filter "*.ps1" -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match "safepay|uac_bypass" }
+$scriptsFound = $suspiciousScripts.Count -gt 0
+Write-Host "Suspicious scripts found: $scriptsFound" -ForegroundColor $(if($scriptsFound){"Red"}else{"Green"})
 
 # Check SafePay persistence
 $safepayKey = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "SafePayService" -ErrorAction SilentlyContinue

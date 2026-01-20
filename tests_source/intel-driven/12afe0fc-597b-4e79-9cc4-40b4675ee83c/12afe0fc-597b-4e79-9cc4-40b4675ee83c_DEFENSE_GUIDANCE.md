@@ -68,7 +68,7 @@ While this specific test is a utility for validating LimaCharlie's timeout param
 
 | Phase | Behavior | Duration | Exit Code |
 |-------|----------|----------|-----------|
-| Binary Extraction | Drops 3 stage binaries to `c:\F0` | Immediate | N/A |
+| Binary Extraction | Drops 3 stage binaries to user-writable directory | Immediate | N/A |
 | Stage 1 | Sleeps with periodic logging | 120 seconds | 101 |
 | Stage 2 | Sleeps with periodic logging | 120 seconds | 101 |
 | Stage 3 | Sleeps with periodic logging | 120 seconds | 101 |
@@ -112,7 +112,7 @@ However, detection-focused mitigations are valuable:
 | Long-Running Process Detection | P2 | MEDIUM | May have false positives from legitimate apps |
 | Sequential Child Process Execution | P2 | MEDIUM | Parent-child timing correlation |
 | Extended Sleep Calls | P3 | LOW | Requires kernel/API monitoring |
-| F0 Directory File Activity | P1 | HIGH | F0RT1KA framework specific |
+| Suspicious Directory File Activity | P1 | HIGH | User-writable paths (%TEMP%, %APPDATA%, Downloads) |
 | Process Lifetime Anomalies | P2 | MEDIUM | Statistical baseline required |
 
 ### Detection Files
@@ -147,10 +147,10 @@ DeviceProcessEvents
 
 Detects parent processes that spawn multiple child processes with significant delays between them.
 
-#### 3. F0 Directory Activity
-**Confidence:** HIGH | **Severity:** High (for F0RT1KA tests)
+#### 3. Suspicious Directory Activity
+**Confidence:** HIGH | **Severity:** High
 
-Detects file operations in the `c:\F0` directory used by F0RT1KA framework.
+Detects file operations in user-writable directories commonly abused by attackers (%TEMP%, %APPDATA%, Downloads).
 
 #### 4. Process with Extended Sleep Pattern
 **Confidence:** MEDIUM | **Severity:** Low-Medium
@@ -171,7 +171,7 @@ Detects processes that exhibit timing-based behavior patterns.
 | Rule Name | Trigger | Confidence |
 |-----------|---------|------------|
 | `long-running-process-detection` | Process running > 5 minutes | MEDIUM |
-| `f0-directory-file-activity` | File activity in c:\F0 | HIGH |
+| `suspicious-directory-file-activity` | File activity in %TEMP%, %APPDATA%, Downloads | HIGH |
 | `sequential-child-process-execution` | Multiple child processes with delays | MEDIUM |
 | `timeout-validation-harness-execution` | Specific test execution | HIGH |
 
@@ -244,19 +244,27 @@ Set-MpPreference -MAPSReporting Advanced
 
 #### 4. Directory Monitoring
 
-**Purpose:** Monitor the F0RT1KA working directory
+**Purpose:** Monitor user-writable directories commonly abused by attackers
 
 ```powershell
-# Create audit rule for c:\F0 directory
-$path = "c:\F0"
-if (Test-Path $path) {
-    $acl = Get-Acl $path
-    $rule = New-Object System.Security.AccessControl.FileSystemAuditRule(
-        "Everyone", "Write,Delete,CreateFiles", "ContainerInherit,ObjectInherit",
-        "None", "Success,Failure"
-    )
-    $acl.AddAuditRule($rule)
-    Set-Acl $path $acl
+# Create audit rules for suspicious directories
+$paths = @(
+    "$env:TEMP",
+    "$env:APPDATA",
+    "$env:LOCALAPPDATA\Temp",
+    "$env:USERPROFILE\Downloads"
+)
+
+foreach ($path in $paths) {
+    if (Test-Path $path) {
+        $acl = Get-Acl $path
+        $rule = New-Object System.Security.AccessControl.FileSystemAuditRule(
+            "Everyone", "Write,Delete,CreateFiles", "ContainerInherit,ObjectInherit",
+            "None", "Success,Failure"
+        )
+        $acl.AddAuditRule($rule)
+        Set-Acl $path $acl
+    }
 }
 ```
 
@@ -278,7 +286,7 @@ if (Test-Path $path) {
 | Alert Name | Trigger Criteria | Priority |
 |------------|------------------|----------|
 | Long-Running Process | Process duration > 5 minutes | P3 |
-| F0 Directory Activity | File operations in c:\F0 | P2 |
+| Suspicious Directory Activity | File operations in %TEMP%, %APPDATA%, Downloads | P2 |
 | Sequential Stage Execution | Multiple child processes with delays | P3 |
 | Timeout Harness Detection | Specific binary signature | P2 |
 
@@ -291,7 +299,7 @@ if (Test-Path $path) {
 
 **Triage Questions:**
 1. Is this a scheduled security test or infrastructure validation?
-2. Does the file path contain `c:\F0` (F0RT1KA framework)?
+2. Is the file located in a suspicious user-writable directory (%TEMP%, %APPDATA%, Downloads)?
 3. What is the parent process of the long-running executable?
 
 ### 3. Containment (15 minutes)
@@ -334,8 +342,8 @@ Get-WmiObject Win32_Process |
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| Test execution logs | `c:\F0\test_execution_log.json` | `Copy-Item "c:\F0\*" -Destination "C:\IR\F0_artifacts\" -Recurse` |
-| Stage binaries | `c:\F0\stage-T1497.001-*.exe` | Preserve for analysis |
+| Test execution logs | Working directory | `Copy-Item "$env:TEMP\*_log.json" -Destination "C:\IR\artifacts\" -Recurse` |
+| Stage binaries | %TEMP%, %APPDATA%, Downloads | Preserve for analysis |
 | Process dumps | Memory | `procdump -ma <pid> C:\IR\` |
 | Event logs | System | `wevtutil epl Security C:\IR\Security.evtx` |
 
@@ -359,15 +367,22 @@ Get-WinEvent -FilterHashtable @{
 
 #### File Removal
 ```powershell
-# Remove test artifacts (AFTER evidence collection)
-Remove-Item -Path "c:\F0\stage-T1497.001-*.exe" -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "c:\F0\test_execution_log.json" -Force -ErrorAction SilentlyContinue
+# Remove suspicious artifacts from user-writable directories (AFTER evidence collection)
+$suspiciousPaths = @("$env:TEMP", "$env:APPDATA", "$env:LOCALAPPDATA\Temp", "$env:USERPROFILE\Downloads")
+foreach ($dir in $suspiciousPaths) {
+    Remove-Item -Path "$dir\stage-*.exe" -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$dir\*_execution_log.json" -Force -ErrorAction SilentlyContinue
+}
 ```
 
 #### Process Termination
 ```powershell
-# Terminate long-running test processes if needed
-Get-Process | Where-Object {$_.Path -like "*c:\F0*"} | Stop-Process -Force
+# Terminate long-running suspicious processes
+Get-Process | Where-Object {
+    $_.Path -like "*\Temp\*" -or
+    $_.Path -like "*\AppData\*" -or
+    $_.Path -like "*\Downloads\*"
+} | Where-Object {$_.Name -like "stage-*"} | Stop-Process -Force
 ```
 
 ### 6. Recovery
@@ -381,10 +396,14 @@ Get-Process | Where-Object {$_.Path -like "*c:\F0*"} | Stop-Process -Force
 
 #### Validation Commands
 ```powershell
-# Verify F0 directory is clean
-Get-ChildItem "c:\F0\" -ErrorAction SilentlyContinue
+# Verify suspicious directories are clean
+$suspiciousPaths = @("$env:TEMP", "$env:APPDATA", "$env:LOCALAPPDATA\Temp", "$env:USERPROFILE\Downloads")
+foreach ($dir in $suspiciousPaths) {
+    Write-Host "Checking $dir for stage binaries..."
+    Get-ChildItem "$dir\stage-*.exe" -ErrorAction SilentlyContinue
+}
 
-# Verify no test processes running
+# Verify no suspicious test processes running
 Get-Process | Where-Object {$_.Path -like "*stage-T1497*"}
 
 # Verify system resources normal
@@ -406,7 +425,7 @@ Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, CPU, W
 |------|----------------|----------|
 | Detection | Implement process duration anomaly detection | MEDIUM |
 | Prevention | Consider process execution time limits for untrusted binaries | LOW |
-| Monitoring | Add F0 directory monitoring to SIEM | HIGH |
+| Monitoring | Add user-writable directory monitoring to SIEM (%TEMP%, %APPDATA%, Downloads) | HIGH |
 | Response | Pre-stage IR collection scripts for process analysis | MEDIUM |
 
 ---
@@ -424,7 +443,7 @@ Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, CPU, W
 
 | Phase | Expected Alert | Timing |
 |-------|----------------|--------|
-| Binary Extraction | File creation in c:\F0\ | Immediate |
+| Binary Extraction | File creation in user-writable directory | Immediate |
 | Process Execution | NEW_PROCESS event | Immediate |
 | Stage 1 Start | Child process creation | ~0 seconds |
 | Stage 1 Duration Alert | Long-running process | ~2 minutes |

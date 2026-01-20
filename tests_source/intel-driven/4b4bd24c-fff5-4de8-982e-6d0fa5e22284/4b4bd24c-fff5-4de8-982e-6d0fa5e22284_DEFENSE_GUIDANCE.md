@@ -37,7 +37,7 @@ This test simulates sophisticated attack techniques observed in advanced persist
 
 3. **Process Masquerading (T1055)**
    - Deployment of encryption binary masquerading as conhost.exe
-   - Execution from non-standard location (C:\F0)
+   - Execution from non-standard location (outside C:\Windows\System32)
    - Behavioral evasion through legitimate process impersonation
 
 4. **Encryption Simulation (T1486)**
@@ -244,7 +244,7 @@ wmic shadowcopy call create Volume=C:\
 | Azure Storage Reconnaissance | PowerShell accessing Azure config paths | High | P2 |
 | Azure CLI Credential Access | File read of accessTokens.json or azureProfile.json | High | P1 |
 | Data Staging Detection | Compress-Archive with high-value extensions | High | P1 |
-| Process Masquerading | conhost.exe from C:\F0 | High | P1 |
+| Process Masquerading | conhost.exe from non-standard path | High | P1 |
 | Ransom Note Creation | DECRYPT_INSTRUCTIONS.txt creation | Critical | P1 |
 | Encryption Behavior | High-frequency .encrypted file creation | Critical | P1 |
 
@@ -324,12 +324,11 @@ wmic shadowcopy call create Volume=C:\
 
 | Artifact | Location | Collection Command |
 |----------|----------|-------------------|
-| Test execution logs | `C:\F0\*_log.json` | `Copy-Item "C:\F0\*" -Destination "$irDir\F0_artifacts\" -Recurse` |
-| Azure reconnaissance data | `C:\F0\azure_storage_info.json` | `Copy-Item "C:\F0\azure_storage_info.json" -Destination "$irDir\"` |
-| Staged data archive | `C:\F0\staged_data.zip` | `Copy-Item "C:\F0\staged_data.zip" -Destination "$irDir\"` |
-| Exfiltration status | `C:\F0\exfiltration_status.txt` | `Copy-Item "C:\F0\exfiltration_status.txt" -Destination "$irDir\"` |
-| PowerShell scripts | `C:\F0\*.ps1` | `Copy-Item "C:\F0\*.ps1" -Destination "$irDir\"` |
-| Masqueraded binary | `C:\F0\conhost.exe` | `Copy-Item "C:\F0\conhost.exe" -Destination "$irDir\"` |
+| Reconnaissance output | `%TEMP%\azure_storage_info.json` | `Copy-Item "$env:TEMP\azure_storage_info.json" -Destination "$irDir\"` |
+| Staged data archive | `%LOCALAPPDATA%\Temp\staged_data.zip` | `Copy-Item "$env:LOCALAPPDATA\Temp\staged_data.zip" -Destination "$irDir\"` |
+| Exfiltration status | `%APPDATA%\exfiltration_status.txt` | `Copy-Item "$env:APPDATA\exfiltration_status.txt" -Destination "$irDir\"` |
+| Suspicious scripts | `%TEMP%\*.ps1` | `Copy-Item "$env:TEMP\*.ps1" -Destination "$irDir\"` |
+| Masqueraded binary | Non-System32 conhost.exe | `Get-Process conhost | Where {$_.Path -notlike '*System32*'} | ForEach {Copy-Item $_.Path -Destination "$irDir\"}` |
 | Event logs | System | See below |
 | Prefetch files | `C:\Windows\Prefetch\` | `Copy-Item "C:\Windows\Prefetch\*CONHOST*" -Destination "$irDir\Prefetch\"` |
 
@@ -347,11 +346,14 @@ foreach ($log in $logs) {
 
 #### Timeline Generation
 ```powershell
-# Create timeline of recent file activity in F0 directory
-Get-ChildItem "C:\F0" -Recurse |
-    Select-Object FullName, CreationTime, LastWriteTime, LastAccessTime, Length |
+# Create timeline of recent file activity in common staging directories
+$stagingPaths = @("$env:TEMP", "$env:LOCALAPPDATA\Temp", "$env:APPDATA", "C:\Users\Public")
+$stagingPaths | ForEach-Object {
+    Get-ChildItem $_ -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -gt (Get-Date).AddHours(-24) }
+} | Select-Object FullName, CreationTime, LastWriteTime, LastAccessTime, Length |
     Sort-Object LastWriteTime |
-    Export-Csv "$irDir\f0_timeline.csv" -NoTypeInformation
+    Export-Csv "$irDir\staging_timeline.csv" -NoTypeInformation
 
 # Recent PowerShell execution events
 Get-WinEvent -LogName "Microsoft-Windows-PowerShell/Operational" -MaxEvents 500 |
@@ -365,27 +367,39 @@ Get-WinEvent -LogName "Microsoft-Windows-PowerShell/Operational" -MaxEvents 500 
 
 #### File Removal
 ```powershell
-# AFTER evidence collection - Remove attack artifacts
-$artifactsToRemove = @(
-    "C:\F0\azure_reconnaissance.ps1",
-    "C:\F0\data_exfiltration.ps1",
-    "C:\F0\conhost.exe",
-    "C:\F0\exfiltration_status.txt",
-    "C:\F0\azure_storage_info.json",
-    "C:\F0\staged_data.zip",
-    "C:\F0\staging"
+# AFTER evidence collection - Remove attack artifacts from common staging paths
+$stagingPaths = @("$env:TEMP", "$env:LOCALAPPDATA\Temp", "$env:APPDATA", "C:\Users\Public")
+
+# Remove suspicious artifacts
+$suspiciousPatterns = @(
+    "azure_reconnaissance*.ps1",
+    "data_exfiltration*.ps1",
+    "exfiltration_status.txt",
+    "azure_storage_info.json",
+    "staged_data.zip",
+    "*.encrypted",
+    "DECRYPT_INSTRUCTIONS.txt"
 )
 
-foreach ($artifact in $artifactsToRemove) {
-    if (Test-Path $artifact) {
-        Remove-Item -Path $artifact -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "Removed: $artifact"
+foreach ($path in $stagingPaths) {
+    foreach ($pattern in $suspiciousPatterns) {
+        Get-ChildItem -Path $path -Filter $pattern -Recurse -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                Remove-Item -Path $_.FullName -Force -ErrorAction SilentlyContinue
+                Write-Host "Removed: $($_.FullName)"
+            }
     }
 }
 
-# Remove test-created encrypted files
-Get-ChildItem "C:\F0" -Recurse -Filter "*.encrypted" | Remove-Item -Force
-Get-ChildItem "C:\F0" -Recurse -Filter "DECRYPT_INSTRUCTIONS.txt" | Remove-Item -Force
+# Kill and remove masqueraded conhost processes
+Get-Process -Name conhost -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -notlike "*Windows\System32*" } |
+    ForEach-Object {
+        $path = $_.Path
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path $path -Force -ErrorAction SilentlyContinue
+        Write-Host "Terminated and removed: $path"
+    }
 ```
 
 #### Scheduled Task Cleanup
@@ -428,16 +442,19 @@ foreach ($path in $regPaths) {
 
 #### Validation Commands
 ```powershell
-# Verify F0 directory is clean
-Get-ChildItem "C:\F0\" -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -match "(azure|exfiltration|conhost|staging|encrypted)" }
+# Verify staging directories are clean of suspicious artifacts
+$stagingPaths = @("$env:TEMP", "$env:LOCALAPPDATA\Temp", "$env:APPDATA", "C:\Users\Public")
+$stagingPaths | ForEach-Object {
+    Get-ChildItem $_ -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match "(azure|exfiltration|staging|encrypted|DECRYPT)" }
+}
 
 # Verify no suspicious scheduled tasks
 Get-ScheduledTask | Where-Object { $_.Actions.Execute -like "*powershell*" } |
     Select-Object TaskName, State, Actions
 
-# Verify no suspicious services
-Get-Service | Where-Object { $_.PathName -like "*F0*" }
+# Verify no suspicious services with masqueraded names
+Get-Service | Where-Object { $_.PathName -like "*conhost*" -and $_.PathName -notlike "*System32*" }
 
 # Verify network connectivity restored
 Test-NetConnection -ComputerName "login.microsoftonline.com" -Port 443
@@ -481,7 +498,7 @@ az ad signed-in-user show
 | Detection | Add KQL queries to Sentinel | High |
 | Prevention | Enable Controlled Folder Access | High |
 | Prevention | Restrict PowerShell to Constrained Language Mode | Medium |
-| Prevention | Block execution from C:\F0 via AppLocker | High |
+| Prevention | Block execution from user-writable directories via AppLocker | High |
 | Response | Create automated containment runbook | Medium |
 | Response | Pre-stage IR tooling on endpoints | Low |
 

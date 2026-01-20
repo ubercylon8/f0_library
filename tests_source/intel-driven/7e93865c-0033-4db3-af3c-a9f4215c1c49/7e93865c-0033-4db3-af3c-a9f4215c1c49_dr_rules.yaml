@@ -294,69 +294,108 @@ rules:
 
 
   # ==========================================================================
-  # RULE 7: F0RT1KA Test Framework Detection
-  # Purpose: Identify F0RT1KA test execution for distinguishing tests from attacks
-  # Confidence: HIGH (test identification)
+  # RULE 7: Injection Tool Execution from User-Writable Directories
+  # Purpose: Detect potential injection tools launched from attacker staging locations
+  # Confidence: MEDIUM-HIGH
   # ==========================================================================
-  f0rtika-process-injection-test:
+  injection-from-staging-directory:
     detect:
       target: edr
       event: NEW_PROCESS
-      op: or
+      op: and
       rules:
-        # F0RT1KA test UUID in path
-        - op: contains
-          path: event/FILE_PATH
-          value: "7e93865c-0033-4db3-af3c-a9f4215c1c49"
-        # F0 staging directory
-        - op: contains
-          path: event/FILE_PATH
-          value: "\\F0\\"
-        # Test name in command line
-        - op: contains
-          path: event/COMMAND_LINE
-          value: "Process Injection via CreateRemoteThread"
+        # Executable in user-writable directories (common attacker staging locations)
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Roaming\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Users\\Public\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\ProgramData\\"
+        # Exclude common legitimate parents
+        - op: ends with
+          path: event/PARENT/FILE_PATH
+          value: "\\explorer.exe"
+          not: true
+        - op: ends with
+          path: event/PARENT/FILE_PATH
+          value: "\\msiexec.exe"
+          not: true
 
     respond:
       - action: report
-        name: F0RT1KA Process Injection Test Detected
+        name: Executable from User-Writable Directory
         metadata:
-          severity: informational
+          severity: medium
           mitre_attack: T1055.002
-          confidence: high
-          description: F0RT1KA security test execution detected
+          confidence: medium
+          description: Process launched from attacker staging location - correlate with injection indicators
           test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
-          category: security_testing
 
 
   # ==========================================================================
-  # RULE 8: File Creation in F0 Directory
-  # Purpose: Monitor F0RT1KA staging directory for test artifacts
-  # Confidence: HIGH (for test tracking)
+  # RULE 8: Suspicious Binary Creation in Attacker Staging Directories
+  # Purpose: Monitor user-writable directories for potential injection payloads
+  # Confidence: MEDIUM
   # ==========================================================================
-  f0-directory-activity:
+  suspicious-binary-staging:
     detect:
       target: edr
       event: FILE_CREATE
       op: and
       rules:
+        # User-writable directories commonly used by attackers
         - op: or
           rules:
-            - op: starts with
+            - op: contains
               path: event/FILE_PATH
-              value: "C:\\F0\\"
-            - op: starts with
+              value: "\\AppData\\Local\\Temp\\"
+            - op: contains
               path: event/FILE_PATH
-              value: "c:\\F0\\"
+              value: "\\AppData\\Roaming\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Users\\Public\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\ProgramData\\"
+        # Executable or binary files
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".dll"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".bin"
+        # Exclude common legitimate sources
+        - op: ends with
+          path: event/PARENT/FILE_PATH
+          value: "\\msiexec.exe"
+          not: true
+        - op: contains
+          path: event/PARENT/FILE_PATH
+          value: "\\Google\\Update\\"
+          not: true
 
     respond:
       - action: report
-        name: F0RT1KA Test Artifact Created
+        name: Suspicious Binary Created in User-Writable Directory
         metadata:
-          severity: low
+          severity: medium
           mitre_attack: T1055.002
-          confidence: high
-          description: File created in F0RT1KA staging directory
+          confidence: medium
+          description: Executable created in attacker staging location - potential injection payload
           test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
 
 

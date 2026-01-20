@@ -104,7 +104,7 @@ rules:
   # Test ID: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
   # MITRE ATT&CK: T1074.001
   # Confidence: Medium
-  # Description: Detects creation of data staging directories in F0
+  # Description: Detects creation of data staging directories in user-writable paths
   # ============================================================
   f0rtika-data-staging-directory:
     detect:
@@ -112,9 +112,20 @@ rules:
       event: FILE_CREATE
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: c:\\F0\\
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Temp\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\AppData\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Users\\Public\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\ProgramData\\
         - op: or
           rules:
             - op: contains
@@ -135,14 +146,14 @@ rules:
           mitre_attack: T1074.001
           confidence: medium
           severity: high
-          description: Data staging directory created in F0RT1KA test path
+          description: Data staging directory created in user-writable path
 
   # ============================================================
   # Detection Rule: Archive Creation for Exfiltration
   # Test ID: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
   # MITRE ATT&CK: T1560.001
   # Confidence: High
-  # Description: Detects ZIP archive creation in test directories
+  # Description: Detects ZIP archive creation in user-writable staging directories
   # ============================================================
   f0rtika-archive-for-exfil:
     detect:
@@ -150,9 +161,20 @@ rules:
       event: FILE_CREATE
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: c:\\F0\\
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Temp\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\AppData\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Users\\Public\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Downloads\\
         - op: ends with
           path: event/FILE_PATH
           value: .zip
@@ -166,7 +188,7 @@ rules:
           mitre_attack: T1560.001
           confidence: high
           severity: high
-          description: Archive file created in staging directory for potential exfiltration
+          description: Archive file created in user-writable directory for potential exfiltration
 
   # ============================================================
   # Detection Rule: Process Masquerading - conhost.exe
@@ -283,11 +305,11 @@ rules:
           description: File with encrypted extension created indicating possible ransomware activity
 
   # ============================================================
-  # Detection Rule: F0RT1KA Test Script Deployment
+  # Detection Rule: Exfiltration Script Deployment
   # Test ID: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
   # MITRE ATT&CK: T1059.001
   # Confidence: High
-  # Description: Detects deployment of exfiltration simulation scripts
+  # Description: Detects deployment of exfiltration/reconnaissance scripts
   # ============================================================
   f0rtika-exfil-script-deployment:
     detect:
@@ -295,17 +317,32 @@ rules:
       event: FILE_CREATE
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: c:\\F0\\
         - op: or
           rules:
             - op: contains
               path: event/FILE_PATH
-              value: azure_reconnaissance
+              value: \\Temp\\
             - op: contains
               path: event/FILE_PATH
-              value: data_exfiltration
+              value: \\AppData\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Users\\Public\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Downloads\\
+        - op: ends with
+          path: event/FILE_PATH
+          value: .ps1
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: reconnaissance
+            - op: contains
+              path: event/FILE_PATH
+              value: exfiltration
             - op: contains
               path: event/FILE_PATH
               value: exfil
@@ -318,7 +355,7 @@ rules:
           mitre_attack: T1059.001
           confidence: high
           severity: high
-          description: Data exfiltration simulation script deployed to F0RT1KA test directory
+          description: Suspicious reconnaissance/exfiltration script deployed to user-writable directory
 
   # ============================================================
   # Detection Rule: PowerShell Compress-Archive Usage
@@ -404,7 +441,7 @@ rules:
           description: PowerShell accessing browser local storage for potential credential theft
 
   # ============================================================
-  # Detection Rule: Exfiltration Status File
+  # Detection Rule: Exfiltration Status/Tracking File
   # Test ID: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
   # MITRE ATT&CK: T1020
   # Confidence: High
@@ -414,19 +451,17 @@ rules:
     detect:
       target: edr
       event: FILE_CREATE
-      op: and
+      op: or
       rules:
-        - op: starts with
+        - op: contains
           path: event/FILE_PATH
-          value: c:\\F0\\
-        - op: or
-          rules:
-            - op: contains
-              path: event/FILE_PATH
-              value: exfiltration_status
-            - op: contains
-              path: event/FILE_PATH
-              value: azure_storage_info
+          value: exfiltration_status
+        - op: contains
+          path: event/FILE_PATH
+          value: azure_storage_info
+        - op: contains
+          path: event/FILE_PATH
+          value: staged_data
 
     respond:
       - action: report
@@ -436,42 +471,49 @@ rules:
           mitre_attack: T1020
           confidence: high
           severity: high
-          description: Exfiltration tracking file created in F0RT1KA test directory
+          description: Suspicious exfiltration tracking file created
 
   # ============================================================
-  # Detection Rule: F0RT1KA Test Binary Execution
+  # Detection Rule: Suspicious Binary Execution from User-Writable Path
   # Test ID: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
   # MITRE ATT&CK: T1020, T1041, T1486
   # Confidence: High
-  # Description: Detects execution of F0RT1KA test binary from C:\F0
+  # Description: Detects execution of suspicious binaries from user-writable directories
   # ============================================================
-  f0rtika-test-binary-execution:
+  f0rtika-suspicious-binary-execution:
     detect:
       target: edr
       event: NEW_PROCESS
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: c:\\F0\\
         - op: or
           rules:
             - op: contains
               path: event/FILE_PATH
-              value: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
-            - op: is
-              path: routing/event_type
-              value: NEW_PROCESS
+              value: \\Temp\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\AppData\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Users\\Public\\
+            - op: contains
+              path: event/FILE_PATH
+              value: \\Downloads\\
+        - op: ends with
+          path: event/FILE_PATH
+          value: .exe
+          case sensitive: false
 
     respond:
       - action: report
-        name: F0RT1KA-TestBinaryExecution
+        name: F0RT1KA-SuspiciousBinaryExecution
         metadata:
           test_id: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
           mitre_attack: T1020,T1041,T1486
-          confidence: high
+          confidence: medium
           severity: high
-          description: F0RT1KA data exfiltration test binary executed
+          description: Suspicious binary executed from user-writable directory
 
   # ============================================================
   # Detection Rule: High-Value File Enumeration

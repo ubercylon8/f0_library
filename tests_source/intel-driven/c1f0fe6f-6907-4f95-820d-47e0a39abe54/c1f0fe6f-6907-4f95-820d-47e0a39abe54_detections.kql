@@ -245,33 +245,42 @@ DeviceEvents
 
 
 // ============================================================================
-// QUERY 8: F0RT1KA Test Directory Activity
-// Purpose: Detect file operations in F0RT1KA test directory
-// Confidence: HIGH (for test framework monitoring)
-// False Positives: Legitimate F0RT1KA test executions
-// Threshold: Any file creation matching AMSI bypass patterns
+// QUERY 8: AMSI Bypass Tool File Drop Detection (Behavior-Based)
+// Purpose: Detect AMSI bypass tool file operations in user-writable directories
+// Confidence: HIGH
+// False Positives: Legitimate security testing (coordinate with security team)
+// Threshold: Any file creation matching AMSI bypass patterns in common drop locations
 // ============================================================================
 
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
-| where FolderPath startswith @"c:\F0\" or FolderPath startswith @"C:\F0\"
+// Detect in common attacker drop locations (user-writable directories)
+| where FolderPath has_any (@"\AppData\", @"\Temp\", @"\Downloads\", @"\Users\")
 | where FileName has_any ("troll", "amsi", "seatbelt", "disappear")
-    or FileName matches regex @"(?i)(amsi.*bypass|troll.*key)"
+    or FileName matches regex @"(?i)(amsi.*bypass|troll.*key|disappear.*key)"
 | extend
     IsTrollDisappearKey = iff(FileName has "troll" and FileName has "disappear", true, false),
     IsSeatbelt = iff(FileName =~ "seatbelt.exe", true, false),
     IsAMSITool = iff(FileName has "amsi", true, false)
 | extend
+    DropLocation = case(
+        FolderPath has @"\Temp\", "TEMP directory",
+        FolderPath has @"\AppData\Roaming\", "AppData Roaming",
+        FolderPath has @"\AppData\Local\", "AppData Local",
+        FolderPath has @"\Downloads\", "Downloads folder",
+        "User-writable directory"
+    )
+| extend
     Severity = case(
-        IsTrollDisappearKey, "High",
+        IsTrollDisappearKey, "Critical",
         IsSeatbelt, "High",
         IsAMSITool, "High",
         "Medium"
     ),
-    ThreatType = "F0RT1KA AMSI Bypass Test Activity",
+    ThreatType = "AMSI Bypass Tool File Drop",
     MitreAttack = "T1562.001",
     TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54"
-| project TimeGenerated, DeviceName, ActionType, FileName, FolderPath,
+| project TimeGenerated, DeviceName, ActionType, FileName, FolderPath, DropLocation,
     InitiatingProcessFileName, InitiatingProcessCommandLine,
     IsTrollDisappearKey, IsSeatbelt, IsAMSITool, Severity, ThreatType, MitreAttack
 

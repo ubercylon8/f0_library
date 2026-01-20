@@ -58,10 +58,10 @@ rule F0RTIKA_MDE_Process_Injection_Test {
         $endpoint2 = "/edr/commands/cnc" ascii wide nocase
         $endpoint3 = "/senseir/" ascii wide nocase
 
-        // F0RT1KA artifacts
-        $artifact1 = "c:\\F0" ascii wide nocase
-        $artifact2 = "mde_process_watchdog" ascii wide nocase
-        $artifact3 = "emergency_restore.ps1" ascii wide nocase
+        // MDE targeting artifacts (behavior-based)
+        $artifact1 = "mde_process_watchdog" ascii wide nocase
+        $artifact2 = "WriteProcessMemory" ascii
+        $artifact3 = "PROCESS_VM_WRITE" ascii wide nocase
 
     condition:
         uint16(0) == 0x5A4D and  // PE file
@@ -75,7 +75,7 @@ rule F0RTIKA_MDE_Process_Injection_Test {
             (3 of ($api*) and 1 of ($target*)) or
             // Medium confidence: Certificate bypass pattern
             ($cert_func and ($shellcode or 2 of ($api*))) or
-            // Medium confidence: MDE endpoints + artifacts
+            // Medium confidence: MDE endpoints + injection capability
             (2 of ($endpoint*) and 2 of ($artifact*))
         )
 }
@@ -359,8 +359,10 @@ rule F0RTIKA_Embedded_PE_Dropper {
         $extract2 = "os.WriteFile" ascii
         $extract3 = "ioutil.WriteFile" ascii
 
-        // F0RT1KA patterns
-        $f0_path = "c:\\F0" ascii wide nocase
+        // Process injection targeting patterns
+        $target1 = "MsSense" ascii wide nocase
+        $target2 = "SenseIR" ascii wide nocase
+        $target3 = "CRYPT32" ascii wide nocase
 
     condition:
         uint16(0) == 0x5A4D and
@@ -371,8 +373,8 @@ rule F0RTIKA_Embedded_PE_Dropper {
             (#pe_header > 2) or
             // Go embed with watchdog
             ($go_embed and $watchdog_embed) or
-            // Extraction + F0 path
-            (1 of ($extract*) and $f0_path)
+            // Extraction targeting MDE/security processes
+            (1 of ($extract*) and 1 of ($target*))
         )
 }
 

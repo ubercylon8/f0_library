@@ -17,7 +17,7 @@
 //   3. Security Process Thread Suspension Anomalies (CRITICAL)
 //   4. WerFaultSecure PPL Process Creation (HIGH)
 //   5. Full Attack Chain Correlation (CRITICAL)
-//   6. File Staging in C:\F0 Directory (MEDIUM)
+//   6. File Staging in Suspicious Directories (MEDIUM)
 //   7. CreateProcessAsPPL Usage Detection (HIGH)
 //   8. Defender Process Termination/Suspension (CRITICAL)
 //   9. LOLBin Network Downloads (HIGH)
@@ -266,23 +266,29 @@ WerFaultAbuseEvents
 
 
 // ============================================================
-// Query 6: File Staging in C:\F0 Directory
+// Query 6: File Staging in Suspicious Directories
 // ============================================================
-// Purpose: Detects files being created in C:\F0 directory
-//          (F0RT1KA test staging area) or other suspicious locations
+// Purpose: Detects executable files being created in common attacker
+//          staging locations (Temp, Public, AppData, ProgramData)
 // Confidence: MEDIUM
-// False Positives: Legitimate F0RT1KA test executions
+// False Positives: Legitimate software installations, updates
 // Threshold: Review context and initiating process
 // ============================================================
 
 DeviceFileEvents
 | where TimeGenerated > ago(24h)
 | where ActionType == "FileCreated"
-| where FolderPath startswith @"C:\F0\"
-    or FolderPath startswith @"C:\Temp\"
+| where FolderPath startswith @"C:\Temp\"
     or FolderPath startswith @"C:\Users\Public\"
+    or FolderPath matches regex @"C:\\Users\\[^\\]+\\AppData\\Local\\Temp\\"
+    or FolderPath matches regex @"C:\\Users\\[^\\]+\\AppData\\Roaming\\"
+    or FolderPath startswith @"C:\ProgramData\"
+    or FolderPath matches regex @"C:\\Users\\[^\\]+\\Downloads\\"
 | where FileName endswith ".exe" or FileName endswith ".dll" or FileName endswith ".ps1"
-| where InitiatingProcessFileName !in~ ("explorer.exe", "msiexec.exe", "MpCmdRun.exe", "setup.exe")
+| where InitiatingProcessFileName !in~ ("explorer.exe", "msiexec.exe", "MpCmdRun.exe", "setup.exe", "OneDrive.exe", "chrome.exe", "msedge.exe", "firefox.exe")
+// Focus on suspicious process lineage
+| where InitiatingProcessFileName in~ ("cmd.exe", "powershell.exe", "certutil.exe", "bitsadmin.exe", "curl.exe", "wget.exe")
+    or InitiatingProcessParentFileName in~ ("cmd.exe", "powershell.exe")
 | project
     TimeGenerated,
     DeviceName,
@@ -299,7 +305,7 @@ DeviceFileEvents
     ThreatType = "Suspicious File Staging",
     MitreAttack = "T1074",
     TestID = "87b7653b-2cee-44d4-9d80-73ec94d5e18e",
-    Description = strcat("Executable file ", FileName, " created in staging directory")
+    Description = strcat("Executable file ", FileName, " created in suspicious staging directory by ", InitiatingProcessFileName)
 
 
 // ============================================================
@@ -653,8 +659,11 @@ union
 (
     DeviceFileEvents
     | where TimeGenerated > TimeWindow
-    | where FolderPath startswith @"C:\F0\" and FileName endswith ".exe"
-    | extend Category = "C:\\F0 Staging", Severity = "Medium"
+    | where (FolderPath startswith @"C:\Temp\"
+        or FolderPath startswith @"C:\Users\Public\"
+        or FolderPath matches regex @"C:\\Users\\[^\\]+\\AppData\\Local\\Temp\\")
+        and FileName endswith ".exe"
+    | extend Category = "Suspicious Directory Staging", Severity = "Medium"
 )
 | summarize
     TotalEvents = count(),

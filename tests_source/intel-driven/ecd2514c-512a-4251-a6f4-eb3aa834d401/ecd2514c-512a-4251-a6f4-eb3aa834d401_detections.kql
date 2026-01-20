@@ -143,7 +143,6 @@ DeviceProcessEvents
     "DisableBehaviorMonitoring",
     "DisableOnAccessProtection",
     "DisableScanOnRealtimeEnable",
-    "c:\\F0",
     "Windows Defender"
 )
 | extend
@@ -165,23 +164,28 @@ DeviceProcessEvents
 
 
 // ============================================================
-// Detection 5: Script Activity in F0RT1KA Test Directory
+// Detection 5: Suspicious Script with Defender-Disabling Patterns
 // Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
 // MITRE ATT&CK: T1562.001
 // Confidence: High
 // ============================================================
-// Purpose: Detects PowerShell script creation or execution from c:\F0 directory
-// False Positives: Known F0RT1KA security testing (verify with security team)
-// Threshold: Any script in this directory should be investigated
+// Purpose: Detects PowerShell script creation with Defender-disabling naming patterns
+// False Positives: Legitimate security testing (verify with security team)
+// Threshold: Scripts with Defender/CyberEye patterns should be investigated
 // ============================================================
 
 DeviceFileEvents
 | where TimeGenerated > ago(24h)
-| where FolderPath startswith @"c:\F0" or FolderPath startswith @"C:\F0"
 | where FileName endswith ".ps1"
+| where FileName has_any ("CyberEye", "Defender", "TamperProtection", "DisableAV")
+    or FolderPath has_any ("\\Temp\\", "\\AppData\\Local\\Temp", "\\Users\\Public")
 | extend
-    Severity = "High",
-    ThreatType = "Suspicious Script in F0RT1KA Directory",
+    Severity = case(
+        FileName has "CyberEye", "Critical",
+        FileName has "Defender", "High",
+        "Medium"
+    ),
+    ThreatType = "Suspicious Defender-Targeting Script",
     MitreAttack = "T1562.001",
     TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401"
 | project

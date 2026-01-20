@@ -71,10 +71,10 @@ Event
 
 
 // ============================================================================
-// QUERY 3: PowerShell Execution Policy Bypass from c:\F0
-// Purpose: Detect suspicious PowerShell execution with bypass from test directory
+// QUERY 3: PowerShell Execution Policy Bypass from Suspicious Locations
+// Purpose: Detect suspicious PowerShell execution with bypass from user-writable directories
 // Confidence: HIGH
-// False Positives: Authorized security testing
+// False Positives: Some legitimate scripts, automation tools
 // MITRE ATT&CK: T1059.001
 // ============================================================================
 
@@ -82,14 +82,16 @@ DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName in~ ("powershell.exe", "pwsh.exe")
 | where ProcessCommandLine has_all ("-ExecutionPolicy", "Bypass")
-| where ProcessCommandLine has_any ("c:\\F0", "c:/F0", "safepay", "uac_bypass")
+| where ProcessCommandLine has_any ("safepay", "uac_bypass", "cmstplua")
+    or FolderPath has_any ("\\Temp\\", "\\AppData\\Local\\Temp", "\\Users\\Public")
+| where FolderPath !startswith "C:\\Program Files"
+| where FolderPath !startswith "C:\\Windows\\System32"
 | project TimeGenerated, DeviceName, AccountName, FileName,
     ProcessCommandLine, InitiatingProcessFileName, FolderPath
 | extend
     Severity = "High",
-    ThreatType = "Suspicious PowerShell Execution - F0RT1KA Test or Similar",
+    ThreatType = "Suspicious PowerShell Execution from User-Writable Location",
     MitreAttack = "T1059.001",
-    TestID = "2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11",
     Confidence = "High"
 
 
@@ -151,9 +153,9 @@ DeviceRegistryEvents
     InitiatingProcessCommandLine, AccountName
 | extend
     Severity = case(
-        InitiatingProcessFolderPath has "c:\\F0", "High",
-        InitiatingProcessFolderPath has "Temp", "High",
-        InitiatingProcessFolderPath has "AppData", "Medium",
+        InitiatingProcessFolderPath has "\\Temp\\", "High",
+        InitiatingProcessFolderPath has "\\Users\\Public", "High",
+        InitiatingProcessFolderPath has "\\AppData\\", "Medium",
         "Low"
     ),
     ThreatType = "Suspicious Registry Run Key Modification",
@@ -234,29 +236,33 @@ DeviceProcessEvents
 
 
 // ============================================================================
-// QUERY 8: Script Drop to c:\F0 Directory
-// Purpose: Detect script file creation in F0RT1KA test directory
-// Confidence: HIGH
-// False Positives: Authorized F0RT1KA testing
+// QUERY 8: Script Drop to Suspicious User-Writable Directories
+// Purpose: Detect script file creation in user-writable directories (common malware staging)
+// Confidence: MEDIUM
+// False Positives: Legitimate script creation by users, development activity
 // ============================================================================
 
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
-| where FolderPath startswith "c:\\F0" or FolderPath startswith "C:\\F0"
+| where FolderPath has_any ("\\Temp\\", "\\Users\\Public", "\\AppData\\Local\\Temp")
 | where FileName endswith ".ps1"
     or FileName endswith ".bat"
     or FileName endswith ".cmd"
     or FileName endswith ".vbs"
     or FileName endswith ".js"
+| where FileName has_any ("safepay", "uac", "bypass", "persistence", "payload")
+    or InitiatingProcessFileName !in~ ("explorer.exe", "notepad.exe", "code.exe", "powershell_ise.exe")
 | project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
     FileSize = FileSize, InitiatingProcessFileName, InitiatingProcessCommandLine
 | extend
-    Severity = "High",
-    ThreatType = "Script File Created in F0RT1KA Test Directory",
+    Severity = case(
+        FileName has_any ("safepay", "uac", "bypass"), "High",
+        "Medium"
+    ),
+    ThreatType = "Suspicious Script File Created in User-Writable Directory",
     MitreAttack = "T1105",
-    TestID = "2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11",
-    Confidence = "High"
+    Confidence = "Medium"
 
 
 // ============================================================================
@@ -413,29 +419,32 @@ DeviceProcessEvents
 
 
 // ============================================================================
-// HUNTING QUERY: F0RT1KA Test Execution Detection
-// Purpose: Detect any F0RT1KA security test execution
-// Confidence: HIGH
-// False Positives: Authorized security testing (coordinate with security team)
+// HUNTING QUERY: SafePay-Style Attack Activity
+// Purpose: Hunt for indicators associated with SafePay ransomware techniques
+// Confidence: MEDIUM
+// False Positives: Some legitimate automation may match patterns
 // ============================================================================
 
-DeviceFileEvents
-| where TimeGenerated > ago(24h)
-| where FolderPath startswith "c:\\F0" or FolderPath startswith "C:\\F0"
+let SafePayIndicators = dynamic(["safepay", "cmstplua", "3E5FC7F9-9A51-4367-9063-A120244FBEC7", "6F22-C16F-0C71-688A"]);
+union
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(24h)
+    | where ProcessCommandLine has_any (SafePayIndicators)
+    | summarize ProcessCount = count(), Processes = make_set(FileName) by DeviceName, AccountName),
+    (DeviceRegistryEvents
+    | where TimeGenerated > ago(24h)
+    | where RegistryValueName =~ "SafePayService" or RegistryValueData has "6F22-C16F"
+    | summarize RegistryCount = count() by DeviceName, AccountName)
 | summarize
-    FileCount = count(),
-    FileTypes = make_set(extract(@"\.(\w+)$", 1, FileName)),
-    Files = make_set(FileName),
+    TotalIndicators = sum(ProcessCount) + sum(RegistryCount),
     FirstSeen = min(TimeGenerated),
     LastSeen = max(TimeGenerated)
     by DeviceName, AccountName
 | extend
-    Severity = "Informational",
-    ThreatType = "F0RT1KA Security Test Activity",
-    TestID = "2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11",
-    Note = "Verify this is authorized testing activity"
-| project DeviceName, AccountName, FileCount, FileTypes, Files, FirstSeen, LastSeen,
-    Severity, ThreatType, TestID, Note
+    Severity = case(TotalIndicators >= 3, "High", "Medium"),
+    ThreatType = "SafePay-Style Attack Indicators",
+    MitreAttack = "T1548.002, T1547.001, T1562.001"
+| project DeviceName, AccountName, TotalIndicators, FirstSeen, LastSeen, Severity, ThreatType, MitreAttack
 
 
 // ============================================================================
@@ -465,10 +474,11 @@ let DetectionEvents = union
     ),
     (DeviceFileEvents
     | where TimeGenerated > ago(24h)
-    | where FolderPath startswith "c:\\F0"
+    | where FolderPath has_any ("\\Temp\\", "\\Users\\Public", "\\AppData\\Local\\Temp")
     | where FileName endswith ".ps1"
+    | where FileName has_any ("safepay", "uac", "bypass", "payload")
     | summarize EventCount = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
-    | extend DetectionType = "Script Drop to c:\\F0"
+    | extend DetectionType = "Suspicious Script Drop"
     );
 DetectionEvents
 | summarize TotalEvents = sum(EventCount), DetectionTypes = make_set(DetectionType)

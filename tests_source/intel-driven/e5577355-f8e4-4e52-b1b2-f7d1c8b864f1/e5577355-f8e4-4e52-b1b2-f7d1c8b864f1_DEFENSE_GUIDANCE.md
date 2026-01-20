@@ -476,11 +476,12 @@ Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, OnlineMode
 
 | Phase | Expected Alert | Timing |
 |-------|----------------|--------|
-| Binary Extraction | File creation in c:\F0\ | Immediate |
-| Process Execution | NEW_PROCESS event | Immediate |
-| WFP Activity | Event ID 5441 (if logging enabled) | Within seconds |
-| EDR Isolation | Blocked connection events | Within seconds |
-| EDR Gap | Telemetry gap alert | 10+ minutes |
+| Tool Deployment | File creation in user-writable directory (%TEMP%, %APPDATA%, Downloads) | Immediate |
+| Process Execution | NEW_PROCESS event with WFP-related indicators | Immediate |
+| WFP Engine Initialization | FwpmEngineOpen0 API call (if API monitoring enabled) | Within seconds |
+| WFP Filter Creation | Event ID 5441 - Filter targeting EDR process | Within seconds |
+| EDR Network Isolation | Event ID 5157 - Blocked connection from EDR process | Within seconds |
+| EDR Telemetry Gap | Missing heartbeat/telemetry from active endpoint | 10+ minutes |
 
 ---
 

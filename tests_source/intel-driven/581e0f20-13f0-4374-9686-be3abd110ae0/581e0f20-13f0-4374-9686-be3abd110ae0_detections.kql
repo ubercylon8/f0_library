@@ -304,24 +304,40 @@ let SuspiciousCommands = DeviceProcessEvents
 
 
 // ============================================================
-// Detection 9: F0RT1KA Test Execution Detection
+// Detection 9: Suspicious File Activity in Staging Directories
 // Test ID: 581e0f20-13f0-4374-9686-be3abd110ae0
-// Purpose: Detect F0RT1KA test execution specifically
+// Purpose: Detect suspicious file creation in common attacker staging paths
 // ============================================================
-// Use this query to identify when F0RT1KA tests are running
-// Helps distinguish test activity from real attacks
+// Real attackers commonly use TEMP, AppData, Public, and ProgramData
+// for staging malicious files before execution
 // ============================================================
 
 DeviceFileEvents
 | where TimeGenerated > ago(24h)
-| where FolderPath startswith "C:\\F0\\"
-| where FileName has "581e0f20-13f0-4374-9686-be3abd110ae0" or FileName has "test_execution_log" or FileName has "stage"
+| where ActionType in ("FileCreated", "FileModified")
+| where FileName endswith ".exe" or FileName endswith ".vhd" or FileName endswith ".ps1"
+| where FolderPath matches regex @"(?i)(\\Temp\\|\\AppData\\|\\Users\\Public\\|\\ProgramData\\)"
+| where not(FolderPath has_any ("Microsoft", "Windows Defender", "Google", "Mozilla"))  // Reduce false positives
 | extend
-    Severity = "Informational",
-    ThreatType = "F0RT1KA Security Test Execution",
+    StagingLocation = case(
+        FolderPath has "\\Temp\\", "TEMP Directory",
+        FolderPath has "\\AppData\\", "AppData Directory",
+        FolderPath has "\\Users\\Public\\", "Public User Directory",
+        FolderPath has "\\ProgramData\\", "ProgramData Directory",
+        "Other Staging Location"
+    ),
+    FileType = case(
+        FileName endswith ".exe", "Executable",
+        FileName endswith ".vhd", "Virtual Hard Disk",
+        FileName endswith ".ps1", "PowerShell Script",
+        "Other"
+    )
+| extend
+    Severity = iff(FileType == "Virtual Hard Disk", "High", "Medium"),
+    ThreatType = "Suspicious File in Staging Directory",
     MitreAttack = "T1486",
     TestID = "581e0f20-13f0-4374-9686-be3abd110ae0"
-| project TimeGenerated, DeviceName, InitiatingProcessAccountName, FileName, FolderPath, ActionType, Severity, ThreatType, TestID
+| project TimeGenerated, DeviceName, InitiatingProcessAccountName, FileName, FolderPath, StagingLocation, FileType, ActionType, Severity, ThreatType, MitreAttack, TestID
 
 
 // ============================================================

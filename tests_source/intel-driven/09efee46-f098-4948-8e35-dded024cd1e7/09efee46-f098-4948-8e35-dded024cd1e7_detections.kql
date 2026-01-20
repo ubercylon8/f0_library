@@ -61,8 +61,9 @@ DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
 | where FileName matches regex @"(?i)(sliver|cobalt[-_]?strike|covenant|metasploit|empire|havoc|mythic|brute[-_]?ratel).*\.(exe|dll|bin)"
-    or FolderPath has "c:\\F0"
 | where FileName endswith ".exe" or FileName endswith ".dll"
+// Focus on user-writable directories commonly used by attackers
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\Public\\", "\\ProgramData\\")
 | extend C2Framework = case(
     FileName has_any ("sliver", "SLIVER"), "Sliver C2",
     FileName has_any ("cobalt", "beacon"), "Cobalt Strike",
@@ -72,7 +73,6 @@ DeviceFileEvents
     FileName has "havoc", "Havoc C2",
     FileName has "mythic", "Mythic C2",
     FileName has "brute", "Brute Ratel",
-    FolderPath has "c:\\F0", "F0RT1KA Test Binary",
     "Unknown C2 Framework"
 )
 | project TimeGenerated, DeviceName, FileName, FolderPath, SHA256,
@@ -105,9 +105,11 @@ DeviceProcessEvents
     | where Signer == "" or IsSigned == false  // Unsigned binary
 ) on SHA256
 | extend SuspiciousIndicators = case(
-    FolderPath has "c:\\F0", "Test directory execution",
     FolderPath has "\\Temp\\", "Temp directory execution",
-    FolderPath has "\\AppData\\", "User profile execution",
+    FolderPath has "\\AppData\\Local\\Temp\\", "Local temp execution",
+    FolderPath has "\\AppData\\Roaming\\", "Roaming profile execution",
+    FolderPath has "\\Downloads\\", "Downloads folder execution",
+    FolderPath has "\\Public\\", "Public folder execution",
     "Unusual execution path"
 )
 | project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
@@ -209,30 +211,37 @@ DeviceProcessEvents
 
 
 // ============================================================================
-// QUERY 6: Process Execution from F0RT1KA Test Directory
-// Purpose: Detect any process execution from the F0RT1KA test directory
-// Confidence: HIGH
-// False Positives: Scheduled F0RT1KA security testing
-// Threshold: Any process execution from c:\F0
+// QUERY 6: Process Execution from User-Writable Directories
+// Purpose: Detect process execution from common attacker drop locations
+// Confidence: MEDIUM-HIGH
+// False Positives: Legitimate software in user directories
+// Threshold: Execution from %TEMP%, %APPDATA%, Downloads with C2 indicators
 // ============================================================================
 
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
-| where FolderPath startswith "c:\\F0\\" or FolderPath startswith "C:\\F0\\"
-| extend TestType = case(
-    FileName =~ "sliver_client.exe", "Sliver C2 Client Test",
-    FileName has "sliver", "Sliver Related Test",
-    FileName endswith ".exe", "Unknown Test Execution",
-    "Non-executable"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\Local\\Temp\\", "\\Downloads\\", "\\Public\\")
+| where FolderPath !startswith "C:\\Windows\\"
+    and FolderPath !startswith "C:\\Program Files\\"
+    and FolderPath !startswith "C:\\Program Files (x86)\\"
+// Filter for potential C2 characteristics
+| where FileName matches regex @"(?i)(client|agent|beacon|implant|payload|sliver).*\.exe$"
+    or ProcessCommandLine has_any ("--mtls", "--wg", "--dns", "--http", "--beacon")
+| extend SuspiciousIndicator = case(
+    FileName has "sliver", "Sliver C2 Binary",
+    FileName has "beacon", "Potential Beacon Binary",
+    FileName has "implant", "Potential Implant Binary",
+    ProcessCommandLine has "--mtls", "Sliver mTLS Connection",
+    "Suspicious Binary in User Directory"
 )
 | project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
-    ProcessCommandLine, SHA256, TestType, InitiatingProcessFileName
+    ProcessCommandLine, SHA256, SuspiciousIndicator, InitiatingProcessFileName
 | extend
     Severity = "High",
-    ThreatType = "F0RT1KA Test Execution",
+    ThreatType = "Suspicious Binary Execution from User Directory",
     MitreAttack = "T1219",
     TestID = "09efee46-f098-4948-8e35-dded024cd1e7",
-    Confidence = "High"
+    Confidence = "Medium-High"
 
 
 // ============================================================================
@@ -247,7 +256,7 @@ let FileDrops = DeviceFileEvents
 | where TimeGenerated > ago(2h)
 | where ActionType == "FileCreated"
 | where FileName matches regex @"(?i)(sliver|beacon|implant|payload).*\.exe"
-    or FolderPath has "c:\\F0"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\Public\\")
 | summarize FileDropCount = count() by DeviceName, bin(TimeGenerated, 30m)
 | where FileDropCount >= 1
 | project Computer = DeviceName, DropTime = TimeGenerated, FileDropCount;
@@ -255,7 +264,7 @@ let ProcessExec = DeviceProcessEvents
 | where TimeGenerated > ago(2h)
 | where FileName matches regex @"(?i)sliver.*\.exe"
     or ProcessCommandLine has_any ("--mtls", "--wg", "--dns", "--http", "--beacon")
-    or FolderPath startswith "c:\\F0"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\Public\\")
 | summarize ExecCount = count() by DeviceName, bin(TimeGenerated, 30m)
 | project Computer = DeviceName, ExecTime = TimeGenerated, ExecCount;
 let NetworkActivity = DeviceNetworkEvents
@@ -309,7 +318,7 @@ DeviceProcessEvents
     RemotePorts = make_set(RemotePort)
     by DeviceName, FileName, FolderPath, SHA256, ProcessCommandLine
 | where NetworkConnections >= 1
-| where FolderPath has_any ("c:\\F0", "\\Temp\\", "\\AppData\\", "\\Downloads\\")
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\Public\\", "\\ProgramData\\")
 | project TimeGenerated = now(), DeviceName, FileName, FolderPath,
     ProcessCommandLine, SHA256, NetworkConnections, RemoteIPs, RemotePorts
 | extend
@@ -349,14 +358,14 @@ let C2FileDetections = DeviceFileEvents
 | where TimeGenerated > ago(24h)
 | where ActionType == "FileCreated"
 | where FileName matches regex @"(?i)(sliver|beacon|implant).*\.(exe|dll)"
-    or FolderPath has "c:\\F0"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\Public\\")
 | summarize FileEvents = count() by DeviceName, bin(TimeGenerated, 1h)
 | extend DetectionType = "C2 Binary File Drop";
 let C2ProcessDetections = DeviceProcessEvents
 | where TimeGenerated > ago(24h)
 | where FileName matches regex @"(?i)sliver"
     or ProcessCommandLine has_any ("--mtls", "--wg", "--dns", "--beacon")
-    or FolderPath startswith "c:\\F0"
+| where FolderPath has_any ("\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\Public\\")
 | summarize ProcessEvents = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
 | extend DetectionType = "C2 Process Execution";
 let C2NetworkDetections = DeviceNetworkEvents

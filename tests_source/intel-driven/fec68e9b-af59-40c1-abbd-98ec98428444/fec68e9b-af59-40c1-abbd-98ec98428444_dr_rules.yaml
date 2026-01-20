@@ -44,32 +44,57 @@ rules:
           log_event --category=f0rtika --data='{"type":"mde_handle_acquisition","severity":"critical"}'
 
   # ============================================================
-  # RULE 2: File Drop to C:\F0 Directory
+  # RULE 2: Executable Drop to Suspicious Locations
   # Confidence: High
   # MITRE ATT&CK: T1105 (Ingress Tool Transfer)
-  # Description: Detects file creation in F0RT1KA test directory
+  # Description: Detects executables dropped to common attacker staging paths
   # ============================================================
-  f0rtika-file-drop-f0:
+  f0rtika-suspicious-exe-drop:
     detect:
       target: edr
       event: FILE_CREATE
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: 'c:\F0'
         - op: ends with
           path: event/FILE_PATH
           value: .exe
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: '\\Temp\\'
+            - op: contains
+              path: event/FILE_PATH
+              value: '\\AppData\\Local\\Temp\\'
+            - op: contains
+              path: event/FILE_PATH
+              value: '\\Users\\Public\\'
+            - op: contains
+              path: event/FILE_PATH
+              value: '\\ProgramData\\'
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: inject
+            - op: contains
+              path: event/FILE_PATH
+              value: watchdog
+            - op: contains
+              path: event/FILE_PATH
+              value: patch
+            - op: contains
+              path: event/FILE_PATH
+              value: hook
 
     respond:
       - action: report
-        name: f0rtika-file-drop-f0
+        name: f0rtika-suspicious-exe-drop
         metadata:
           test_id: fec68e9b-af59-40c1-abbd-98ec98428444
           mitre_attack: T1105
           severity: high
-          description: Executable file dropped to F0RT1KA test directory
+          description: Suspicious executable dropped to attacker staging location
 
   # ============================================================
   # RULE 3: MDE Watchdog Process Creation
@@ -348,23 +373,21 @@ rules:
   f0rtika-mde-attack-chain:
     detect:
       target: edr
-      event: RECEIPT
+      event: SENSITIVE_PROCESS_ACCESS
       op: and
       rules:
         - op: contains
+          path: event/TARGET/FILE_PATH
+          value: MsSense.exe
+        - op: is not
           path: event/FILE_PATH
-          value: 'c:\F0'
-        - op: or
-          rules:
-            - op: contains
-              path: event/FILE_PATH
-              value: .exe
-            - op: contains
-              path: event/FILE_PATH
-              value: .json
-            - op: contains
-              path: event/FILE_PATH
-              value: _log
+          value: MsSense.exe
+        - op: is not
+          path: event/FILE_PATH
+          value: services.exe
+        - op: is not
+          path: event/FILE_PATH
+          value: svchost.exe
 
     respond:
       - action: report
@@ -373,7 +396,10 @@ rules:
           test_id: fec68e9b-af59-40c1-abbd-98ec98428444
           mitre_attack: T1055,T1562.001,T1557
           severity: critical
-          description: F0RT1KA test execution artifacts detected
+          description: Process injection attempt targeting MDE detected
+
+      - action: task
+        command: history_dump --is_include_all true
 
   # ============================================================
   # RULE 12: Memory Injection Report File Creation

@@ -59,13 +59,15 @@ rule F0RT1KA_BitLocker_Ransomware_Test
         // BitLocker password used in test
         $password = "F0RT1KA-Recovery-2024!" ascii wide
 
-        // VHD path
-        $vhd_path = "bitlocker_test.vhd" ascii wide nocase
-        $vhd_label = "F0RT1KA-TEST" ascii wide
+        // VHD indicators (generic - used by attackers in various locations)
+        $vhd_ext = ".vhd" ascii wide nocase
+        $vhdx_ext = ".vhdx" ascii wide nocase
 
-        // Output paths
-        $log_path = "c:\\F0\\" ascii wide nocase
-        $log_file = "test_execution_log.json" ascii wide
+        // Common attacker staging paths
+        $staging_temp = "\\Temp\\" ascii wide nocase
+        $staging_appdata = "\\AppData\\" ascii wide nocase
+        $staging_public = "\\Users\\Public\\" ascii wide nocase
+        $staging_programdata = "\\ProgramData\\" ascii wide nocase
 
     condition:
         uint16(0) == 0x5A4D and  // PE file
@@ -74,8 +76,8 @@ rule F0RT1KA_BitLocker_Ransomware_Test
             $uuid or
             ($name1 and $name2) or
             ($stage1 and $stage2 and $stage3) or
-            ($password and ($vhd_path or $vhd_label)) or
-            ($log_path and $log_file and $uuid)
+            ($password and ($vhd_ext or $vhdx_ext)) or
+            (any of ($staging_*) and ($vhd_ext or $vhdx_ext))
         )
 }
 
@@ -216,9 +218,15 @@ rule F0RT1KA_BitLocker_Diskpart_Script
         $dp_detach = "detach vdisk" ascii wide nocase
         $dp_select = "select vdisk" ascii wide nocase
 
-        // File paths
+        // File paths and VHD extensions
         $dp_file = ".vhd" ascii wide nocase
-        $dp_f0 = "c:\\F0\\" ascii wide nocase
+        $dp_file2 = ".vhdx" ascii wide nocase
+
+        // Common attacker staging paths in diskpart scripts
+        $dp_temp = "\\Temp\\" ascii wide nocase
+        $dp_appdata = "\\AppData\\" ascii wide nocase
+        $dp_public = "\\Users\\Public\\" ascii wide nocase
+        $dp_programdata = "\\ProgramData\\" ascii wide nocase
 
         // Format commands
         $dp_format = "format fs=ntfs" ascii wide nocase
@@ -228,10 +236,10 @@ rule F0RT1KA_BitLocker_Diskpart_Script
     condition:
         filesize < 100KB and
         (
-            ($dp_create and $dp_attach and $dp_file) or
-            ($dp_select and $dp_detach and $dp_file) or
+            ($dp_create and $dp_attach and ($dp_file or $dp_file2)) or
+            ($dp_select and $dp_detach and ($dp_file or $dp_file2)) or
             ($dp_create and $dp_format and $dp_partition) or
-            ($dp_f0 and any of ($dp_*))
+            (any of ($dp_temp, $dp_appdata, $dp_public, $dp_programdata) and ($dp_file or $dp_file2))
         )
 }
 
@@ -334,11 +342,15 @@ rule F0RT1KA_BitLocker_Discovery_Script
         // BitLocker status check
         $bde_status = "manage-bde -status" ascii wide nocase
 
-        // Target file creation
+        // Target file creation patterns (generic reconnaissance output)
         $target_file = "target_volumes" ascii wide nocase
+        $target_drives = "available_drives" ascii wide nocase
+        $target_enum = "enumeration_results" ascii wide nocase
 
-        // F0RT1KA specific
-        $f0rt1ka_path = "c:\\F0\\" ascii wide nocase
+        // Common attacker staging paths
+        $staging_temp = "\\Temp\\" ascii wide nocase
+        $staging_appdata = "\\AppData\\" ascii wide nocase
+        $staging_public = "\\Users\\Public\\" ascii wide nocase
 
     condition:
         filesize < 10MB and
@@ -349,9 +361,9 @@ rule F0RT1KA_BitLocker_Discovery_Script
             // BitLocker recon with drive enumeration
             ($bde_status and any of ($wmic_*)) or
 
-            // F0RT1KA test specific
-            ($f0rt1ka_path and $target_file) or
-            ($f0rt1ka_path and any of ($wmic_*) and $bde_status)
+            // Discovery output files in staging directories
+            (any of ($staging_*) and any of ($target_*)) or
+            (any of ($staging_*) and any of ($wmic_*) and $bde_status)
         )
 }
 

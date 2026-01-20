@@ -20,12 +20,12 @@
 
 rules:
   # ==========================================================================
-  # Rule 1: PowerShell Execution Policy Bypass from c:\F0
-  # Purpose: Detect PowerShell script execution with bypass from test directory
+  # Rule 1: PowerShell Execution Policy Bypass with SafePay Indicators
+  # Purpose: Detect PowerShell script execution with bypass containing SafePay indicators
   # Confidence: HIGH
   # MITRE ATT&CK: T1059.001
   # ==========================================================================
-  safepay-powershell-bypass-f0:
+  safepay-powershell-bypass:
     detect:
       target: edr
       event: NEW_PROCESS
@@ -47,15 +47,15 @@ rules:
           rules:
             - op: contains
               path: event/COMMAND_LINE
-              value: "c:\\F0"
-              case sensitive: false
-            - op: contains
-              path: event/COMMAND_LINE
               value: "safepay"
               case sensitive: false
             - op: contains
               path: event/COMMAND_LINE
               value: "uac_bypass"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "cmstplua"
               case sensitive: false
 
     respond:
@@ -64,8 +64,7 @@ rules:
         metadata:
           severity: high
           mitre_attack: T1059.001
-          test_id: 2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11
-          description: PowerShell script executed with execution policy bypass from F0RT1KA test directory
+          description: PowerShell script executed with execution policy bypass containing SafePay-related indicators
 
 
   # ==========================================================================
@@ -154,7 +153,7 @@ rules:
 
   # ==========================================================================
   # Rule 4: Generic Run Key Persistence from Suspicious Process
-  # Purpose: Detect Run key modifications from non-standard processes
+  # Purpose: Detect Run key modifications from processes in user-writable locations
   # Confidence: MEDIUM
   # MITRE ATT&CK: T1547.001
   # ==========================================================================
@@ -172,15 +171,19 @@ rules:
           rules:
             - op: contains
               path: event/PROCESS_PATH
-              value: "c:\\F0"
-              case sensitive: false
-            - op: contains
-              path: event/PROCESS_PATH
               value: "\\Temp\\"
               case sensitive: false
             - op: contains
               path: event/PROCESS_PATH
               value: "\\AppData\\Local\\Temp"
+              case sensitive: false
+            - op: contains
+              path: event/PROCESS_PATH
+              value: "\\Users\\Public"
+              case sensitive: false
+            - op: contains
+              path: event/PROCESS_PATH
+              value: "\\Downloads\\"
               case sensitive: false
 
     respond:
@@ -189,8 +192,7 @@ rules:
         metadata:
           severity: high
           mitre_attack: T1547.001
-          test_id: 2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11
-          description: Registry Run key modified by process in suspicious location
+          description: Registry Run key modified by process in user-writable location (common malware staging area)
 
 
   # ==========================================================================
@@ -245,20 +247,16 @@ rules:
 
 
   # ==========================================================================
-  # Rule 6: Script File Drop to c:\F0 Directory
-  # Purpose: Detect script creation in F0RT1KA test directory
+  # Rule 6: Suspicious Script File Drop with SafePay Indicators
+  # Purpose: Detect script creation with SafePay-related naming patterns
   # Confidence: HIGH
   # ==========================================================================
-  safepay-script-drop-f0:
+  safepay-suspicious-script-drop:
     detect:
       target: edr
       event: FILE_CREATE
       op: and
       rules:
-        - op: starts with
-          path: event/FILE_PATH
-          value: "c:\\F0\\"
-          case sensitive: false
         - op: or
           rules:
             - op: ends with
@@ -277,15 +275,28 @@ rules:
               path: event/FILE_PATH
               value: ".vbs"
               case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "safepay"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "uac_bypass"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "persistence"
+              case sensitive: false
 
     respond:
       - action: report
-        name: Script Dropped to F0RT1KA Test Directory
+        name: Suspicious SafePay-Related Script Dropped
         metadata:
           severity: high
           mitre_attack: T1105
-          test_id: 2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11
-          description: Script file created in c:\F0 directory
+          description: Script file created with SafePay-related naming pattern
 
 
   # ==========================================================================
