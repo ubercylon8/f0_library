@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-F0RT1KA Legacy RGA Results Upload Utility
+F0RT1KA Legacy Results Upload Utility
 
-Enriches historical RGA test execution results (RECEIPT events) with test metadata
+Enriches historical test execution results (RECEIPT events) with test metadata
 from the tests_source/ directory and uploads them to Elasticsearch.
 
+Supports any organization's legacy data (RGA, TPSGL, SB, etc.)
+
 Usage:
-    python3 utils/upload-legacy-rga-results.py [OPTIONS]
+    python3 utils/upload-legacy-results.py --input FILE --index INDEX [OPTIONS]
+
+Required:
+    --input FILE    Input NDJSON file with RECEIPT events
+    --index NAME    Target Elasticsearch index
 
 Options:
     --dry-run       Preview enriched documents without uploading
-    --input FILE    Input NDJSON file (default: temp_resources/rga_all_tests.json)
-    --index NAME    Target index (default: f0rtika-results-rga)
     --batch-size N  Bulk upload batch size (default: 100)
     --verbose       Show detailed output
 
@@ -20,11 +24,21 @@ Environment Variables:
     ELASTIC_API_KEY
 
 Examples:
-    # Preview enriched documents
-    python3 utils/upload-legacy-rga-results.py --dry-run
+    # Preview RGA results
+    python3 utils/upload-legacy-results.py \\
+        --input temp_resources/rga_all_tests.json \\
+        --index f0rtika-results-rga \\
+        --dry-run
 
-    # Upload to Elasticsearch
-    ELASTIC_CLOUD_ID=xxx ELASTIC_API_KEY=yyy python3 utils/upload-legacy-rga-results.py
+    # Upload TPSGL results
+    python3 utils/upload-legacy-results.py \\
+        --input temp_resources/tpsgl_all_tests-no-200.json \\
+        --index f0rtika-results-tpsgl
+
+    # Upload with credentials
+    ELASTIC_CLOUD_ID=xxx ELASTIC_API_KEY=yyy python3 utils/upload-legacy-results.py \\
+        --input temp_resources/rga_all_tests.json \\
+        --index f0rtika-results-rga
 """
 
 import os
@@ -447,14 +461,14 @@ def main():
     parser.add_argument(
         "--input",
         type=Path,
-        default=None,
-        help="Input NDJSON file (default: temp_resources/rga_all_tests.json)"
+        required=True,
+        help="Input NDJSON file with RECEIPT events"
     )
     parser.add_argument(
         "--index",
         type=str,
-        default="f0rtika-results-rga",
-        help="Target Elasticsearch index (default: f0rtika-results-rga)"
+        required=True,
+        help="Target Elasticsearch index (e.g., f0rtika-results-rga, f0rtika-results-tpsgl)"
     )
     parser.add_argument(
         "--batch-size",
@@ -479,13 +493,16 @@ def main():
     script_dir = Path(__file__).parent
     repo_root = script_dir.parent
 
-    if args.input is None:
-        args.input = repo_root / "temp_resources" / "rga_all_tests.json"
+    # Resolve input path (make relative paths relative to repo root)
+    if not args.input.is_absolute():
+        args.input = repo_root / args.input
+
     if args.tests_dir is None:
         args.tests_dir = repo_root / "tests_source"
 
-    print("F0RT1KA Legacy RGA Results Upload")
+    print("F0RT1KA Legacy Results Upload")
     print("=" * 60)
+    print(f"Target index: {args.index}")
     print()
 
     # Check input file exists
