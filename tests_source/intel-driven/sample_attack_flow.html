@@ -5,16 +5,101 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SafePay Ransomware Test - Attack/Test Flow</title>
     <style>
+        /* ═══════════════════════════════════════════════════════════════
+           THEME VARIABLES - OKLch color palette matching ProjectAchilles
+           Supports: data-theme="light|dark", prefers-color-scheme
+           ═══════════════════════════════════════════════════════════════ */
+        :root {
+            /* Light theme (default) */
+            --diagram-bg: oklch(1 0 0);
+            --diagram-bg-gradient-start: oklch(0.985 0 0);
+            --diagram-bg-gradient-end: oklch(0.922 0 0);
+            --diagram-text-primary: oklch(0.145 0 0);
+            --diagram-text-secondary: oklch(0.556 0 0);
+            --diagram-text-muted: oklch(0.708 0 0);
+            --diagram-panel-bg: oklch(1 0 0);
+            --diagram-panel-bg-translucent: oklch(0.985 0 0 / 95%);
+            --diagram-border: oklch(0.922 0 0);
+            --diagram-accent: oklch(0.205 0 0);
+            --diagram-card-bg: oklch(0.97 0 0);
+            --diagram-card-bg-hover: oklch(0.95 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 5%);
+            --diagram-code-bg: oklch(0.97 0 0);
+            --diagram-grid-stroke: oklch(0 0 0 / 3%);
+            --diagram-shadow: oklch(0 0 0 / 15%);
+
+            /* Semantic colors (consistent across themes) */
+            --severity-critical: #ff4444;
+            --severity-critical-bg: rgba(255, 68, 68, 0.1);
+            --severity-high: #ff9f43;
+            --severity-high-bg: rgba(255, 159, 67, 0.1);
+            --severity-medium: #ffc107;
+            --severity-medium-bg: rgba(255, 193, 7, 0.1);
+            --severity-info: #4fc3f7;
+            --severity-info-bg: rgba(79, 195, 247, 0.1);
+
+            /* Accent colors */
+            --diagram-accent-red: #ff6b6b;
+            --diagram-accent-red-light: #ff8787;
+            --diagram-accent-blue: #4fc3f7;
+            --diagram-accent-orange: #ff9f43;
+            --diagram-accent-yellow: #ffc107;
+            --diagram-accent-green: #66bb6a;
+        }
+
+        /* Dark theme */
+        [data-theme="dark"],
+        .dark {
+            --diagram-bg: oklch(0.145 0 0);
+            --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+            --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+            --diagram-text-primary: oklch(0.985 0 0);
+            --diagram-text-secondary: oklch(0.708 0 0);
+            --diagram-text-muted: oklch(0.556 0 0);
+            --diagram-panel-bg: oklch(0.12 0.01 265);
+            --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+            --diagram-border: oklch(1 0 0 / 10%);
+            --diagram-accent: oklch(0.922 0 0);
+            --diagram-card-bg: oklch(0.205 0 0);
+            --diagram-card-bg-hover: oklch(0.25 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 30%);
+            --diagram-code-bg: oklch(0.1 0.02 265);
+            --diagram-grid-stroke: oklch(1 0 0 / 2%);
+            --diagram-shadow: oklch(0 0 0 / 50%);
+        }
+
+        /* Fallback for prefers-color-scheme when no data-theme is set */
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) {
+                --diagram-bg: oklch(0.145 0 0);
+                --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+                --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+                --diagram-text-primary: oklch(0.985 0 0);
+                --diagram-text-secondary: oklch(0.708 0 0);
+                --diagram-text-muted: oklch(0.556 0 0);
+                --diagram-panel-bg: oklch(0.12 0.01 265);
+                --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+                --diagram-border: oklch(1 0 0 / 10%);
+                --diagram-accent: oklch(0.922 0 0);
+                --diagram-card-bg: oklch(0.205 0 0);
+                --diagram-card-bg-hover: oklch(0.25 0 0);
+                --diagram-overlay-bg: oklch(0 0 0 / 30%);
+                --diagram-code-bg: oklch(0.1 0.02 265);
+                --diagram-grid-stroke: oklch(1 0 0 / 2%);
+                --diagram-shadow: oklch(0 0 0 / 50%);
+            }
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
-            color: #e0e0e0;
+            background: linear-gradient(135deg, var(--diagram-bg-gradient-start) 0%, var(--diagram-bg-gradient-end) 100%);
+            color: var(--diagram-text-primary);
             min-height: 100vh;
             overflow: hidden;
         }
@@ -29,16 +114,16 @@
             font-weight: 600;
             letter-spacing: 2px;
             text-transform: uppercase;
-            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            background: linear-gradient(135deg, var(--diagram-accent-red), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-        
+
         .framework-subtitle {
             position: absolute;
             right: 30px;
             font-size: 0.85em;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-style: italic;
         }
         
@@ -67,14 +152,14 @@
         
         .header h1 {
             font-size: 2.2em;
-            background: linear-gradient(135deg, #ff4458, #ff8787);
+            background: linear-gradient(135deg, var(--severity-critical), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 10px;
         }
-        
+
         .header p {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 1em;
         }
         
@@ -88,29 +173,29 @@
         
         .view-btn {
             padding: 8px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-overlay-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 20px;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 0.9em;
         }
-        
+
         .view-btn.active {
             background: rgba(255, 107, 107, 0.1);
-            border-color: #ff6b6b;
-            color: #ff6b6b;
+            border-color: var(--diagram-accent-red);
+            color: var(--diagram-accent-red);
         }
-        
+
         .view-btn:hover {
-            background: rgba(255, 255, 255, 0.08);
-            color: #ffffff;
+            background: var(--diagram-card-bg-hover);
+            color: var(--diagram-text-primary);
         }
         
         /* SVG Attack Flow Container */
         .attack-flow-svg-container {
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 12px;
             padding: 10px;
             position: relative;
@@ -140,21 +225,21 @@
             align-items: center;
             padding: 15px;
             margin-bottom: 15px;
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.3s ease;
             border-left: 3px solid transparent;
         }
-        
+
         .timeline-item:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--diagram-card-bg-hover);
             transform: translateX(5px);
         }
-        
+
         .timeline-item.active {
             background: rgba(255, 107, 107, 0.05);
-            border-left-color: #ff6b6b;
+            border-left-color: var(--diagram-accent-red);
         }
         
         .timeline-number {
@@ -175,26 +260,26 @@
         
         .timeline-title {
             font-size: 1.1em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 5px;
         }
-        
+
         .timeline-meta {
             font-size: 0.85em;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
         }
         
         /* Right Panel - Details (OPAQUE BACKGROUND) */
         .details-panel {
             width: 450px;
-            background: #0f1419; /* Solid opaque background */
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-panel-bg); /* Solid opaque background */
+            border-left: 1px solid var(--diagram-border);
             padding: 30px;
             overflow-y: auto;
             position: relative;
             transform: translateX(100%);
             transition: transform 0.3s ease;
-            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8); /* Add shadow for depth */
+            box-shadow: -5px 0 20px var(--diagram-shadow); /* Add shadow for depth */
         }
         
         .details-panel.active {
@@ -204,7 +289,7 @@
         .details-header {
             margin-bottom: 25px;
             padding-bottom: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--diagram-border);
         }
         
         .details-phase-number {
@@ -222,7 +307,7 @@
         
         .details-title {
             font-size: 1.5em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 10px;
         }
         
@@ -241,24 +326,24 @@
         }
         
         .meta-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
-        
+
         .meta-value {
-            color: #d1d5db;
+            color: var(--diagram-text-secondary);
             font-family: 'SF Mono', monospace;
         }
         
         /* MITRE Links Styling */
         .mitre-link {
-            color: #4fc3f7;
+            color: var(--diagram-accent-blue);
             text-decoration: none;
-            border-bottom: 1px dotted #4fc3f7;
+            border-bottom: 1px dotted var(--diagram-accent-blue);
             transition: all 0.2s ease;
         }
-        
+
         .mitre-link:hover {
-            color: #29b6f6;
+            color: var(--severity-info);
             border-bottom-style: solid;
         }
         
@@ -272,29 +357,29 @@
             display: inline-block;
             border: 1px solid;
         }
-        
+
         .severity-badge.critical {
-            color: #ff4444;
-            border-color: #ff4444;
-            background: rgba(255, 68, 68, 0.1);
+            color: var(--severity-critical);
+            border-color: var(--severity-critical);
+            background: var(--severity-critical-bg);
         }
-        
+
         .severity-badge.high {
-            color: #ff9f43;
-            border-color: #ff9f43;
-            background: rgba(255, 159, 67, 0.1);
+            color: var(--severity-high);
+            border-color: var(--severity-high);
+            background: var(--severity-high-bg);
         }
-        
+
         .severity-badge.medium {
-            color: #ffc107;
-            border-color: #ffc107;
-            background: rgba(255, 193, 7, 0.1);
+            color: var(--severity-medium);
+            border-color: var(--severity-medium);
+            background: var(--severity-medium-bg);
         }
-        
+
         .severity-badge.info {
-            color: #4fc3f7;
-            border-color: #4fc3f7;
-            background: rgba(79, 195, 247, 0.1);
+            color: var(--severity-info);
+            border-color: var(--severity-info);
+            background: var(--severity-info-bg);
         }
         
         .details-section {
@@ -303,7 +388,7 @@
         
         .section-title {
             font-size: 1.1em;
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             margin-bottom: 15px;
             display: flex;
             align-items: center;
@@ -315,44 +400,44 @@
         }
         
         .action-item {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--diagram-card-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 12px;
             margin-bottom: 10px;
         }
-        
+
         .action-title {
             font-weight: 500;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 8px;
             font-size: 0.95em;
         }
-        
+
         .action-details {
             list-style: none;
             padding-left: 0;
         }
-        
+
         .action-details li {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 0.85em;
             padding: 3px 0;
             padding-left: 15px;
             position: relative;
         }
-        
+
         .action-details li::before {
             content: '›';
             position: absolute;
             left: 0;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
         
         /* Code Preview */
         .code-preview {
-            background: #0a0e27;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-code-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 15px;
             margin-top: 15px;
@@ -360,18 +445,18 @@
             font-size: 0.85em;
             overflow-x: auto;
         }
-        
+
         .code-line {
-            color: #66bb6a;
+            color: var(--diagram-accent-green);
             line-height: 1.5;
         }
-        
+
         .code-comment {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
-        
+
         .code-highlight {
-            color: #ff9f43;
+            color: var(--diagram-accent-orange);
         }
         
         /* Close button for details panel */
@@ -381,15 +466,15 @@
             right: 15px;
             background: none;
             border: none;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-size: 24px;
             cursor: pointer;
             transition: color 0.3s ease;
             display: none;
         }
-        
+
         .close-details:hover {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
         }
         
         /* Mobile responsive */
@@ -450,7 +535,7 @@
         }
 
         .nav-hint-icon {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
         }
 
         /* Sidebar toggle button */
@@ -461,11 +546,11 @@
             transform: translateY(-50%);
             width: 28px;
             height: 80px;
-            background: rgba(0, 0, 0, 0.8);
-            border: 1px solid rgba(255, 107, 107, 0.3);
+            background: var(--diagram-panel-bg-translucent);
+            border: 1px solid var(--diagram-border);
             border-right: none;
             border-radius: 8px 0 0 8px;
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -504,22 +589,51 @@
             display: flex;
             gap: 15px;
         }
-        
+
         .stat-mini {
-            background: rgba(0, 0, 0, 0.7);
+            background: var(--diagram-panel-bg-translucent);
             padding: 8px 12px;
             border-radius: 6px;
             font-size: 0.85em;
         }
-        
+
         .stat-mini-value {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             font-weight: bold;
         }
-        
+
         .stat-mini-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             margin-left: 5px;
+        }
+
+        /* SVG Text Color Overrides - CSS cascades over inline attributes */
+        .attack-flow-svg text {
+            fill: var(--diagram-text-primary);
+        }
+
+        .attack-flow-svg text.svg-text-secondary,
+        .attack-flow-svg .component text:not(:first-of-type) {
+            fill: var(--diagram-text-secondary);
+        }
+
+        .attack-flow-svg .svg-title-box text:first-of-type {
+            fill: var(--diagram-accent-red);
+        }
+
+        .attack-flow-svg .svg-timeline text {
+            fill: var(--diagram-text-secondary);
+        }
+
+        /* Progress bar background */
+        .attack-flow-svg .progress-track {
+            fill: var(--diagram-overlay-bg);
+        }
+
+        /* Central title box */
+        .attack-flow-svg .title-box-bg {
+            fill: var(--diagram-panel-bg-translucent);
+            stroke: rgba(255, 107, 107, 0.3);
         }
     </style>
 </head>
@@ -664,19 +778,23 @@
                           marker-end="url(#arrowhead)" opacity="0.5"/>
                     
                     <!-- Central Title -->
-                    <rect x="450" y="30" width="300" height="50" rx="8" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
-                    <text x="600" y="50" text-anchor="middle" fill="#ff6b6b" font-size="16" font-weight="bold">Attack Flow Diagram</text>
-                    <text x="600" y="68" text-anchor="middle" fill="#9ca3af" font-size="11">Click components for details</text>
-                    
+                    <g class="svg-title-box">
+                        <rect class="title-box-bg" x="450" y="30" width="300" height="50" rx="8"/>
+                        <text x="600" y="50" text-anchor="middle" font-size="16" font-weight="bold">Attack Flow Diagram</text>
+                        <text class="svg-text-secondary" x="600" y="68" text-anchor="middle" font-size="11">Click components for details</text>
+                    </g>
+
                     <!-- Execution Timeline -->
-                    <text x="130" y="500" fill="#9ca3af" font-size="10">T+0s</text>
-                    <text x="350" y="500" fill="#9ca3af" font-size="10">T+5s</text>
-                    <text x="580" y="500" fill="#9ca3af" font-size="10">T+30s</text>
-                    <text x="810" y="500" fill="#9ca3af" font-size="10">T+60s</text>
-                    <text x="1040" y="500" fill="#9ca3af" font-size="10">T+90s</text>
-                    
+                    <g class="svg-timeline">
+                        <text x="130" y="500" font-size="10">T+0s</text>
+                        <text x="350" y="500" font-size="10">T+5s</text>
+                        <text x="580" y="500" font-size="10">T+30s</text>
+                        <text x="810" y="500" font-size="10">T+60s</text>
+                        <text x="1040" y="500" font-size="10">T+90s</text>
+                    </g>
+
                     <!-- Progress Bar -->
-                    <rect x="50" y="520" width="1080" height="4" rx="2" fill="rgba(255,255,255,0.1)"/>
+                    <rect class="progress-track" x="50" y="520" width="1080" height="4" rx="2"/>
                     <rect x="50" y="520" width="0" height="4" rx="2" fill="#ff6b6b" id="progressBar"/>
                 </svg>
                 
@@ -1218,6 +1336,28 @@
                 }
             }
         });
+
+        // ═══════════════════════════════════════════════════════════════
+        // THEME SYNC - Listen for postMessage from parent window
+        // Supports integration with ProjectAchilles iframe embedding
+        // ═══════════════════════════════════════════════════════════════
+        window.addEventListener('message', function(event) {
+            // Handle theme change messages from parent
+            if (event.data && event.data.type === 'theme-change') {
+                const theme = event.data.theme;
+                if (theme === 'light' || theme === 'dark') {
+                    document.documentElement.setAttribute('data-theme', theme);
+                    // Also set class for compatibility
+                    document.documentElement.classList.remove('light', 'dark');
+                    document.documentElement.classList.add(theme);
+                }
+            }
+        });
+
+        // Notify parent that diagram is ready to receive theme
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'diagram-ready' }, '*');
+        }
     </script>
 </body>
 </html>
