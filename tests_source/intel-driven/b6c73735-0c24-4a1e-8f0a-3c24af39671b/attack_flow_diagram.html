@@ -4,7 +4,100 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MDE Authentication Bypass - Attack Flow Diagram</title>
+    <!--
+    Source Test: b6c73735-0c24-4a1e-8f0a-3c24af39671b
+    Test Name: MDE Authentication Bypass Command Interception
+    Test Score: 9.3/10
+    Generated for F0RT1KA Security Testing Framework
+    Theme-aware version with CSS custom properties
+    -->
     <style>
+        /* ===============================================================
+           THEME VARIABLES - OKLch color palette matching ProjectAchilles
+           Supports: data-theme="light|dark", prefers-color-scheme
+           =============================================================== */
+        :root {
+            /* Light theme (default) */
+            --diagram-bg: oklch(1 0 0);
+            --diagram-bg-gradient-start: oklch(0.985 0 0);
+            --diagram-bg-gradient-end: oklch(0.922 0 0);
+            --diagram-text-primary: oklch(0.145 0 0);
+            --diagram-text-secondary: oklch(0.556 0 0);
+            --diagram-text-muted: oklch(0.708 0 0);
+            --diagram-panel-bg: oklch(1 0 0);
+            --diagram-panel-bg-translucent: oklch(0.985 0 0 / 95%);
+            --diagram-border: oklch(0.922 0 0);
+            --diagram-accent: oklch(0.205 0 0);
+            --diagram-card-bg: oklch(0.97 0 0);
+            --diagram-card-bg-hover: oklch(0.95 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 5%);
+            --diagram-code-bg: oklch(0.97 0 0);
+            --diagram-grid-stroke: oklch(0 0 0 / 3%);
+            --diagram-shadow: oklch(0 0 0 / 15%);
+
+            /* Semantic colors (consistent across themes) */
+            --severity-critical: #ff4444;
+            --severity-critical-bg: rgba(255, 68, 68, 0.1);
+            --severity-high: #ff9f43;
+            --severity-high-bg: rgba(255, 159, 67, 0.1);
+            --severity-medium: #ffc107;
+            --severity-medium-bg: rgba(255, 193, 7, 0.1);
+            --severity-info: #4fc3f7;
+            --severity-info-bg: rgba(79, 195, 247, 0.1);
+
+            /* Accent colors */
+            --diagram-accent-red: #ff6b6b;
+            --diagram-accent-red-light: #ff8787;
+            --diagram-accent-blue: #4fc3f7;
+            --diagram-accent-orange: #ff9f43;
+            --diagram-accent-yellow: #ffc107;
+            --diagram-accent-green: #66bb6a;
+            --diagram-accent-purple: #ab47bc;
+        }
+
+        /* Dark theme */
+        [data-theme="dark"],
+        .dark {
+            --diagram-bg: oklch(0.145 0 0);
+            --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+            --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+            --diagram-text-primary: oklch(0.985 0 0);
+            --diagram-text-secondary: oklch(0.708 0 0);
+            --diagram-text-muted: oklch(0.556 0 0);
+            --diagram-panel-bg: oklch(0.12 0.01 265);
+            --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+            --diagram-border: oklch(1 0 0 / 10%);
+            --diagram-accent: oklch(0.922 0 0);
+            --diagram-card-bg: oklch(0.205 0 0);
+            --diagram-card-bg-hover: oklch(0.25 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 30%);
+            --diagram-code-bg: oklch(0.1 0.02 265);
+            --diagram-grid-stroke: oklch(1 0 0 / 2%);
+            --diagram-shadow: oklch(0 0 0 / 50%);
+        }
+
+        /* Fallback for prefers-color-scheme when no data-theme is set */
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) {
+                --diagram-bg: oklch(0.145 0 0);
+                --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+                --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+                --diagram-text-primary: oklch(0.985 0 0);
+                --diagram-text-secondary: oklch(0.708 0 0);
+                --diagram-text-muted: oklch(0.556 0 0);
+                --diagram-panel-bg: oklch(0.12 0.01 265);
+                --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+                --diagram-border: oklch(1 0 0 / 10%);
+                --diagram-accent: oklch(0.922 0 0);
+                --diagram-card-bg: oklch(0.205 0 0);
+                --diagram-card-bg-hover: oklch(0.25 0 0);
+                --diagram-overlay-bg: oklch(0 0 0 / 30%);
+                --diagram-code-bg: oklch(0.1 0.02 265);
+                --diagram-grid-stroke: oklch(1 0 0 / 2%);
+                --diagram-shadow: oklch(0 0 0 / 50%);
+            }
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -13,16 +106,16 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
-            color: #e0e0e0;
+            background: linear-gradient(135deg, var(--diagram-bg-gradient-start) 0%, var(--diagram-bg-gradient-end) 100%);
+            color: var(--diagram-text-primary);
             min-height: 100vh;
             overflow: hidden;
         }
 
         /* F0RT1KA Header */
         .framework-header {
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.6));
-            border-bottom: 1px solid rgba(255, 107, 107, 0.2);
+            background: var(--diagram-panel-bg-translucent);
+            border-bottom: 1px solid var(--diagram-border);
             padding: 15px 30px;
             display: flex;
             align-items: center;
@@ -35,7 +128,7 @@
             font-weight: 600;
             letter-spacing: 2px;
             text-transform: uppercase;
-            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            background: linear-gradient(135deg, var(--diagram-accent-red), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -44,7 +137,7 @@
             position: absolute;
             right: 30px;
             font-size: 0.85em;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-style: italic;
         }
 
@@ -71,14 +164,14 @@
 
         .header h1 {
             font-size: 2.2em;
-            background: linear-gradient(135deg, #ff4458, #ff8787);
+            background: linear-gradient(135deg, var(--severity-critical), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 10px;
         }
 
         .header p {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 1em;
         }
 
@@ -92,10 +185,10 @@
 
         .view-btn {
             padding: 8px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-overlay-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 20px;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 0.9em;
@@ -103,18 +196,18 @@
 
         .view-btn.active {
             background: rgba(255, 107, 107, 0.1);
-            border-color: #ff6b6b;
-            color: #ff6b6b;
+            border-color: var(--diagram-accent-red);
+            color: var(--diagram-accent-red);
         }
 
         .view-btn:hover {
-            background: rgba(255, 255, 255, 0.08);
-            color: #ffffff;
+            background: var(--diagram-card-bg-hover);
+            color: var(--diagram-text-primary);
         }
 
         /* SVG Attack Flow Container */
         .attack-flow-svg-container {
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 12px;
             padding: 20px;
             position: relative;
@@ -142,7 +235,7 @@
             align-items: center;
             padding: 15px;
             margin-bottom: 15px;
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -150,13 +243,13 @@
         }
 
         .timeline-item:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--diagram-card-bg-hover);
             transform: translateX(5px);
         }
 
         .timeline-item.active {
             background: rgba(255, 107, 107, 0.05);
-            border-left-color: #ff6b6b;
+            border-left-color: var(--diagram-accent-red);
         }
 
         .timeline-number {
@@ -177,26 +270,26 @@
 
         .timeline-title {
             font-size: 1.1em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 5px;
         }
 
         .timeline-meta {
             font-size: 0.85em;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
         }
 
         /* Right Panel - Details (OPAQUE BACKGROUND) */
         .details-panel {
             width: 450px;
-            background: #0f1419;
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-panel-bg);
+            border-left: 1px solid var(--diagram-border);
             padding: 30px;
             overflow-y: auto;
             position: relative;
             transform: translateX(100%);
             transition: transform 0.3s ease;
-            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8);
+            box-shadow: -5px 0 20px var(--diagram-shadow);
         }
 
         .details-panel.active {
@@ -206,7 +299,7 @@
         .details-header {
             margin-bottom: 25px;
             padding-bottom: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--diagram-border);
         }
 
         .details-phase-number {
@@ -224,7 +317,7 @@
 
         .details-title {
             font-size: 1.5em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 10px;
         }
 
@@ -243,24 +336,24 @@
         }
 
         .meta-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         .meta-value {
-            color: #d1d5db;
+            color: var(--diagram-text-secondary);
             font-family: 'SF Mono', monospace;
         }
 
         /* MITRE Links Styling */
         .mitre-link {
-            color: #4fc3f7;
+            color: var(--diagram-accent-blue);
             text-decoration: none;
-            border-bottom: 1px dotted #4fc3f7;
+            border-bottom: 1px dotted var(--diagram-accent-blue);
             transition: all 0.2s ease;
         }
 
         .mitre-link:hover {
-            color: #29b6f6;
+            color: var(--severity-info);
             border-bottom-style: solid;
         }
 
@@ -276,27 +369,27 @@
         }
 
         .severity-badge.critical {
-            color: #ff4444;
-            border-color: #ff4444;
-            background: rgba(255, 68, 68, 0.1);
+            color: var(--severity-critical);
+            border-color: var(--severity-critical);
+            background: var(--severity-critical-bg);
         }
 
         .severity-badge.high {
-            color: #ff9f43;
-            border-color: #ff9f43;
-            background: rgba(255, 159, 67, 0.1);
+            color: var(--severity-high);
+            border-color: var(--severity-high);
+            background: var(--severity-high-bg);
         }
 
         .severity-badge.medium {
-            color: #ffc107;
-            border-color: #ffc107;
-            background: rgba(255, 193, 7, 0.1);
+            color: var(--severity-medium);
+            border-color: var(--severity-medium);
+            background: var(--severity-medium-bg);
         }
 
         .severity-badge.info {
-            color: #4fc3f7;
-            border-color: #4fc3f7;
-            background: rgba(79, 195, 247, 0.1);
+            color: var(--severity-info);
+            border-color: var(--severity-info);
+            background: var(--severity-info-bg);
         }
 
         .details-section {
@@ -305,7 +398,7 @@
 
         .section-title {
             font-size: 1.1em;
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             margin-bottom: 15px;
             display: flex;
             align-items: center;
@@ -317,8 +410,8 @@
         }
 
         .action-item {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--diagram-card-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 12px;
             margin-bottom: 10px;
@@ -326,7 +419,7 @@
 
         .action-title {
             font-weight: 500;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 8px;
             font-size: 0.95em;
         }
@@ -337,7 +430,7 @@
         }
 
         .action-details li {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 0.85em;
             padding: 3px 0;
             padding-left: 15px;
@@ -345,16 +438,16 @@
         }
 
         .action-details li::before {
-            content: '›';
+            content: '>';
             position: absolute;
             left: 0;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         /* Code Preview */
         .code-preview {
-            background: #0a0e27;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-code-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 15px;
             margin-top: 15px;
@@ -364,16 +457,16 @@
         }
 
         .code-line {
-            color: #66bb6a;
+            color: var(--diagram-accent-green);
             line-height: 1.5;
         }
 
         .code-comment {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         .code-highlight {
-            color: #ff9f43;
+            color: var(--diagram-accent-orange);
         }
 
         /* Close button for details panel */
@@ -383,7 +476,7 @@
             right: 15px;
             background: none;
             border: none;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-size: 24px;
             cursor: pointer;
             transition: color 0.3s ease;
@@ -391,7 +484,7 @@
         }
 
         .close-details:hover {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
         }
 
         /* Mobile responsive */
@@ -452,11 +545,11 @@
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
+            background: var(--diagram-panel-bg-translucent);
             padding: 10px 20px;
             border-radius: 20px;
             font-size: 0.85em;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             display: flex;
             align-items: center;
             gap: 10px;
@@ -464,7 +557,7 @@
         }
 
         .nav-hint-icon {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
         }
 
         /* Stats overlay */
@@ -477,20 +570,67 @@
         }
 
         .stat-mini {
-            background: rgba(0, 0, 0, 0.7);
+            background: var(--diagram-panel-bg-translucent);
             padding: 8px 12px;
             border-radius: 6px;
             font-size: 0.85em;
         }
 
         .stat-mini-value {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             font-weight: bold;
         }
 
         .stat-mini-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             margin-left: 5px;
+        }
+
+        /* SVG Text Color Overrides - CSS cascades over inline attributes */
+        .attack-flow-svg text {
+            fill: var(--diagram-text-primary);
+        }
+
+        .attack-flow-svg text.svg-text-secondary,
+        .attack-flow-svg .component text:not(:first-of-type) {
+            fill: var(--diagram-text-secondary);
+        }
+
+        .attack-flow-svg .svg-title-box text:first-of-type {
+            fill: var(--diagram-accent-red);
+        }
+
+        .attack-flow-svg .svg-timeline text {
+            fill: var(--diagram-text-secondary);
+        }
+
+        /* Progress bar background */
+        .attack-flow-svg .progress-track {
+            fill: var(--diagram-overlay-bg);
+        }
+
+        /* Central title box */
+        .attack-flow-svg .title-box-bg {
+            fill: var(--diagram-panel-bg-translucent);
+            stroke: rgba(255, 107, 107, 0.3);
+        }
+
+        /* Watchdog indicator box */
+        .attack-flow-svg .watchdog-box {
+            fill: rgba(102, 187, 106, 0.1);
+        }
+
+        /* Feature labels */
+        .attack-flow-svg .feature-label {
+            fill: var(--diagram-accent-red);
+        }
+
+        .attack-flow-svg .feature-label-blue {
+            fill: var(--diagram-accent-blue);
+        }
+
+        .attack-flow-svg .feature-label-purple {
+            fill: var(--diagram-accent-purple);
         }
     </style>
 </head>
@@ -556,7 +696,7 @@
 
                         <!-- Grid Pattern -->
                         <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="var(--diagram-grid-stroke)" stroke-width="1"/>
                         </pattern>
                     </defs>
 
@@ -567,81 +707,81 @@
                     <g class="component" data-phase="1" onclick="showPhaseDetails(1)">
                         <rect class="component-box" x="50" y="320" width="120" height="80" rx="8"
                               fill="url(#yellowGradient)" stroke="#ffc107" stroke-width="1" opacity="0.2"/>
-                        <text x="110" y="345" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Initialization</text>
-                        <text x="110" y="365" text-anchor="middle" fill="#9ca3af" font-size="10">Setup</text>
-                        <text x="110" y="380" text-anchor="middle" fill="#9ca3af" font-size="10">C:\F0</text>
+                        <text x="110" y="345" text-anchor="middle" font-size="13" font-weight="bold">Initialization</text>
+                        <text x="110" y="365" text-anchor="middle" class="svg-text-secondary" font-size="10">Setup</text>
+                        <text x="110" y="380" text-anchor="middle" class="svg-text-secondary" font-size="10">C:\F0</text>
                     </g>
 
                     <!-- Phase 2: MDE Identifier Extraction -->
                     <g class="component" data-phase="2" onclick="showPhaseDetails(2)">
                         <rect class="component-box" x="210" y="320" width="120" height="80" rx="8"
                               fill="url(#greenGradient)" stroke="#66bb6a" stroke-width="1" opacity="0.2"/>
-                        <text x="270" y="345" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">ID Extract</text>
-                        <text x="270" y="365" text-anchor="middle" fill="#9ca3af" font-size="10">Registry</text>
-                        <text x="270" y="380" text-anchor="middle" fill="#9ca3af" font-size="10">WMI</text>
+                        <text x="270" y="345" text-anchor="middle" font-size="13" font-weight="bold">ID Extract</text>
+                        <text x="270" y="365" text-anchor="middle" class="svg-text-secondary" font-size="10">Registry</text>
+                        <text x="270" y="380" text-anchor="middle" class="svg-text-secondary" font-size="10">WMI</text>
                     </g>
 
                     <!-- Phase 3: Certificate Pinning Bypass -->
                     <g class="component" data-phase="3" onclick="showPhaseDetails(3)">
                         <rect class="component-box" x="370" y="220" width="140" height="80" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="440" y="245" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Cert Bypass</text>
-                        <text x="440" y="265" text-anchor="middle" fill="#9ca3af" font-size="10">CRYPT32</text>
-                        <text x="440" y="280" text-anchor="middle" fill="#9ca3af" font-size="10">Memory Patch</text>
+                        <text x="440" y="245" text-anchor="middle" font-size="13" font-weight="bold">Cert Bypass</text>
+                        <text x="440" y="265" text-anchor="middle" class="svg-text-secondary" font-size="10">CRYPT32</text>
+                        <text x="440" y="280" text-anchor="middle" class="svg-text-secondary" font-size="10">Memory Patch</text>
                     </g>
 
                     <!-- Phase 4: Network Authentication Testing -->
                     <g class="component" data-phase="4" onclick="showPhaseDetails(4)">
                         <rect class="component-box" x="370" y="420" width="140" height="80" rx="8"
                               fill="url(#blueGradient)" stroke="#4fc3f7" stroke-width="1" opacity="0.2"/>
-                        <text x="440" y="445" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Network Test</text>
-                        <text x="440" y="465" text-anchor="middle" fill="#9ca3af" font-size="10">5 Endpoints</text>
-                        <text x="440" y="480" text-anchor="middle" fill="#9ca3af" font-size="10">Auth Check</text>
+                        <text x="440" y="445" text-anchor="middle" font-size="13" font-weight="bold">Network Test</text>
+                        <text x="440" y="465" text-anchor="middle" class="svg-text-secondary" font-size="10">5 Endpoints</text>
+                        <text x="440" y="480" text-anchor="middle" class="svg-text-secondary" font-size="10">Auth Check</text>
                     </g>
 
                     <!-- Phase 5: File Drop Operations -->
                     <g class="component" data-phase="5" onclick="showPhaseDetails(5)">
                         <rect class="component-box" x="550" y="320" width="130" height="80" rx="8"
                               fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
-                        <text x="615" y="345" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">File Drops</text>
-                        <text x="615" y="365" text-anchor="middle" fill="#9ca3af" font-size="10">Scripts</text>
-                        <text x="615" y="380" text-anchor="middle" fill="#9ca3af" font-size="10">Binaries</text>
+                        <text x="615" y="345" text-anchor="middle" font-size="13" font-weight="bold">File Drops</text>
+                        <text x="615" y="365" text-anchor="middle" class="svg-text-secondary" font-size="10">Scripts</text>
+                        <text x="615" y="380" text-anchor="middle" class="svg-text-secondary" font-size="10">Binaries</text>
                     </g>
 
                     <!-- Phase 6: Command Interception -->
                     <g class="component" data-phase="6" onclick="showPhaseDetails(6)">
                         <rect class="component-box" x="720" y="220" width="130" height="80" rx="8"
                               fill="url(#purpleGradient)" stroke="#ab47bc" stroke-width="1" opacity="0.2"/>
-                        <text x="785" y="245" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Intercept</text>
-                        <text x="785" y="265" text-anchor="middle" fill="#9ca3af" font-size="10">Commands</text>
-                        <text x="785" y="280" text-anchor="middle" fill="#9ca3af" font-size="10">PowerShell</text>
+                        <text x="785" y="245" text-anchor="middle" font-size="13" font-weight="bold">Intercept</text>
+                        <text x="785" y="265" text-anchor="middle" class="svg-text-secondary" font-size="10">Commands</text>
+                        <text x="785" y="280" text-anchor="middle" class="svg-text-secondary" font-size="10">PowerShell</text>
                     </g>
 
                     <!-- Phase 7: Isolation Status Spoofing -->
                     <g class="component" data-phase="7" onclick="showPhaseDetails(7)">
                         <rect class="component-box" x="720" y="420" width="130" height="80" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="785" y="445" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Isolation</text>
-                        <text x="785" y="465" text-anchor="middle" fill="#9ca3af" font-size="10">Spoofing</text>
-                        <text x="785" y="480" text-anchor="middle" fill="#9ca3af" font-size="10">False Status</text>
+                        <text x="785" y="445" text-anchor="middle" font-size="13" font-weight="bold">Isolation</text>
+                        <text x="785" y="465" text-anchor="middle" class="svg-text-secondary" font-size="10">Spoofing</text>
+                        <text x="785" y="480" text-anchor="middle" class="svg-text-secondary" font-size="10">False Status</text>
                     </g>
 
                     <!-- Phase 8: CloudLR Token Generation -->
                     <g class="component" data-phase="8" onclick="showPhaseDetails(8)">
                         <rect class="component-box" x="890" y="320" width="130" height="80" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="955" y="345" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">CloudLR</text>
-                        <text x="955" y="365" text-anchor="middle" fill="#9ca3af" font-size="10">Token Gen</text>
-                        <text x="955" y="380" text-anchor="middle" fill="#9ca3af" font-size="10">No Auth</text>
+                        <text x="955" y="345" text-anchor="middle" font-size="13" font-weight="bold">CloudLR</text>
+                        <text x="955" y="365" text-anchor="middle" class="svg-text-secondary" font-size="10">Token Gen</text>
+                        <text x="955" y="380" text-anchor="middle" class="svg-text-secondary" font-size="10">No Auth</text>
                     </g>
 
                     <!-- Phase 9: Attack Verification -->
                     <g class="component" data-phase="9" onclick="showPhaseDetails(9)">
                         <rect class="component-box" x="1060" y="320" width="130" height="80" rx="8"
                               fill="url(#greenGradient)" stroke="#66bb6a" stroke-width="1" opacity="0.2"/>
-                        <text x="1125" y="345" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Verification</text>
-                        <text x="1125" y="365" text-anchor="middle" fill="#9ca3af" font-size="10">Summary</text>
-                        <text x="1125" y="380" text-anchor="middle" fill="#9ca3af" font-size="10">Results</text>
+                        <text x="1125" y="345" text-anchor="middle" font-size="13" font-weight="bold">Verification</text>
+                        <text x="1125" y="365" text-anchor="middle" class="svg-text-secondary" font-size="10">Summary</text>
+                        <text x="1125" y="380" text-anchor="middle" class="svg-text-secondary" font-size="10">Results</text>
                     </g>
 
                     <!-- Complex Flow Arrows -->
@@ -667,34 +807,38 @@
                           marker-end="url(#arrowhead)" opacity="0.5"/>
 
                     <!-- Central Title -->
-                    <rect x="550" y="30" width="300" height="50" rx="8" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
-                    <text x="700" y="50" text-anchor="middle" fill="#ff6b6b" font-size="16" font-weight="bold">9-Phase Attack Flow</text>
-                    <text x="700" y="68" text-anchor="middle" fill="#9ca3af" font-size="11">Click components for detailed analysis</text>
+                    <g class="svg-title-box">
+                        <rect class="title-box-bg" x="550" y="30" width="300" height="50" rx="8"/>
+                        <text x="700" y="50" text-anchor="middle" font-size="16" font-weight="bold">9-Phase Attack Flow</text>
+                        <text x="700" y="68" text-anchor="middle" class="svg-text-secondary" font-size="11">Click components for detailed analysis</text>
+                    </g>
 
                     <!-- Key Features Labels -->
-                    <text x="440" y="190" text-anchor="middle" fill="#ff6b6b" font-size="11" font-weight="bold">ADVANCED</text>
-                    <text x="440" y="530" text-anchor="middle" fill="#4fc3f7" font-size="11" font-weight="bold">NETWORK</text>
-                    <text x="785" y="190" text-anchor="middle" fill="#ab47bc" font-size="11" font-weight="bold">DECEPTION</text>
-                    <text x="785" y="530" text-anchor="middle" fill="#ff6b6b" font-size="11" font-weight="bold">SPOOFING</text>
+                    <text class="feature-label" x="440" y="190" text-anchor="middle" font-size="11" font-weight="bold">ADVANCED</text>
+                    <text class="feature-label-blue" x="440" y="530" text-anchor="middle" font-size="11" font-weight="bold">NETWORK</text>
+                    <text class="feature-label-purple" x="785" y="190" text-anchor="middle" font-size="11" font-weight="bold">DECEPTION</text>
+                    <text class="feature-label" x="785" y="530" text-anchor="middle" font-size="11" font-weight="bold">SPOOFING</text>
 
                     <!-- Execution Timeline -->
-                    <text x="110" y="550" fill="#9ca3af" font-size="10">T+0s</text>
-                    <text x="270" y="550" fill="#9ca3af" font-size="10">T+5s</text>
-                    <text x="440" y="550" fill="#9ca3af" font-size="10">T+15s</text>
-                    <text x="615" y="550" fill="#9ca3af" font-size="10">T+30s</text>
-                    <text x="785" y="550" fill="#9ca3af" font-size="10">T+45s</text>
-                    <text x="955" y="550" fill="#9ca3af" font-size="10">T+60s</text>
-                    <text x="1125" y="550" fill="#9ca3af" font-size="10">T+90s</text>
+                    <g class="svg-timeline">
+                        <text x="110" y="550" font-size="10">T+0s</text>
+                        <text x="270" y="550" font-size="10">T+5s</text>
+                        <text x="440" y="550" font-size="10">T+15s</text>
+                        <text x="615" y="550" font-size="10">T+30s</text>
+                        <text x="785" y="550" font-size="10">T+45s</text>
+                        <text x="955" y="550" font-size="10">T+60s</text>
+                        <text x="1125" y="550" font-size="10">T+90s</text>
+                    </g>
 
                     <!-- Progress Bar -->
-                    <rect x="50" y="570" width="1140" height="4" rx="2" fill="rgba(255,255,255,0.1)"/>
+                    <rect class="progress-track" x="50" y="570" width="1140" height="4" rx="2"/>
                     <rect x="50" y="570" width="0" height="4" rx="2" fill="#ff6b6b" id="progressBar"/>
 
                     <!-- Watchdog Indicator -->
                     <g>
-                        <rect x="1220" y="100" width="150" height="60" rx="6" fill="rgba(102,187,106,0.1)" stroke="#66bb6a" stroke-width="1"/>
+                        <rect class="watchdog-box" x="1220" y="100" width="150" height="60" rx="6" stroke="#66bb6a" stroke-width="1"/>
                         <text x="1295" y="125" text-anchor="middle" fill="#66bb6a" font-size="12" font-weight="bold">Watchdog Active</text>
-                        <text x="1295" y="145" text-anchor="middle" fill="#9ca3af" font-size="10">3-Layer Safety</text>
+                        <text x="1295" y="145" text-anchor="middle" class="svg-text-secondary" font-size="10">3-Layer Safety</text>
                     </g>
                 </svg>
 
@@ -714,7 +858,7 @@
                 </div>
 
                 <div class="nav-hint">
-                    <span class="nav-hint-icon">🔍</span>
+                    <span class="nav-hint-icon">*</span>
                     <span>Click any phase to explore the authentication bypass technique details</span>
                 </div>
             </div>
@@ -727,7 +871,7 @@
 
         <!-- Right Panel - Details (OPAQUE) -->
         <div class="details-panel" id="detailsPanel">
-            <button class="close-details" onclick="closeDetails()">×</button>
+            <button class="close-details" onclick="closeDetails()">x</button>
             <div id="detailsContent">
                 <!-- Details will be populated dynamically -->
             </div>
@@ -736,7 +880,7 @@
 
     <script>
         // Phase data with MITRE links and comprehensive details
-        const phaseData = {
+        var phaseData = {
             1: {
                 number: 1,
                 title: "Initialization",
@@ -768,7 +912,7 @@
                         ]
                     }
                 ],
-                code: `// Initialize dropper\nif err := Endpoint.Dropper(Dropper.Dropper); err != nil {\n    Endpoint.Stop(Endpoint.UnexpectedTestError)\n}\n\n// Create target directory\ntargetDir := "c:\\\\F0"\nos.MkdirAll(targetDir, 0755)`
+                code: "// Initialize dropper\nif err := Endpoint.Dropper(Dropper.Dropper); err != nil {\n    Endpoint.Stop(Endpoint.UnexpectedTestError)\n}\n\n// Create target directory\ntargetDir := \"c:\\\\F0\"\nos.MkdirAll(targetDir, 0755)"
             },
             2: {
                 number: 2,
@@ -819,7 +963,7 @@
                         ]
                     }
                 ],
-                code: `// Extract from registry\nkey, _ := registry.OpenKey(registry.LOCAL_MACHINE,\n    "SOFTWARE\\\\Microsoft\\\\Windows Advanced Threat Protection",\n    registry.QUERY_VALUE)\n\nmachineId, _ := key.GetStringValue("senseGuid")\ntenantId, _ := key.GetStringValue("orgId")`
+                code: "// Extract from registry\nkey, _ := registry.OpenKey(registry.LOCAL_MACHINE,\n    \"SOFTWARE\\\\Microsoft\\\\Windows Advanced Threat Protection\",\n    registry.QUERY_VALUE)\n\nmachineId, _ := key.GetStringValue(\"senseGuid\")\ntenantId, _ := key.GetStringValue(\"orgId\")"
             },
             3: {
                 number: 3,
@@ -870,7 +1014,7 @@
                         ]
                     }
                 ],
-                code: `// Test bypass capability (no actual patch)\nbypassResult := AttemptCertificatePinningBypass(\n    BypassModeTestOnly, // Safest mode\n    "self"\n)\n\n// Potential patch bytes (not applied in TEST_ONLY)\npatchBytes := []byte{0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3}\n// mov eax, 1  ; Return TRUE\n// ret         ; Return immediately`
+                code: "// Test bypass capability (no actual patch)\nbypassResult := AttemptCertificatePinningBypass(\n    BypassModeTestOnly, // Safest mode\n    \"self\"\n)\n\n// Potential patch bytes (not applied in TEST_ONLY)\npatchBytes := []byte{0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3}\n// mov eax, 1  ; Return TRUE\n// ret         ; Return immediately"
             },
             4: {
                 number: 4,
@@ -922,7 +1066,7 @@
                         ]
                     }
                 ],
-                code: `// Test endpoint without authentication\nreq, _ := http.NewRequest("GET", endpoint.URL, nil)\nreq.Header.Set("X-Machine-Id", identifiers.MachineID)\nreq.Header.Set("X-Tenant-Id", identifiers.TenantID)\n// NO Authorization header - testing vulnerability\n\nresp, _ := client.Do(req)\nif resp.StatusCode == 200 {\n    // VULNERABLE: Accepts unauthenticated!\n}`
+                code: "// Test endpoint without authentication\nreq, _ := http.NewRequest(\"GET\", endpoint.URL, nil)\nreq.Header.Set(\"X-Machine-Id\", identifiers.MachineID)\nreq.Header.Set(\"X-Tenant-Id\", identifiers.TenantID)\n// NO Authorization header - testing vulnerability\n\nresp, _ := client.Do(req)\nif resp.StatusCode == 200 {\n    // VULNERABLE: Accepts unauthenticated!\n}"
             },
             5: {
                 number: 5,
@@ -973,7 +1117,7 @@
                         ]
                     }
                 ],
-                code: `// Drop PowerShell interceptor\nscriptPath := filepath.Join(targetDir, "mde_interceptor.ps1")\nos.WriteFile(scriptPath, mdeInterceptor, 0755)\n\n// Check for quarantine\nEndpoint.Wait(3)\nif Endpoint.Quarantined("fake_mssense.exe", fakeMsSense) {\n    Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)\n}`
+                code: "// Drop PowerShell interceptor\nscriptPath := filepath.Join(targetDir, \"mde_interceptor.ps1\")\nos.WriteFile(scriptPath, mdeInterceptor, 0755)\n\n// Check for quarantine\nEndpoint.Wait(3)\nif Endpoint.Quarantined(\"fake_mssense.exe\", fakeMsSense) {\n    Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)\n}"
             },
             6: {
                 number: 6,
@@ -1015,7 +1159,7 @@
                         ]
                     }
                 ],
-                code: `// Execute PowerShell interceptor in background\ncmd := exec.Command("cmd.exe", "/C", "start", "/MIN",\n    "powershell.exe", "-ExecutionPolicy", "Bypass",\n    "-WindowStyle", "Hidden", "-File", scriptPath)\n\nif err := cmd.Start(); err != nil {\n    Endpoint.Stop(Endpoint.UnexpectedTestError)\n}\n\n// Verify interceptor running\nstatusFile := filepath.Join(targetDir, "interceptor_status.txt")\nif _, err := os.Stat(statusFile); err != nil {\n    Endpoint.Stop(Endpoint.ExecutionPrevented)\n}`
+                code: "// Execute PowerShell interceptor in background\ncmd := exec.Command(\"cmd.exe\", \"/C\", \"start\", \"/MIN\",\n    \"powershell.exe\", \"-ExecutionPolicy\", \"Bypass\",\n    \"-WindowStyle\", \"Hidden\", \"-File\", scriptPath)\n\nif err := cmd.Start(); err != nil {\n    Endpoint.Stop(Endpoint.UnexpectedTestError)\n}\n\n// Verify interceptor running\nstatusFile := filepath.Join(targetDir, \"interceptor_status.txt\")\nif _, err := os.Stat(statusFile); err != nil {\n    Endpoint.Stop(Endpoint.ExecutionPrevented)\n}"
             },
             7: {
                 number: 7,
@@ -1057,7 +1201,7 @@
                         ]
                     }
                 ],
-                code: `// Execute isolation spoofer\nspooferCmd := exec.Command(spooferPath)\nspooferCmd.Dir = targetDir\noutput, err := spooferCmd.CombinedOutput()\n\nif err != nil {\n    if strings.Contains(string(output), "Access denied") {\n        // EDR blocked execution\n        Endpoint.Stop(Endpoint.ExecutionPrevented)\n    }\n}\n\n// Verify spoofing success\nif data, err := os.ReadFile("spoof_result.json"); err == nil {\n    // Parse and verify fake isolation status\n}`
+                code: "// Execute isolation spoofer\nspooferCmd := exec.Command(spooferPath)\nspooferCmd.Dir = targetDir\noutput, err := spooferCmd.CombinedOutput()\n\nif err != nil {\n    if strings.Contains(string(output), \"Access denied\") {\n        // EDR blocked execution\n        Endpoint.Stop(Endpoint.ExecutionPrevented)\n    }\n}\n\n// Verify spoofing success\nif data, err := os.ReadFile(\"spoof_result.json\"); err == nil {\n    // Parse and verify fake isolation status\n}"
             },
             8: {
                 number: 8,
@@ -1099,7 +1243,7 @@
                         ]
                     }
                 ],
-                code: `// Simulate CloudLR token generation\ntoken := map[string]interface{}{\n    "tokenType":    "CloudLR",\n    "machineId":    identifiers.MachineID,\n    "tenantId":     identifiers.TenantID,\n    "sessionId":    fmt.Sprintf("lr_%d", time.Now().Unix()),\n    "capabilities": []string{\n        "command_execution",\n        "file_download",\n        "file_upload"\n    },\n    "expiresIn": 3600,\n    "note": "Demonstrates auth bypass vulnerability"\n}\n\ntokenPath := filepath.Join("c:\\\\F0", "cloudlr_token.json")\njson.MarshalIndent(token, "", "  ")`
+                code: "// Simulate CloudLR token generation\ntoken := map[string]interface{}{\n    \"tokenType\":    \"CloudLR\",\n    \"machineId\":    identifiers.MachineID,\n    \"tenantId\":     identifiers.TenantID,\n    \"sessionId\":    fmt.Sprintf(\"lr_%d\", time.Now().Unix()),\n    \"capabilities\": []string{\n        \"command_execution\",\n        \"file_download\",\n        \"file_upload\"\n    },\n    \"expiresIn\": 3600,\n    \"note\": \"Demonstrates auth bypass vulnerability\"\n}\n\ntokenPath := filepath.Join(\"c:\\\\F0\", \"cloudlr_token.json\")\njson.MarshalIndent(token, \"\", \"  \")"
             },
             9: {
                 number: 9,
@@ -1150,152 +1294,255 @@
                         ]
                     }
                 ],
-                code: `// Verify all phases completed\nif Endpoint.Quarantined("fake_mssense.exe", fakeMsSense) {\n    Endpoint.Stop(Endpoint.FileQuarantinedOnExecution)\n}\n\n// Generate comprehensive summary\nsummary := fmt.Sprintf(\\\`MDE Authentication Bypass Summary\nTest ID: b6c73735-0c24-4a1e-8f0a-3c24af39671b\nTimestamp: %s\n\nSuccessfully Demonstrated:\n1. Real MDE identifier extraction\n2. Certificate pinning bypass capabilities\n3. Network authentication vulnerability\n4. Command interception without auth\n5. Isolation status spoofing\n6. CloudLR token generation bypass\n\nTest Score: 9.3/10\\\`, time.Now())\n\nEndpoint.Stop(Endpoint.Unprotected)`
+                code: "// Verify all phases completed\nif Endpoint.Quarantined(\"fake_mssense.exe\", fakeMsSense) {\n    Endpoint.Stop(Endpoint.FileQuarantinedOnExecution)\n}\n\n// Generate comprehensive summary\nsummary := fmt.Sprintf(`MDE Authentication Bypass Summary\nTest ID: b6c73735-0c24-4a1e-8f0a-3c24af39671b\nTimestamp: %s\n\nSuccessfully Demonstrated:\n1. Real MDE identifier extraction\n2. Certificate pinning bypass capabilities\n3. Network authentication vulnerability\n4. Command interception without auth\n5. Isolation status spoofing\n6. CloudLR token generation bypass\n\nTest Score: 9.3/10`, time.Now())\n\nEndpoint.Stop(Endpoint.Unprotected)"
             }
         };
 
         // Current active phase
-        let currentPhase = null;
+        var currentPhase = null;
 
-        // Function to create MITRE links
-        function createMitreLinks(mitreArray) {
-            return mitreArray.map(technique => {
-                const baseUrl = "https://attack.mitre.org/techniques/";
-                const techId = technique.id.replace('.', '/');
-                return `<a href="${baseUrl}${techId}" target="_blank" class="mitre-link" title="${technique.name}">${technique.id}</a>`;
-            }).join(', ');
+        // Function to create MITRE links safely
+        function createMitreLink(technique) {
+            var baseUrl = "https://attack.mitre.org/techniques/";
+            var techId = technique.id.replace('.', '/');
+            var link = document.createElement('a');
+            link.href = baseUrl + techId;
+            link.target = '_blank';
+            link.className = 'mitre-link';
+            link.title = technique.name;
+            link.textContent = technique.id;
+            return link;
         }
 
-        // Initialize timeline view
+        // Initialize timeline view using safe DOM methods
         function initializeTimeline() {
-            const timelineView = document.getElementById('timelineView');
-            let html = '';
-
-            for (let i = 1; i <= 9; i++) {
-                const phase = phaseData[i];
-                const severityColor = getSeverityColor(phase.severity);
-                const mitreText = phase.mitre.map(t => t.id).join(', ');
-
-                html += `
-                    <div class="timeline-item" onclick="showPhaseDetails(${i})">
-                        <div class="timeline-number" style="border-color: ${severityColor}; color: ${severityColor};">
-                            ${i}
-                        </div>
-                        <div class="timeline-content">
-                            <div class="timeline-title">${phase.title}</div>
-                            <div class="timeline-meta">
-                                ${phase.time} • ${mitreText} • ${phase.status === 'actual' ? '✓ Actual' : '⚠️ Simulated'}
-                            </div>
-                        </div>
-                    </div>
-                `;
+            var timelineView = document.getElementById('timelineView');
+            // Clear existing content
+            while (timelineView.firstChild) {
+                timelineView.removeChild(timelineView.firstChild);
             }
 
-            timelineView.innerHTML = html;
+            for (var i = 1; i <= 9; i++) {
+                var phase = phaseData[i];
+                var severityColor = getSeverityColor(phase.severity);
+                var mitreText = phase.mitre.map(function(t) { return t.id; }).join(', ');
+
+                var timelineItem = document.createElement('div');
+                timelineItem.className = 'timeline-item';
+                timelineItem.setAttribute('data-phase', i);
+                (function(phaseNum) {
+                    timelineItem.onclick = function() { showPhaseDetails(phaseNum); };
+                })(i);
+
+                var timelineNumber = document.createElement('div');
+                timelineNumber.className = 'timeline-number';
+                timelineNumber.style.borderColor = severityColor;
+                timelineNumber.style.color = severityColor;
+                timelineNumber.textContent = i;
+                timelineItem.appendChild(timelineNumber);
+
+                var timelineContent = document.createElement('div');
+                timelineContent.className = 'timeline-content';
+
+                var timelineTitle = document.createElement('div');
+                timelineTitle.className = 'timeline-title';
+                timelineTitle.textContent = phase.title;
+                timelineContent.appendChild(timelineTitle);
+
+                var timelineMeta = document.createElement('div');
+                timelineMeta.className = 'timeline-meta';
+                timelineMeta.textContent = phase.time + ' | ' + mitreText + ' | ' + (phase.status === 'actual' ? 'Actual' : 'Simulated');
+                timelineContent.appendChild(timelineMeta);
+
+                timelineItem.appendChild(timelineContent);
+                timelineView.appendChild(timelineItem);
+            }
         }
 
-        // Show phase details
+        // Show phase details using safe DOM manipulation
         function showPhaseDetails(phaseNum) {
             currentPhase = phaseNum;
-            const phase = phaseData[phaseNum];
-            const detailsPanel = document.getElementById('detailsPanel');
-            const detailsContent = document.getElementById('detailsContent');
+            var phase = phaseData[phaseNum];
+            var detailsPanel = document.getElementById('detailsPanel');
+            var detailsContent = document.getElementById('detailsContent');
 
             // Update active states
-            document.querySelectorAll('.component').forEach(comp => {
+            document.querySelectorAll('.component').forEach(function(comp) {
                 comp.classList.remove('active');
             });
-            document.querySelectorAll('.timeline-item').forEach(item => {
+            document.querySelectorAll('.timeline-item').forEach(function(item) {
                 item.classList.remove('active');
             });
 
             // Add active state to clicked component
-            const activeComponent = document.querySelector(`.component[data-phase="${phaseNum}"]`);
+            var activeComponent = document.querySelector('.component[data-phase="' + phaseNum + '"]');
             if (activeComponent) {
                 activeComponent.classList.add('active');
             }
 
             // Add active state to timeline item
-            const timelineItems = document.querySelectorAll('.timeline-item');
+            var timelineItems = document.querySelectorAll('.timeline-item');
             if (timelineItems[phaseNum - 1]) {
                 timelineItems[phaseNum - 1].classList.add('active');
             }
 
-            // Generate details HTML
-            const severityColor = getSeverityColor(phase.severity);
-            let actionsHtml = '';
+            // Clear existing content
+            while (detailsContent.firstChild) {
+                detailsContent.removeChild(detailsContent.firstChild);
+            }
 
-            phase.actions.forEach(action => {
-                let detailsHtml = action.details.map(detail => `<li>${detail}</li>`).join('');
-                actionsHtml += `
-                    <div class="action-item">
-                        <div class="action-title">${action.title}</div>
-                        <ul class="action-details">
-                            ${detailsHtml}
-                        </ul>
-                    </div>
-                `;
+            var severityColor = getSeverityColor(phase.severity);
+
+            // Build details header
+            var header = document.createElement('div');
+            header.className = 'details-header';
+
+            var phaseNumberDiv = document.createElement('div');
+            phaseNumberDiv.className = 'details-phase-number';
+            phaseNumberDiv.style.borderColor = severityColor;
+            phaseNumberDiv.style.color = severityColor;
+            phaseNumberDiv.textContent = phase.number;
+            header.appendChild(phaseNumberDiv);
+
+            var titleH2 = document.createElement('h2');
+            titleH2.className = 'details-title';
+            titleH2.textContent = phase.title;
+            header.appendChild(titleH2);
+
+            var severityBadge = document.createElement('div');
+            severityBadge.className = 'severity-badge ' + phase.severity;
+            severityBadge.textContent = phase.severity.toUpperCase();
+            header.appendChild(severityBadge);
+
+            // Build meta section
+            var metaDiv = document.createElement('div');
+            metaDiv.className = 'details-meta';
+
+            // MITRE meta item
+            var mitreItem = document.createElement('div');
+            mitreItem.className = 'meta-item';
+            var mitreLabel = document.createElement('span');
+            mitreLabel.className = 'meta-label';
+            mitreLabel.textContent = 'MITRE:';
+            mitreItem.appendChild(mitreLabel);
+            var mitreValue = document.createElement('span');
+            mitreValue.className = 'meta-value';
+            // Create MITRE links safely
+            phase.mitre.forEach(function(technique, idx) {
+                if (idx > 0) {
+                    mitreValue.appendChild(document.createTextNode(', '));
+                }
+                mitreValue.appendChild(createMitreLink(technique));
+            });
+            mitreItem.appendChild(mitreValue);
+            metaDiv.appendChild(mitreItem);
+
+            // Time meta item
+            var timeItem = document.createElement('div');
+            timeItem.className = 'meta-item';
+            var timeLabel = document.createElement('span');
+            timeLabel.className = 'meta-label';
+            timeLabel.textContent = 'Time:';
+            timeItem.appendChild(timeLabel);
+            var timeValue = document.createElement('span');
+            timeValue.className = 'meta-value';
+            timeValue.textContent = phase.time;
+            timeItem.appendChild(timeValue);
+            metaDiv.appendChild(timeItem);
+
+            // Status meta item
+            var statusItem = document.createElement('div');
+            statusItem.className = 'meta-item';
+            var statusLabel = document.createElement('span');
+            statusLabel.className = 'meta-label';
+            statusLabel.textContent = 'Status:';
+            statusItem.appendChild(statusLabel);
+            var statusValue = document.createElement('span');
+            statusValue.className = 'meta-value';
+            statusValue.textContent = phase.status === 'actual' ? 'Actual execution' : 'Simulated only';
+            statusItem.appendChild(statusValue);
+            metaDiv.appendChild(statusItem);
+
+            header.appendChild(metaDiv);
+            detailsContent.appendChild(header);
+
+            // Description section
+            var descSection = document.createElement('div');
+            descSection.className = 'details-section';
+            var descP = document.createElement('p');
+            descP.style.color = 'var(--diagram-text-secondary)';
+            descP.style.marginBottom = '20px';
+            descP.textContent = phase.description;
+            descSection.appendChild(descP);
+            detailsContent.appendChild(descSection);
+
+            // Actions section
+            var actionsSection = document.createElement('div');
+            actionsSection.className = 'details-section';
+            var actionsTitle = document.createElement('h3');
+            actionsTitle.className = 'section-title';
+            var actionsIcon = document.createElement('span');
+            actionsIcon.textContent = '*';
+            actionsTitle.appendChild(actionsIcon);
+            var actionsTitleText = document.createElement('span');
+            actionsTitleText.textContent = 'Actions Performed';
+            actionsTitle.appendChild(actionsTitleText);
+            actionsSection.appendChild(actionsTitle);
+
+            var actionList = document.createElement('div');
+            actionList.className = 'action-list';
+
+            phase.actions.forEach(function(action) {
+                var actionItem = document.createElement('div');
+                actionItem.className = 'action-item';
+
+                var actionTitle = document.createElement('div');
+                actionTitle.className = 'action-title';
+                actionTitle.textContent = action.title;
+                actionItem.appendChild(actionTitle);
+
+                var detailsList = document.createElement('ul');
+                detailsList.className = 'action-details';
+                action.details.forEach(function(detail) {
+                    var li = document.createElement('li');
+                    li.textContent = detail;
+                    detailsList.appendChild(li);
+                });
+                actionItem.appendChild(detailsList);
+                actionList.appendChild(actionItem);
             });
 
-            const mitreLinks = createMitreLinks(phase.mitre);
+            actionsSection.appendChild(actionList);
+            detailsContent.appendChild(actionsSection);
 
-            detailsContent.innerHTML = `
-                <div class="details-header">
-                    <div class="details-phase-number" style="border-color: ${severityColor}; color: ${severityColor};">
-                        ${phase.number}
-                    </div>
-                    <h2 class="details-title">${phase.title}</h2>
-                    <div class="severity-badge ${phase.severity}">${phase.severity.toUpperCase()}</div>
-                    <div class="details-meta">
-                        <div class="meta-item">
-                            <span class="meta-label">MITRE:</span>
-                            <span class="meta-value">${mitreLinks}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="meta-label">Time:</span>
-                            <span class="meta-value">${phase.time}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="meta-label">Status:</span>
-                            <span class="meta-value">${phase.status === 'actual' ? '✓ Actual execution' : '⚠️ Simulated only'}</span>
-                        </div>
-                    </div>
-                </div>
+            // Code section
+            if (phase.code) {
+                var codeSection = document.createElement('div');
+                codeSection.className = 'details-section';
 
-                <div class="details-section">
-                    <p style="color: #9ca3af; margin-bottom: 20px;">${phase.description}</p>
-                </div>
+                var codeTitle = document.createElement('h3');
+                codeTitle.className = 'section-title';
+                var codeIcon = document.createElement('span');
+                codeIcon.textContent = '</>';
+                codeTitle.appendChild(codeIcon);
+                var codeTitleText = document.createElement('span');
+                codeTitleText.textContent = 'Code Preview';
+                codeTitle.appendChild(codeTitleText);
+                codeSection.appendChild(codeTitle);
 
-                <div class="details-section">
-                    <h3 class="section-title">
-                        <span>🎯</span>
-                        <span>Actions Performed</span>
-                    </h3>
-                    <div class="action-list">
-                        ${actionsHtml}
-                    </div>
-                </div>
+                var codePreview = document.createElement('div');
+                codePreview.className = 'code-preview';
 
-                ${phase.code ? `
-                <div class="details-section">
-                    <h3 class="section-title">
-                        <span>💻</span>
-                        <span>Code Preview</span>
-                    </h3>
-                    <div class="code-preview">
-                        ${phase.code.split('\n').map(line => {
-                            if (line.startsWith('#') || line.startsWith('//')) {
-                                return `<div class="code-line code-comment">${line}</div>`;
-                            } else if (line.includes('=') || line.includes(':=')) {
-                                return `<div class="code-line">${line.replace(/(\$\w+|"[^"]*"|\d+)/g, '<span class="code-highlight">$1</span>')}</div>`;
-                            } else {
-                                return `<div class="code-line">${line}</div>`;
-                            }
-                        }).join('')}
-                    </div>
-                </div>
-                ` : ''}
-            `;
+                phase.code.split('\n').forEach(function(line) {
+                    var codeLine = document.createElement('div');
+                    codeLine.className = line.startsWith('//') ? 'code-line code-comment' : 'code-line';
+                    codeLine.textContent = line;
+                    codePreview.appendChild(codeLine);
+                });
+
+                codeSection.appendChild(codePreview);
+                detailsContent.appendChild(codeSection);
+            }
 
             // Show details panel
             detailsPanel.classList.add('active');
@@ -1307,10 +1554,10 @@
         // Close details panel
         function closeDetails() {
             document.getElementById('detailsPanel').classList.remove('active');
-            document.querySelectorAll('.component').forEach(comp => {
+            document.querySelectorAll('.component').forEach(function(comp) {
                 comp.classList.remove('active');
             });
-            document.querySelectorAll('.timeline-item').forEach(item => {
+            document.querySelectorAll('.timeline-item').forEach(function(item) {
                 item.classList.remove('active');
             });
         }
@@ -1318,7 +1565,7 @@
         // Switch view
         function switchView(view) {
             // Update button states
-            document.querySelectorAll('.view-btn').forEach(btn => {
+            document.querySelectorAll('.view-btn').forEach(function(btn) {
                 btn.classList.remove('active');
             });
             event.target.classList.add('active');
@@ -1348,8 +1595,8 @@
 
         // Update progress bar
         function updateProgressBar(phaseNum) {
-            const progressBar = document.getElementById('progressBar');
-            const width = (phaseNum / 9) * 1140;
+            var progressBar = document.getElementById('progressBar');
+            var width = (phaseNum / 9) * 1140;
             progressBar.style.width = width + 'px';
             progressBar.style.transition = 'width 0.5s ease';
         }
@@ -1359,7 +1606,7 @@
             initializeTimeline();
 
             // Show phase 1 details by default
-            setTimeout(() => {
+            setTimeout(function() {
                 showPhaseDetails(1);
             }, 1000);
         });
@@ -1376,6 +1623,28 @@
                 }
             }
         });
+
+        // ===============================================================
+        // THEME SYNC - Listen for postMessage from parent window
+        // Supports integration with ProjectAchilles iframe embedding
+        // ===============================================================
+        window.addEventListener('message', function(event) {
+            // Handle theme change messages from parent
+            if (event.data && event.data.type === 'theme-change') {
+                var theme = event.data.theme;
+                if (theme === 'light' || theme === 'dark') {
+                    document.documentElement.setAttribute('data-theme', theme);
+                    // Also set class for compatibility
+                    document.documentElement.classList.remove('light', 'dark');
+                    document.documentElement.classList.add(theme);
+                }
+            }
+        });
+
+        // Notify parent that diagram is ready to receive theme
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'diagram-ready' }, '*');
+        }
     </script>
 </body>
 </html>
