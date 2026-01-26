@@ -12,6 +12,92 @@
         Score: 7.8/10
     -->
     <style>
+        /* ═══════════════════════════════════════════════════════════════
+           THEME VARIABLES - OKLch color palette matching ProjectAchilles
+           Supports: data-theme="light|dark", prefers-color-scheme
+           ═══════════════════════════════════════════════════════════════ */
+        :root {
+            /* Light theme (default) */
+            --diagram-bg: oklch(1 0 0);
+            --diagram-bg-gradient-start: oklch(0.985 0 0);
+            --diagram-bg-gradient-end: oklch(0.922 0 0);
+            --diagram-text-primary: oklch(0.145 0 0);
+            --diagram-text-secondary: oklch(0.556 0 0);
+            --diagram-text-muted: oklch(0.708 0 0);
+            --diagram-panel-bg: oklch(1 0 0);
+            --diagram-panel-bg-translucent: oklch(0.985 0 0 / 95%);
+            --diagram-border: oklch(0.922 0 0);
+            --diagram-accent: oklch(0.205 0 0);
+            --diagram-card-bg: oklch(0.97 0 0);
+            --diagram-card-bg-hover: oklch(0.95 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 5%);
+            --diagram-code-bg: oklch(0.97 0 0);
+            --diagram-grid-stroke: oklch(0 0 0 / 3%);
+            --diagram-shadow: oklch(0 0 0 / 15%);
+
+            /* Semantic colors (consistent across themes) */
+            --severity-critical: #ff4444;
+            --severity-critical-bg: rgba(255, 68, 68, 0.1);
+            --severity-high: #ff9f43;
+            --severity-high-bg: rgba(255, 159, 67, 0.1);
+            --severity-medium: #ffc107;
+            --severity-medium-bg: rgba(255, 193, 7, 0.1);
+            --severity-info: #4fc3f7;
+            --severity-info-bg: rgba(79, 195, 247, 0.1);
+
+            /* Accent colors */
+            --diagram-accent-red: #ff6b6b;
+            --diagram-accent-red-light: #ff8787;
+            --diagram-accent-blue: #4fc3f7;
+            --diagram-accent-orange: #ff9f43;
+            --diagram-accent-yellow: #ffc107;
+            --diagram-accent-green: #66bb6a;
+            --diagram-accent-purple: #ab47bc;
+        }
+
+        /* Dark theme */
+        [data-theme="dark"],
+        .dark {
+            --diagram-bg: oklch(0.145 0 0);
+            --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+            --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+            --diagram-text-primary: oklch(0.985 0 0);
+            --diagram-text-secondary: oklch(0.708 0 0);
+            --diagram-text-muted: oklch(0.556 0 0);
+            --diagram-panel-bg: oklch(0.12 0.01 265);
+            --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+            --diagram-border: oklch(1 0 0 / 10%);
+            --diagram-accent: oklch(0.922 0 0);
+            --diagram-card-bg: oklch(0.205 0 0);
+            --diagram-card-bg-hover: oklch(0.25 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 30%);
+            --diagram-code-bg: oklch(0.1 0.02 265);
+            --diagram-grid-stroke: oklch(1 0 0 / 2%);
+            --diagram-shadow: oklch(0 0 0 / 50%);
+        }
+
+        /* Fallback for prefers-color-scheme when no data-theme is set */
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) {
+                --diagram-bg: oklch(0.145 0 0);
+                --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+                --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+                --diagram-text-primary: oklch(0.985 0 0);
+                --diagram-text-secondary: oklch(0.708 0 0);
+                --diagram-text-muted: oklch(0.556 0 0);
+                --diagram-panel-bg: oklch(0.12 0.01 265);
+                --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+                --diagram-border: oklch(1 0 0 / 10%);
+                --diagram-accent: oklch(0.922 0 0);
+                --diagram-card-bg: oklch(0.205 0 0);
+                --diagram-card-bg-hover: oklch(0.25 0 0);
+                --diagram-overlay-bg: oklch(0 0 0 / 30%);
+                --diagram-code-bg: oklch(0.1 0.02 265);
+                --diagram-grid-stroke: oklch(1 0 0 / 2%);
+                --diagram-shadow: oklch(0 0 0 / 50%);
+            }
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -20,15 +106,15 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
-            color: #e0e0e0;
+            background: linear-gradient(135deg, var(--diagram-bg-gradient-start) 0%, var(--diagram-bg-gradient-end) 100%);
+            color: var(--diagram-text-primary);
             min-height: 100vh;
             overflow: hidden;
         }
 
         /* F0RT1KA Header - Hidden when embedded in browser */
         .framework-header {
-            display: none;
+            display: none; /* Redundant - browser header shows F0RT1KA branding */
         }
 
         .framework-title {
@@ -36,7 +122,7 @@
             font-weight: 600;
             letter-spacing: 2px;
             text-transform: uppercase;
-            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            background: linear-gradient(135deg, var(--diagram-accent-red), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -45,13 +131,13 @@
             position: absolute;
             right: 30px;
             font-size: 0.85em;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-style: italic;
         }
 
         .dashboard-container {
             display: flex;
-            height: 100vh;
+            height: 100vh; /* Full height since header is hidden */
             position: relative;
         }
 
@@ -69,19 +155,19 @@
 
         /* Test title header - Hidden when embedded in browser */
         .header {
-            display: none;
+            display: none; /* Redundant - browser header shows test name */
         }
 
         .header h1 {
             font-size: 2.2em;
-            background: linear-gradient(135deg, #ff4458, #ff8787);
+            background: linear-gradient(135deg, var(--severity-critical), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 10px;
         }
 
         .header p {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 1em;
         }
 
@@ -95,10 +181,10 @@
 
         .view-btn {
             padding: 8px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-overlay-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 20px;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 0.9em;
@@ -106,23 +192,23 @@
 
         .view-btn.active {
             background: rgba(255, 107, 107, 0.1);
-            border-color: #ff6b6b;
-            color: #ff6b6b;
+            border-color: var(--diagram-accent-red);
+            color: var(--diagram-accent-red);
         }
 
         .view-btn:hover {
-            background: rgba(255, 255, 255, 0.08);
-            color: #ffffff;
+            background: var(--diagram-card-bg-hover);
+            color: var(--diagram-text-primary);
         }
 
         /* SVG Attack Flow Container */
         .attack-flow-svg-container {
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 12px;
             padding: 10px;
             position: relative;
             flex: 1;
-            min-height: 0;
+            min-height: 0; /* Allow flex shrinking */
             overflow: hidden;
         }
 
@@ -147,7 +233,7 @@
             align-items: center;
             padding: 15px;
             margin-bottom: 15px;
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -155,13 +241,13 @@
         }
 
         .timeline-item:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--diagram-card-bg-hover);
             transform: translateX(5px);
         }
 
         .timeline-item.active {
             background: rgba(255, 107, 107, 0.05);
-            border-left-color: #ff6b6b;
+            border-left-color: var(--diagram-accent-red);
         }
 
         .timeline-number {
@@ -182,26 +268,26 @@
 
         .timeline-title {
             font-size: 1.1em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 5px;
         }
 
         .timeline-meta {
             font-size: 0.85em;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
         }
 
         /* Right Panel - Details (OPAQUE BACKGROUND) */
         .details-panel {
             width: 450px;
-            background: #0f1419;
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-panel-bg); /* Solid opaque background */
+            border-left: 1px solid var(--diagram-border);
             padding: 30px;
             overflow-y: auto;
             position: relative;
             transform: translateX(100%);
             transition: transform 0.3s ease;
-            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8);
+            box-shadow: -5px 0 20px var(--diagram-shadow); /* Add shadow for depth */
         }
 
         .details-panel.active {
@@ -211,7 +297,7 @@
         .details-header {
             margin-bottom: 25px;
             padding-bottom: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--diagram-border);
         }
 
         .details-phase-number {
@@ -229,7 +315,7 @@
 
         .details-title {
             font-size: 1.5em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 10px;
         }
 
@@ -248,24 +334,24 @@
         }
 
         .meta-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         .meta-value {
-            color: #d1d5db;
+            color: var(--diagram-text-secondary);
             font-family: 'SF Mono', monospace;
         }
 
         /* MITRE Links Styling */
         .mitre-link {
-            color: #4fc3f7;
+            color: var(--diagram-accent-blue);
             text-decoration: none;
-            border-bottom: 1px dotted #4fc3f7;
+            border-bottom: 1px dotted var(--diagram-accent-blue);
             transition: all 0.2s ease;
         }
 
         .mitre-link:hover {
-            color: #29b6f6;
+            color: var(--severity-info);
             border-bottom-style: solid;
         }
 
@@ -281,32 +367,32 @@
         }
 
         .severity-badge.critical {
-            color: #ff4444;
-            border-color: #ff4444;
-            background: rgba(255, 68, 68, 0.1);
+            color: var(--severity-critical);
+            border-color: var(--severity-critical);
+            background: var(--severity-critical-bg);
         }
 
         .severity-badge.high {
-            color: #ff9f43;
-            border-color: #ff9f43;
-            background: rgba(255, 159, 67, 0.1);
+            color: var(--severity-high);
+            border-color: var(--severity-high);
+            background: var(--severity-high-bg);
         }
 
         .severity-badge.medium {
-            color: #ffc107;
-            border-color: #ffc107;
-            background: rgba(255, 193, 7, 0.1);
+            color: var(--severity-medium);
+            border-color: var(--severity-medium);
+            background: var(--severity-medium-bg);
         }
 
         .severity-badge.info {
-            color: #4fc3f7;
-            border-color: #4fc3f7;
-            background: rgba(79, 195, 247, 0.1);
+            color: var(--severity-info);
+            border-color: var(--severity-info);
+            background: var(--severity-info-bg);
         }
 
         .severity-badge.success {
-            color: #66bb6a;
-            border-color: #66bb6a;
+            color: var(--diagram-accent-green);
+            border-color: var(--diagram-accent-green);
             background: rgba(102, 187, 106, 0.1);
         }
 
@@ -316,7 +402,7 @@
 
         .section-title {
             font-size: 1.1em;
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             margin-bottom: 15px;
             display: flex;
             align-items: center;
@@ -328,8 +414,8 @@
         }
 
         .action-item {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--diagram-card-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 12px;
             margin-bottom: 10px;
@@ -337,7 +423,7 @@
 
         .action-title {
             font-weight: 500;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 8px;
             font-size: 0.95em;
         }
@@ -348,7 +434,7 @@
         }
 
         .action-details li {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 0.85em;
             padding: 3px 0;
             padding-left: 15px;
@@ -359,13 +445,13 @@
             content: '>';
             position: absolute;
             left: 0;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         /* Code Preview */
         .code-preview {
-            background: #0a0e27;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-code-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 15px;
             margin-top: 15px;
@@ -375,16 +461,16 @@
         }
 
         .code-line {
-            color: #66bb6a;
+            color: var(--diagram-accent-green);
             line-height: 1.5;
         }
 
         .code-comment {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         .code-highlight {
-            color: #ff9f43;
+            color: var(--diagram-accent-orange);
         }
 
         /* Close button for details panel */
@@ -394,7 +480,7 @@
             right: 15px;
             background: none;
             border: none;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-size: 24px;
             cursor: pointer;
             transition: color 0.3s ease;
@@ -402,7 +488,7 @@
         }
 
         .close-details:hover {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
         }
 
         /* Mobile responsive */
@@ -459,11 +545,11 @@
 
         /* Navigation hints - Hidden when embedded */
         .nav-hint {
-            display: none;
+            display: none; /* Redundant - diagram title says "Click components for details" */
         }
 
         .nav-hint-icon {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
         }
 
         /* Sidebar toggle button */
@@ -474,11 +560,11 @@
             transform: translateY(-50%);
             width: 28px;
             height: 80px;
-            background: rgba(0, 0, 0, 0.8);
-            border: 1px solid rgba(255, 107, 107, 0.3);
+            background: var(--diagram-panel-bg-translucent);
+            border: 1px solid var(--diagram-border);
             border-right: none;
             border-radius: 8px 0 0 8px;
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -519,19 +605,19 @@
         }
 
         .stat-mini {
-            background: rgba(0, 0, 0, 0.7);
+            background: var(--diagram-panel-bg-translucent);
             padding: 8px 12px;
             border-radius: 6px;
             font-size: 0.85em;
         }
 
         .stat-mini-value {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             font-weight: bold;
         }
 
         .stat-mini-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             margin-left: 5px;
         }
 
@@ -549,6 +635,35 @@
             filter: drop-shadow(0 0 20px rgba(255, 193, 7, 0.7));
             stroke: #ffc107;
             stroke-width: 2;
+        }
+
+        /* SVG Text Color Overrides - CSS cascades over inline attributes */
+        .attack-flow-svg text {
+            fill: var(--diagram-text-primary);
+        }
+
+        .attack-flow-svg text.svg-text-secondary,
+        .attack-flow-svg .component text:not(:first-of-type) {
+            fill: var(--diagram-text-secondary);
+        }
+
+        .attack-flow-svg .svg-title-box text:first-of-type {
+            fill: var(--diagram-accent-red);
+        }
+
+        .attack-flow-svg .svg-timeline text {
+            fill: var(--diagram-text-secondary);
+        }
+
+        /* Progress bar background */
+        .attack-flow-svg .progress-track {
+            fill: var(--diagram-overlay-bg);
+        }
+
+        /* Central title box */
+        .attack-flow-svg .title-box-bg {
+            fill: var(--diagram-panel-bg-translucent);
+            stroke: rgba(255, 107, 107, 0.3);
         }
     </style>
 </head>
@@ -622,7 +737,7 @@
 
                         <!-- Grid Pattern -->
                         <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="var(--diagram-grid-stroke)" stroke-width="1"/>
                         </pattern>
                     </defs>
 
@@ -633,33 +748,33 @@
                     <g class="component" data-phase="1" onclick="showPhaseDetails(1)">
                         <rect class="component-box" x="50" y="200" width="160" height="100" rx="8"
                               fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
-                        <text x="130" y="235" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Extract Binary</text>
-                        <text x="130" y="255" text-anchor="middle" fill="#9ca3af" font-size="11">EDRSilencer.exe</text>
-                        <text x="130" y="275" text-anchor="middle" fill="#9ca3af" font-size="11">to C:\F0</text>
+                        <text x="130" y="235" text-anchor="middle" font-size="14" font-weight="bold">Extract Binary</text>
+                        <text x="130" y="255" text-anchor="middle" font-size="11" class="svg-text-secondary">EDRSilencer.exe</text>
+                        <text x="130" y="275" text-anchor="middle" font-size="11" class="svg-text-secondary">to C:\F0</text>
                     </g>
 
                     <!-- Phase 2: Wait for Defense -->
                     <g class="component" data-phase="2" onclick="showPhaseDetails(2)">
                         <rect class="component-box" x="270" y="200" width="140" height="100" rx="8"
                               fill="url(#blueGradient)" stroke="#4fc3f7" stroke-width="1" opacity="0.2"/>
-                        <text x="340" y="235" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Wait Period</text>
-                        <text x="340" y="255" text-anchor="middle" fill="#9ca3af" font-size="11">3 Seconds</text>
-                        <text x="340" y="275" text-anchor="middle" fill="#9ca3af" font-size="11">Defense Check</text>
+                        <text x="340" y="235" text-anchor="middle" font-size="14" font-weight="bold">Wait Period</text>
+                        <text x="340" y="255" text-anchor="middle" font-size="11" class="svg-text-secondary">3 Seconds</text>
+                        <text x="340" y="275" text-anchor="middle" font-size="11" class="svg-text-secondary">Defense Check</text>
                     </g>
 
                     <!-- Phase 3: Quarantine Check (Decision Diamond) -->
                     <g class="component decision-diamond" data-phase="3" onclick="showPhaseDetails(3)">
                         <polygon class="component-box" points="520,250 580,200 640,250 580,300"
                               fill="url(#yellowGradient)" stroke="#ffc107" stroke-width="1" opacity="0.2"/>
-                        <text x="580" y="245" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">Quarantine</text>
-                        <text x="580" y="260" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">Check</text>
+                        <text x="580" y="245" text-anchor="middle" font-size="12" font-weight="bold">Quarantine</text>
+                        <text x="580" y="260" text-anchor="middle" font-size="12" font-weight="bold">Check</text>
                     </g>
 
                     <!-- Exit 105 - Quarantined -->
                     <g class="component" data-phase="3a" onclick="showPhaseDetails('3a')">
                         <rect class="component-box" x="530" y="360" width="100" height="60" rx="8"
                               fill="url(#greenGradient)" stroke="#66bb6a" stroke-width="1" opacity="0.2"/>
-                        <text x="580" y="385" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">Exit 105</text>
+                        <text x="580" y="385" text-anchor="middle" font-size="12" font-weight="bold">Exit 105</text>
                         <text x="580" y="402" text-anchor="middle" fill="#66bb6a" font-size="10">PROTECTED</text>
                     </g>
 
@@ -667,33 +782,33 @@
                     <g class="component" data-phase="4" onclick="showPhaseDetails(4)">
                         <rect class="component-box" x="720" y="200" width="160" height="100" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="800" y="230" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Execute</text>
-                        <text x="800" y="250" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">EDRSilencer</text>
-                        <text x="800" y="275" text-anchor="middle" fill="#9ca3af" font-size="11">blockedr param</text>
+                        <text x="800" y="230" text-anchor="middle" font-size="14" font-weight="bold">Execute</text>
+                        <text x="800" y="250" text-anchor="middle" font-size="14" font-weight="bold">EDRSilencer</text>
+                        <text x="800" y="275" text-anchor="middle" font-size="11" class="svg-text-secondary">blockedr param</text>
                     </g>
 
                     <!-- Phase 5: Cleanup -->
                     <g class="component" data-phase="5" onclick="showPhaseDetails(5)">
                         <rect class="component-box" x="940" y="200" width="160" height="100" rx="8"
                               fill="url(#purpleGradient)" stroke="#ab47bc" stroke-width="1" opacity="0.2"/>
-                        <text x="1020" y="235" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Cleanup</text>
-                        <text x="1020" y="255" text-anchor="middle" fill="#9ca3af" font-size="11">unblockall param</text>
-                        <text x="1020" y="275" text-anchor="middle" fill="#9ca3af" font-size="11">Remove WFP Filters</text>
+                        <text x="1020" y="235" text-anchor="middle" font-size="14" font-weight="bold">Cleanup</text>
+                        <text x="1020" y="255" text-anchor="middle" font-size="11" class="svg-text-secondary">unblockall param</text>
+                        <text x="1020" y="275" text-anchor="middle" font-size="11" class="svg-text-secondary">Remove WFP Filters</text>
                     </g>
 
                     <!-- Phase 6: Assessment -->
-                    <g class="component" data-phase="6" onclick="showPhaseDetails(6)">
+                    <g class="component decision-diamond" data-phase="6" onclick="showPhaseDetails(6)">
                         <polygon class="component-box" points="1020,380 1080,340 1140,380 1080,420"
                               fill="url(#yellowGradient)" stroke="#ffc107" stroke-width="1" opacity="0.2"/>
-                        <text x="1080" y="375" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold">Assess</text>
-                        <text x="1080" y="390" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold">Result</text>
+                        <text x="1080" y="375" text-anchor="middle" font-size="11" font-weight="bold">Assess</text>
+                        <text x="1080" y="390" text-anchor="middle" font-size="11" font-weight="bold">Result</text>
                     </g>
 
                     <!-- Exit 126 - Execution Prevented -->
                     <g class="component" data-phase="6a" onclick="showPhaseDetails('6a')">
                         <rect class="component-box" x="920" y="450" width="100" height="60" rx="8"
                               fill="url(#greenGradient)" stroke="#66bb6a" stroke-width="1" opacity="0.2"/>
-                        <text x="970" y="475" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">Exit 126</text>
+                        <text x="970" y="475" text-anchor="middle" font-size="12" font-weight="bold">Exit 126</text>
                         <text x="970" y="492" text-anchor="middle" fill="#66bb6a" font-size="10">PROTECTED</text>
                     </g>
 
@@ -701,7 +816,7 @@
                     <g class="component" data-phase="6b" onclick="showPhaseDetails('6b')">
                         <rect class="component-box" x="1060" y="450" width="100" height="60" rx="8"
                               fill="url(#redGradient)" stroke="#ff4444" stroke-width="1" opacity="0.2"/>
-                        <text x="1110" y="475" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">Exit 101</text>
+                        <text x="1110" y="475" text-anchor="middle" font-size="12" font-weight="bold">Exit 101</text>
                         <text x="1110" y="492" text-anchor="middle" fill="#ff4444" font-size="10">UNPROTECTED</text>
                     </g>
 
@@ -735,30 +850,34 @@
                     <text x="1125" y="438" fill="#ff6b6b" font-size="10">SUCCESS</text>
 
                     <!-- Central Title -->
-                    <rect x="400" y="30" width="400" height="55" rx="8" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
-                    <text x="600" y="52" text-anchor="middle" fill="#ff6b6b" font-size="16" font-weight="bold">EDRSilencer Detection - Attack Flow</text>
-                    <text x="600" y="72" text-anchor="middle" fill="#9ca3af" font-size="11">T1562.001 - Impair Defenses: Disable or Modify Tools</text>
+                    <g class="svg-title-box">
+                        <rect class="title-box-bg" x="400" y="30" width="400" height="55" rx="8"/>
+                        <text x="600" y="52" text-anchor="middle" font-size="16" font-weight="bold">EDRSilencer Detection - Attack Flow</text>
+                        <text x="600" y="72" text-anchor="middle" font-size="11" class="svg-text-secondary">T1562.001 - Impair Defenses: Disable or Modify Tools</text>
+                    </g>
 
                     <!-- Execution Timeline -->
-                    <text x="130" y="130" fill="#9ca3af" font-size="10">T+0s</text>
-                    <text x="340" y="130" fill="#9ca3af" font-size="10">T+0.1s</text>
-                    <text x="580" y="130" fill="#9ca3af" font-size="10">T+3s</text>
-                    <text x="800" y="130" fill="#9ca3af" font-size="10">T+3.5s</text>
-                    <text x="1020" y="130" fill="#9ca3af" font-size="10">T+5s</text>
+                    <g class="svg-timeline">
+                        <text x="130" y="130" font-size="10">T+0s</text>
+                        <text x="340" y="130" font-size="10">T+0.1s</text>
+                        <text x="580" y="130" font-size="10">T+3s</text>
+                        <text x="800" y="130" font-size="10">T+3.5s</text>
+                        <text x="1020" y="130" font-size="10">T+5s</text>
+                    </g>
 
                     <!-- Progress Bar -->
-                    <rect x="50" y="145" width="1080" height="4" rx="2" fill="rgba(255,255,255,0.1)"/>
+                    <rect class="progress-track" x="50" y="145" width="1080" height="4" rx="2"/>
                     <rect x="50" y="145" width="0" height="4" rx="2" fill="#ff6b6b" id="progressBar"/>
 
                     <!-- MITRE Badge -->
-                    <rect x="50" y="470" width="200" height="50" rx="6" fill="rgba(0,0,0,0.5)" stroke="rgba(79,195,247,0.3)"/>
+                    <rect x="50" y="470" width="200" height="50" rx="6" class="title-box-bg"/>
                     <text x="70" y="492" fill="#4fc3f7" font-size="11" font-weight="bold">MITRE ATT&CK</text>
-                    <text x="70" y="508" fill="#9ca3af" font-size="10">T1562.001 - Defense Evasion</text>
+                    <text x="70" y="508" font-size="10" class="svg-text-secondary">T1562.001 - Defense Evasion</text>
 
                     <!-- Test Score Badge -->
-                    <rect x="270" y="470" width="120" height="50" rx="6" fill="rgba(0,0,0,0.5)" stroke="rgba(255,159,67,0.3)"/>
+                    <rect x="270" y="470" width="120" height="50" rx="6" class="title-box-bg"/>
                     <text x="290" y="492" fill="#ff9f43" font-size="11" font-weight="bold">Test Score</text>
-                    <text x="290" y="508" fill="#ffffff" font-size="14" font-weight="bold">7.8/10</text>
+                    <text x="290" y="508" font-size="14" font-weight="bold">7.8/10</text>
                 </svg>
 
                 <div class="stats-overlay">
@@ -803,7 +922,8 @@
     </div>
 
     <script>
-        // Phase data with MITRE links
+        // Phase data with MITRE links - Static data for attack flow visualization
+        // Note: This data is hardcoded and not derived from user input
         const phaseData = {
             1: {
                 number: 1,
@@ -835,7 +955,7 @@
                         ]
                     }
                 ],
-                code: "//go:embed EDRSilencer.exe\\nvar malicious []byte\\n\\nif err := Endpoint.Dropper(Dropper.Dropper); err != nil {\\n    Endpoint.Stop(Endpoint.UnexpectedTestError)\\n}"
+                code: "//go:embed EDRSilencer.exe\nvar malicious []byte\n\nif err := Endpoint.Dropper(Dropper.Dropper); err != nil {\n    Endpoint.Stop(Endpoint.UnexpectedTestError)\n}"
             },
             2: {
                 number: 2,
@@ -867,7 +987,7 @@
                         ]
                     }
                 ],
-                code: "Endpoint.Say(\"Extracting EDRSilencer tool for quarantine test\")\\nEndpoint.Say(\"Pausing for 3 seconds to gauge defensive reaction\")\\nEndpoint.Wait(3)"
+                code: "Endpoint.Say(\"Extracting EDRSilencer tool for quarantine test\")\nEndpoint.Say(\"Pausing for 3 seconds to gauge defensive reaction\")\nEndpoint.Wait(3)"
             },
             3: {
                 number: 3,
@@ -898,7 +1018,7 @@
                         ]
                     }
                 ],
-                code: "if Endpoint.Quarantined(\"EDRSilencer.exe\", malicious) {\\n    Endpoint.Say(\"EDRSilencer binary was caught!\")\\n    Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)\\n}"
+                code: "if Endpoint.Quarantined(\"EDRSilencer.exe\", malicious) {\n    Endpoint.Say(\"EDRSilencer binary was caught!\")\n    Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)\n}"
             },
             "3a": {
                 number: "3a",
@@ -929,7 +1049,7 @@
                         ]
                     }
                 ],
-                code: "Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)\\n// Exit code: 105"
+                code: "Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)\n// Exit code: 105"
             },
             4: {
                 number: 4,
@@ -971,7 +1091,7 @@
                         ]
                     }
                 ],
-                code: "command := []string{\\n    \".\\\\EDRSilencer.exe\", \"blockedr\",\\n}\\n_, err := Endpoint.Shell(command)"
+                code: "command := []string{\n    \".\\\\EDRSilencer.exe\", \"blockedr\",\n}\n_, err := Endpoint.Shell(command)"
             },
             5: {
                 number: 5,
@@ -1003,7 +1123,7 @@
                         ]
                     }
                 ],
-                code: "cleanupCommand := []string{\\n    \".\\\\EDRSilencer.exe\", \"unblockall\",\\n}\\n_, err = Endpoint.Shell(cleanupCommand)\\nif err != nil {\\n    Endpoint.Say(\"Warning: Failed to clean up WFP filters: %v\", err)\\n}"
+                code: "cleanupCommand := []string{\n    \".\\\\EDRSilencer.exe\", \"unblockall\",\n}\n_, err = Endpoint.Shell(cleanupCommand)\nif err != nil {\n    Endpoint.Say(\"Warning: Failed to clean up WFP filters: %v\", err)\n}"
             },
             6: {
                 number: 6,
@@ -1034,7 +1154,7 @@
                         ]
                     }
                 ],
-                code: "if err != nil {\\n    Endpoint.Say(\"Got error when executing EDRSilencer\")\\n    Endpoint.Stop(Endpoint.ExecutionPrevented)\\n}\\nEndpoint.Say(\"EDRSilencer execution was not prevented\")\\nEndpoint.Stop(Endpoint.Unprotected)"
+                code: "if err != nil {\n    Endpoint.Say(\"Got error when executing EDRSilencer\")\n    Endpoint.Stop(Endpoint.ExecutionPrevented)\n}\nEndpoint.Say(\"EDRSilencer execution was not prevented\")\nEndpoint.Stop(Endpoint.Unprotected)"
             },
             "6a": {
                 number: "6a",
@@ -1065,7 +1185,7 @@
                         ]
                     }
                 ],
-                code: "Endpoint.Stop(Endpoint.ExecutionPrevented)\\n// Exit code: 126"
+                code: "Endpoint.Stop(Endpoint.ExecutionPrevented)\n// Exit code: 126"
             },
             "6b": {
                 number: "6b",
@@ -1105,7 +1225,7 @@
                         ]
                     }
                 ],
-                code: "Endpoint.Stop(Endpoint.Unprotected)\\n// Exit code: 101"
+                code: "Endpoint.Stop(Endpoint.Unprotected)\n// Exit code: 101"
             }
         };
 
@@ -1133,43 +1253,67 @@
             }
         }
 
-        // Function to create MITRE links
+        // Function to create MITRE links using safe DOM methods
         function createMitreLinks(mitreArray) {
             return mitreArray.map(function(technique) {
                 var baseUrl = "https://attack.mitre.org/techniques/";
                 var techId = technique.id.replace('.', '/');
-                return '<a href="' + baseUrl + techId + '" target="_blank" class="mitre-link" title="' + technique.name + '">' + technique.id + '</a>';
+                // Using template literal with escaped content
+                return '<a href="' + encodeURI(baseUrl + techId) + '" target="_blank" rel="noopener noreferrer" class="mitre-link" title="' + escapeHtml(technique.name) + '">' + escapeHtml(technique.id) + '</a>';
             }).join(', ');
         }
 
-        // Initialize timeline view
+        // Helper function to escape HTML entities
+        function escapeHtml(text) {
+            var div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Initialize timeline view using DOM methods
         function initializeTimeline() {
             var timelineView = document.getElementById('timelineView');
-            var html = '';
             var phases = [1, 2, 3, 4, 5, 6];
+
+            // Clear existing content
+            timelineView.textContent = '';
 
             phases.forEach(function(i) {
                 var phase = phaseData[i];
                 var severityColor = getSeverityColor(phase.severity);
                 var mitreText = phase.mitre.map(function(t) { return t.id; }).join(', ');
 
-                html += '<div class="timeline-item" onclick="showPhaseDetails(' + i + ')">' +
-                    '<div class="timeline-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
-                        i +
-                    '</div>' +
-                    '<div class="timeline-content">' +
-                        '<div class="timeline-title">' + phase.title + '</div>' +
-                        '<div class="timeline-meta">' +
-                            phase.time + ' - ' + mitreText + ' - ' + (phase.status === 'actual' ? 'Actual' : (phase.status === 'outcome' ? 'Outcome' : 'Simulated')) +
-                        '</div>' +
-                    '</div>' +
-                '</div>';
-            });
+                var item = document.createElement('div');
+                item.className = 'timeline-item';
+                item.onclick = function() { showPhaseDetails(i); };
 
-            timelineView.innerHTML = html;
+                var number = document.createElement('div');
+                number.className = 'timeline-number';
+                number.style.borderColor = severityColor;
+                number.style.color = severityColor;
+                number.textContent = i;
+
+                var content = document.createElement('div');
+                content.className = 'timeline-content';
+
+                var title = document.createElement('div');
+                title.className = 'timeline-title';
+                title.textContent = phase.title;
+
+                var meta = document.createElement('div');
+                meta.className = 'timeline-meta';
+                var statusLabel = phase.status === 'actual' ? 'Actual' : (phase.status === 'outcome' ? 'Outcome' : 'Simulated');
+                meta.textContent = phase.time + ' - ' + mitreText + ' - ' + statusLabel;
+
+                content.appendChild(title);
+                content.appendChild(meta);
+                item.appendChild(number);
+                item.appendChild(content);
+                timelineView.appendChild(item);
+            });
         }
 
-        // Show phase details
+        // Show phase details using DOM construction
         function showPhaseDetails(phaseNum) {
             currentPhase = phaseNum;
             var phase = phaseData[phaseNum];
@@ -1198,84 +1342,168 @@
                 }
             }
 
-            // Generate details HTML
+            // Build details content using DOM methods
             var severityColor = getSeverityColor(phase.severity);
-            var actionsHtml = '';
+
+            // Clear and rebuild content
+            detailsContent.textContent = '';
+
+            // Header section
+            var header = document.createElement('div');
+            header.className = 'details-header';
+
+            var phaseNumber = document.createElement('div');
+            phaseNumber.className = 'details-phase-number';
+            phaseNumber.style.borderColor = severityColor;
+            phaseNumber.style.color = severityColor;
+            phaseNumber.textContent = phase.number;
+
+            var titleEl = document.createElement('h2');
+            titleEl.className = 'details-title';
+            titleEl.textContent = phase.title;
+
+            var badge = document.createElement('div');
+            badge.className = 'severity-badge ' + phase.severity;
+            badge.textContent = phase.severity.toUpperCase();
+
+            var meta = document.createElement('div');
+            meta.className = 'details-meta';
+
+            // MITRE meta item
+            var mitreMeta = document.createElement('div');
+            mitreMeta.className = 'meta-item';
+            var mitreLabel = document.createElement('span');
+            mitreLabel.className = 'meta-label';
+            mitreLabel.textContent = 'MITRE:';
+            var mitreValue = document.createElement('span');
+            mitreValue.className = 'meta-value';
+            // Using innerHTML here is safe because createMitreLinks escapes the content
+            mitreValue.innerHTML = createMitreLinks(phase.mitre);
+            mitreMeta.appendChild(mitreLabel);
+            mitreMeta.appendChild(mitreValue);
+
+            // Time meta item
+            var timeMeta = document.createElement('div');
+            timeMeta.className = 'meta-item';
+            var timeLabel = document.createElement('span');
+            timeLabel.className = 'meta-label';
+            timeLabel.textContent = 'Time:';
+            var timeValue = document.createElement('span');
+            timeValue.className = 'meta-value';
+            timeValue.textContent = phase.time;
+            timeMeta.appendChild(timeLabel);
+            timeMeta.appendChild(timeValue);
+
+            // Status meta item
+            var statusMeta = document.createElement('div');
+            statusMeta.className = 'meta-item';
+            var statusLabel = document.createElement('span');
+            statusLabel.className = 'meta-label';
+            statusLabel.textContent = 'Status:';
+            var statusValue = document.createElement('span');
+            statusValue.className = 'meta-value';
+            var statusText = phase.status === 'actual' ? '[*] Actual execution' : (phase.status === 'outcome' ? '[!] Test outcome' : '[~] Simulated only');
+            statusValue.textContent = statusText;
+            statusMeta.appendChild(statusLabel);
+            statusMeta.appendChild(statusValue);
+
+            meta.appendChild(mitreMeta);
+            meta.appendChild(timeMeta);
+            meta.appendChild(statusMeta);
+
+            header.appendChild(phaseNumber);
+            header.appendChild(titleEl);
+            header.appendChild(badge);
+            header.appendChild(meta);
+
+            // Description section
+            var descSection = document.createElement('div');
+            descSection.className = 'details-section';
+            var descP = document.createElement('p');
+            descP.style.color = 'var(--diagram-text-secondary)';
+            descP.style.marginBottom = '20px';
+            descP.textContent = phase.description;
+            descSection.appendChild(descP);
+
+            // Actions section
+            var actionsSection = document.createElement('div');
+            actionsSection.className = 'details-section';
+            var actionsTitle = document.createElement('h3');
+            actionsTitle.className = 'section-title';
+            var actionsIcon = document.createElement('span');
+            actionsIcon.textContent = '[#]';
+            var actionsTitleText = document.createElement('span');
+            actionsTitleText.textContent = 'Actions Performed';
+            actionsTitle.appendChild(actionsIcon);
+            actionsTitle.appendChild(actionsTitleText);
+
+            var actionsList = document.createElement('div');
+            actionsList.className = 'action-list';
 
             phase.actions.forEach(function(action) {
-                var detailsHtml = action.details.map(function(detail) { return '<li>' + detail + '</li>'; }).join('');
-                actionsHtml += '<div class="action-item">' +
-                    '<div class="action-title">' + action.title + '</div>' +
-                    '<ul class="action-details">' +
-                        detailsHtml +
-                    '</ul>' +
-                '</div>';
+                var actionItem = document.createElement('div');
+                actionItem.className = 'action-item';
+
+                var actionTitle = document.createElement('div');
+                actionTitle.className = 'action-title';
+                actionTitle.textContent = action.title;
+
+                var detailsList = document.createElement('ul');
+                detailsList.className = 'action-details';
+
+                action.details.forEach(function(detail) {
+                    var li = document.createElement('li');
+                    li.textContent = detail;
+                    detailsList.appendChild(li);
+                });
+
+                actionItem.appendChild(actionTitle);
+                actionItem.appendChild(detailsList);
+                actionsList.appendChild(actionItem);
             });
 
-            var mitreLinks = createMitreLinks(phase.mitre);
-            var statusText = phase.status === 'actual' ? 'Actual execution' : (phase.status === 'outcome' ? 'Test outcome' : 'Simulated only');
-            var statusIcon = phase.status === 'actual' ? '[*]' : (phase.status === 'outcome' ? '[!]' : '[~]');
+            actionsSection.appendChild(actionsTitle);
+            actionsSection.appendChild(actionsList);
 
-            var codeHtml = '';
+            // Code section (if exists)
+            var codeSection = null;
             if (phase.code) {
-                var codeLines = phase.code.split('\\n').map(function(line) {
-                    if (line.startsWith('//') || line.startsWith('#')) {
-                        return '<div class="code-line code-comment">' + line + '</div>';
-                    } else if (line.includes('=') || line.includes(':=')) {
-                        return '<div class="code-line">' + line.replace(/(\$\w+|"\w+"|'\w+'|\d+)/g, '<span class="code-highlight">$1</span>') + '</div>';
-                    } else {
-                        return '<div class="code-line">' + line + '</div>';
-                    }
-                }).join('');
+                codeSection = document.createElement('div');
+                codeSection.className = 'details-section';
 
-                codeHtml = '<div class="details-section">' +
-                    '<h3 class="section-title">' +
-                        '<span>[&gt;]</span>' +
-                        '<span>Code Preview</span>' +
-                    '</h3>' +
-                    '<div class="code-preview">' +
-                        codeLines +
-                    '</div>' +
-                '</div>';
+                var codeTitle = document.createElement('h3');
+                codeTitle.className = 'section-title';
+                var codeIcon = document.createElement('span');
+                codeIcon.textContent = '[>]';
+                var codeTitleText = document.createElement('span');
+                codeTitleText.textContent = 'Code Preview';
+                codeTitle.appendChild(codeIcon);
+                codeTitle.appendChild(codeTitleText);
+
+                var codePreview = document.createElement('div');
+                codePreview.className = 'code-preview';
+
+                phase.code.split('\n').forEach(function(line) {
+                    var codeLine = document.createElement('div');
+                    codeLine.className = 'code-line';
+                    if (line.startsWith('//') || line.startsWith('#')) {
+                        codeLine.classList.add('code-comment');
+                    }
+                    codeLine.textContent = line;
+                    codePreview.appendChild(codeLine);
+                });
+
+                codeSection.appendChild(codeTitle);
+                codeSection.appendChild(codePreview);
             }
 
-            detailsContent.innerHTML = '<div class="details-header">' +
-                '<div class="details-phase-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
-                    phase.number +
-                '</div>' +
-                '<h2 class="details-title">' + phase.title + '</h2>' +
-                '<div class="severity-badge ' + phase.severity + '">' + phase.severity.toUpperCase() + '</div>' +
-                '<div class="details-meta">' +
-                    '<div class="meta-item">' +
-                        '<span class="meta-label">MITRE:</span>' +
-                        '<span class="meta-value">' + mitreLinks + '</span>' +
-                    '</div>' +
-                    '<div class="meta-item">' +
-                        '<span class="meta-label">Time:</span>' +
-                        '<span class="meta-value">' + phase.time + '</span>' +
-                    '</div>' +
-                    '<div class="meta-item">' +
-                        '<span class="meta-label">Status:</span>' +
-                        '<span class="meta-value">' + statusIcon + ' ' + statusText + '</span>' +
-                    '</div>' +
-                '</div>' +
-            '</div>' +
-
-            '<div class="details-section">' +
-                '<p style="color: #9ca3af; margin-bottom: 20px;">' + phase.description + '</p>' +
-            '</div>' +
-
-            '<div class="details-section">' +
-                '<h3 class="section-title">' +
-                    '<span>[#]</span>' +
-                    '<span>Actions Performed</span>' +
-                '</h3>' +
-                '<div class="action-list">' +
-                    actionsHtml +
-                '</div>' +
-            '</div>' +
-
-            codeHtml;
+            // Append all sections
+            detailsContent.appendChild(header);
+            detailsContent.appendChild(descSection);
+            detailsContent.appendChild(actionsSection);
+            if (codeSection) {
+                detailsContent.appendChild(codeSection);
+            }
 
             // Show details panel
             detailsPanel.classList.add('active');
@@ -1370,6 +1598,28 @@
                 }
             }
         });
+
+        // ═══════════════════════════════════════════════════════════════
+        // THEME SYNC - Listen for postMessage from parent window
+        // Supports integration with ProjectAchilles iframe embedding
+        // ═══════════════════════════════════════════════════════════════
+        window.addEventListener('message', function(event) {
+            // Handle theme change messages from parent
+            if (event.data && event.data.type === 'theme-change') {
+                const theme = event.data.theme;
+                if (theme === 'light' || theme === 'dark') {
+                    document.documentElement.setAttribute('data-theme', theme);
+                    // Also set class for compatibility
+                    document.documentElement.classList.remove('light', 'dark');
+                    document.documentElement.classList.add(theme);
+                }
+            }
+        });
+
+        // Notify parent that diagram is ready to receive theme
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'diagram-ready' }, '*');
+        }
     </script>
 </body>
 </html>

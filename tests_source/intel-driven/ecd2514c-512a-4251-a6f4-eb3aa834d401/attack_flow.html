@@ -11,6 +11,92 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CyberEye RAT - Windows Defender Disabling - Attack/Test Flow</title>
     <style>
+        /* ===================================================================
+           THEME VARIABLES - OKLch color palette matching ProjectAchilles
+           Supports: data-theme="light|dark", prefers-color-scheme
+           =================================================================== */
+        :root {
+            /* Light theme (default) */
+            --diagram-bg: oklch(1 0 0);
+            --diagram-bg-gradient-start: oklch(0.985 0 0);
+            --diagram-bg-gradient-end: oklch(0.922 0 0);
+            --diagram-text-primary: oklch(0.145 0 0);
+            --diagram-text-secondary: oklch(0.556 0 0);
+            --diagram-text-muted: oklch(0.708 0 0);
+            --diagram-panel-bg: oklch(1 0 0);
+            --diagram-panel-bg-translucent: oklch(0.985 0 0 / 95%);
+            --diagram-border: oklch(0.922 0 0);
+            --diagram-accent: oklch(0.205 0 0);
+            --diagram-card-bg: oklch(0.97 0 0);
+            --diagram-card-bg-hover: oklch(0.95 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 5%);
+            --diagram-code-bg: oklch(0.97 0 0);
+            --diagram-grid-stroke: oklch(0 0 0 / 3%);
+            --diagram-shadow: oklch(0 0 0 / 15%);
+
+            /* Semantic colors (consistent across themes) */
+            --severity-critical: #ff4444;
+            --severity-critical-bg: rgba(255, 68, 68, 0.1);
+            --severity-high: #ff9f43;
+            --severity-high-bg: rgba(255, 159, 67, 0.1);
+            --severity-medium: #ffc107;
+            --severity-medium-bg: rgba(255, 193, 7, 0.1);
+            --severity-info: #4fc3f7;
+            --severity-info-bg: rgba(79, 195, 247, 0.1);
+
+            /* Accent colors */
+            --diagram-accent-red: #ff6b6b;
+            --diagram-accent-red-light: #ff8787;
+            --diagram-accent-blue: #4fc3f7;
+            --diagram-accent-orange: #ff9f43;
+            --diagram-accent-yellow: #ffc107;
+            --diagram-accent-green: #66bb6a;
+            --diagram-accent-purple: #9c27b0;
+        }
+
+        /* Dark theme */
+        [data-theme="dark"],
+        .dark {
+            --diagram-bg: oklch(0.145 0 0);
+            --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+            --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+            --diagram-text-primary: oklch(0.985 0 0);
+            --diagram-text-secondary: oklch(0.708 0 0);
+            --diagram-text-muted: oklch(0.556 0 0);
+            --diagram-panel-bg: oklch(0.12 0.01 265);
+            --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+            --diagram-border: oklch(1 0 0 / 10%);
+            --diagram-accent: oklch(0.922 0 0);
+            --diagram-card-bg: oklch(0.205 0 0);
+            --diagram-card-bg-hover: oklch(0.25 0 0);
+            --diagram-overlay-bg: oklch(0 0 0 / 30%);
+            --diagram-code-bg: oklch(0.1 0.02 265);
+            --diagram-grid-stroke: oklch(1 0 0 / 2%);
+            --diagram-shadow: oklch(0 0 0 / 50%);
+        }
+
+        /* Fallback for prefers-color-scheme when no data-theme is set */
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) {
+                --diagram-bg: oklch(0.145 0 0);
+                --diagram-bg-gradient-start: oklch(0.1 0.02 265);
+                --diagram-bg-gradient-end: oklch(0.18 0.02 265);
+                --diagram-text-primary: oklch(0.985 0 0);
+                --diagram-text-secondary: oklch(0.708 0 0);
+                --diagram-text-muted: oklch(0.556 0 0);
+                --diagram-panel-bg: oklch(0.12 0.01 265);
+                --diagram-panel-bg-translucent: oklch(0.12 0.01 265 / 95%);
+                --diagram-border: oklch(1 0 0 / 10%);
+                --diagram-accent: oklch(0.922 0 0);
+                --diagram-card-bg: oklch(0.205 0 0);
+                --diagram-card-bg-hover: oklch(0.25 0 0);
+                --diagram-overlay-bg: oklch(0 0 0 / 30%);
+                --diagram-code-bg: oklch(0.1 0.02 265);
+                --diagram-grid-stroke: oklch(1 0 0 / 2%);
+                --diagram-shadow: oklch(0 0 0 / 50%);
+            }
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -19,8 +105,8 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
-            color: #e0e0e0;
+            background: linear-gradient(135deg, var(--diagram-bg-gradient-start) 0%, var(--diagram-bg-gradient-end) 100%);
+            color: var(--diagram-text-primary);
             min-height: 100vh;
             overflow: hidden;
         }
@@ -35,7 +121,7 @@
             font-weight: 600;
             letter-spacing: 2px;
             text-transform: uppercase;
-            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            background: linear-gradient(135deg, var(--diagram-accent-red), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -44,7 +130,7 @@
             position: absolute;
             right: 30px;
             font-size: 0.85em;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-style: italic;
         }
 
@@ -73,14 +159,14 @@
 
         .header h1 {
             font-size: 2.2em;
-            background: linear-gradient(135deg, #ff4458, #ff8787);
+            background: linear-gradient(135deg, var(--severity-critical), var(--diagram-accent-red-light));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 10px;
         }
 
         .header p {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 1em;
         }
 
@@ -94,10 +180,10 @@
 
         .view-btn {
             padding: 8px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-overlay-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 20px;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 0.9em;
@@ -105,18 +191,18 @@
 
         .view-btn.active {
             background: rgba(255, 107, 107, 0.1);
-            border-color: #ff6b6b;
-            color: #ff6b6b;
+            border-color: var(--diagram-accent-red);
+            color: var(--diagram-accent-red);
         }
 
         .view-btn:hover {
-            background: rgba(255, 255, 255, 0.08);
-            color: #ffffff;
+            background: var(--diagram-card-bg-hover);
+            color: var(--diagram-text-primary);
         }
 
         /* SVG Attack Flow Container */
         .attack-flow-svg-container {
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 12px;
             padding: 10px;
             position: relative;
@@ -146,7 +232,7 @@
             align-items: center;
             padding: 15px;
             margin-bottom: 15px;
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--diagram-overlay-bg);
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -154,13 +240,13 @@
         }
 
         .timeline-item:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--diagram-card-bg-hover);
             transform: translateX(5px);
         }
 
         .timeline-item.active {
             background: rgba(255, 107, 107, 0.05);
-            border-left-color: #ff6b6b;
+            border-left-color: var(--diagram-accent-red);
         }
 
         .timeline-number {
@@ -181,26 +267,26 @@
 
         .timeline-title {
             font-size: 1.1em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 5px;
         }
 
         .timeline-meta {
             font-size: 0.85em;
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
         }
 
         /* Right Panel - Details (OPAQUE BACKGROUND) */
         .details-panel {
             width: 450px;
-            background: #0f1419; /* Solid opaque background */
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-panel-bg); /* Solid opaque background */
+            border-left: 1px solid var(--diagram-border);
             padding: 30px;
             overflow-y: auto;
             position: relative;
             transform: translateX(100%);
             transition: transform 0.3s ease;
-            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8); /* Add shadow for depth */
+            box-shadow: -5px 0 20px var(--diagram-shadow); /* Add shadow for depth */
         }
 
         .details-panel.active {
@@ -210,7 +296,7 @@
         .details-header {
             margin-bottom: 25px;
             padding-bottom: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--diagram-border);
         }
 
         .details-phase-number {
@@ -228,7 +314,7 @@
 
         .details-title {
             font-size: 1.5em;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 10px;
         }
 
@@ -247,24 +333,24 @@
         }
 
         .meta-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         .meta-value {
-            color: #d1d5db;
+            color: var(--diagram-text-secondary);
             font-family: 'SF Mono', monospace;
         }
 
         /* MITRE Links Styling */
         .mitre-link {
-            color: #4fc3f7;
+            color: var(--diagram-accent-blue);
             text-decoration: none;
-            border-bottom: 1px dotted #4fc3f7;
+            border-bottom: 1px dotted var(--diagram-accent-blue);
             transition: all 0.2s ease;
         }
 
         .mitre-link:hover {
-            color: #29b6f6;
+            color: var(--severity-info);
             border-bottom-style: solid;
         }
 
@@ -280,27 +366,27 @@
         }
 
         .severity-badge.critical {
-            color: #ff4444;
-            border-color: #ff4444;
-            background: rgba(255, 68, 68, 0.1);
+            color: var(--severity-critical);
+            border-color: var(--severity-critical);
+            background: var(--severity-critical-bg);
         }
 
         .severity-badge.high {
-            color: #ff9f43;
-            border-color: #ff9f43;
-            background: rgba(255, 159, 67, 0.1);
+            color: var(--severity-high);
+            border-color: var(--severity-high);
+            background: var(--severity-high-bg);
         }
 
         .severity-badge.medium {
-            color: #ffc107;
-            border-color: #ffc107;
-            background: rgba(255, 193, 7, 0.1);
+            color: var(--severity-medium);
+            border-color: var(--severity-medium);
+            background: var(--severity-medium-bg);
         }
 
         .severity-badge.info {
-            color: #4fc3f7;
-            border-color: #4fc3f7;
-            background: rgba(79, 195, 247, 0.1);
+            color: var(--severity-info);
+            border-color: var(--severity-info);
+            background: var(--severity-info-bg);
         }
 
         .details-section {
@@ -309,7 +395,7 @@
 
         .section-title {
             font-size: 1.1em;
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             margin-bottom: 15px;
             display: flex;
             align-items: center;
@@ -321,8 +407,8 @@
         }
 
         .action-item {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--diagram-card-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 12px;
             margin-bottom: 10px;
@@ -330,7 +416,7 @@
 
         .action-title {
             font-weight: 500;
-            color: #ffffff;
+            color: var(--diagram-text-primary);
             margin-bottom: 8px;
             font-size: 0.95em;
         }
@@ -341,7 +427,7 @@
         }
 
         .action-details li {
-            color: #9ca3af;
+            color: var(--diagram-text-secondary);
             font-size: 0.85em;
             padding: 3px 0;
             padding-left: 15px;
@@ -352,13 +438,13 @@
             content: '>';
             position: absolute;
             left: 0;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         /* Code Preview */
         .code-preview {
-            background: #0a0e27;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--diagram-code-bg);
+            border: 1px solid var(--diagram-border);
             border-radius: 6px;
             padding: 15px;
             margin-top: 15px;
@@ -368,16 +454,16 @@
         }
 
         .code-line {
-            color: #66bb6a;
+            color: var(--diagram-accent-green);
             line-height: 1.5;
         }
 
         .code-comment {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
         }
 
         .code-highlight {
-            color: #ff9f43;
+            color: var(--diagram-accent-orange);
         }
 
         /* Close button for details panel */
@@ -387,7 +473,7 @@
             right: 15px;
             background: none;
             border: none;
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             font-size: 24px;
             cursor: pointer;
             transition: color 0.3s ease;
@@ -395,7 +481,7 @@
         }
 
         .close-details:hover {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
         }
 
         /* Mobile responsive */
@@ -456,7 +542,7 @@
         }
 
         .nav-hint-icon {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
         }
 
         /* Sidebar toggle button */
@@ -467,11 +553,11 @@
             transform: translateY(-50%);
             width: 28px;
             height: 80px;
-            background: rgba(0, 0, 0, 0.8);
-            border: 1px solid rgba(255, 107, 107, 0.3);
+            background: var(--diagram-panel-bg-translucent);
+            border: 1px solid var(--diagram-border);
             border-right: none;
             border-radius: 8px 0 0 8px;
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -512,20 +598,65 @@
         }
 
         .stat-mini {
-            background: rgba(0, 0, 0, 0.7);
+            background: var(--diagram-panel-bg-translucent);
             padding: 8px 12px;
             border-radius: 6px;
             font-size: 0.85em;
         }
 
         .stat-mini-value {
-            color: #ff6b6b;
+            color: var(--diagram-accent-red);
             font-weight: bold;
         }
 
         .stat-mini-label {
-            color: #6b7280;
+            color: var(--diagram-text-muted);
             margin-left: 5px;
+        }
+
+        /* SVG Text Color Overrides - CSS cascades over inline attributes */
+        .attack-flow-svg text {
+            fill: var(--diagram-text-primary);
+        }
+
+        .attack-flow-svg text.svg-text-secondary,
+        .attack-flow-svg .component text:not(:first-of-type) {
+            fill: var(--diagram-text-secondary);
+        }
+
+        .attack-flow-svg .svg-title-box text:first-of-type {
+            fill: var(--diagram-accent-red);
+        }
+
+        .attack-flow-svg .svg-timeline text {
+            fill: var(--diagram-text-secondary);
+        }
+
+        /* Progress bar background */
+        .attack-flow-svg .progress-track {
+            fill: var(--diagram-overlay-bg);
+        }
+
+        /* Central title box */
+        .attack-flow-svg .title-box-bg {
+            fill: var(--diagram-panel-bg-translucent);
+            stroke: rgba(255, 107, 107, 0.3);
+        }
+
+        /* Info boxes */
+        .attack-flow-svg .info-box-detection {
+            fill: rgba(79, 195, 247, 0.1);
+            stroke: rgba(79, 195, 247, 0.3);
+        }
+
+        .attack-flow-svg .info-box-registry {
+            fill: rgba(255, 107, 107, 0.1);
+            stroke: rgba(255, 107, 107, 0.3);
+        }
+
+        .attack-flow-svg .info-box-results {
+            fill: rgba(76, 175, 80, 0.1);
+            stroke: rgba(76, 175, 80, 0.3);
         }
     </style>
 </head>
@@ -591,7 +722,7 @@
 
                         <!-- Grid Pattern -->
                         <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="var(--diagram-grid-stroke)" stroke-width="1"/>
                         </pattern>
                     </defs>
 
@@ -602,54 +733,54 @@
                     <g class="component" data-phase="1" onclick="showPhaseDetails(1)">
                         <rect class="component-box" x="50" y="200" width="160" height="100" rx="8"
                               fill="url(#yellowGradient)" stroke="#ffc107" stroke-width="1" opacity="0.2"/>
-                        <text x="130" y="235" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Script Drop</text>
-                        <text x="130" y="255" text-anchor="middle" fill="#9ca3af" font-size="11">CyberEye-TTPs.ps1</text>
-                        <text x="130" y="275" text-anchor="middle" fill="#9ca3af" font-size="11">to c:\F0</text>
+                        <text x="130" y="235" text-anchor="middle" font-size="14" font-weight="bold">Script Drop</text>
+                        <text x="130" y="255" text-anchor="middle" font-size="11">CyberEye-TTPs.ps1</text>
+                        <text x="130" y="275" text-anchor="middle" font-size="11">to c:\F0</text>
                     </g>
 
                     <!-- Phase 2: Execution Policy Bypass -->
                     <g class="component" data-phase="2" onclick="showPhaseDetails(2)">
                         <rect class="component-box" x="270" y="200" width="160" height="100" rx="8"
                               fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
-                        <text x="350" y="235" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Policy Bypass</text>
-                        <text x="350" y="255" text-anchor="middle" fill="#9ca3af" font-size="11">-ExecutionPolicy</text>
-                        <text x="350" y="275" text-anchor="middle" fill="#9ca3af" font-size="11">Bypass</text>
+                        <text x="350" y="235" text-anchor="middle" font-size="14" font-weight="bold">Policy Bypass</text>
+                        <text x="350" y="255" text-anchor="middle" font-size="11">-ExecutionPolicy</text>
+                        <text x="350" y="275" text-anchor="middle" font-size="11">Bypass</text>
                     </g>
 
                     <!-- Phase 3: Disable Tamper Protection -->
                     <g class="component" data-phase="3" onclick="showPhaseDetails(3)">
                         <rect class="component-box" x="490" y="120" width="180" height="100" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="580" y="155" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Tamper Protection</text>
-                        <text x="580" y="175" text-anchor="middle" fill="#9ca3af" font-size="11">TamperProtection = 0</text>
-                        <text x="580" y="195" text-anchor="middle" fill="#9ca3af" font-size="11">Registry Modification</text>
+                        <text x="580" y="155" text-anchor="middle" font-size="14" font-weight="bold">Tamper Protection</text>
+                        <text x="580" y="175" text-anchor="middle" font-size="11">TamperProtection = 0</text>
+                        <text x="580" y="195" text-anchor="middle" font-size="11">Registry Modification</text>
                     </g>
 
                     <!-- Phase 4: Disable Anti-Spyware -->
                     <g class="component" data-phase="4" onclick="showPhaseDetails(4)">
                         <rect class="component-box" x="490" y="280" width="180" height="100" rx="8"
                               fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
-                        <text x="580" y="315" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Anti-Spyware</text>
-                        <text x="580" y="335" text-anchor="middle" fill="#9ca3af" font-size="11">DisableAntiSpyware = 1</text>
-                        <text x="580" y="355" text-anchor="middle" fill="#9ca3af" font-size="11">Policy Registry</text>
+                        <text x="580" y="315" text-anchor="middle" font-size="14" font-weight="bold">Anti-Spyware</text>
+                        <text x="580" y="335" text-anchor="middle" font-size="11">DisableAntiSpyware = 1</text>
+                        <text x="580" y="355" text-anchor="middle" font-size="11">Policy Registry</text>
                     </g>
 
                     <!-- Phase 5: Real-Time Protection -->
                     <g class="component" data-phase="5" onclick="showPhaseDetails(5)">
                         <rect class="component-box" x="730" y="200" width="180" height="100" rx="8"
                               fill="url(#purpleGradient)" stroke="#9c27b0" stroke-width="1" opacity="0.2"/>
-                        <text x="820" y="230" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Real-Time Disable</text>
-                        <text x="820" y="250" text-anchor="middle" fill="#9ca3af" font-size="11">Behavior Monitoring</text>
-                        <text x="820" y="270" text-anchor="middle" fill="#9ca3af" font-size="11">On-Access Protection</text>
+                        <text x="820" y="230" text-anchor="middle" font-size="14" font-weight="bold">Real-Time Disable</text>
+                        <text x="820" y="250" text-anchor="middle" font-size="11">Behavior Monitoring</text>
+                        <text x="820" y="270" text-anchor="middle" font-size="11">On-Access Protection</text>
                     </g>
 
                     <!-- Phase 6: Verification -->
                     <g class="component" data-phase="6" onclick="showPhaseDetails(6)">
                         <rect class="component-box" x="970" y="200" width="160" height="100" rx="8"
                               fill="url(#greenGradient)" stroke="#4caf50" stroke-width="1" opacity="0.2"/>
-                        <text x="1050" y="235" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Verification</text>
-                        <text x="1050" y="255" text-anchor="middle" fill="#9ca3af" font-size="11">Query Settings</text>
-                        <text x="1050" y="275" text-anchor="middle" fill="#9ca3af" font-size="11">Confirm Disabled</text>
+                        <text x="1050" y="235" text-anchor="middle" font-size="14" font-weight="bold">Verification</text>
+                        <text x="1050" y="255" text-anchor="middle" font-size="11">Query Settings</text>
+                        <text x="1050" y="275" text-anchor="middle" font-size="11">Confirm Disabled</text>
                     </g>
 
                     <!-- Flow Arrows -->
@@ -674,30 +805,32 @@
                           marker-end="url(#arrowhead)" opacity="0.5"/>
 
                     <!-- Central Title -->
-                    <rect x="400" y="20" width="400" height="50" rx="8" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
-                    <text x="600" y="40" text-anchor="middle" fill="#ff6b6b" font-size="16" font-weight="bold">T1562.001 - Impair Defenses: Disable or Modify Tools</text>
-                    <text x="600" y="58" text-anchor="middle" fill="#9ca3af" font-size="11">Click components for details</text>
+                    <g class="svg-title-box">
+                        <rect class="title-box-bg" x="400" y="20" width="400" height="50" rx="8"/>
+                        <text x="600" y="40" text-anchor="middle" font-size="16" font-weight="bold">T1562.001 - Impair Defenses: Disable or Modify Tools</text>
+                        <text class="svg-text-secondary" x="600" y="58" text-anchor="middle" font-size="11">Click components for details</text>
+                    </g>
 
                     <!-- Detection Points Labels -->
-                    <rect x="50" y="420" width="280" height="70" rx="6" fill="rgba(79, 195, 247, 0.1)" stroke="rgba(79, 195, 247, 0.3)"/>
+                    <rect class="info-box-detection" x="50" y="420" width="280" height="70" rx="6"/>
                     <text x="190" y="445" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">Detection Points</text>
-                    <text x="190" y="465" text-anchor="middle" fill="#9ca3af" font-size="10">PowerShell execution with -ExecutionPolicy Bypass</text>
-                    <text x="190" y="480" text-anchor="middle" fill="#9ca3af" font-size="10">Registry modifications in Windows Defender paths</text>
+                    <text x="190" y="465" text-anchor="middle" font-size="10">PowerShell execution with -ExecutionPolicy Bypass</text>
+                    <text x="190" y="480" text-anchor="middle" font-size="10">Registry modifications in Windows Defender paths</text>
 
                     <!-- Registry Paths Label -->
-                    <rect x="400" y="420" width="350" height="70" rx="6" fill="rgba(255, 107, 107, 0.1)" stroke="rgba(255, 107, 107, 0.3)"/>
+                    <rect class="info-box-registry" x="400" y="420" width="350" height="70" rx="6"/>
                     <text x="575" y="445" text-anchor="middle" fill="#ff6b6b" font-size="12" font-weight="bold">Target Registry Paths</text>
-                    <text x="575" y="465" text-anchor="middle" fill="#9ca3af" font-size="10">HKLM:\SOFTWARE\Microsoft\Windows Defender\Features</text>
-                    <text x="575" y="480" text-anchor="middle" fill="#9ca3af" font-size="10">HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\*</text>
+                    <text x="575" y="465" text-anchor="middle" font-size="10">HKLM:\SOFTWARE\Microsoft\Windows Defender\Features</text>
+                    <text x="575" y="480" text-anchor="middle" font-size="10">HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\*</text>
 
                     <!-- Result Codes Label -->
-                    <rect x="820" y="420" width="320" height="70" rx="6" fill="rgba(76, 175, 80, 0.1)" stroke="rgba(76, 175, 80, 0.3)"/>
+                    <rect class="info-box-results" x="820" y="420" width="320" height="70" rx="6"/>
                     <text x="980" y="445" text-anchor="middle" fill="#4caf50" font-size="12" font-weight="bold">Expected Results</text>
-                    <text x="980" y="465" text-anchor="middle" fill="#9ca3af" font-size="10">101: Registry modified (Unprotected)</text>
-                    <text x="980" y="480" text-anchor="middle" fill="#9ca3af" font-size="10">105: Script quarantined | 126: Access blocked</text>
+                    <text x="980" y="465" text-anchor="middle" font-size="10">101: Registry modified (Unprotected)</text>
+                    <text x="980" y="480" text-anchor="middle" font-size="10">105: Script quarantined | 126: Access blocked</text>
 
                     <!-- Progress Bar -->
-                    <rect x="50" y="510" width="1100" height="4" rx="2" fill="rgba(255,255,255,0.1)"/>
+                    <rect class="progress-track" x="50" y="510" width="1100" height="4" rx="2"/>
                     <rect x="50" y="510" width="0" height="4" rx="2" fill="#ff6b6b" id="progressBar"/>
                 </svg>
 
@@ -743,7 +876,7 @@
     </div>
 
     <script>
-        // Phase data with MITRE links
+        // Phase data with MITRE links - hardcoded trusted data for this security test
         var phaseData = {
             1: {
                 number: 1,
@@ -793,7 +926,7 @@
                         title: "PowerShell Launch",
                         details: [
                             "Execute powershell.exe with bypass flag",
-                            "Command: powershell.exe -ExecutionPolicy Bypass -File <script>",
+                            "Command: powershell.exe -ExecutionPolicy Bypass -File script",
                             "Working directory set to c:\\F0",
                             "Capture combined stdout/stderr output"
                         ]
@@ -920,7 +1053,7 @@
             },
             6: {
                 number: 6,
-                title: "Verification & Result Evaluation",
+                title: "Verification and Result Evaluation",
                 severity: "info",
                 mitre: [
                     { id: "T1082", name: "System Information Discovery" }
@@ -977,42 +1110,69 @@
             }
         }
 
-        // Function to create MITRE links
+        // Function to create MITRE links using DOM methods
         function createMitreLinks(mitreArray) {
-            return mitreArray.map(function(technique) {
+            var container = document.createDocumentFragment();
+            for (var i = 0; i < mitreArray.length; i++) {
+                var technique = mitreArray[i];
                 var baseUrl = "https://attack.mitre.org/techniques/";
-                var techId = technique.id.replace('.', '/'); // Handle sub-techniques like T1059.001
-                return '<a href="' + baseUrl + techId + '" target="_blank" class="mitre-link" title="' + technique.name + '">' + technique.id + '</a>';
-            }).join(', ');
+                var techId = technique.id.replace('.', '/');
+
+                var link = document.createElement('a');
+                link.href = baseUrl + techId;
+                link.target = '_blank';
+                link.className = 'mitre-link';
+                link.title = technique.name;
+                link.textContent = technique.id;
+
+                container.appendChild(link);
+                if (i < mitreArray.length - 1) {
+                    container.appendChild(document.createTextNode(', '));
+                }
+            }
+            return container;
         }
 
-        // Initialize timeline view
+        // Initialize timeline view using DOM methods
         function initializeTimeline() {
             var timelineView = document.getElementById('timelineView');
-            var html = '';
+            timelineView.textContent = '';
 
             for (var i = 1; i <= 6; i++) {
                 var phase = phaseData[i];
                 var severityColor = getSeverityColor(phase.severity);
                 var mitreText = phase.mitre.map(function(t) { return t.id; }).join(', ');
 
-                html += '<div class="timeline-item" onclick="showPhaseDetails(' + i + ')">' +
-                    '<div class="timeline-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
-                        i +
-                    '</div>' +
-                    '<div class="timeline-content">' +
-                        '<div class="timeline-title">' + phase.title + '</div>' +
-                        '<div class="timeline-meta">' +
-                            phase.time + ' - ' + mitreText + ' - ' + (phase.status === 'actual' ? 'Actual' : 'Simulated') +
-                        '</div>' +
-                    '</div>' +
-                '</div>';
-            }
+                var item = document.createElement('div');
+                item.className = 'timeline-item';
+                item.setAttribute('onclick', 'showPhaseDetails(' + i + ')');
 
-            timelineView.innerHTML = html;
+                var numDiv = document.createElement('div');
+                numDiv.className = 'timeline-number';
+                numDiv.style.borderColor = severityColor;
+                numDiv.style.color = severityColor;
+                numDiv.textContent = i;
+
+                var contentDiv = document.createElement('div');
+                contentDiv.className = 'timeline-content';
+
+                var titleDiv = document.createElement('div');
+                titleDiv.className = 'timeline-title';
+                titleDiv.textContent = phase.title;
+
+                var metaDiv = document.createElement('div');
+                metaDiv.className = 'timeline-meta';
+                metaDiv.textContent = phase.time + ' - ' + mitreText + ' - ' + (phase.status === 'actual' ? 'Actual' : 'Simulated');
+
+                contentDiv.appendChild(titleDiv);
+                contentDiv.appendChild(metaDiv);
+                item.appendChild(numDiv);
+                item.appendChild(contentDiv);
+                timelineView.appendChild(item);
+            }
         }
 
-        // Show phase details
+        // Show phase details using DOM methods
         function showPhaseDetails(phaseNum) {
             currentPhase = phaseNum;
             var phase = phaseData[phaseNum];
@@ -1040,81 +1200,152 @@
                 timelineItems[phaseNum - 1].classList.add('active');
             }
 
-            // Generate details HTML
+            // Build details content using DOM methods
+            detailsContent.textContent = '';
             var severityColor = getSeverityColor(phase.severity);
-            var actionsHtml = '';
 
+            // Details header
+            var header = document.createElement('div');
+            header.className = 'details-header';
+
+            var phaseNumEl = document.createElement('div');
+            phaseNumEl.className = 'details-phase-number';
+            phaseNumEl.style.borderColor = severityColor;
+            phaseNumEl.style.color = severityColor;
+            phaseNumEl.textContent = phase.number;
+            header.appendChild(phaseNumEl);
+
+            var titleEl = document.createElement('h2');
+            titleEl.className = 'details-title';
+            titleEl.textContent = phase.title;
+            header.appendChild(titleEl);
+
+            var badgeEl = document.createElement('div');
+            badgeEl.className = 'severity-badge ' + phase.severity;
+            badgeEl.textContent = phase.severity.toUpperCase();
+            header.appendChild(badgeEl);
+
+            var metaDiv = document.createElement('div');
+            metaDiv.className = 'details-meta';
+
+            // MITRE meta item
+            var mitreMeta = document.createElement('div');
+            mitreMeta.className = 'meta-item';
+            var mitreLabel = document.createElement('span');
+            mitreLabel.className = 'meta-label';
+            mitreLabel.textContent = 'MITRE:';
+            var mitreValue = document.createElement('span');
+            mitreValue.className = 'meta-value';
+            mitreValue.appendChild(createMitreLinks(phase.mitre));
+            mitreMeta.appendChild(mitreLabel);
+            mitreMeta.appendChild(mitreValue);
+            metaDiv.appendChild(mitreMeta);
+
+            // Time meta item
+            var timeMeta = document.createElement('div');
+            timeMeta.className = 'meta-item';
+            var timeLabel = document.createElement('span');
+            timeLabel.className = 'meta-label';
+            timeLabel.textContent = 'Time:';
+            var timeValue = document.createElement('span');
+            timeValue.className = 'meta-value';
+            timeValue.textContent = phase.time;
+            timeMeta.appendChild(timeLabel);
+            timeMeta.appendChild(timeValue);
+            metaDiv.appendChild(timeMeta);
+
+            // Status meta item
+            var statusMeta = document.createElement('div');
+            statusMeta.className = 'meta-item';
+            var statusLabel = document.createElement('span');
+            statusLabel.className = 'meta-label';
+            statusLabel.textContent = 'Status:';
+            var statusValue = document.createElement('span');
+            statusValue.className = 'meta-value';
+            statusValue.textContent = phase.status === 'actual' ? 'Actual execution' : 'Simulated only';
+            statusMeta.appendChild(statusLabel);
+            statusMeta.appendChild(statusValue);
+            metaDiv.appendChild(statusMeta);
+
+            header.appendChild(metaDiv);
+            detailsContent.appendChild(header);
+
+            // Description section
+            var descSection = document.createElement('div');
+            descSection.className = 'details-section';
+            var descP = document.createElement('p');
+            descP.style.color = 'var(--diagram-text-secondary)';
+            descP.style.marginBottom = '20px';
+            descP.textContent = phase.description;
+            descSection.appendChild(descP);
+            detailsContent.appendChild(descSection);
+
+            // Actions section
+            var actionsSection = document.createElement('div');
+            actionsSection.className = 'details-section';
+            var actionsTitle = document.createElement('h3');
+            actionsTitle.className = 'section-title';
+            var actionsIcon = document.createElement('span');
+            actionsIcon.textContent = '[*]';
+            var actionsTitleText = document.createElement('span');
+            actionsTitleText.textContent = 'Actions Performed';
+            actionsTitle.appendChild(actionsIcon);
+            actionsTitle.appendChild(actionsTitleText);
+            actionsSection.appendChild(actionsTitle);
+
+            var actionList = document.createElement('div');
+            actionList.className = 'action-list';
             for (var a = 0; a < phase.actions.length; a++) {
                 var action = phase.actions[a];
-                var detailsListHtml = '';
+                var actionItem = document.createElement('div');
+                actionItem.className = 'action-item';
+                var actionTitleEl = document.createElement('div');
+                actionTitleEl.className = 'action-title';
+                actionTitleEl.textContent = action.title;
+                actionItem.appendChild(actionTitleEl);
+
+                var detailsList = document.createElement('ul');
+                detailsList.className = 'action-details';
                 for (var d = 0; d < action.details.length; d++) {
-                    detailsListHtml += '<li>' + action.details[d] + '</li>';
+                    var li = document.createElement('li');
+                    li.textContent = action.details[d];
+                    detailsList.appendChild(li);
                 }
-                actionsHtml += '<div class="action-item">' +
-                    '<div class="action-title">' + action.title + '</div>' +
-                    '<ul class="action-details">' + detailsListHtml + '</ul>' +
-                '</div>';
+                actionItem.appendChild(detailsList);
+                actionList.appendChild(actionItem);
             }
+            actionsSection.appendChild(actionList);
+            detailsContent.appendChild(actionsSection);
 
-            var mitreLinks = createMitreLinks(phase.mitre);
-
-            // Build code preview HTML
-            var codePreviewHtml = '';
+            // Code preview section
             if (phase.code) {
+                var codeSection = document.createElement('div');
+                codeSection.className = 'details-section';
+                var codeTitle = document.createElement('h3');
+                codeTitle.className = 'section-title';
+                var codeIcon = document.createElement('span');
+                codeIcon.textContent = '[>]';
+                var codeTitleText = document.createElement('span');
+                codeTitleText.textContent = 'Code Preview';
+                codeTitle.appendChild(codeIcon);
+                codeTitle.appendChild(codeTitleText);
+                codeSection.appendChild(codeTitle);
+
+                var codePreview = document.createElement('div');
+                codePreview.className = 'code-preview';
                 var codeLines = phase.code.split('\n');
-                var codeLinesHtml = '';
                 for (var c = 0; c < codeLines.length; c++) {
-                    var line = codeLines[c];
-                    if (line.indexOf('#') === 0 || line.indexOf('//') === 0) {
-                        codeLinesHtml += '<div class="code-line code-comment">' + escapeHtml(line) + '</div>';
-                    } else {
-                        codeLinesHtml += '<div class="code-line">' + escapeHtml(line) + '</div>';
+                    var lineDiv = document.createElement('div');
+                    lineDiv.className = 'code-line';
+                    if (codeLines[c].indexOf('#') === 0 || codeLines[c].indexOf('//') === 0) {
+                        lineDiv.classList.add('code-comment');
                     }
+                    lineDiv.textContent = codeLines[c];
+                    codePreview.appendChild(lineDiv);
                 }
-                codePreviewHtml = '<div class="details-section">' +
-                    '<h3 class="section-title">' +
-                        '<span>[&gt;]</span>' +
-                        '<span>Code Preview</span>' +
-                    '</h3>' +
-                    '<div class="code-preview">' + codeLinesHtml + '</div>' +
-                '</div>';
+                codeSection.appendChild(codePreview);
+                detailsContent.appendChild(codeSection);
             }
-
-            detailsContent.innerHTML = '<div class="details-header">' +
-                '<div class="details-phase-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
-                    phase.number +
-                '</div>' +
-                '<h2 class="details-title">' + phase.title + '</h2>' +
-                '<div class="severity-badge ' + phase.severity + '">' + phase.severity.toUpperCase() + '</div>' +
-                '<div class="details-meta">' +
-                    '<div class="meta-item">' +
-                        '<span class="meta-label">MITRE:</span>' +
-                        '<span class="meta-value">' + mitreLinks + '</span>' +
-                    '</div>' +
-                    '<div class="meta-item">' +
-                        '<span class="meta-label">Time:</span>' +
-                        '<span class="meta-value">' + phase.time + '</span>' +
-                    '</div>' +
-                    '<div class="meta-item">' +
-                        '<span class="meta-label">Status:</span>' +
-                        '<span class="meta-value">' + (phase.status === 'actual' ? 'Actual execution' : 'Simulated only') + '</span>' +
-                    '</div>' +
-                '</div>' +
-            '</div>' +
-
-            '<div class="details-section">' +
-                '<p style="color: #9ca3af; margin-bottom: 20px;">' + phase.description + '</p>' +
-            '</div>' +
-
-            '<div class="details-section">' +
-                '<h3 class="section-title">' +
-                    '<span>[*]</span>' +
-                    '<span>Actions Performed</span>' +
-                '</h3>' +
-                '<div class="action-list">' + actionsHtml + '</div>' +
-            '</div>' +
-
-            codePreviewHtml;
 
             // Show details panel
             detailsPanel.classList.add('active');
@@ -1127,13 +1358,6 @@
             if (!sidebarCollapsed) {
                 toggleBtn.classList.add('expanded');
             }
-        }
-
-        // Escape HTML helper
-        function escapeHtml(text) {
-            var div = document.createElement('div');
-            div.appendChild(document.createTextNode(text));
-            return div.innerHTML;
         }
 
         // Close details panel
@@ -1216,6 +1440,28 @@
                 }
             }
         });
+
+        // ===================================================================
+        // THEME SYNC - Listen for postMessage from parent window
+        // Supports integration with ProjectAchilles iframe embedding
+        // ===================================================================
+        window.addEventListener('message', function(event) {
+            // Handle theme change messages from parent
+            if (event.data && event.data.type === 'theme-change') {
+                var theme = event.data.theme;
+                if (theme === 'light' || theme === 'dark') {
+                    document.documentElement.setAttribute('data-theme', theme);
+                    // Also set class for compatibility
+                    document.documentElement.classList.remove('light', 'dark');
+                    document.documentElement.classList.add(theme);
+                }
+            }
+        });
+
+        // Notify parent that diagram is ready to receive theme
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'diagram-ready' }, '*');
+        }
     </script>
 </body>
 </html>
