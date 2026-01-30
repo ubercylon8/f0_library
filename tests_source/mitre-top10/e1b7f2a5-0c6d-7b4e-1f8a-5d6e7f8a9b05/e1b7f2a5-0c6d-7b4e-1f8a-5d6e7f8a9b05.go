@@ -5,9 +5,16 @@
 ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
 NAME: System Recovery Inhibition (Safe Mode)
 TECHNIQUES: T1490
+TACTICS: impact
 SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: impact
+TAGS: recovery-inhibition, shadow-copy, vssadmin, bcdedit
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 package main
 

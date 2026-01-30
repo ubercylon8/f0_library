@@ -4,10 +4,17 @@
 /*
 ID: 2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11
 NAME: SafePay UAC Bypass & Defense Evasion
-TECHNIQUE: T1548.002, T1562.001, T1547.001
+TECHNIQUES: T1548.002, T1562.001, T1547.001
+TACTICS: privilege-escalation, defense-evasion, persistence
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: SafePay
+SUBCATEGORY: defense-evasion
+TAGS: safepay, uac-bypass, defender-tampering, registry-persistence
 UNIT: response
-CREATED: 2025-07-30 00:00:00.000000
+CREATED: 2025-07-30
+AUTHOR: sectest-builder
 */
 package main
 

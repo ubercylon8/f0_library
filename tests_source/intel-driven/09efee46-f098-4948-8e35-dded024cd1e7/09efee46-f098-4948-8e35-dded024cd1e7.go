@@ -4,10 +4,17 @@
 /*
 ID: 09efee46-f098-4948-8e35-dded024cd1e7
 NAME: Sliver C2 Client Detection
-TECHNIQUE: T1219
+TECHNIQUES: T1219
+TACTICS: command-and-control
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: c2
+TAGS: sliver, c2-implant, remote-access
 UNIT: response
-CREATED: 2025-04-22 14:30:00.000000
+CREATED: 2025-04-22
+AUTHOR: sectest-builder
 */
 package main
 

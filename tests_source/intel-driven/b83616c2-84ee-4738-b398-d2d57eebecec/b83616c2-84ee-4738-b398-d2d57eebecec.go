@@ -4,10 +4,17 @@
 /*
 ID: b83616c2-84ee-4738-b398-d2d57eebecec
 NAME: NativeDump (NimDump) Detection
-TECHNIQUE: T1003.001
+TECHNIQUES: T1003.001
+TACTICS: credential-access
 SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: credential-dumping
+TAGS: lsass, memory-dump, nimdump, nativedump
 UNIT: response
-CREATED: 2025-01-03 15:30:00.000000
+CREATED: 2025-01-03
+AUTHOR: sectest-builder
 */
 package main
 

@@ -5,12 +5,19 @@
 ID: 1a5895fa-f9b2-4d35-a11b-b4c9e40373a0
 NAME: NTLM Relay Detection Test
 TECHNIQUES: T1557.001
+TACTICS: credential-access, lateral-movement
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: lateral-movement
+TAGS: phase-7, tiber-eu, readiness, ntlm-relay, man-in-the-middle
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01
 UNIT: response
 CREATED: 2026-01-05
+AUTHOR: pentest-readiness-builder
 */
 
 package main

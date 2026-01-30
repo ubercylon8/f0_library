@@ -477,16 +477,16 @@ AUTHOR: sectest-builder
 | `ID` | Yes | Test UUID | `eafce2fc-75fd-4c62-92dc-32cabe5cf206` |
 | `NAME` | Yes | Human-readable name | `SafePay Ransomware Simulation` |
 | `TECHNIQUES` | Yes | ATT&CK technique IDs | `T1562.001, T1059.001` |
-| `TACTICS` | New | ATT&CK tactics (kebab-case) | `defense-evasion, execution` |
-| `SEVERITY` | New | Impact level | `critical`, `high`, `medium`, `low`, `informational` |
-| `TARGET` | New | Target platforms | `windows-endpoint`, `active-directory`, `cloud-aws` |
-| `COMPLEXITY` | New | Execution complexity | `low` (<30s), `medium` (30s-5min), `high` (>5min) |
-| `THREAT_ACTOR` | New | APT attribution | `APT29`, `Lazarus`, `SafePay`, `N/A` |
-| `SUBCATEGORY` | New | Secondary classification | `ransomware`, `apt`, `c2`, `baseline` |
-| `TAGS` | New | Searchable keywords | `powershell, defender-evasion` |
-| `AUTHOR` | New | Test creator | `sectest-builder` |
+| `TACTICS` | Yes | ATT&CK tactics (kebab-case) | `defense-evasion, execution` |
+| `SEVERITY` | Yes | Impact level | `critical`, `high`, `medium`, `low`, `informational` |
+| `TARGET` | Yes | Target platforms | `windows-endpoint`, `active-directory`, `cloud-aws` |
+| `COMPLEXITY` | Yes | Execution complexity | `low` (<30s), `medium` (30s-5min), `high` (>5min) |
+| `THREAT_ACTOR` | Yes | APT attribution | `APT29`, `Lazarus`, `SafePay`, `N/A` |
+| `SUBCATEGORY` | Yes | Secondary classification | `ransomware`, `apt`, `c2`, `baseline` |
+| `TAGS` | Yes | Searchable keywords | `powershell, defender-evasion` |
+| `AUTHOR` | Yes | Test creator | `sectest-builder` |
 
-**Backward Compatibility:** New fields are optional. Existing tests with minimal headers continue to work with sensible defaults (severity=medium, complexity=medium).
+**All v2.0 fields are required.** The sync script provides sensible defaults (severity=medium, complexity=medium) for any legacy tests not yet updated.
 
 ### 2. Sync Catalog After Creating Test
 

@@ -4,10 +4,17 @@
 /*
 ID: eafce2fc-75fd-4c62-92dc-32cabe5cf206
 NAME: Tailscale Remote Access and Data Exfiltration
-TECHNIQUE: T1105,T1219,T1543.003,T1021.004,T1041
+TECHNIQUES: T1105, T1219, T1543.003, T1021.004, T1041
+TACTICS: command-and-control, persistence, lateral-movement, exfiltration
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: high
+THREAT_ACTOR: N/A
+SUBCATEGORY: c2
+TAGS: tailscale, remote-access, service-install, ssh, exfiltration
 UNIT: response
 CREATED: 2025-01-15
+AUTHOR: sectest-builder
 */
 
 package main

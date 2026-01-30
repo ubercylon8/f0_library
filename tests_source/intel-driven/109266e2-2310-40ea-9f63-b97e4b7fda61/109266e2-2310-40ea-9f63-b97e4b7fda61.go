@@ -4,11 +4,17 @@
 /*
 ID: 109266e2-2310-40ea-9f63-b97e4b7fda61
 NAME: SafePay Enhanced Ransomware Simulation & Mass Data Operations
-TECHNIQUE: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+TECHNIQUES: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+TACTICS: impact, collection, command-and-control, discovery
 SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: high
+THREAT_ACTOR: SafePay
+SUBCATEGORY: ransomware
+TAGS: safepay, encryption, data-collection, exfiltration, shadow-copy
 UNIT: response
-CREATED: 2025-07-30 00:00:00.000000
-ENHANCED: 2025-08-06 00:00:00.000000
+CREATED: 2025-07-30
+AUTHOR: sectest-builder
 */
 package main
 

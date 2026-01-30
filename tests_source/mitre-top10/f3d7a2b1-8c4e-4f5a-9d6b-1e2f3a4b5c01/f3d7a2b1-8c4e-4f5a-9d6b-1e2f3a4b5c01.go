@@ -5,9 +5,16 @@
 ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
 NAME: PowerShell Execution & AMSI Detection
 TECHNIQUES: T1059.001, T1140
+TACTICS: execution, defense-evasion
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: execution
+TAGS: powershell, amsi, obfuscation, command-line
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 package main
 

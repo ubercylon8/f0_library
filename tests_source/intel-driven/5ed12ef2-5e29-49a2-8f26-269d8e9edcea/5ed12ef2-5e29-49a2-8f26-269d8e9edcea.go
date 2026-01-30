@@ -8,9 +8,16 @@
 ID: 5ed12ef2-5e29-49a2-8f26-269d8e9edcea
 NAME: Multi-Stage Ransomware Killchain
 TECHNIQUES: T1204.002, T1134.001, T1083, T1486, T1491.001
+TACTICS: execution, privilege-escalation, discovery, impact
 SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: high
+THREAT_ACTOR: N/A
+SUBCATEGORY: ransomware
+TAGS: multi-stage, killchain, token-impersonation, encryption, defacement
 UNIT: response
 CREATED: 2024-01-15
+AUTHOR: sectest-builder
 */
 
 package main

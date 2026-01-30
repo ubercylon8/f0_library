@@ -5,12 +5,19 @@
 ID: 06d298bc-9604-4dda-8e04-7609eaf4723f
 NAME: SMB Lateral Movement Detection Test
 TECHNIQUES: T1021.002
+TACTICS: lateral-movement
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: lateral-movement
+TAGS: phase-7, tiber-eu, readiness, smb, remote-services
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01
 UNIT: response
 CREATED: 2026-01-05
+AUTHOR: pentest-readiness-builder
 */
 
 package main

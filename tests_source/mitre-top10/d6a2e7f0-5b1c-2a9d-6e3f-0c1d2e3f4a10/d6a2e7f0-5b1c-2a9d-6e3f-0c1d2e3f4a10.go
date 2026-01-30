@@ -5,9 +5,16 @@
 ID: d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10
 NAME: Security Service Stop Simulation
 TECHNIQUES: T1489, T1562.001
+TACTICS: impact, defense-evasion
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: defense-evasion
+TAGS: service-stop, defender-tampering, security-service, impair-defenses
 UNIT: response
 CREATED: 2025-01-11
+AUTHOR: sectest-builder
 */
 
 package main

@@ -5,9 +5,16 @@
 ID: b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08
 NAME: Ransomware Encryption (Safe Mode)
 TECHNIQUES: T1486, T1491.001
+TACTICS: impact
 SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: ransomware
+TAGS: encryption, defacement, ransom-note, file-encryption
 UNIT: response
 CREATED: 2025-01-11
+AUTHOR: sectest-builder
 */
 package main
 

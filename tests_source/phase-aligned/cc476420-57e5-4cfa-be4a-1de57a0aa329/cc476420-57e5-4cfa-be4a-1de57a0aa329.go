@@ -5,12 +5,19 @@
 ID: cc476420-57e5-4cfa-be4a-1de57a0aa329
 NAME: WinRM Execution Detection Test
 TECHNIQUES: T1021.006
+TACTICS: lateral-movement
 SEVERITY: medium
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: lateral-movement
+TAGS: phase-7, tiber-eu, readiness, winrm, remote-execution
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01
 UNIT: response
 CREATED: 2026-01-05
+AUTHOR: pentest-readiness-builder
 */
 
 package main

@@ -5,12 +5,19 @@
 ID: 6ded8b8c-046c-491f-bc7d-85bcc762fae7
 NAME: Kerberoasting Detection Test
 TECHNIQUES: T1558.003
+TACTICS: credential-access
 SEVERITY: high
+TARGET: windows-endpoint, active-directory
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: lateral-movement
+TAGS: phase-7, tiber-eu, readiness, kerberoasting, spn
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01
 UNIT: response
 CREATED: 2026-01-05
+AUTHOR: pentest-readiness-builder
 */
 
 package main

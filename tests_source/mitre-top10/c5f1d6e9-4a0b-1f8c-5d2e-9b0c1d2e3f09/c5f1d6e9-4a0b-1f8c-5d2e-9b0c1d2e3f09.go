@@ -5,9 +5,16 @@
 ID: c5f1d6e9-4a0b-1f8c-5d2e-9b0c1d2e3f09
 NAME: Webshell Post-Exploitation Simulation
 TECHNIQUES: T1190, T1059.003
+TACTICS: initial-access, execution
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: initial-access
+TAGS: webshell, cmd-execution, exploit-public-facing, post-exploitation
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 package main
 

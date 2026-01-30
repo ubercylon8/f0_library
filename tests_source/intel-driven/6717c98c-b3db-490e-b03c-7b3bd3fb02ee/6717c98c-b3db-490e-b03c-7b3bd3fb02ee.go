@@ -4,10 +4,17 @@
 /*
 ID: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
 NAME: SafePay Go-Native Ransomware Simulation
-TECHNIQUE: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+TECHNIQUES: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+TACTICS: impact, collection, command-and-control, discovery
 SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: SafePay
+SUBCATEGORY: ransomware
+TAGS: safepay, go-native, encryption, data-collection, shadow-copy
 UNIT: response
 CREATED: 2025-01-09
+AUTHOR: sectest-builder
 */
 package main
 

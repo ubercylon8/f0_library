@@ -5,9 +5,16 @@
 ID: c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03
 NAME: RDP Lateral Movement Simulation
 TECHNIQUES: T1021.001, T1555.004
+TACTICS: lateral-movement, credential-access
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: lateral-movement
+TAGS: rdp, remote-desktop, credential-theft, windows-credential-manager
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 package main
 

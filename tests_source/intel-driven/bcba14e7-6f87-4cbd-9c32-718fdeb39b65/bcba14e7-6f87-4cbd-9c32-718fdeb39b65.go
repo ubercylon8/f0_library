@@ -4,10 +4,17 @@
 /*
 ID: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
 NAME: EDRSilencer Detection
-TECHNIQUE: T1562.001
+TECHNIQUES: T1562.001
+TACTICS: defense-evasion
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: edr-evasion
+TAGS: edrsilencer, wfp-filter, telemetry-blocking
 UNIT: response
-CREATED: 2024-10-07 10:00:00.000000
+CREATED: 2024-10-07
+AUTHOR: sectest-builder
 */
 package main
 

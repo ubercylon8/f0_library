@@ -5,9 +5,16 @@
 ID: f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06
 NAME: LOLBIN Download Detection
 TECHNIQUES: T1105, T1059.001
+TACTICS: command-and-control, execution
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: ingress-tool-transfer
+TAGS: lolbin, certutil, bitsadmin, powershell-download
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 package main
 

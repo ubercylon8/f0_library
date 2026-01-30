@@ -3,10 +3,17 @@
 /*
 ID: 94b248c0-a104-48c3-b4a5-3d45028c407d
 NAME: Gunra Ransomware Simulation
-TECHNIQUE: T1486, T1490, T1082
+TECHNIQUES: T1486, T1490, T1082
+TACTICS: impact, discovery
 SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: Gunra
+SUBCATEGORY: ransomware
+TAGS: gunra, encryption, shadow-copy, system-info-discovery
 UNIT: response
 CREATED: 2024-10-13
+AUTHOR: sectest-builder
 */
 package main
 

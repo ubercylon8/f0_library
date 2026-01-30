@@ -4,13 +4,20 @@
 /*
 ID: ca4557ad-4895-4ce7-be8a-c4ec94b638e0
 NAME: CrackMapExec Detection Test
-TECHNIQUES: T1021.002,T1110.003
+TECHNIQUES: T1021.002, T1110.003
+TACTICS: lateral-movement, credential-access
 SEVERITY: high
+TARGET: windows-endpoint, active-directory
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: lateral-movement
+TAGS: phase-7, tiber-eu, readiness, crackmapexec, netexec, brute-force
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01
 UNIT: response
 CREATED: 2026-01-05
+AUTHOR: pentest-readiness-builder
 */
 
 package main

@@ -4,10 +4,17 @@
 /*
 ID: b6c73735-0c24-4a1e-8f0a-3c24af39671b
 NAME: MDE Authentication Bypass Command Interception
-TECHNIQUE: T1562.001, T1014, T1090.003, T1140
+TECHNIQUES: T1562.001, T1014, T1090.003, T1140
+TACTICS: defense-evasion, command-and-control
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: high
+THREAT_ACTOR: N/A
+SUBCATEGORY: edr-evasion
+TAGS: mde-bypass, certificate-pinning, network-isolation, rootkit
 UNIT: response
 CREATED: 2025-01-22
+AUTHOR: sectest-builder
 */
 package main
 

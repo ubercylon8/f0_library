@@ -4,10 +4,17 @@
 /*
 ID: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
 NAME: EDR-Freeze Defense Evasion
-TECHNIQUE: T1562.001, T1055, T1574
+TECHNIQUES: T1562.001, T1055, T1574
+TACTICS: defense-evasion, privilege-escalation
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: edr-evasion
+TAGS: edr-freeze, process-injection, dll-hijacking, defender-tampering
 UNIT: response
-CREATED: 2025-09-23 18:45:00.000000
+CREATED: 2025-09-23
+AUTHOR: sectest-builder
 */
 package main
 

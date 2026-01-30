@@ -4,10 +4,17 @@
 /*
 ID: fec68e9b-af59-40c1-abbd-98ec98428444
 NAME: MDE Process Injection and API Authentication Bypass
-TECHNIQUE: T1055, T1055.001, T1562.001, T1014, T1557, T1071.001, T1140
+TECHNIQUES: T1055, T1055.001, T1562.001, T1014, T1557, T1071.001, T1140
+TACTICS: defense-evasion, credential-access, command-and-control
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: high
+THREAT_ACTOR: N/A
+SUBCATEGORY: edr-evasion
+TAGS: mde-bypass, process-injection, memory-patching, api-interception, watchdog
 UNIT: response
 CREATED: 2025-01-24
+AUTHOR: sectest-builder
 VERSION: 1.0
 SCORE: 9.7/10
 

@@ -4,10 +4,17 @@
 /*
 ID: c3634a9c-e8c9-44a8-992b-0faeca14f612
 NAME: Akira Ransomware BYOVD Attack Chain
-TECHNIQUE: T1068,T1562.001
+TECHNIQUES: T1068, T1562.001
+TACTICS: privilege-escalation, defense-evasion
 SEVERITY: critical
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: Akira
+SUBCATEGORY: ransomware
+TAGS: akira, byovd, vulnerable-driver, defender-tampering
 UNIT: response
 CREATED: 2024-12-30
+AUTHOR: sectest-builder
 */
 package main
 

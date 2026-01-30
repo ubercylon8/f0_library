@@ -4,10 +4,17 @@
 /*
 ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
 NAME: CyberEye RAT - Windows Defender Disabling via PowerShell
-TECHNIQUE: T1562.001
+TECHNIQUES: T1562.001
+TACTICS: defense-evasion
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: edr-evasion
+TAGS: cybereye, powershell, defender-disabling, rat
 UNIT: response
 CREATED: 2025-07-02
+AUTHOR: sectest-builder
 */
 
 package main

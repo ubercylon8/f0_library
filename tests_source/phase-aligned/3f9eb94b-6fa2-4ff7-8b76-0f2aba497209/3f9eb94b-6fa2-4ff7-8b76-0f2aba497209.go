@@ -5,12 +5,19 @@
 ID: 3f9eb94b-6fa2-4ff7-8b76-0f2aba497209
 NAME: Pass-the-Ticket Detection Test
 TECHNIQUES: T1550.003
+TACTICS: lateral-movement, defense-evasion
 SEVERITY: high
+TARGET: windows-endpoint, active-directory
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: lateral-movement
+TAGS: phase-7, tiber-eu, readiness, pass-the-ticket, kerberos
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01
 UNIT: response
 CREATED: 2026-01-05
+AUTHOR: pentest-readiness-builder
 */
 
 package main

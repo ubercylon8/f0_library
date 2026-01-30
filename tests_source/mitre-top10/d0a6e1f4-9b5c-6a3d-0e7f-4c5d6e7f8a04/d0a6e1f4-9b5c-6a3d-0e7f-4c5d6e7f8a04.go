@@ -5,9 +5,16 @@
 ID: d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04
 NAME: WMI Execution Simulation
 TECHNIQUES: T1047, T1546.003
+TACTICS: execution, persistence
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: execution
+TAGS: wmi, wmic, event-subscription, lateral-tool-transfer
 UNIT: response
 CREATED: 2026-01-11
+AUTHOR: sectest-builder
 */
 package main
 

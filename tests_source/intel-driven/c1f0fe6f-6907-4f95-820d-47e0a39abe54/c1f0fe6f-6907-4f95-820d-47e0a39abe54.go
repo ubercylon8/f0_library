@@ -4,10 +4,17 @@
 /*
 ID: c1f0fe6f-6907-4f95-820d-47e0a39abe54
 NAME: TrollDisappearKey AMSI Bypass Detection
-TECHNIQUE: T1562.001
+TECHNIQUES: T1562.001
+TACTICS: defense-evasion
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: low
+THREAT_ACTOR: N/A
+SUBCATEGORY: edr-evasion
+TAGS: amsi-bypass, registry, trolldisappearkey
 UNIT: response
-CREATED: 2025-01-05 12:00:00.000000
+CREATED: 2025-01-05
+AUTHOR: sectest-builder
 */
 package main
 

@@ -5,12 +5,19 @@
 ID: 711cbe27-87d7-41ce-8eb7-a31ca311d876
 NAME: AS-REP Roasting Detection Test
 TECHNIQUES: T1558.004
+TACTICS: credential-access
 SEVERITY: high
+TARGET: windows-endpoint, active-directory
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: lateral-movement
+TAGS: phase-7, tiber-eu, readiness, asrep-roasting, kerberos
 PHASE: 7
 PHASE_NAME: Lateral Movement
 SUITE: lateral-movement-readiness-2026-01
 UNIT: response
 CREATED: 2026-01-05
+AUTHOR: pentest-readiness-builder
 */
 
 package main

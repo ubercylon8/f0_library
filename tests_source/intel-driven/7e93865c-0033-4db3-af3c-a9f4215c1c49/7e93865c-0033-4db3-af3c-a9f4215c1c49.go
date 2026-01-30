@@ -4,10 +4,17 @@
 /*
 ID: 7e93865c-0033-4db3-af3c-a9f4215c1c49
 NAME: Process Injection via CreateRemoteThread
-TECHNIQUE: T1055.002
+TECHNIQUES: T1055.002
+TACTICS: defense-evasion, privilege-escalation
 SEVERITY: high
+TARGET: windows-endpoint
+COMPLEXITY: medium
+THREAT_ACTOR: N/A
+SUBCATEGORY: process-injection
+TAGS: createremotethread, shellcode, process-injection
 UNIT: response
 CREATED: 2025-10-25
+AUTHOR: sectest-builder
 */
 package main
 
