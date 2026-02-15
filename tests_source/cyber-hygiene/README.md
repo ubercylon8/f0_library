@@ -1,8 +1,10 @@
 # Cyber Hygiene - Configuration Validation Test Suite
 
-This folder contains security tests that validate **endpoint security configurations** and hardening best practices. These tests evaluate whether security controls are properly configured rather than simulating attacks.
+This folder contains security tests that validate **endpoint and cloud identity security configurations** and hardening best practices. These tests evaluate whether security controls are properly configured rather than simulating attacks.
 
 ## Test Suite Overview
+
+### Endpoint Tests
 
 | # | UUID | Test Name | Techniques |
 |---|------|-----------|------------|
@@ -18,12 +20,19 @@ This folder contains security tests that validate **endpoint security configurat
 | 10 | `bac53a6e-dd97-4764-bb10-2ee605f24808` | CrowdStrike Falcon Configuration Validator | T1562.001, T1562.004, T1070 |
 | 11 | `c6d2bdfc-ba48-4811-9f7f-8034855daed3` | Print Spooler Hardening Validator | T1547.012, T1569.002, T1068 |
 
+### Cloud Identity Tests
+
+| # | UUID | Test Name | Techniques |
+|---|------|-----------|------------|
+| 12 | `4f484076-9816-4813-947e-b76bce3d3f83` | Entra ID Tenant Security Hygiene Bundle | T1078.004, T1556.007, T1110.001, T1098.003, T1098.001, T1566, T1528, T1562.008 |
+
 ## Purpose
 
 Unlike attack simulation tests, **Cyber Hygiene tests validate defensive configurations**:
 
 - Check if security controls are enabled and properly configured
 - Validate registry settings, group policies, and service configurations
+- Validate cloud identity platform security (Entra ID / Microsoft 365)
 - Report gaps in security posture without exploiting them
 - Provide remediation guidance for identified issues
 
@@ -56,6 +65,9 @@ Unlike attack simulation tests, **Cyber Hygiene tests validate defensive configu
 ### Service Hardening
 - **Print Spooler Hardening Validator** - PrintNightmare mitigations
 - **Account Lockout Validator** - Password policy and lockout thresholds
+
+### Cloud Identity
+- **Entra ID Tenant Security Hygiene Bundle** - CISA SCuBA baseline validation for Entra ID (MFA, Conditional Access, PIM, guest access, app governance)
 
 ## Build Instructions
 
