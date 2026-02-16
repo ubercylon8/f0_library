@@ -36,12 +36,15 @@ func RunMFAChecks() ValidatorResult {
 // SCuBA MS.AAD.3.1: Phishing-resistant MFA SHALL be enforced for all users.
 func checkPhishingResistantMFA() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-005",
 		Name:        "Phishing-Resistant MFA Enforced",
 		Category:    "mfa",
 		Description: "Verifies a CA policy requires phishing-resistant authentication strength for all users",
 		Severity:    "critical",
 		SCuBAID:     "MS.AAD.3.1",
 		Expected:    "CA policy with phishing-resistant auth strength",
+		Techniques:  []string{"T1556.006", "T1111"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	script := `
@@ -103,12 +106,15 @@ if ($prMfa) {
 // SCuBA MS.AAD.3.2: If phishing-resistant MFA is not enforced, an alternative MFA method SHALL be used.
 func checkMFAForAllUsers() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-006",
 		Name:        "MFA Required for All Users",
 		Category:    "mfa",
 		Description: "Verifies a CA policy requires MFA for all users",
 		Severity:    "critical",
 		SCuBAID:     "MS.AAD.3.2",
 		Expected:    "CA policy requiring MFA for all users/all cloud apps",
+		Techniques:  []string{"T1556.006", "T1111"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	script := `
@@ -157,12 +163,15 @@ if ($mfaPolicy) {
 // SCuBA MS.AAD.3.3: Microsoft Authenticator SHALL be configured to show context.
 func checkAuthenticatorContext() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-007",
 		Name:        "Authenticator Context Enabled",
 		Category:    "mfa",
 		Description: "Verifies Microsoft Authenticator shows number matching and application info",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.3.3",
 		Expected:    "Number matching and app info enabled",
+		Techniques:  []string{"T1556.006"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	script := `
@@ -229,12 +238,15 @@ if ($msAuth) {
 // SCuBA MS.AAD.3.4: The authentication methods migration SHALL be set to Migration Complete.
 func checkAuthMethodMigration() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-008",
 		Name:        "Auth Method Migration Complete",
 		Category:    "mfa",
 		Description: "Verifies authentication method policy migration state is 'migrationComplete'",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.3.4",
 		Expected:    "PolicyMigrationState = migrationComplete",
+		Techniques:  []string{"T1556.007"},
+		Tactics:     []string{"credential-access", "persistence"},
 	}
 
 	script := `
@@ -261,12 +273,15 @@ $policy.PolicyMigrationState
 // SCuBA MS.AAD.3.5: Weak authentication methods SHALL be disabled.
 func checkWeakMethodsDisabled() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-009",
 		Name:        "Weak Auth Methods Disabled",
 		Category:    "mfa",
 		Description: "Verifies SMS, Voice, and Email OTP methods are disabled",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.3.5",
 		Expected:    "SMS, Voice, and Email OTP disabled",
+		Techniques:  []string{"T1556.006", "T1111"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	script := `
@@ -315,12 +330,15 @@ if ($enabledWeak.Count -eq 0) {
 // SCuBA MS.AAD.3.6: Phishing-resistant MFA SHALL be required for highly privileged roles.
 func checkPhishingResistantForAdmins() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-010",
 		Name:        "Phishing-Resistant MFA for Admins",
 		Category:    "mfa",
 		Description: "Verifies a CA policy targets admin roles with phishing-resistant auth strength",
 		Severity:    "critical",
 		SCuBAID:     "MS.AAD.3.6",
 		Expected:    "CA policy with auth strength targeting admin roles",
+		Techniques:  []string{"T1556.006", "T1111"},
+		Tactics:     []string{"credential-access", "persistence"},
 	}
 
 	script := `
@@ -376,12 +394,15 @@ if ($adminPolicy) {
 // SCuBA MS.AAD.3.9: The device code flow SHOULD be blocked (informational).
 func checkDeviceCodeFlowBlocked() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-011",
 		Name:        "Device Code Flow Blocked",
 		Category:    "mfa",
 		Description: "Verifies a CA policy blocks the device code authentication flow",
 		Severity:    "informational",
 		SCuBAID:     "MS.AAD.3.9",
 		Expected:    "CA policy blocking device code flow",
+		Techniques:  []string{"T1528"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	script := `

@@ -32,12 +32,15 @@ func RunRiskPolicyChecks() ValidatorResult {
 // SCuBA MS.AAD.2.1: Users detected as high risk SHALL be blocked.
 func checkHighRiskUsersBlocked() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-002",
 		Name:        "High-Risk Users Blocked",
 		Category:    "risk-policies",
 		Description: "Verifies a CA policy blocks sign-in when user risk level is high",
 		Severity:    "critical",
 		SCuBAID:     "MS.AAD.2.1",
 		Expected:    "CA policy blocks high-risk users",
+		Techniques:  []string{"T1078.004"},
+		Tactics:     []string{"credential-access", "initial-access"},
 	}
 
 	script := `
@@ -95,12 +98,15 @@ if ($riskBlock) {
 // SCuBA MS.AAD.2.3: Sign-ins detected as high risk SHALL be blocked.
 func checkHighRiskSignInsBlocked() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-003",
 		Name:        "High-Risk Sign-Ins Blocked",
 		Category:    "risk-policies",
 		Description: "Verifies a CA policy blocks sign-in when sign-in risk is high",
 		Severity:    "critical",
 		SCuBAID:     "MS.AAD.2.3",
 		Expected:    "CA policy blocks high-risk sign-ins",
+		Techniques:  []string{"T1078.004"},
+		Tactics:     []string{"credential-access", "initial-access"},
 	}
 
 	script := `
@@ -150,12 +156,15 @@ if ($riskBlock) {
 // SCuBA MS.AAD.2.2: A notification SHOULD be sent to the administrator when high-risk users are detected.
 func checkRiskNotifications() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-004",
 		Name:        "Risk Detection Notifications",
 		Category:    "risk-policies",
 		Description: "Verifies admin notifications are configured for risky user detections",
 		Severity:    "medium",
 		SCuBAID:     "MS.AAD.2.2",
 		Expected:    "Notification recipients configured",
+		Techniques:  []string{"T1078.004"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check if Identity Protection notification settings have recipients

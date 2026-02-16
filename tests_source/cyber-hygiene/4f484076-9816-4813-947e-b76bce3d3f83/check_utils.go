@@ -7,13 +7,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // CheckResult represents the result of a single configuration check
 type CheckResult struct {
+	ControlID   string   // Stable control ID e.g. "CH-ITN-001"
 	Name        string
 	Category    string
 	Description string
@@ -21,8 +25,10 @@ type CheckResult struct {
 	Expected    string
 	Actual      string
 	Details     string
-	Severity    string // critical, high, medium, low, informational
-	SCuBAID     string // CISA SCuBA control ID (e.g., MS.AAD.3.1)
+	Severity    string   // critical, high, medium, low, informational
+	SCuBAID     string   // CISA SCuBA control ID (e.g., MS.AAD.3.1) — preserved as metadata
+	Techniques  []string // MITRE ATT&CK technique IDs
+	Tactics     []string // MITRE ATT&CK tactic names (kebab-case)
 }
 
 // ValidatorResult represents the result of a complete validator (group of checks)
@@ -238,4 +244,92 @@ func BoolToYesNo(b bool) string {
 		return "Yes"
 	}
 	return "No"
+}
+
+// ==============================================================================
+// BUNDLE RESULTS PROTOCOL
+// ==============================================================================
+
+// ControlResult represents a single control's result for bundle_results.json
+type ControlResult struct {
+	ControlID    string   `json:"control_id"`
+	ControlName  string   `json:"control_name"`
+	Validator    string   `json:"validator"`
+	ExitCode     int      `json:"exit_code"`
+	Compliant    bool     `json:"compliant"`
+	Severity     string   `json:"severity"`
+	Category     string   `json:"category"`
+	Subcategory  string   `json:"subcategory"`
+	Techniques   []string `json:"techniques"`
+	Tactics      []string `json:"tactics"`
+	Expected     string   `json:"expected"`
+	Actual       string   `json:"actual"`
+	Details      string   `json:"details"`
+	Skipped      bool     `json:"skipped"`
+	ErrorMessage string   `json:"error_message"`
+	SCuBAID      string   `json:"scuba_id,omitempty"` // CISA SCuBA reference
+}
+
+// BundleResults represents the complete bundle output written to bundle_results.json
+type BundleResults struct {
+	SchemaVersion     string          `json:"schema_version"`
+	BundleID          string          `json:"bundle_id"`
+	BundleName        string          `json:"bundle_name"`
+	BundleCategory    string          `json:"bundle_category"`
+	BundleSubcategory string          `json:"bundle_subcategory"`
+	ExecutionID       string          `json:"execution_id"`
+	StartedAt         string          `json:"started_at"`
+	CompletedAt       string          `json:"completed_at"`
+	OverallExitCode   int             `json:"overall_exit_code"`
+	TotalControls     int             `json:"total_controls"`
+	PassedControls    int             `json:"passed_controls"`
+	FailedControls    int             `json:"failed_controls"`
+	Controls          []ControlResult `json:"controls"`
+}
+
+// CollectControlResults converts a validator's CheckResults into flat ControlResult slice
+func CollectControlResults(validatorName, category, subcategory string, checks []CheckResult) []ControlResult {
+	results := make([]ControlResult, 0, len(checks))
+	for _, check := range checks {
+		exitCode := 126 // compliant
+		if !check.Passed {
+			exitCode = 101 // non-compliant
+		}
+
+		results = append(results, ControlResult{
+			ControlID:   check.ControlID,
+			ControlName: check.Name,
+			Validator:   validatorName,
+			ExitCode:    exitCode,
+			Compliant:   check.Passed,
+			Severity:    check.Severity,
+			Category:    category,
+			Subcategory: subcategory,
+			Techniques:  check.Techniques,
+			Tactics:     check.Tactics,
+			Expected:    check.Expected,
+			Actual:      check.Actual,
+			Details:     check.Details,
+			Skipped:     false,
+			SCuBAID:     check.SCuBAID,
+		})
+	}
+	return results
+}
+
+// WriteBundleResults writes bundle_results.json to c:\F0
+func WriteBundleResults(results *BundleResults) error {
+	results.CompletedAt = time.Now().UTC().Format(time.RFC3339)
+
+	data, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal bundle results: %v", err)
+	}
+
+	outputPath := filepath.Join(`c:\F0`, "bundle_results.json")
+	if err := os.WriteFile(outputPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write bundle results to %s: %v", outputPath, err)
+	}
+
+	return nil
 }

@@ -505,8 +505,9 @@ Control IDs use the format `CH-{CAT}-{NUM}` where `CAT` is a 3-letter uppercase 
 | `LAP` | LAPS Configuration | 2 |
 | `PRT` | Print Spooler | 2 |
 | `IEP` | Identity Endpoint Posture | 22 |
+| `ITN` | Identity Tenant (Entra ID) | 26 |
 
-Total: 48 controls across 10 validators (baseline subcategory), 22 controls across 5 validators (identity-endpoint subcategory).
+Total: 48 controls across 10 validators (baseline subcategory), 22 controls across 5 validators (identity-endpoint subcategory), 26 controls across 8 validators (identity-tenant subcategory).
 
 ### Implementation Functions
 
@@ -529,6 +530,102 @@ Bundle results are produced using helpers from `check_utils.go`:
 See `tests_source/cyber-hygiene/a3c923ae-1a46-4b1f-b696-be6c2731a628/` for the baseline bundle with 48 controls across 10 validators.
 
 For the ingestion side, see ProjectAchilles: `backend/src/services/agent/results.service.ts` (`ingestBundleControls()`).
+
+## Multi-Binary Bundle Architecture (Cyber-Hygiene)
+
+Multi-binary bundles compile each validator as a **separate embedded binary**. If AV/EDR quarantines one validator, the rest still execute and report results — providing resilient compliance data even under active endpoint protection.
+
+### Which Bundles Use Multi-Binary
+
+| Bundle | UUID | Architecture | Validators | Controls |
+|--------|------|-------------|------------|----------|
+| Baseline (Windows Defender) | `a3c923ae` | **Multi-binary** | 10 | 48 |
+| Identity Endpoint Posture | `7659eeba` | **Multi-binary** | 5 | 22 |
+| Identity Tenant (Entra ID) | `4f484076` | Single-binary | 8 | 26 |
+
+**Why identity-tenant stays single-binary**: Its validators query Microsoft Graph API via PowerShell — they share an authenticated Graph session established in `main()`. Splitting into separate processes would require each validator to authenticate independently, which is impractical.
+
+### Runtime Flow
+
+```
+Orchestrator (signed, deployed by agent)
+  ├── //go:embed validator-defender.exe   (signed before embedding)
+  ├── //go:embed validator-lsass.exe
+  └── ...
+
+  1. Extract each validator to c:\F0\
+  2. Sleep 1.5s for AV/EDR reaction time
+  3. Check if quarantined (os.Stat — file still exists?)
+  4. If quarantined → mark all that validator's controls as skipped
+  5. If present → execute as subprocess, capture exit code
+  6. Read validator's output JSON (c:\F0\vr_<name>.json)
+  7. Merge all results into c:\F0\bundle_results.json
+```
+
+### File Structure (Multi-Binary Bundle)
+
+| File | Role |
+|------|------|
+| `<uuid>.go` | Orchestrator — embeds signed validators, extract/execute/merge |
+| `orchestrator_utils.go` | Orchestrator helpers: extract, quarantine check, execute, merge, BundleResults |
+| `validator_<name>.go` | Standalone `main()` for one validator (uses `//go:build ignore`) |
+| `checks_<name>.go` | Check functions for one validator (unchanged from single-binary) |
+| `check_utils.go` | Shared types: CheckResult, ValidatorResult, PowerShell/format helpers |
+| `validator_output.go` | ValidatorOutput struct + WriteValidatorOutput() for `vr_<name>.json` |
+| `test_logger.go` | Schema v2.0 logging (orchestrator only) |
+| `org_resolver.go` | Organization registry helper (orchestrator only) |
+| `build_all.sh` | Sign-before-embed build workflow |
+
+### Compilation Split
+
+Go requires exactly one `main()` per binary. Files are split into two build groups:
+
+| Build target | Files |
+|---|---|
+| **Validator binary** | `validator_<name>.go` + `checks_<name>.go` + `check_utils.go` + `validator_output.go` |
+| **Orchestrator** | `<uuid>.go` + `orchestrator_utils.go` + `test_logger.go` + `org_resolver.go` + `es_config.go` |
+
+Validator `.go` files use `//go:build ignore` so `go build .` (package mode) skips them; `build_all.sh` explicitly lists files for each validator.
+
+### Validator Output Protocol
+
+Each validator writes `c:\F0\vr_<name>.json` with:
+```json
+{
+  "validator_name": "defender",
+  "compliant": true,
+  "exit_code": 126,
+  "checks": [
+    { "control_id": "CH-DEF-001", "name": "...", "passed": true, ... }
+  ]
+}
+```
+
+Then exits 126 (compliant) or 101 (non-compliant). The orchestrator reads these files and merges them into `bundle_results.json`.
+
+### Build Script (build_all.sh) for Multi-Binary Bundles
+
+The build_all.sh follows a 7-step sign-before-embed workflow:
+1. Build N unsigned validator binaries
+2. Sign each validator binary (BEFORE embedding)
+3. Verify signatures
+4. Build orchestrator (embeds SIGNED validators via `//go:embed`)
+5. Sign orchestrator
+6. Cleanup temporary validator binaries from source dir
+7. Calculate SHA1 hashes
+
+**Three signing modes** (auto-detected):
+1. `projectachilles` — cert via `F0_SIGN_CERT_PATH` + `F0_SIGN_CERT_PASS_FILE` env vars
+2. `f0library` — local `signing-certs/F0RT1KA.pfx`
+3. `none` — unsigned (warning printed)
+
+### Quarantine Resilience
+
+When a validator binary is quarantined by AV/EDR:
+- The orchestrator detects the missing file via `os.Stat()`
+- All controls for that validator are marked `skipped: true` in `bundle_results.json`
+- The `skipped_controls` count is reported in the bundle summary
+- Other validators continue executing normally
 
 ## Required Files for Each Test
 

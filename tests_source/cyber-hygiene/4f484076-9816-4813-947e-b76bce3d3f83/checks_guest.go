@@ -32,12 +32,15 @@ func RunGuestChecks() ValidatorResult {
 // SCuBA MS.AAD.8.1: Guest users SHALL have limited access to directory objects.
 func checkGuestAccessRestricted() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-024",
 		Name:        "Guest Access Restricted",
 		Category:    "guest",
 		Description: "Verifies guest user role is set to restricted or more restrictive",
 		Severity:    "medium",
 		SCuBAID:     "MS.AAD.8.1",
 		Expected:    "guestUserRoleId = restricted guest (2af84b1e-...) or more restrictive",
+		Techniques:  []string{"T1078.004"},
+		Tactics:     []string{"initial-access", "persistence"},
 	}
 
 	// Well-known guest role IDs:
@@ -92,12 +95,15 @@ Write-Output "ROLEID:$guestRoleId"
 // SCuBA MS.AAD.8.2: Guest invites SHOULD be limited to users with specific admin roles.
 func checkGuestInvitesLimited() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-025",
 		Name:        "Guest Invites Limited",
 		Category:    "guest",
 		Description: "Verifies guest invitations are restricted to admins and guest inviters",
 		Severity:    "medium",
 		SCuBAID:     "MS.AAD.8.2",
 		Expected:    "allowInvitesFrom = adminsAndGuestInviters or none",
+		Techniques:  []string{"T1078.004"},
+		Tactics:     []string{"initial-access", "persistence"},
 	}
 
 	script := `
@@ -148,12 +154,15 @@ Write-Output "SETTING:$inviteSetting"
 // SCuBA MS.AAD.8.3: Guest access SHALL be restricted by domain.
 func checkGuestDomainsRestricted() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-026",
 		Name:        "Guest Domains Restricted",
 		Category:    "guest",
 		Description: "Verifies cross-tenant access policy has domain restrictions for guests",
 		Severity:    "medium",
 		SCuBAID:     "MS.AAD.8.3",
 		Expected:    "Cross-tenant access policy with domain allow/block list",
+		Techniques:  []string{"T1566"},
+		Tactics:     []string{"initial-access"},
 	}
 
 	script := `

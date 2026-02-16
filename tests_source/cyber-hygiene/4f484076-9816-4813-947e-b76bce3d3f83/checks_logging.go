@@ -30,12 +30,15 @@ func RunLoggingChecks() ValidatorResult {
 // SCuBA MS.AAD.4.1: Security logs SHALL be sent to a centralized SIEM.
 func checkDiagnosticSettings() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-012",
 		Name:        "Diagnostic Settings Configured",
 		Category:    "logging",
 		Description: "Verifies AuditLogs, SignInLogs, and RiskyUsers logs are sent to a destination",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.4.1",
 		Expected:    "Diagnostic settings with log categories configured",
+		Techniques:  []string{"T1562.008"},
+		Tactics:     []string{"defense-evasion"},
 	}
 
 	// Diagnostic settings for Entra ID are under Azure Resource Manager, not pure Graph.

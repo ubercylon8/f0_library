@@ -32,12 +32,15 @@ func RunAppGovernanceChecks() ValidatorResult {
 // SCuBA MS.AAD.5.1: Only administrators SHALL be allowed to register applications.
 func checkUsersCannotRegisterApps() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-013",
 		Name:        "Users Cannot Register Apps",
 		Category:    "app-governance",
 		Description: "Verifies non-admin users cannot register applications in Entra ID",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.5.1",
 		Expected:    "allowedToCreateApps = false",
+		Techniques:  []string{"T1098.001"},
+		Tactics:     []string{"persistence"},
 	}
 
 	script := `
@@ -77,12 +80,15 @@ Write-Output "VALUE:$allowCreate"
 // SCuBA MS.AAD.5.2: Only administrators SHALL be allowed to consent to applications.
 func checkUsersCannotConsentApps() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-014",
 		Name:        "User App Consent Restricted",
 		Category:    "app-governance",
 		Description: "Verifies non-admin users cannot consent to application permissions",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.5.2",
 		Expected:    "User consent disabled or admin-only",
+		Techniques:  []string{"T1528"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	script := `
@@ -136,12 +142,15 @@ if ($grantPolicies -eq $null -or $grantPolicies.Count -eq 0) {
 // SCuBA MS.AAD.5.3: An admin consent workflow SHALL be configured for applications.
 func checkAdminConsentWorkflow() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-015",
 		Name:        "Admin Consent Workflow Enabled",
 		Category:    "app-governance",
 		Description: "Verifies the admin consent request workflow is enabled",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.5.3",
 		Expected:    "Admin consent workflow isEnabled = true",
+		Techniques:  []string{"T1528"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	script := `

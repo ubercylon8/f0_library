@@ -20,6 +20,7 @@ AUTHOR: sectest-builder
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"strings"
@@ -31,7 +32,7 @@ import (
 const (
 	TEST_UUID = "7659eeba-f315-440e-9882-4aa015d68b27"
 	TEST_NAME = "Identity Endpoint Posture Bundle"
-	VERSION   = "1.0.0"
+	VERSION   = "2.0.0"
 
 	// Exit codes
 	EXIT_COMPLIANT     = 126 // All validators passed
@@ -40,16 +41,26 @@ const (
 
 	// Target directory
 	TARGET_DIR = `c:\F0`
+
+	// Quarantine detection delay (ms)
+	QUARANTINE_DELAY = 1500 * time.Millisecond
 )
 
-// Validator represents a single validation module
-type Validator struct {
-	Name string
-	Run  func() ValidatorResult
-}
+// Embedded signed validator binaries (populated by build_all.sh)
+var (
+	//go:embed validator-devicejoin.exe
+	validatorDevicejoinBin []byte
+	//go:embed validator-whfb.exe
+	validatorWhfbBin []byte
+	//go:embed validator-mdm.exe
+	validatorMdmBin []byte
+	//go:embed validator-cloudcred.exe
+	validatorCloudcredBin []byte
+	//go:embed validator-bitlocker.exe
+	validatorBitlockerBin []byte
+)
 
 func main() {
-	// Display banner
 	printBanner()
 
 	// Check for admin privileges
@@ -108,53 +119,138 @@ func main() {
 		Configuration: &ExecutionConfiguration{
 			TimeoutMs:         600000,
 			CertificateMode:   "self-healing",
-			MultiStageEnabled: false,
+			MultiStageEnabled: true,
 		},
 	}
 
 	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
-	LogPhaseStart(1, "Identity Endpoint Posture Validation")
+	LogPhaseStart(1, "Multi-Binary Identity Endpoint Posture Validation")
 
-	// Define all validators
-	validators := []Validator{
-		{"Device Join Status", RunDeviceJoinChecks},
-		{"Windows Hello for Business", RunWHfBChecks},
-		{"Intune/MDM Enrollment", RunMDMEnrollmentChecks},
-		{"Cloud Credential Protection", RunCloudCredentialChecks},
-		{"BitLocker Cloud Escrow", RunBitLockerEscrowChecks},
+	// Define all validators with embedded binaries and expected control IDs
+	validators := []ValidatorDef{
+		{
+			Name: "devicejoin", DisplayName: "Device Join Status",
+			Binary:     validatorDevicejoinBin,
+			ControlIDs: []string{"CH-IEP-001", "CH-IEP-002", "CH-IEP-003", "CH-IEP-004", "CH-IEP-005"},
+		},
+		{
+			Name: "whfb", DisplayName: "Windows Hello for Business",
+			Binary:     validatorWhfbBin,
+			ControlIDs: []string{"CH-IEP-006", "CH-IEP-007", "CH-IEP-008", "CH-IEP-009", "CH-IEP-010"},
+		},
+		{
+			Name: "mdm", DisplayName: "Intune/MDM Enrollment",
+			Binary:     validatorMdmBin,
+			ControlIDs: []string{"CH-IEP-011", "CH-IEP-012", "CH-IEP-013", "CH-IEP-014"},
+		},
+		{
+			Name: "cloudcred", DisplayName: "Cloud Credential Protection",
+			Binary:     validatorCloudcredBin,
+			ControlIDs: []string{"CH-IEP-015", "CH-IEP-016", "CH-IEP-017", "CH-IEP-018", "CH-IEP-019"},
+		},
+		{
+			Name: "bitlocker", DisplayName: "BitLocker Cloud Escrow",
+			Binary:     validatorBitlockerBin,
+			ControlIDs: []string{"CH-IEP-020", "CH-IEP-021", "CH-IEP-022"},
+		},
 	}
 
-	// Run all validators
+	// Execute validators: extract -> quarantine check -> run -> collect results
+	startedAt := time.Now().UTC().Format(time.RFC3339)
 	fmt.Println()
-	results := runAllValidators(validators)
 
-	// Calculate totals
+	allControls := make([]ControlResult, 0, 22)
 	validatorsPassed := 0
 	validatorsFailed := 0
-	totalChecksPassed := 0
-	totalChecksFailed := 0
-	failedValidatorNames := []string{}
+	validatorsSkipped := 0
+	failedNames := []string{}
+	skippedNames := []string{}
 
-	for _, result := range results {
-		if result.IsCompliant {
+	for i, vd := range validators {
+		fmt.Printf("\n[%d/%d] %s\n", i+1, len(validators), vd.DisplayName)
+
+		// 1. Extract validator binary
+		exePath, err := ExtractValidator(vd.Name, vd.Binary)
+		if err != nil {
+			fmt.Printf("       [ERROR] Extract failed: %v\n", err)
+			controls := MakeSkippedControls(vd, "cyber-hygiene", "identity-endpoint", fmt.Sprintf("extraction failed: %v", err))
+			allControls = append(allControls, controls...)
+			validatorsSkipped++
+			skippedNames = append(skippedNames, vd.DisplayName)
+			continue
+		}
+
+		// 2. Brief delay for EDR/AV to react
+		time.Sleep(QUARANTINE_DELAY)
+
+		// 3. Check if quarantined
+		if IsQuarantined(exePath) {
+			fmt.Printf("       [SKIPPED] Validator quarantined by EDR/AV\n")
+			LogMessage("WARNING", vd.DisplayName, "Validator binary quarantined by endpoint protection")
+			controls := MakeSkippedControls(vd, "cyber-hygiene", "identity-endpoint", "validator binary quarantined by endpoint protection")
+			allControls = append(allControls, controls...)
+			validatorsSkipped++
+			skippedNames = append(skippedNames, vd.DisplayName)
+			continue
+		}
+
+		// 4. Execute validator subprocess
+		exitCode, err := ExecuteValidator(exePath)
+		if err != nil {
+			fmt.Printf("       [ERROR] Execution failed: %v\n", err)
+			controls := MakeSkippedControls(vd, "cyber-hygiene", "identity-endpoint", fmt.Sprintf("execution failed: %v", err))
+			allControls = append(allControls, controls...)
+			validatorsSkipped++
+			skippedNames = append(skippedNames, vd.DisplayName)
+			CleanupValidator(vd.Name)
+			continue
+		}
+
+		// 5. Read validator output
+		output, err := ReadValidatorOutput(vd.Name)
+		if err != nil {
+			fmt.Printf("       [ERROR] Failed to read results: %v\n", err)
+			controls := MakeSkippedControls(vd, "cyber-hygiene", "identity-endpoint", fmt.Sprintf("output read failed: %v", err))
+			allControls = append(allControls, controls...)
+			validatorsSkipped++
+			skippedNames = append(skippedNames, vd.DisplayName)
+			CleanupValidator(vd.Name)
+			continue
+		}
+
+		// 6. Convert to control results and track status
+		controls := ConvertOutputToControls(vd.DisplayName, "cyber-hygiene", "identity-endpoint", output)
+		allControls = append(allControls, controls...)
+
+		if exitCode == EXIT_COMPLIANT || output.IsCompliant {
 			validatorsPassed++
+			fmt.Printf("       → COMPLIANT (%d/%d checks passed)\n", output.PassedCount, output.TotalChecks)
 		} else {
 			validatorsFailed++
-			failedValidatorNames = append(failedValidatorNames, result.Name)
+			failedNames = append(failedNames, vd.DisplayName)
+			fmt.Printf("       → NON-COMPLIANT (%d/%d checks passed)\n", output.PassedCount, output.TotalChecks)
 		}
-		totalChecksPassed += result.PassedCount
-		totalChecksFailed += result.FailedCount
+
+		CleanupValidator(vd.Name)
 	}
 
-	// Collect per-control results and write bundle_results.json
-	allControls := make([]ControlResult, 0, totalChecksPassed+totalChecksFailed)
-	for _, result := range results {
-		controls := CollectControlResults(result.Name, "cyber-hygiene", "identity-endpoint", result.Checks)
-		allControls = append(allControls, controls...)
+	// Calculate totals from controls
+	totalPassed := 0
+	totalFailed := 0
+	totalSkipped := 0
+	for _, c := range allControls {
+		if c.Skipped {
+			totalSkipped++
+		} else if c.Compliant {
+			totalPassed++
+		} else {
+			totalFailed++
+		}
 	}
 
+	// Build and write bundle_results.json
 	overallExitCode := EXIT_COMPLIANT
-	if validatorsFailed > 0 {
+	if validatorsFailed > 0 || validatorsSkipped > 0 {
 		overallExitCode = EXIT_NON_COMPLIANT
 	}
 
@@ -165,11 +261,12 @@ func main() {
 		BundleCategory:    "cyber-hygiene",
 		BundleSubcategory: "identity-endpoint",
 		ExecutionID:       executionContext.ExecutionID,
-		StartedAt:         time.Now().UTC().Format(time.RFC3339),
+		StartedAt:         startedAt,
 		OverallExitCode:   overallExitCode,
 		TotalControls:     len(allControls),
-		PassedControls:    totalChecksPassed,
-		FailedControls:    totalChecksFailed,
+		PassedControls:    totalPassed,
+		FailedControls:    totalFailed,
+		SkippedControls:   totalSkipped,
 		Controls:          allControls,
 	}
 
@@ -180,14 +277,14 @@ func main() {
 	}
 
 	// Print summary
-	printSummary(validatorsPassed, validatorsFailed, totalChecksPassed, totalChecksFailed, failedValidatorNames)
+	printSummary(validatorsPassed, validatorsFailed, validatorsSkipped, totalPassed, totalFailed, totalSkipped, failedNames, skippedNames)
 
 	// Determine exit code and log outcome
 	var exitCode int
 	var outcome string
 	var outcomeDescription string
 
-	if validatorsFailed == 0 {
+	if validatorsFailed == 0 && validatorsSkipped == 0 {
 		exitCode = EXIT_COMPLIANT
 		outcome = "compliant"
 		outcomeDescription = "All validators passed - endpoint identity posture is properly hardened"
@@ -195,22 +292,18 @@ func main() {
 	} else {
 		exitCode = EXIT_NON_COMPLIANT
 		outcome = "non_compliant"
-		outcomeDescription = fmt.Sprintf("%d validator(s) failed - identity posture gaps detected", validatorsFailed)
-		LogMessage("WARNING", "Result", fmt.Sprintf("NON-COMPLIANT: %d/%d validators failed: %s",
-			validatorsFailed, len(validators), strings.Join(failedValidatorNames, ", ")))
-	}
-
-	// Log detailed results
-	for _, result := range results {
-		status := "PASS"
-		if !result.IsCompliant {
-			status = "FAIL"
+		parts := []string{}
+		if validatorsFailed > 0 {
+			parts = append(parts, fmt.Sprintf("%d failed", validatorsFailed))
 		}
-		LogMessage("INFO", result.Name, fmt.Sprintf("[%s] %d/%d checks passed",
-			status, result.PassedCount, result.TotalChecks))
+		if validatorsSkipped > 0 {
+			parts = append(parts, fmt.Sprintf("%d skipped/quarantined", validatorsSkipped))
+		}
+		outcomeDescription = fmt.Sprintf("Validators: %s - identity posture gaps detected", strings.Join(parts, ", "))
+		LogMessage("WARNING", "Result", fmt.Sprintf("NON-COMPLIANT: %d/%d validators OK (%s)",
+			validatorsPassed, len(validators), strings.Join(parts, ", ")))
 	}
 
-	// End phase and save log
 	LogPhaseEnd(1, outcome, outcomeDescription)
 	SaveLog(exitCode, outcomeDescription)
 
@@ -220,59 +313,34 @@ func main() {
 // printBanner displays the test banner
 func printBanner() {
 	fmt.Println("╔══════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║     F0RT1KA Identity Endpoint Posture Bundle                     ║")
+	fmt.Println("║   F0RT1KA Identity Endpoint Posture Bundle v2                    ║")
+	fmt.Println("║   Multi-Binary Architecture (quarantine-resilient)               ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════════╝")
 	fmt.Printf("\nTest UUID: %s\n", TEST_UUID)
 	fmt.Printf("Version:   %s\n", VERSION)
 	fmt.Printf("Time:      %s\n", time.Now().Format("2006-01-02 15:04:05 MST"))
-	fmt.Println("\nValidating 5 identity configurations...")
-}
-
-// runAllValidators executes all validators and returns results
-func runAllValidators(validators []Validator) []ValidatorResult {
-	results := make([]ValidatorResult, 0, len(validators))
-
-	for i, v := range validators {
-		fmt.Printf("\n[%d/%d] %s\n", i+1, len(validators), v.Name)
-
-		result := v.Run()
-		results = append(results, result)
-
-		// Print individual check results
-		for j, check := range result.Checks {
-			if j == len(result.Checks)-1 {
-				fmt.Println(FormatLastCheckResult(check))
-			} else {
-				fmt.Println(FormatCheckResult(check))
-			}
-		}
-
-		// Print validator summary
-		if result.IsCompliant {
-			fmt.Printf("       → COMPLIANT (%d/%d checks passed)\n", result.PassedCount, result.TotalChecks)
-		} else {
-			fmt.Printf("       → NON-COMPLIANT (%d/%d checks passed)\n", result.PassedCount, result.TotalChecks)
-		}
-	}
-
-	return results
+	fmt.Println("\nValidating 5 identity configurations (independent validator binaries)...")
 }
 
 // printSummary displays the final summary
-func printSummary(validatorsPassed, validatorsFailed, checksPassed, checksFailed int, failedNames []string) {
+func printSummary(passed, failed, skipped, checksPassed, checksFailed, checksSkipped int, failedNames, skippedNames []string) {
+	total := passed + failed + skipped
 	fmt.Println("\n══════════════════════════════════════════════════════════════════")
 	fmt.Println("                        SUMMARY")
 	fmt.Println("══════════════════════════════════════════════════════════════════")
-	fmt.Printf("  Validators Passed: %d/%d\n", validatorsPassed, validatorsPassed+validatorsFailed)
-	fmt.Printf("  Validators Failed: %d/%d", validatorsFailed, validatorsPassed+validatorsFailed)
-	if validatorsFailed > 0 {
+	fmt.Printf("  Validators Passed:   %d/%d\n", passed, total)
+	fmt.Printf("  Validators Failed:   %d/%d", failed, total)
+	if failed > 0 {
 		fmt.Printf(" (%s)", strings.Join(failedNames, ", "))
 	}
 	fmt.Println()
-	fmt.Printf("  Total Checks: %d passed, %d failed\n", checksPassed, checksFailed)
+	if skipped > 0 {
+		fmt.Printf("  Validators Skipped:  %d/%d (%s)\n", skipped, total, strings.Join(skippedNames, ", "))
+	}
+	fmt.Printf("  Total Controls: %d passed, %d failed, %d skipped\n", checksPassed, checksFailed, checksSkipped)
 	fmt.Println()
 
-	if validatorsFailed == 0 {
+	if failed == 0 && skipped == 0 {
 		fmt.Println("  RESULT: COMPLIANT (Exit Code: 126)")
 	} else {
 		fmt.Println("  RESULT: NON-COMPLIANT (Exit Code: 101)")

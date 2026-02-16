@@ -20,6 +20,7 @@ AUTHOR: sectest-builder
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"strings"
@@ -31,7 +32,7 @@ import (
 const (
 	TEST_UUID = "a3c923ae-1a46-4b1f-b696-be6c2731a628"
 	TEST_NAME = "Cyber-Hygiene Bundle (Windows Defender Edition)"
-	VERSION   = "1.0.0"
+	VERSION   = "2.0.0"
 
 	// Exit codes
 	EXIT_COMPLIANT     = 126 // All validators passed
@@ -40,16 +41,36 @@ const (
 
 	// Target directory
 	TARGET_DIR = `c:\F0`
+
+	// Quarantine detection delay (ms)
+	QUARANTINE_DELAY = 1500 * time.Millisecond
 )
 
-// Validator represents a single validation module
-type Validator struct {
-	Name string
-	Run  func() ValidatorResult
-}
+// Embedded signed validator binaries (populated by build_all.sh)
+var (
+	//go:embed validator-defender.exe
+	validatorDefenderBin []byte
+	//go:embed validator-lsass.exe
+	validatorLsassBin []byte
+	//go:embed validator-asr.exe
+	validatorAsrBin []byte
+	//go:embed validator-smb.exe
+	validatorSmbBin []byte
+	//go:embed validator-powershell.exe
+	validatorPowershellBin []byte
+	//go:embed validator-network.exe
+	validatorNetworkBin []byte
+	//go:embed validator-audit.exe
+	validatorAuditBin []byte
+	//go:embed validator-lockout.exe
+	validatorLockoutBin []byte
+	//go:embed validator-laps.exe
+	validatorLapsBin []byte
+	//go:embed validator-printspooler.exe
+	validatorPrintspoolerBin []byte
+)
 
 func main() {
-	// Display banner
 	printBanner()
 
 	// Check for admin privileges
@@ -110,59 +131,163 @@ func main() {
 		Configuration: &ExecutionConfiguration{
 			TimeoutMs:         600000,
 			CertificateMode:   "self-healing",
-			MultiStageEnabled: false,
+			MultiStageEnabled: true,
 		},
 	}
 
 	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
-	LogPhaseStart(1, "Bundled Windows Cyber-Hygiene Validation")
+	LogPhaseStart(1, "Multi-Binary Cyber-Hygiene Validation")
 
-	// Define all validators
-	validators := []Validator{
-		{"Microsoft Defender Configuration", RunDefenderChecks},
-		{"LSASS Protection", RunLSASSChecks},
-		{"Attack Surface Reduction Rules", RunASRChecks},
-		{"SMB Hardening", RunSMBChecks},
-		{"PowerShell Security", RunPowerShellChecks},
-		{"Network Protocol Hardening", RunNetworkChecks},
-		{"Windows Audit Logging", RunAuditChecks},
-		{"Account Lockout Policy", RunLockoutChecks},
-		{"LAPS", RunLAPSChecks},
-		{"Print Spooler Hardening", RunPrintSpoolerChecks},
+	// Define all validators with embedded binaries and expected control IDs
+	validators := []ValidatorDef{
+		{
+			Name: "defender", DisplayName: "Microsoft Defender Configuration",
+			Binary:     validatorDefenderBin,
+			ControlIDs: []string{"CH-DEF-001", "CH-DEF-002", "CH-DEF-003", "CH-DEF-004", "CH-DEF-005", "CH-DEF-006"},
+		},
+		{
+			Name: "lsass", DisplayName: "LSASS Protection",
+			Binary:     validatorLsassBin,
+			ControlIDs: []string{"CH-LSS-001", "CH-LSS-002", "CH-LSS-003"},
+		},
+		{
+			Name: "asr", DisplayName: "Attack Surface Reduction Rules",
+			Binary:     validatorAsrBin,
+			ControlIDs: []string{"CH-ASR-001", "CH-ASR-002", "CH-ASR-003", "CH-ASR-004", "CH-ASR-005", "CH-ASR-006", "CH-ASR-007", "CH-ASR-008"},
+		},
+		{
+			Name: "smb", DisplayName: "SMB Hardening",
+			Binary:     validatorSmbBin,
+			ControlIDs: []string{"CH-SMB-001", "CH-SMB-002", "CH-SMB-003", "CH-SMB-004", "CH-SMB-005"},
+		},
+		{
+			Name: "powershell", DisplayName: "PowerShell Security",
+			Binary:     validatorPowershellBin,
+			ControlIDs: []string{"CH-PWS-001", "CH-PWS-002", "CH-PWS-003", "CH-PWS-004"},
+		},
+		{
+			Name: "network", DisplayName: "Network Protocol Hardening",
+			Binary:     validatorNetworkBin,
+			ControlIDs: []string{"CH-NET-001", "CH-NET-002", "CH-NET-003", "CH-NET-004"},
+		},
+		{
+			Name: "audit", DisplayName: "Windows Audit Logging",
+			Binary:     validatorAuditBin,
+			ControlIDs: []string{"CH-AUD-001", "CH-AUD-002", "CH-AUD-003", "CH-AUD-004", "CH-AUD-005", "CH-AUD-006", "CH-AUD-007", "CH-AUD-008", "CH-AUD-009"},
+		},
+		{
+			Name: "lockout", DisplayName: "Account Lockout Policy",
+			Binary:     validatorLockoutBin,
+			ControlIDs: []string{"CH-LOK-001", "CH-LOK-002", "CH-LOK-003", "CH-LOK-004", "CH-LOK-005"},
+		},
+		{
+			Name: "laps", DisplayName: "LAPS",
+			Binary:     validatorLapsBin,
+			ControlIDs: []string{"CH-LAP-001", "CH-LAP-002"},
+		},
+		{
+			Name: "printspooler", DisplayName: "Print Spooler Hardening",
+			Binary:     validatorPrintspoolerBin,
+			ControlIDs: []string{"CH-PRT-001", "CH-PRT-002"},
+		},
 	}
 
-	// Run all validators
+	// Execute validators: extract → quarantine check → run → collect results
 	startedAt := time.Now().UTC().Format(time.RFC3339)
 	fmt.Println()
-	results := runAllValidators(validators)
 
-	// Calculate totals
+	allControls := make([]ControlResult, 0, 48)
 	validatorsPassed := 0
 	validatorsFailed := 0
-	totalChecksPassed := 0
-	totalChecksFailed := 0
-	failedValidatorNames := []string{}
+	validatorsSkipped := 0
+	failedNames := []string{}
+	skippedNames := []string{}
 
-	for _, result := range results {
-		if result.IsCompliant {
+	for i, vd := range validators {
+		fmt.Printf("\n[%d/%d] %s\n", i+1, len(validators), vd.DisplayName)
+
+		// 1. Extract validator binary
+		exePath, err := ExtractValidator(vd.Name, vd.Binary)
+		if err != nil {
+			fmt.Printf("       [ERROR] Extract failed: %v\n", err)
+			controls := MakeSkippedControls(vd, "cyber-hygiene", "baseline", fmt.Sprintf("extraction failed: %v", err))
+			allControls = append(allControls, controls...)
+			validatorsSkipped++
+			skippedNames = append(skippedNames, vd.DisplayName)
+			continue
+		}
+
+		// 2. Brief delay for EDR/AV to react
+		time.Sleep(QUARANTINE_DELAY)
+
+		// 3. Check if quarantined
+		if IsQuarantined(exePath) {
+			fmt.Printf("       [SKIPPED] Validator quarantined by EDR/AV\n")
+			LogMessage("WARNING", vd.DisplayName, "Validator binary quarantined by endpoint protection")
+			controls := MakeSkippedControls(vd, "cyber-hygiene", "baseline", "validator binary quarantined by endpoint protection")
+			allControls = append(allControls, controls...)
+			validatorsSkipped++
+			skippedNames = append(skippedNames, vd.DisplayName)
+			continue
+		}
+
+		// 4. Execute validator subprocess
+		exitCode, err := ExecuteValidator(exePath)
+		if err != nil {
+			fmt.Printf("       [ERROR] Execution failed: %v\n", err)
+			controls := MakeSkippedControls(vd, "cyber-hygiene", "baseline", fmt.Sprintf("execution failed: %v", err))
+			allControls = append(allControls, controls...)
+			validatorsSkipped++
+			skippedNames = append(skippedNames, vd.DisplayName)
+			CleanupValidator(vd.Name)
+			continue
+		}
+
+		// 5. Read validator output
+		output, err := ReadValidatorOutput(vd.Name)
+		if err != nil {
+			fmt.Printf("       [ERROR] Failed to read results: %v\n", err)
+			controls := MakeSkippedControls(vd, "cyber-hygiene", "baseline", fmt.Sprintf("output read failed: %v", err))
+			allControls = append(allControls, controls...)
+			validatorsSkipped++
+			skippedNames = append(skippedNames, vd.DisplayName)
+			CleanupValidator(vd.Name)
+			continue
+		}
+
+		// 6. Convert to control results and track status
+		controls := ConvertOutputToControls(vd.DisplayName, "cyber-hygiene", "baseline", output)
+		allControls = append(allControls, controls...)
+
+		if exitCode == EXIT_COMPLIANT || output.IsCompliant {
 			validatorsPassed++
+			fmt.Printf("       → COMPLIANT (%d/%d checks passed)\n", output.PassedCount, output.TotalChecks)
 		} else {
 			validatorsFailed++
-			failedValidatorNames = append(failedValidatorNames, result.Name)
+			failedNames = append(failedNames, vd.DisplayName)
+			fmt.Printf("       → NON-COMPLIANT (%d/%d checks passed)\n", output.PassedCount, output.TotalChecks)
 		}
-		totalChecksPassed += result.PassedCount
-		totalChecksFailed += result.FailedCount
+
+		CleanupValidator(vd.Name)
 	}
 
-	// Collect per-control results and write bundle_results.json
-	allControls := make([]ControlResult, 0, totalChecksPassed+totalChecksFailed)
-	for _, result := range results {
-		controls := CollectControlResults(result.Name, "cyber-hygiene", "baseline", result.Checks)
-		allControls = append(allControls, controls...)
+	// Calculate totals from controls
+	totalPassed := 0
+	totalFailed := 0
+	totalSkipped := 0
+	for _, c := range allControls {
+		if c.Skipped {
+			totalSkipped++
+		} else if c.Compliant {
+			totalPassed++
+		} else {
+			totalFailed++
+		}
 	}
 
+	// Build and write bundle_results.json
 	overallExitCode := EXIT_COMPLIANT
-	if validatorsFailed > 0 {
+	if validatorsFailed > 0 || validatorsSkipped > 0 {
 		overallExitCode = EXIT_NON_COMPLIANT
 	}
 
@@ -176,8 +301,9 @@ func main() {
 		StartedAt:         startedAt,
 		OverallExitCode:   overallExitCode,
 		TotalControls:     len(allControls),
-		PassedControls:    totalChecksPassed,
-		FailedControls:    totalChecksFailed,
+		PassedControls:    totalPassed,
+		FailedControls:    totalFailed,
+		SkippedControls:   totalSkipped,
 		Controls:          allControls,
 	}
 
@@ -188,14 +314,14 @@ func main() {
 	}
 
 	// Print summary
-	printSummary(validatorsPassed, validatorsFailed, totalChecksPassed, totalChecksFailed, failedValidatorNames)
+	printSummary(validatorsPassed, validatorsFailed, validatorsSkipped, totalPassed, totalFailed, totalSkipped, failedNames, skippedNames)
 
 	// Determine exit code and log outcome
 	var exitCode int
 	var outcome string
 	var outcomeDescription string
 
-	if validatorsFailed == 0 {
+	if validatorsFailed == 0 && validatorsSkipped == 0 {
 		exitCode = EXIT_COMPLIANT
 		outcome = "compliant"
 		outcomeDescription = "All validators passed - endpoint is properly hardened"
@@ -203,22 +329,18 @@ func main() {
 	} else {
 		exitCode = EXIT_NON_COMPLIANT
 		outcome = "non_compliant"
-		outcomeDescription = fmt.Sprintf("%d validator(s) failed - security gaps detected", validatorsFailed)
-		LogMessage("WARNING", "Result", fmt.Sprintf("NON-COMPLIANT: %d/%d validators failed: %s",
-			validatorsFailed, len(validators), strings.Join(failedValidatorNames, ", ")))
-	}
-
-	// Log detailed results
-	for _, result := range results {
-		status := "PASS"
-		if !result.IsCompliant {
-			status = "FAIL"
+		parts := []string{}
+		if validatorsFailed > 0 {
+			parts = append(parts, fmt.Sprintf("%d failed", validatorsFailed))
 		}
-		LogMessage("INFO", result.Name, fmt.Sprintf("[%s] %d/%d checks passed",
-			status, result.PassedCount, result.TotalChecks))
+		if validatorsSkipped > 0 {
+			parts = append(parts, fmt.Sprintf("%d skipped/quarantined", validatorsSkipped))
+		}
+		outcomeDescription = fmt.Sprintf("Validators: %s - security gaps detected", strings.Join(parts, ", "))
+		LogMessage("WARNING", "Result", fmt.Sprintf("NON-COMPLIANT: %d/%d validators OK (%s)",
+			validatorsPassed, len(validators), strings.Join(parts, ", ")))
 	}
 
-	// End phase and save log
 	LogPhaseEnd(1, outcome, outcomeDescription)
 	SaveLog(exitCode, outcomeDescription)
 
@@ -228,59 +350,34 @@ func main() {
 // printBanner displays the test banner
 func printBanner() {
 	fmt.Println("╔══════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║     F0RT1KA Cyber-Hygiene Bundle - Windows Defender Edition      ║")
+	fmt.Println("║   F0RT1KA Cyber-Hygiene Bundle - Windows Defender Edition v2     ║")
+	fmt.Println("║   Multi-Binary Architecture (quarantine-resilient)               ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════════╝")
 	fmt.Printf("\nTest UUID: %s\n", TEST_UUID)
 	fmt.Printf("Version:   %s\n", VERSION)
 	fmt.Printf("Time:      %s\n", time.Now().Format("2006-01-02 15:04:05 MST"))
-	fmt.Println("\nValidating 10 security configurations...")
-}
-
-// runAllValidators executes all validators and returns results
-func runAllValidators(validators []Validator) []ValidatorResult {
-	results := make([]ValidatorResult, 0, len(validators))
-
-	for i, v := range validators {
-		fmt.Printf("\n[%d/%d] %s\n", i+1, len(validators), v.Name)
-
-		result := v.Run()
-		results = append(results, result)
-
-		// Print individual check results
-		for j, check := range result.Checks {
-			if j == len(result.Checks)-1 {
-				fmt.Println(FormatLastCheckResult(check))
-			} else {
-				fmt.Println(FormatCheckResult(check))
-			}
-		}
-
-		// Print validator summary
-		if result.IsCompliant {
-			fmt.Printf("       → COMPLIANT (%d/%d checks passed)\n", result.PassedCount, result.TotalChecks)
-		} else {
-			fmt.Printf("       → NON-COMPLIANT (%d/%d checks passed)\n", result.PassedCount, result.TotalChecks)
-		}
-	}
-
-	return results
+	fmt.Println("\nValidating 10 security configurations (independent validator binaries)...")
 }
 
 // printSummary displays the final summary
-func printSummary(validatorsPassed, validatorsFailed, checksPassed, checksFailed int, failedNames []string) {
+func printSummary(passed, failed, skipped, checksPassed, checksFailed, checksSkipped int, failedNames, skippedNames []string) {
+	total := passed + failed + skipped
 	fmt.Println("\n══════════════════════════════════════════════════════════════════")
 	fmt.Println("                        SUMMARY")
 	fmt.Println("══════════════════════════════════════════════════════════════════")
-	fmt.Printf("  Validators Passed: %d/%d\n", validatorsPassed, validatorsPassed+validatorsFailed)
-	fmt.Printf("  Validators Failed: %d/%d", validatorsFailed, validatorsPassed+validatorsFailed)
-	if validatorsFailed > 0 {
+	fmt.Printf("  Validators Passed:   %d/%d\n", passed, total)
+	fmt.Printf("  Validators Failed:   %d/%d", failed, total)
+	if failed > 0 {
 		fmt.Printf(" (%s)", strings.Join(failedNames, ", "))
 	}
 	fmt.Println()
-	fmt.Printf("  Total Checks: %d passed, %d failed\n", checksPassed, checksFailed)
+	if skipped > 0 {
+		fmt.Printf("  Validators Skipped:  %d/%d (%s)\n", skipped, total, strings.Join(skippedNames, ", "))
+	}
+	fmt.Printf("  Total Controls: %d passed, %d failed, %d skipped\n", checksPassed, checksFailed, checksSkipped)
 	fmt.Println()
 
-	if validatorsFailed == 0 {
+	if failed == 0 && skipped == 0 {
 		fmt.Println("  RESULT: COMPLIANT (Exit Code: 126)")
 	} else {
 		fmt.Println("  RESULT: NON-COMPLIANT (Exit Code: 101)")

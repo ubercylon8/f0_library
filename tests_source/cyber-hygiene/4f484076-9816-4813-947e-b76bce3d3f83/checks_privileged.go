@@ -37,12 +37,15 @@ func RunPrivilegedChecks() ValidatorResult {
 // SCuBA MS.AAD.7.1: A minimum of two users and a maximum of eight users SHALL be provisioned with the Global Administrator role.
 func checkGlobalAdminCount() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-017",
 		Name:        "Global Admin Count (2-8)",
 		Category:    "privileged",
 		Description: "Verifies Global Administrator count is between 2 and 8",
 		Severity:    "critical",
 		SCuBAID:     "MS.AAD.7.1",
 		Expected:    "2-8 Global Administrators",
+		Techniques:  []string{"T1098.003"},
+		Tactics:     []string{"persistence", "privilege-escalation"},
 	}
 
 	// Global Admin role template ID is well-known: 62e90394-69f5-4237-9190-012177145e10
@@ -93,12 +96,15 @@ Write-Output "COUNT:$($userMembers.Count)"
 // SCuBA MS.AAD.7.2: Highly privileged roles SHALL only be used for tasks that require those roles (informational).
 func checkFineGrainedRoles() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-018",
 		Name:        "Fine-Grained Roles Used",
 		Category:    "privileged",
 		Description: "Verifies fine-grained admin roles are in use beyond Global Admin",
 		Severity:    "informational",
 		SCuBAID:     "MS.AAD.7.2",
 		Expected:    "Multiple admin roles populated (not just Global Admin)",
+		Techniques:  []string{"T1098.003"},
+		Tactics:     []string{"persistence", "privilege-escalation"},
 	}
 
 	script := `
@@ -147,12 +153,15 @@ Write-Output "ROLES:$($populatedRoles.Count)|$($populatedRoles -join ',')"
 // SCuBA MS.AAD.7.3: Privileged users SHALL be cloud-only accounts.
 func checkCloudOnlyPrivileged() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-019",
 		Name:        "Cloud-Only Privileged Accounts",
 		Category:    "privileged",
 		Description: "Verifies highly privileged users are cloud-only (not synced from on-premises)",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.7.3",
 		Expected:    "All privileged users have onPremisesSyncEnabled = false/null",
+		Techniques:  []string{"T1078.004", "T1556.007"},
+		Tactics:     []string{"credential-access", "persistence"},
 	}
 
 	script := `
@@ -215,12 +224,15 @@ if ($syncedAdmins.Count -eq 0) {
 // SCuBA MS.AAD.7.4: Permanent active role assignments SHALL NOT be used.
 func checkPIMActiveAssignments() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-020",
 		Name:        "No Permanent Active Assignments",
 		Category:    "privileged",
 		Description: "Verifies high-privilege roles use eligible (not permanent active) assignments via PIM",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.7.4",
 		Expected:    "No permanent active assignments for privileged roles",
+		Techniques:  []string{"T1098.003"},
+		Tactics:     []string{"persistence", "privilege-escalation"},
 	}
 
 	script := `
@@ -279,12 +291,15 @@ try {
 // SCuBA MS.AAD.7.5: Provisioning users to highly privileged roles SHALL require PIM (informational).
 func checkPIMUsedForProvisioning() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-021",
 		Name:        "PIM Used for Provisioning",
 		Category:    "privileged",
 		Description: "Verifies Privileged Identity Management is used for role provisioning",
 		Severity:    "informational",
 		SCuBAID:     "MS.AAD.7.5",
 		Expected:    "PIM enabled and in use",
+		Techniques:  []string{"T1098.003"},
+		Tactics:     []string{"persistence", "privilege-escalation"},
 	}
 
 	script := `
@@ -322,12 +337,15 @@ try {
 // SCuBA MS.AAD.7.6: Activation of Global Administrator role SHALL require approval.
 func checkGAActivationApproval() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-022",
 		Name:        "GA Activation Requires Approval",
 		Category:    "privileged",
 		Description: "Verifies Global Admin role activation requires approval in PIM",
 		Severity:    "high",
 		SCuBAID:     "MS.AAD.7.6",
 		Expected:    "Approval required for GA activation",
+		Techniques:  []string{"T1098.003"},
+		Tactics:     []string{"persistence", "privilege-escalation"},
 	}
 
 	script := `
@@ -392,12 +410,15 @@ try {
 // SCuBA MS.AAD.7.7: Eligible and Active role assignments SHALL trigger an alert (informational).
 func checkPrivilegedRoleAlerts() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-023",
 		Name:        "Privileged Role Assignment Alerts",
 		Category:    "privileged",
 		Description: "Verifies notification settings are configured for privileged role changes",
 		Severity:    "informational",
 		SCuBAID:     "MS.AAD.7.7",
 		Expected:    "Alert notifications configured for role assignments",
+		Techniques:  []string{"T1098.003"},
+		Tactics:     []string{"persistence"},
 	}
 
 	script := `

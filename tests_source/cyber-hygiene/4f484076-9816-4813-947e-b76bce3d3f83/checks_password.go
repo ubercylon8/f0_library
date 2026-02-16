@@ -30,12 +30,15 @@ func RunPasswordChecks() ValidatorResult {
 // SCuBA MS.AAD.6.1: Passwords SHALL NOT expire.
 func checkPasswordsDoNotExpire() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-016",
 		Name:        "Passwords Do Not Expire",
 		Category:    "password",
 		Description: "Verifies password expiration is disabled per NIST SP 800-63B guidance",
 		Severity:    "medium",
 		SCuBAID:     "MS.AAD.6.1",
 		Expected:    "passwordValidityPeriodInDays = 2147483647 (never expire)",
+		Techniques:  []string{"T1110.001"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	script := `

@@ -30,12 +30,15 @@ func RunLegacyAuthChecks() ValidatorResult {
 // SCuBA MS.AAD.1.1: Legacy authentication SHALL be blocked.
 func checkLegacyAuthBlocked() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-ITN-001",
 		Name:        "Legacy Authentication Blocked",
 		Category:    "legacy-auth",
 		Description: "Verifies a CA policy blocks Exchange ActiveSync and other legacy auth clients",
 		Severity:    "critical",
 		SCuBAID:     "MS.AAD.1.1",
 		Expected:    "CA policy blocking legacy auth for all users",
+		Techniques:  []string{"T1078.004"},
+		Tactics:     []string{"credential-access", "initial-access"},
 	}
 
 	script := `

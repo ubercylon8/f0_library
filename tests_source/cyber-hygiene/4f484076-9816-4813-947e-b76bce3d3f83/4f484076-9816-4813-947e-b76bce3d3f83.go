@@ -31,7 +31,7 @@ import (
 const (
 	TEST_UUID = "4f484076-9816-4813-947e-b76bce3d3f83"
 	TEST_NAME = "Entra ID Tenant Security Hygiene Bundle"
-	VERSION   = "1.0.0"
+	VERSION   = "1.1.0"
 
 	// Exit codes
 	EXIT_COMPLIANT     = 126 // All validators passed
@@ -134,6 +134,7 @@ func main() {
 	}
 
 	// Run all validators
+	startedAt := time.Now().UTC().Format(time.RFC3339)
 	fmt.Println()
 	results := runAllValidators(validators)
 
@@ -153,6 +154,39 @@ func main() {
 		}
 		totalChecksPassed += result.PassedCount
 		totalChecksFailed += result.FailedCount
+	}
+
+	// Collect per-control results and write bundle_results.json
+	allControls := make([]ControlResult, 0, totalChecksPassed+totalChecksFailed)
+	for _, result := range results {
+		controls := CollectControlResults(result.Name, "cyber-hygiene", "identity-tenant", result.Checks)
+		allControls = append(allControls, controls...)
+	}
+
+	overallExitCode := EXIT_COMPLIANT
+	if validatorsFailed > 0 {
+		overallExitCode = EXIT_NON_COMPLIANT
+	}
+
+	bundleResults := &BundleResults{
+		SchemaVersion:     "1.0",
+		BundleID:          TEST_UUID,
+		BundleName:        TEST_NAME,
+		BundleCategory:    "cyber-hygiene",
+		BundleSubcategory: "identity-tenant",
+		ExecutionID:       executionContext.ExecutionID,
+		StartedAt:         startedAt,
+		OverallExitCode:   overallExitCode,
+		TotalControls:     len(allControls),
+		PassedControls:    totalChecksPassed,
+		FailedControls:    totalChecksFailed,
+		Controls:          allControls,
+	}
+
+	if err := WriteBundleResults(bundleResults); err != nil {
+		fmt.Printf("\n[WARNING] Failed to write bundle_results.json: %v\n", err)
+	} else {
+		fmt.Printf("\n[INFO] Bundle results written to c:\\F0\\bundle_results.json (%d controls)\n", len(allControls))
 	}
 
 	// Print summary
