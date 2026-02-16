@@ -444,6 +444,91 @@ The cyber-hygiene category uses subcategories to distinguish test domains:
 
 **Identity-tenant tests** require environment variables: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` pointing to a service principal with read-only Graph API permissions (Policy.Read.All, Directory.Read.All, RoleManagement.Read.All, AuditLog.Read.All, Application.Read.All).
 
+## Bundle Results Protocol (Cyber-Hygiene Bundles)
+
+Cyber-hygiene bundle tests write `c:\F0\bundle_results.json` alongside the standard `test_execution_log.json`. This provides **per-control granularity** — each security control (e.g., "Defender Real-Time Protection enabled") becomes an independent Elasticsearch document, enabling fine-grained compliance dashboards and trend analysis.
+
+**Applies to**: cyber-hygiene bundle tests only. Intel-driven and phase-aligned tests use the standard single-document result path.
+
+### BundleResults Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schema_version` | string | Schema version (currently `"1.0"`) |
+| `bundle_id` | string | Bundle test UUID |
+| `bundle_name` | string | Human-readable bundle name |
+| `bundle_category` | string | Always `"cyber-hygiene"` |
+| `bundle_subcategory` | string | `"baseline"`, `"identity-tenant"`, or `"identity-endpoint"` |
+| `execution_id` | string | Matches `ExecutionContext.ExecutionID` for correlation |
+| `started_at` | string | ISO 8601 UTC timestamp |
+| `completed_at` | string | ISO 8601 UTC timestamp |
+| `overall_exit_code` | int | 126 (all compliant) or 101 (any non-compliant) |
+| `total_controls` | int | Total number of controls evaluated |
+| `passed_controls` | int | Number of compliant controls |
+| `failed_controls` | int | Number of non-compliant controls |
+| `controls` | array | Array of `ControlResult` objects |
+
+### ControlResult Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `control_id` | string | Stable ID, e.g., `"CH-DEF-001"` |
+| `control_name` | string | Human-readable control name |
+| `validator` | string | Parent validator module name |
+| `exit_code` | int | 126 = compliant, 101 = non-compliant |
+| `compliant` | bool | Whether the control passed |
+| `severity` | string | `critical`, `high`, `medium`, `low` |
+| `category` | string | `"cyber-hygiene"` |
+| `subcategory` | string | `"baseline"`, `"identity-tenant"`, or `"identity-endpoint"` |
+| `techniques` | []string | MITRE ATT&CK technique IDs |
+| `tactics` | []string | MITRE ATT&CK tactic names (kebab-case) |
+| `expected` | string | Expected configuration value |
+| `actual` | string | Actual configuration value found |
+| `details` | string | Additional context or remediation info |
+| `skipped` | bool | Whether the control was skipped |
+| `error_message` | string | Error message if skipped or failed to evaluate |
+
+### Control ID Naming Convention
+
+Control IDs use the format `CH-{CAT}-{NUM}` where `CAT` is a 3-letter uppercase prefix and `NUM` is zero-padded:
+
+| Prefix | Validator | Controls |
+|--------|-----------|----------|
+| `DEF` | Defender Settings | 6 |
+| `LSS` | LSASS Protection | 3 |
+| `ASR` | Attack Surface Reduction | 8 |
+| `SMB` | SMB Hardening | 5 |
+| `PWS` | PowerShell Security | 4 |
+| `NET` | Network Security | 4 |
+| `AUD` | Audit Logging | 9 |
+| `LOK` | Account Lockout | 5 |
+| `LAP` | LAPS Configuration | 2 |
+| `PRT` | Print Spooler | 2 |
+
+Total: 48 controls across 10 validators (baseline subcategory).
+
+### Implementation Functions
+
+Bundle results are produced using helpers from `check_utils.go`:
+
+- **`CollectControlResults(validatorName, category, subcategory string, checks []CheckResult) []ControlResult`** — Converts validator check results into per-control results with proper exit codes (126/101)
+- **`WriteBundleResults(results *BundleResults) error`** — Serializes and writes `c:\F0\bundle_results.json`
+
+### End-to-End Pipeline
+
+1. **Test writes** `c:\F0\bundle_results.json` via `WriteBundleResults()`
+2. **Agent reads** the file after test execution, validates `bundle_id == task.TestUUID`
+3. **Agent reports** the bundle as an optional field in the task result payload
+4. **Backend detects** `bundle_results.controls` in the result
+5. **Backend fans out** each control into an independent ES document via `client.bulk()`
+6. **ES documents** include `f0rtika.is_bundle_control: true` and per-control fields
+
+### Reference Implementation
+
+See `tests_source/cyber-hygiene/a3c923ae-1a46-4b1f-b696-be6c2731a628/` for the baseline bundle with 48 controls across 10 validators.
+
+For the ingestion side, see ProjectAchilles: `backend/src/services/agent/results.service.ts` (`ingestBundleControls()`).
+
 ## Required Files for Each Test
 
 1. `<uuid>/` directory (use lowercase UUID)
@@ -541,6 +626,11 @@ After sync, RECEIPT events will have these fields under `f0rtika.*`:
 | `f0rtika.score` | Test quality score (0-10) |
 | `f0rtika.error_name` | Human-readable exit code (Unprotected, ExecutionPrevented, etc.) |
 | `f0rtika.is_protected` | Boolean: was endpoint protected? |
+| `f0rtika.bundle_id` | Bundle test UUID (only for bundle control documents) |
+| `f0rtika.bundle_name` | Bundle human-readable name |
+| `f0rtika.control_id` | Individual control ID (e.g., `CH-DEF-001`) |
+| `f0rtika.control_validator` | Parent validator name |
+| `f0rtika.is_bundle_control` | Boolean: true for fan-out bundle control documents |
 
 **Example Queries:**
 ```
@@ -561,6 +651,18 @@ f0rtika.category: "cyber-hygiene" AND f0rtika.subcategory: "identity-*"
 
 # Entra ID tenant security validation results
 f0rtika.subcategory: "identity-tenant"
+
+# All bundle control results
+f0rtika.is_bundle_control: true
+
+# Failed Defender controls across all endpoints
+f0rtika.control_id: CH-DEF-* AND f0rtika.is_protected: false
+
+# All controls from baseline bundle on a specific host
+f0rtika.bundle_id: "a3c923ae*" AND routing.hostname: "WORKSTATION01"
+
+# Non-compliant critical controls
+f0rtika.is_bundle_control: true AND f0rtika.severity: "critical" AND f0rtika.is_protected: false
 ```
 
 **See**: `limacharlie-iac/ELASTICSEARCH-ENRICHMENT-GUIDE.md` for full setup details.
