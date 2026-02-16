@@ -1,0 +1,1698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cyber Hygiene: The Business Case | F0RT1KA</title>
+<style>
+  :root {
+    --bg: #06060f;
+    --bg-surface: #0c0c1d;
+    --bg-card: rgba(255,255,255,0.04);
+    --text: #e8e8f0;
+    --text-dim: #7a7a9a;
+    --red: #ff2d4a;
+    --red-glow: rgba(255,45,74,0.3);
+    --green: #00e676;
+    --green-glow: rgba(0,230,118,0.3);
+    --blue: #448aff;
+    --blue-glow: rgba(68,138,255,0.25);
+    --amber: #ffab00;
+    --amber-glow: rgba(255,171,0,0.25);
+    --purple: #7c4dff;
+    --purple-glow: rgba(124,77,255,0.25);
+    --gradient-hero: linear-gradient(135deg, #ff2d4a 0%, #7c4dff 50%, #448aff 100%);
+    --gradient-success: linear-gradient(135deg, #00e676 0%, #448aff 100%);
+    --gradient-warning: linear-gradient(135deg, #ffab00 0%, #ff2d4a 100%);
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html {
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+    overflow-y: scroll;
+    scrollbar-width: thin;
+    scrollbar-color: var(--purple) var(--bg);
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* Progress bar */
+  #progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    background: var(--gradient-hero);
+    z-index: 1000;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 10px var(--red-glow);
+  }
+
+  /* Navigation dots */
+  #nav {
+    position: fixed;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 999;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .nav-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    cursor: pointer;
+    transition: all 0.4s var(--ease-out-expo);
+    border: 1.5px solid transparent;
+    position: relative;
+  }
+
+  .nav-dot:hover {
+    background: rgba(255,255,255,0.3);
+    transform: scale(1.3);
+  }
+
+  .nav-dot.active {
+    background: var(--red);
+    border-color: var(--red);
+    box-shadow: 0 0 12px var(--red-glow);
+    transform: scale(1.2);
+  }
+
+  .nav-dot .tooltip {
+    position: absolute;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--bg-surface);
+    color: var(--text);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .nav-dot:hover .tooltip { opacity: 1; }
+
+  /* Slide base */
+  .slide {
+    min-height: 100vh;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 80px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Animated elements */
+  .anim {
+    opacity: 0;
+    transform: translateY(40px);
+    transition: opacity 0.8s var(--ease-out-expo), transform 0.8s var(--ease-out-expo);
+  }
+
+  .anim.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .anim-delay-1 { transition-delay: 0.15s; }
+  .anim-delay-2 { transition-delay: 0.3s; }
+  .anim-delay-3 { transition-delay: 0.45s; }
+  .anim-delay-4 { transition-delay: 0.6s; }
+  .anim-delay-5 { transition-delay: 0.75s; }
+  .anim-delay-6 { transition-delay: 0.9s; }
+
+  .anim-scale {
+    opacity: 0;
+    transform: scale(0.85);
+    transition: opacity 0.7s var(--ease-out-expo), transform 0.7s var(--ease-out-back);
+  }
+
+  .anim-scale.visible {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  /* Typography */
+  .hero-title {
+    font-size: clamp(3rem, 6vw, 5.5rem);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    background: var(--gradient-hero);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+
+  .slide-title {
+    font-size: clamp(2rem, 4vw, 3.2rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+
+  .slide-subtitle {
+    font-size: clamp(1rem, 2vw, 1.4rem);
+    color: var(--text-dim);
+    text-align: center;
+    max-width: 700px;
+    margin-bottom: 48px;
+  }
+
+  .accent-red { color: var(--red); }
+  .accent-green { color: var(--green); }
+  .accent-blue { color: var(--blue); }
+  .accent-amber { color: var(--amber); }
+  .accent-purple { color: var(--purple); }
+
+  /* Cards */
+  .card-grid {
+    display: grid;
+    gap: 24px;
+    width: 100%;
+    max-width: 1200px;
+  }
+
+  .card-grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .card-grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .card-grid-5 { grid-template-columns: repeat(5, 1fr); }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    padding: 32px;
+    backdrop-filter: blur(12px);
+    transition: all 0.4s var(--ease-out-expo);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--gradient-hero);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+
+  .card:hover {
+    border-color: rgba(255,255,255,0.12);
+    transform: translateY(-4px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+
+  .card:hover::before { opacity: 1; }
+
+  .card-icon {
+    font-size: 2.2rem;
+    margin-bottom: 16px;
+    display: block;
+  }
+
+  .card-number {
+    font-size: 3rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card-label {
+    font-size: 0.95rem;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  .card-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  /* Stat highlight */
+  .stat-hero {
+    font-size: clamp(4rem, 10vw, 8rem);
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Progress bars */
+  .bar-container {
+    width: 100%;
+    max-width: 900px;
+    margin-bottom: 28px;
+  }
+
+  .bar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+  }
+
+  .bar-label {
+    font-size: 1rem;
+    font-weight: 500;
+  }
+
+  .bar-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+  }
+
+  .bar-track {
+    height: 32px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 16px;
+    width: 0;
+    transition: width 1.5s var(--ease-out-expo);
+    position: relative;
+  }
+
+  .bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 60%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15));
+    border-radius: 16px;
+  }
+
+  /* Timeline */
+  .timeline {
+    display: flex;
+    width: 100%;
+    max-width: 1100px;
+    position: relative;
+    padding-top: 20px;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    top: 20px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+  }
+
+  .timeline-phase {
+    flex: 1;
+    text-align: center;
+    padding: 0 8px;
+    position: relative;
+  }
+
+  .timeline-node {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    margin: 0 auto 16px;
+    position: relative;
+    top: -8px;
+    opacity: 0;
+    transform: scale(0);
+    transition: all 0.5s var(--ease-out-back);
+    box-shadow: 0 0 20px var(--blue-glow);
+  }
+
+  .timeline-phase.visible .timeline-node {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .timeline-content {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.6s var(--ease-out-expo);
+  }
+
+  .timeline-phase.visible .timeline-content {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .timeline-weeks {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+    color: var(--blue);
+  }
+
+  .timeline-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .timeline-desc {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    line-height: 1.3;
+  }
+
+  /* Difficulty badges */
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .badge-easy {
+    background: rgba(0,230,118,0.12);
+    color: var(--green);
+    border: 1px solid rgba(0,230,118,0.2);
+  }
+
+  .badge-medium {
+    background: rgba(255,171,0,0.12);
+    color: var(--amber);
+    border: 1px solid rgba(255,171,0,0.2);
+  }
+
+  .badge-hard {
+    background: rgba(255,45,74,0.12);
+    color: var(--red);
+    border: 1px solid rgba(255,45,74,0.2);
+  }
+
+  /* Incident callout */
+  .callout {
+    background: rgba(255,45,74,0.06);
+    border-left: 3px solid var(--red);
+    padding: 16px 20px;
+    border-radius: 0 8px 8px 0;
+    margin-top: 16px;
+    font-size: 0.88rem;
+  }
+
+  .callout-warning {
+    background: rgba(255,171,0,0.06);
+    border-left-color: var(--amber);
+  }
+
+  .callout-success {
+    background: rgba(0,230,118,0.06);
+    border-left-color: var(--green);
+  }
+
+  /* ROI comparison */
+  .roi-vs {
+    display: flex;
+    align-items: center;
+    gap: 40px;
+    max-width: 1000px;
+    width: 100%;
+  }
+
+  .roi-side {
+    flex: 1;
+    text-align: center;
+    padding: 40px 32px;
+    border-radius: 20px;
+  }
+
+  .roi-left {
+    background: rgba(255,171,0,0.06);
+    border: 1px solid rgba(255,171,0,0.15);
+  }
+
+  .roi-right {
+    background: rgba(0,230,118,0.06);
+    border: 1px solid rgba(0,230,118,0.15);
+  }
+
+  .roi-divider {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  /* Donut chart */
+  .donut-container {
+    display: flex;
+    align-items: center;
+    gap: 48px;
+    max-width: 800px;
+  }
+
+  .donut-svg {
+    width: 220px;
+    height: 220px;
+    flex-shrink: 0;
+  }
+
+  .donut-ring {
+    fill: none;
+    stroke-width: 24;
+    stroke-linecap: round;
+    stroke-dasharray: 0 502;
+    transition: stroke-dasharray 1.5s var(--ease-out-expo);
+    transform-origin: center;
+    transform: rotate(-90deg);
+  }
+
+  .donut-bg {
+    fill: none;
+    stroke: rgba(255,255,255,0.04);
+    stroke-width: 24;
+  }
+
+  .donut-center {
+    font-size: 2.8rem;
+    font-weight: 800;
+    fill: var(--text);
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+
+  .donut-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 1rem;
+  }
+
+  .legend-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .legend-count {
+    font-weight: 700;
+    margin-left: auto;
+    padding-left: 16px;
+  }
+
+  /* Technique grid */
+  .tech-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    max-width: 1000px;
+    width: 100%;
+  }
+
+  .tech-card {
+    background: var(--bg-card);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 10px;
+    padding: 14px 16px;
+    transition: all 0.3s var(--ease-out-expo);
+    cursor: default;
+  }
+
+  .tech-card:hover {
+    border-color: var(--purple);
+    background: rgba(124,77,255,0.06);
+    transform: translateY(-2px);
+  }
+
+  .tech-id {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--purple);
+    letter-spacing: 0.03em;
+    margin-bottom: 3px;
+  }
+
+  .tech-name {
+    font-size: 0.82rem;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+
+  /* Hero background animation */
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+  }
+
+  .hero-bg::before {
+    content: '';
+    position: absolute;
+    width: 150%;
+    height: 150%;
+    top: -25%;
+    left: -25%;
+    background: radial-gradient(circle at 30% 40%, rgba(255,45,74,0.08) 0%, transparent 50%),
+                radial-gradient(circle at 70% 60%, rgba(124,77,255,0.08) 0%, transparent 50%),
+                radial-gradient(circle at 50% 80%, rgba(68,138,255,0.06) 0%, transparent 50%);
+    animation: hero-drift 20s ease-in-out infinite;
+  }
+
+  @keyframes hero-drift {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    25% { transform: translate(2%, -2%) rotate(1deg); }
+    50% { transform: translate(-1%, 3%) rotate(-0.5deg); }
+    75% { transform: translate(3%, 1%) rotate(0.5deg); }
+  }
+
+  /* Grid background for other slides */
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 60px 60px;
+    z-index: 0;
+  }
+
+  .slide > *:not(.hero-bg):not(.grid-bg) { position: relative; z-index: 1; }
+
+  /* Source citation */
+  .source {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 6px;
+    font-style: italic;
+  }
+
+  /* Verdict checkmarks */
+  .verdict-list {
+    list-style: none;
+    max-width: 700px;
+    width: 100%;
+  }
+
+  .verdict-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 1.15rem;
+  }
+
+  .verdict-check {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(0,230,118,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--green);
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  /* Quick wins grid */
+  .quickwin-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    max-width: 900px;
+    width: 100%;
+  }
+
+  .quickwin {
+    background: rgba(0,230,118,0.04);
+    border: 1px solid rgba(0,230,118,0.12);
+    border-radius: 14px;
+    padding: 24px;
+    transition: all 0.3s var(--ease-out-expo);
+  }
+
+  .quickwin:hover {
+    background: rgba(0,230,118,0.07);
+    transform: translateY(-3px);
+  }
+
+  .quickwin-title {
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: var(--green);
+  }
+
+  .quickwin-desc {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  /* Pulse animation for CTA */
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(0,230,118,0.4); }
+    70% { box-shadow: 0 0 0 20px rgba(0,230,118,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,230,118,0); }
+  }
+
+  .cta-pulse {
+    animation: pulse-ring 2s infinite;
+  }
+
+  /* Footer branding */
+  .brand {
+    position: absolute;
+    bottom: 24px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 0.72rem;
+    color: rgba(255,255,255,0.15);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  /* Scroll indicator */
+  .scroll-hint {
+    position: absolute;
+    bottom: 48px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    animation: bob 2s ease-in-out infinite;
+  }
+
+  .scroll-arrow {
+    width: 24px;
+    height: 24px;
+    border-right: 2px solid var(--text-dim);
+    border-bottom: 2px solid var(--text-dim);
+    transform: rotate(45deg);
+    opacity: 0.5;
+  }
+
+  @keyframes bob {
+    0%, 100% { transform: translateX(-50%) translateY(0); }
+    50% { transform: translateX(-50%) translateY(8px); }
+  }
+
+  /* Horizontal rule */
+  .divider {
+    width: 60px;
+    height: 3px;
+    background: var(--gradient-hero);
+    border-radius: 2px;
+    margin: 0 auto 32px;
+  }
+
+  /* ROI payback highlight */
+  .payback-box {
+    background: linear-gradient(135deg, rgba(0,230,118,0.08), rgba(68,138,255,0.08));
+    border: 1px solid rgba(0,230,118,0.2);
+    border-radius: 16px;
+    padding: 28px 40px;
+    text-align: center;
+    margin-top: 32px;
+    max-width: 600px;
+  }
+
+  .payback-box .stat-hero {
+    font-size: 3.5rem;
+    background: var(--gradient-success);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Incident cards */
+  .incident-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    max-width: 1000px;
+    width: 100%;
+  }
+
+  .incident-card {
+    background: var(--bg-card);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 24px;
+    position: relative;
+  }
+
+  .incident-year {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .incident-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    line-height: 1.3;
+  }
+
+  .incident-desc {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  .incident-lesson {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.82rem;
+    color: var(--green);
+    font-weight: 600;
+  }
+
+  /* Layer visualization */
+  .layers-container {
+    position: relative;
+    width: 420px;
+    height: 420px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .layer-ring {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    transition: all 0.8s var(--ease-out-expo);
+    opacity: 0;
+    transform: scale(0.7);
+    position: absolute;
+  }
+
+  .layer-ring.visible {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .layer-outer {
+    width: 420px;
+    height: 420px;
+    border: 2px solid rgba(68,138,255,0.3);
+    background: rgba(68,138,255,0.04);
+    z-index: 1;
+    justify-content: flex-start;
+    padding-top: 18px;
+  }
+
+  .layer-middle {
+    width: 290px;
+    height: 290px;
+    border: 2px solid rgba(124,77,255,0.4);
+    background: rgba(124,77,255,0.06);
+    z-index: 2;
+    justify-content: flex-start;
+    padding-top: 16px;
+  }
+
+  .layer-inner {
+    width: 160px;
+    height: 160px;
+    border: 2px solid rgba(0,230,118,0.5);
+    background: rgba(0,230,118,0.08);
+    z-index: 3;
+  }
+
+  .layer-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .layer-checks {
+    font-size: 1.8rem;
+    font-weight: 900;
+    margin-top: 2px;
+  }
+
+  .layer-name {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .layers-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    margin-left: 60px;
+  }
+
+  .layers-legend-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .layers-legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+
+  .layers-legend-text h4 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 3px;
+  }
+
+  .layers-legend-text p {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    line-height: 1.3;
+  }
+
+  /* Cost table */
+  .cost-table {
+    width: 100%;
+    max-width: 800px;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+
+  .cost-table th {
+    text-align: left;
+    padding: 12px 16px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    border-bottom: 2px solid rgba(255,255,255,0.08);
+  }
+
+  .cost-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .cost-table tr:hover td {
+    background: rgba(255,255,255,0.02);
+  }
+
+  .cost-table .total-row td {
+    font-weight: 800;
+    font-size: 1.05rem;
+    border-top: 2px solid rgba(255,255,255,0.1);
+    padding-top: 16px;
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .slide { padding: 40px 28px; }
+    .card-grid-3, .card-grid-4, .card-grid-5 { grid-template-columns: 1fr; }
+    .tech-grid { grid-template-columns: repeat(2, 1fr); }
+    .roi-vs { flex-direction: column; }
+    .roi-divider { transform: rotate(90deg); }
+    .quickwin-grid { grid-template-columns: 1fr; }
+    .incident-grid { grid-template-columns: 1fr; }
+    .layers-container { width: 300px; height: 300px; }
+    .layer-outer { width: 300px; height: 300px; }
+    .layer-middle { width: 210px; height: 210px; }
+    .layer-inner { width: 120px; height: 120px; }
+    .layers-legend { margin-left: 0; margin-top: 40px; }
+    .timeline { flex-direction: column; gap: 24px; padding-top: 0; }
+    .timeline::before { display: none; }
+    #nav { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Progress bar -->
+<div id="progress"></div>
+
+<!-- Navigation dots -->
+<nav id="nav"></nav>
+
+<!-- ========== SLIDE 1: TITLE ========== -->
+<section class="slide" id="s-title">
+  <div class="hero-bg"></div>
+  <div class="anim hero-title">CYBER HYGIENE</div>
+  <div class="anim anim-delay-1 slide-subtitle" style="font-size:clamp(1.3rem,3vw,2.2rem);font-weight:600;color:var(--text);margin-bottom:16px;">
+    The <span class="accent-red">$4.44M</span> Decision
+  </div>
+  <div class="anim anim-delay-2 slide-subtitle" style="margin-bottom:0;">
+    98 security controls. 3 bundles. One question:<br>
+    <em>Can your organization afford not to?</em>
+  </div>
+  <div class="scroll-hint anim anim-delay-4">
+    <span>Scroll</span>
+    <div class="scroll-arrow"></div>
+  </div>
+  <div class="brand">F0RT1KA Security Testing Framework</div>
+</section>
+
+<!-- ========== SLIDE 2: THE THREAT ========== -->
+<section class="slide" id="s-threat">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title">The Threat Is <span class="accent-red">Not Theoretical</span></div>
+  <div class="anim anim-delay-1 slide-subtitle">Every statistic below represents real organizations, real breaches, real losses.</div>
+
+  <div class="card-grid card-grid-3">
+    <div class="card anim anim-scale anim-delay-1">
+      <div class="card-number accent-red" data-counter="4.44" data-prefix="$" data-suffix="M" data-decimals="2">$0</div>
+      <div class="card-label">Average cost of a data breach<br><span class="source">IBM Cost of Data Breach Report, 2025</span></div>
+    </div>
+    <div class="card anim anim-scale anim-delay-2">
+      <div class="card-number accent-amber" data-counter="22" data-suffix="%" data-decimals="0">0</div>
+      <div class="card-label">Of all breaches involve stolen credentials<br><span class="source">Verizon DBIR, 2025</span></div>
+    </div>
+    <div class="card anim anim-scale anim-delay-3">
+      <div class="card-number accent-purple" data-counter="241" data-suffix=" days" data-decimals="0">0</div>
+      <div class="card-label">Average time to detect and contain a breach<br><span class="source">IBM, 2025</span></div>
+    </div>
+  </div>
+
+  <div class="card-grid card-grid-3" style="margin-top:24px;">
+    <div class="card anim anim-scale anim-delay-3">
+      <div class="card-number accent-red" data-counter="52" data-suffix="%" data-decimals="0">0</div>
+      <div class="card-label">Of cyberattacks are ransomware or extortion<br><span class="source">Microsoft MDDR, 2025</span></div>
+    </div>
+    <div class="card anim anim-scale anim-delay-4">
+      <div class="card-number accent-amber" data-counter="74" data-suffix="%" data-decimals="0">0</div>
+      <div class="card-label">Of breaches involve abused privileged credentials<br><span class="source">Verizon DBIR, 2025</span></div>
+    </div>
+    <div class="card anim anim-scale anim-delay-5">
+      <div class="card-number accent-purple" data-counter="46" data-suffix="%" data-decimals="0">0</div>
+      <div class="card-label">Of credential-leaking devices are unmanaged<br><span class="source">Verizon DBIR, 2025</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 3: THE SOLUTION ========== -->
+<section class="slide" id="s-solution">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title">Three Layers. <span class="accent-green">98 Controls.</span></div>
+  <div class="anim anim-delay-1 slide-subtitle">Defense-in-depth: each bundle protects a different layer of your infrastructure.</div>
+
+  <div style="display:flex;align-items:center;gap:60px;flex-wrap:wrap;justify-content:center;">
+    <div class="layers-container anim anim-scale anim-delay-2">
+      <div class="layer-ring layer-outer" id="layer-outer">
+        <div class="layer-label accent-blue">Endpoint</div>
+        <div class="layer-checks accent-blue">52</div>
+        <div class="layer-name">checks</div>
+      </div>
+      <div class="layer-ring layer-middle" id="layer-middle">
+        <div class="layer-label accent-purple">Cloud Identity</div>
+        <div class="layer-checks accent-purple">26</div>
+        <div class="layer-name">checks</div>
+      </div>
+      <div class="layer-ring layer-inner" id="layer-inner">
+        <div class="layer-label accent-green">Device</div>
+        <div class="layer-checks accent-green">20</div>
+        <div class="layer-name">checks</div>
+      </div>
+    </div>
+
+    <div class="layers-legend anim anim-delay-3">
+      <div class="layers-legend-item">
+        <div class="layers-legend-color" style="background:var(--blue);"></div>
+        <div class="layers-legend-text">
+          <h4>Windows Defender Hygiene</h4>
+          <p>Defender, LSASS, ASR, SMB, PowerShell,<br>network protocols, audit logging, LAPS</p>
+        </div>
+      </div>
+      <div class="layers-legend-item">
+        <div class="layers-legend-color" style="background:var(--purple);"></div>
+        <div class="layers-legend-text">
+          <h4>Entra ID Tenant Security</h4>
+          <p>MFA, Conditional Access, PIM, guest controls,<br>app governance, audit logging (CISA SCuBA)</p>
+        </div>
+      </div>
+      <div class="layers-legend-item">
+        <div class="layers-legend-color" style="background:var(--green);"></div>
+        <div class="layers-legend-text">
+          <h4>Identity Endpoint Posture</h4>
+          <p>Device join, Windows Hello, MDM enrollment,<br>PRT protection, BitLocker cloud escrow</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 4: RISK REDUCTION ========== -->
+<section class="slide" id="s-risk">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title">Cumulative <span class="accent-green">Risk Reduction</span></div>
+  <div class="anim anim-delay-1 slide-subtitle">Each bundle compounds on the previous. The math: <code style="background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:4px;font-size:0.9em;">1 - (1-A)(1-B)(1-C)</code></div>
+
+  <div class="bar-container anim anim-delay-2">
+    <div class="bar-header">
+      <span class="bar-label"><span class="accent-blue">Bundle 1</span> &mdash; Endpoint OS</span>
+      <span class="bar-value accent-blue">65-70%</span>
+    </div>
+    <div class="bar-track">
+      <div class="bar-fill" data-width="67" style="background:linear-gradient(90deg,var(--blue),#66bbff);"></div>
+    </div>
+    <div class="source">Malware, lateral movement, credential theft, audit logging</div>
+  </div>
+
+  <div class="bar-container anim anim-delay-3">
+    <div class="bar-header">
+      <span class="bar-label"><span class="accent-blue">Bundle 1</span> + <span class="accent-purple">Bundle 2</span> &mdash; + Cloud Identity</span>
+      <span class="bar-value accent-purple">88-92%</span>
+    </div>
+    <div class="bar-track">
+      <div class="bar-fill" data-width="90" style="background:linear-gradient(90deg,var(--blue),var(--purple));"></div>
+    </div>
+    <div class="source">+ MFA (99.9% automated attack block), PIM, guest controls, app governance</div>
+  </div>
+
+  <div class="bar-container anim anim-delay-4">
+    <div class="bar-header">
+      <span class="bar-label"><span class="accent-blue">All 3 Bundles</span> &mdash; Full Stack</span>
+      <span class="bar-value accent-green">93-96%</span>
+    </div>
+    <div class="bar-track">
+      <div class="bar-fill" data-width="95" style="background:linear-gradient(90deg,var(--blue),var(--purple),var(--green));"></div>
+    </div>
+    <div class="source">+ Device identity, WHfB, MDM, device-bound PRT, BitLocker escrow</div>
+  </div>
+
+  <div class="callout-success callout anim anim-delay-5" style="max-width:900px;margin-top:16px;">
+    <strong>MFA alone blocks 99.9% of automated credential attacks</strong> (Microsoft, 2019). Adding endpoint hardening and device identity closes the remaining gaps against sophisticated and physical attack vectors.
+  </div>
+</section>
+
+<!-- ========== SLIDE 5: BY THREAT CATEGORY ========== -->
+<section class="slide" id="s-categories">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title">Protection by <span class="accent-blue">Threat Category</span></div>
+  <div class="anim anim-delay-1 slide-subtitle">Not just one layer -- overlapping defenses across every major attack vector.</div>
+
+  <div class="card-grid card-grid-5" style="max-width:1200px;">
+    <div class="card anim anim-scale anim-delay-1" style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:12px;">&#128274;</div>
+      <div class="card-number accent-green" style="font-size:2rem;">~99%</div>
+      <div class="card-title" style="font-size:0.85rem;">Credential Theft</div>
+      <div class="card-label" style="font-size:0.78rem;">MFA + LSASS + WHfB + PRT + PIM</div>
+    </div>
+    <div class="card anim anim-scale anim-delay-2" style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:12px;">&#129520;</div>
+      <div class="card-number accent-green" style="font-size:2rem;">~95%</div>
+      <div class="card-title" style="font-size:0.85rem;">Malware &amp; Ransomware</div>
+      <div class="card-label" style="font-size:0.78rem;">Defender + ASR + tamper + cloud + MDM</div>
+    </div>
+    <div class="card anim anim-scale anim-delay-3" style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:12px;">&#128377;</div>
+      <div class="card-number accent-green" style="font-size:2rem;">~92%</div>
+      <div class="card-title" style="font-size:0.85rem;">Lateral Movement</div>
+      <div class="card-label" style="font-size:0.78rem;">SMB + LLMNR + NetBIOS + WPAD + CA</div>
+    </div>
+    <div class="card anim anim-scale anim-delay-4" style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:12px;">&#9878;</div>
+      <div class="card-number accent-green" style="font-size:2rem;">~85%</div>
+      <div class="card-title" style="font-size:0.85rem;">Privilege Escalation</div>
+      <div class="card-label" style="font-size:0.78rem;">LAPS + PIM + lockout + cloud-only</div>
+    </div>
+    <div class="card anim anim-scale anim-delay-5" style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:12px;">&#128065;</div>
+      <div class="card-number accent-green" style="font-size:2rem;">~80%</div>
+      <div class="card-title" style="font-size:0.85rem;">Detection &amp; Response</div>
+      <div class="card-label" style="font-size:0.78rem;">Audit logs + PS logging + Entra logs</div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 6: MITRE ATT&CK ========== -->
+<section class="slide" id="s-mitre">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title"><span class="accent-purple">16</span> MITRE ATT&amp;CK Techniques Addressed</div>
+  <div class="anim anim-delay-1 slide-subtitle">Every control maps to real adversary behavior documented in the ATT&amp;CK framework.</div>
+
+  <div class="tech-grid anim anim-delay-2">
+    <div class="tech-card"><div class="tech-id">T1562.001</div><div class="tech-name">Disable or Modify Tools</div></div>
+    <div class="tech-card"><div class="tech-id">T1059.001</div><div class="tech-name">PowerShell Abuse</div></div>
+    <div class="tech-card"><div class="tech-id">T1003.001</div><div class="tech-name">LSASS Memory Dump</div></div>
+    <div class="tech-card"><div class="tech-id">T1570</div><div class="tech-name">Lateral Tool Transfer</div></div>
+    <div class="tech-card"><div class="tech-id">T1557</div><div class="tech-name">Adversary-in-the-Middle</div></div>
+    <div class="tech-card"><div class="tech-id">T1110</div><div class="tech-name">Brute Force</div></div>
+    <div class="tech-card"><div class="tech-id">T1078.004</div><div class="tech-name">Cloud Account Abuse</div></div>
+    <div class="tech-card"><div class="tech-id">T1556.006</div><div class="tech-name">MFA Interception</div></div>
+    <div class="tech-card"><div class="tech-id">T1556.007</div><div class="tech-name">Hybrid Identity Attack</div></div>
+    <div class="tech-card"><div class="tech-id">T1098.001</div><div class="tech-name">Cloud Credential Abuse</div></div>
+    <div class="tech-card"><div class="tech-id">T1098.003</div><div class="tech-name">Cloud Role Manipulation</div></div>
+    <div class="tech-card"><div class="tech-id">T1528</div><div class="tech-name">Steal App Access Token</div></div>
+    <div class="tech-card"><div class="tech-id">T1550.001</div><div class="tech-name">Token Replay</div></div>
+    <div class="tech-card"><div class="tech-id">T1566</div><div class="tech-name">Phishing</div></div>
+    <div class="tech-card"><div class="tech-id">T1005</div><div class="tech-name">Data from Local System</div></div>
+    <div class="tech-card"><div class="tech-id">T1111</div><div class="tech-name">MFA Fatigue Attack</div></div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 7: HONEST ASSESSMENT ========== -->
+<section class="slide" id="s-honest">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title">The <span class="accent-amber">Honest</span> Assessment</div>
+  <div class="anim anim-delay-1 slide-subtitle">We don't sugar-coat it. Here's the real difficulty distribution across all 23 control groups.</div>
+
+  <div style="display:flex;align-items:center;gap:60px;flex-wrap:wrap;justify-content:center;">
+    <div class="anim anim-scale anim-delay-2">
+      <svg class="donut-svg" viewBox="0 0 200 200">
+        <circle class="donut-bg" cx="100" cy="100" r="80"/>
+        <circle class="donut-ring" id="donut-easy" cx="100" cy="100" r="80"
+                stroke="var(--green)" data-pct="34.8" data-offset="0"/>
+        <circle class="donut-ring" id="donut-medium" cx="100" cy="100" r="80"
+                stroke="var(--amber)" data-pct="39.1" data-offset="34.8"/>
+        <circle class="donut-ring" id="donut-hard" cx="100" cy="100" r="80"
+                stroke="var(--red)" data-pct="26.1" data-offset="73.9"/>
+        <text class="donut-center" x="100" y="96">23</text>
+        <text x="100" y="118" text-anchor="middle" fill="var(--text-dim)" font-size="11">controls</text>
+      </svg>
+    </div>
+
+    <div class="donut-legend anim anim-delay-3">
+      <div class="legend-item">
+        <div class="legend-dot" style="background:var(--green);"></div>
+        <span><span class="badge badge-easy">Easy</span> &mdash; Minimal risk, straightforward</span>
+        <span class="legend-count accent-green">8</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:var(--amber);"></div>
+        <span><span class="badge badge-medium">Medium</span> &mdash; Requires planning, some gotchas</span>
+        <span class="legend-count accent-amber">9</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:var(--red);"></div>
+        <span><span class="badge badge-hard">Hard</span> &mdash; Significant effort, high breakage risk</span>
+        <span class="legend-count accent-red">6</span>
+      </div>
+      <div style="margin-top:16px;">
+        <div class="callout callout-success" style="font-size:0.88rem;">
+          <strong>Key insight:</strong> 74% of controls are Easy or Medium.
+          The 6 Hard controls are all solvable with phased rollout and testing.
+          <strong>All 23 are reversible.</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 8: REAL INCIDENTS ========== -->
+<section class="slide" id="s-incidents">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title">Lessons from the <span class="accent-red">Field</span></div>
+  <div class="anim anim-delay-1 slide-subtitle">Real incidents that shaped our phased deployment approach. Learn from others' mistakes.</div>
+
+  <div class="incident-grid">
+    <div class="incident-card anim anim-scale anim-delay-1" style="border-top:2px solid var(--red);">
+      <div class="incident-year accent-red">January 2023</div>
+      <div class="incident-title">ASR Rules Delete Desktop Icons</div>
+      <div class="incident-desc">A Defender update caused ASR rules to delete desktop icons and Start Menu shortcuts across thousands of organizations globally. Microsoft issued an emergency fix.</div>
+      <div class="incident-lesson">&#10003; Solution: Always deploy ASR in Audit mode first (30-45 days minimum)</div>
+    </div>
+    <div class="incident-card anim anim-scale anim-delay-2" style="border-top:2px solid var(--amber);">
+      <div class="incident-year accent-amber">2025</div>
+      <div class="incident-title">Entra ID Mass Lockout</div>
+      <div class="incident-desc">Microsoft's leaked credential detection generated 20,000+ false positive lockouts overnight. Unique, secure passwords were flagged as compromised.</div>
+      <div class="incident-lesson">&#10003; Solution: Break-glass accounts + gradual risk policy enforcement</div>
+    </div>
+    <div class="incident-card anim anim-scale anim-delay-3" style="border-top:2px solid var(--amber);">
+      <div class="incident-year accent-amber">September 2025</div>
+      <div class="incident-title">SMBv1 Breaking Update</div>
+      <div class="incident-desc">A Windows update broke SMBv1 over NetBIOS connectivity, causing chaos in enterprises with legacy printers, scanners, and NAS devices.</div>
+      <div class="incident-lesson">&#10003; Solution: Inventory SMBv1 dependencies before disabling; budget for replacements</div>
+    </div>
+    <div class="incident-card anim anim-scale anim-delay-4" style="border-top:2px solid var(--purple);">
+      <div class="incident-year accent-purple">Common Pattern</div>
+      <div class="incident-title">Credential Guard vs. VMware</div>
+      <div class="incident-desc">Credential Guard requires Hyper-V, which conflicts with VMware Workstation and VirtualBox. Developer workstations running VMs break immediately.</div>
+      <div class="incident-lesson">&#10003; Solution: Exclude developer workstations; never enable UEFI lock initially</div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 9: THE 40-WEEK PLAN ========== -->
+<section class="slide" id="s-timeline">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title">The <span class="accent-blue">40-Week</span> Deployment Plan</div>
+  <div class="anim anim-delay-1 slide-subtitle">Phased. Tested. Reversible. Each phase stabilizes before the next begins.</div>
+
+  <div class="timeline anim anim-delay-2">
+    <div class="timeline-phase" data-delay="0">
+      <div class="timeline-node" style="background:var(--green);"></div>
+      <div class="timeline-content">
+        <div class="timeline-weeks">Weeks 1-4</div>
+        <div class="timeline-name">Foundation</div>
+        <div class="timeline-desc">Emergency access, audit logging, LAPS, Entra logs, guest restrictions. <strong>Zero user impact.</strong></div>
+      </div>
+    </div>
+    <div class="timeline-phase" data-delay="200">
+      <div class="timeline-node" style="background:var(--blue);"></div>
+      <div class="timeline-content">
+        <div class="timeline-weeks">Weeks 4-16</div>
+        <div class="timeline-name">Endpoint Hardening</div>
+        <div class="timeline-desc">Defender, ASR (audit mode), LLMNR/WPAD, Print Spooler, PS logging, password policy.</div>
+      </div>
+    </div>
+    <div class="timeline-phase" data-delay="400">
+      <div class="timeline-node" style="background:var(--purple);"></div>
+      <div class="timeline-content">
+        <div class="timeline-weeks">Weeks 16-28</div>
+        <div class="timeline-name">Identity Foundation</div>
+        <div class="timeline-desc">MFA for all users, block legacy auth, Azure AD Join, Intune/MDM, BitLocker, limit GAs.</div>
+      </div>
+    </div>
+    <div class="timeline-phase" data-delay="600">
+      <div class="timeline-node" style="background:var(--amber);"></div>
+      <div class="timeline-content">
+        <div class="timeline-weeks">Weeks 28-40</div>
+        <div class="timeline-name">Advanced Security</div>
+        <div class="timeline-desc">ASR enforce, LSASS, SMB hardening, risk-based CA, PIM, WHfB, app consent.</div>
+      </div>
+    </div>
+    <div class="timeline-phase" data-delay="800">
+      <div class="timeline-node" style="background:var(--red);"></div>
+      <div class="timeline-content">
+        <div class="timeline-weeks">Week 40+</div>
+        <div class="timeline-name">Lockdown</div>
+        <div class="timeline-desc">PowerShell CLM, FIDO2 keys, Token Protection, Credential Guard UEFI lock.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-warning anim anim-delay-4" style="max-width:900px;margin-top:32px;">
+    <strong>Anti-pattern avoided:</strong> "Big Bang" deployment (enabling everything at once) is the #1 cause of rollback and management loss of confidence. This phased approach has each phase stabilizing 4-12 weeks before the next begins.
+  </div>
+</section>
+
+<!-- ========== SLIDE 10: THE INVESTMENT ========== -->
+<section class="slide" id="s-cost">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title">The <span class="accent-amber">Investment</span></div>
+  <div class="anim anim-delay-1 slide-subtitle">Full cost breakdown for a 500-person organization starting from Microsoft 365 E3.</div>
+
+  <table class="cost-table anim anim-delay-2">
+    <thead>
+      <tr>
+        <th>Category</th>
+        <th>One-Time</th>
+        <th>Annual Recurring</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Entra ID P2 licenses (all users)</td>
+        <td style="color:var(--text-dim);">&mdash;</td>
+        <td class="accent-amber">$54,000</td>
+      </tr>
+      <tr>
+        <td>FIDO2 security keys (50 admins)</td>
+        <td class="accent-amber">$5,000</td>
+        <td style="color:var(--text-dim);">$1,000</td>
+      </tr>
+      <tr>
+        <td>Legacy hardware replacement (printers, NAS)</td>
+        <td class="accent-amber">$15,000 - $50,000</td>
+        <td style="color:var(--text-dim);">&mdash;</td>
+      </tr>
+      <tr>
+        <td>SIEM / Log Analytics</td>
+        <td class="accent-amber">$5,000</td>
+        <td class="accent-amber">$12,000 - $60,000</td>
+      </tr>
+      <tr>
+        <td>Staff time (1.5 FTE x 10 months)</td>
+        <td class="accent-amber">$125,000 - $200,000</td>
+        <td style="color:var(--text-dim);">&mdash;</td>
+      </tr>
+      <tr>
+        <td>Temporary help desk support (3 months)</td>
+        <td class="accent-amber">$15,000 - $25,000</td>
+        <td style="color:var(--text-dim);">&mdash;</td>
+      </tr>
+      <tr>
+        <td>Training and certification</td>
+        <td class="accent-amber">$5,000 - $10,000</td>
+        <td style="color:var(--text-dim);">&mdash;</td>
+      </tr>
+      <tr class="total-row">
+        <td><strong>Total</strong></td>
+        <td class="accent-amber">$170K - $340K</td>
+        <td class="accent-amber">$67K - $115K</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="source anim anim-delay-3" style="margin-top:16px;max-width:800px;text-align:center;">
+    Year 1 total: $237K - $455K | Year 2+: $67K - $115K recurring
+  </div>
+</section>
+
+<!-- ========== SLIDE 11: ROI ========== -->
+<section class="slide" id="s-roi">
+  <div class="grid-bg"></div>
+  <div class="anim slide-title">Return on <span class="accent-green">Investment</span></div>
+  <div class="anim anim-delay-1 slide-subtitle">The math is unambiguous.</div>
+
+  <div class="roi-vs anim anim-delay-2">
+    <div class="roi-side roi-left anim-scale">
+      <div style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--amber);font-weight:700;margin-bottom:12px;">You Invest</div>
+      <div class="stat-hero accent-amber" data-counter="455" data-prefix="$" data-suffix="K" data-decimals="0" style="font-size:3.5rem;">$0</div>
+      <div style="color:var(--text-dim);margin-top:8px;font-size:0.9rem;">Year 1 maximum</div>
+      <div style="margin-top:16px;font-size:2rem;font-weight:800;color:var(--amber);" data-counter="115" data-prefix="$" data-suffix="K" data-decimals="0">$0</div>
+      <div style="color:var(--text-dim);font-size:0.85rem;">per year after</div>
+    </div>
+
+    <div class="roi-divider">&rarr;</div>
+
+    <div class="roi-side roi-right anim-scale">
+      <div style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--green);font-weight:700;margin-bottom:12px;">You Avoid</div>
+      <div class="stat-hero accent-green" data-counter="4.22" data-prefix="$" data-suffix="M" data-decimals="2" style="font-size:3.5rem;">$0</div>
+      <div style="color:var(--text-dim);margin-top:8px;font-size:0.9rem;">per avoided breach</div>
+      <div style="margin-top:16px;font-size:2rem;font-weight:800;color:var(--green);">93-96%</div>
+      <div style="color:var(--text-dim);font-size:0.85rem;">risk reduction</div>
+    </div>
+  </div>
+
+  <div class="payback-box anim anim-delay-3">
+    <div style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);font-weight:600;margin-bottom:8px;">Payback Period</div>
+    <div class="stat-hero">1 breach</div>
+    <div style="color:var(--text-dim);margin-top:8px;">A single avoided breach pays for <strong style="color:var(--green);">4-6 years</strong> of implementation and maintenance costs.</div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 12: THE VERDICT ========== -->
+<section class="slide" id="s-verdict">
+  <div class="hero-bg"></div>
+  <div class="anim slide-title">The Verdict: <span class="accent-green">No Technical Blockers</span></div>
+  <div class="anim anim-delay-1 slide-subtitle">After thorough analysis of all 98 controls -- the obstacles are organizational, not technological.</div>
+
+  <ul class="verdict-list">
+    <li class="verdict-item anim anim-delay-1">
+      <div class="verdict-check">&#10003;</div>
+      <span>Zero controls require untested or experimental technology</span>
+    </li>
+    <li class="verdict-item anim anim-delay-2">
+      <div class="verdict-check">&#10003;</div>
+      <span>All 98 controls are documented, supported by Microsoft, and battle-tested</span>
+    </li>
+    <li class="verdict-item anim anim-delay-3">
+      <div class="verdict-check">&#10003;</div>
+      <span>All 23 control groups are reversible if issues arise</span>
+    </li>
+    <li class="verdict-item anim anim-delay-4">
+      <div class="verdict-check">&#10003;</div>
+      <span>Thousands of organizations have deployed these exact controls at scale</span>
+    </li>
+    <li class="verdict-item anim anim-delay-5">
+      <div class="verdict-check">&#10003;</div>
+      <span>Phased deployment over 40 weeks minimizes disruption and risk</span>
+    </li>
+    <li class="verdict-item anim anim-delay-6">
+      <div class="verdict-check">&#10003;</div>
+      <span>The only requirements: budget, time, people, and project discipline</span>
+    </li>
+  </ul>
+</section>
+
+<!-- ========== SLIDE 13: START NOW ========== -->
+<section class="slide" id="s-start">
+  <div class="hero-bg"></div>
+  <div class="anim slide-title">Start <span class="accent-green">This Week</span></div>
+  <div class="anim anim-delay-1 slide-subtitle">Phase 1 has zero user impact and takes only 1-4 weeks. These are your quick wins.</div>
+
+  <div class="quickwin-grid">
+    <div class="quickwin anim anim-scale anim-delay-1 cta-pulse">
+      <div class="quickwin-title">&#9654; Emergency Access Accounts</div>
+      <div class="quickwin-desc">Create 2+ break-glass accounts excluded from all Conditional Access policies. Prerequisite for everything else. <strong>1 day.</strong></div>
+    </div>
+    <div class="quickwin anim anim-scale anim-delay-2">
+      <div class="quickwin-title">&#9654; Windows Audit Logging</div>
+      <div class="quickwin-desc">Enable 9 audit categories via GPO. Zero user impact, immediate visibility into threats. <strong>1-2 weeks.</strong></div>
+    </div>
+    <div class="quickwin anim anim-scale anim-delay-3">
+      <div class="quickwin-title">&#9654; LAPS Deployment</div>
+      <div class="quickwin-desc">Unique local admin passwords per device. Best risk/effort ratio of any control. <strong>3-5 weeks.</strong></div>
+    </div>
+    <div class="quickwin anim anim-scale anim-delay-4">
+      <div class="quickwin-title">&#9654; Centralized Entra ID Logging</div>
+      <div class="quickwin-desc">Route AuditLogs and SignInLogs to your SIEM. Zero user impact. <strong>1-2 weeks.</strong></div>
+    </div>
+  </div>
+
+  <div style="margin-top:48px;text-align:center;" class="anim anim-delay-5">
+    <div style="font-size:1.3rem;font-weight:700;margin-bottom:8px;">
+      <span class="accent-green">93-96%</span> risk reduction is within reach.
+    </div>
+    <div style="color:var(--text-dim);font-size:1rem;">
+      The only question is: <strong style="color:var(--text)">when do you start?</strong>
+    </div>
+  </div>
+
+  <div class="brand">F0RT1KA Security Testing Framework &mdash; February 2026</div>
+</section>
+
+<script>
+(function() {
+  'use strict';
+
+  // Slide definitions for navigation
+  var slides = [
+    { id: 's-title', label: 'Title' },
+    { id: 's-threat', label: 'The Threat' },
+    { id: 's-solution', label: 'The Solution' },
+    { id: 's-risk', label: 'Risk Reduction' },
+    { id: 's-categories', label: 'By Category' },
+    { id: 's-mitre', label: 'MITRE ATT&CK' },
+    { id: 's-honest', label: 'Difficulty' },
+    { id: 's-incidents', label: 'Lessons' },
+    { id: 's-timeline', label: '40-Week Plan' },
+    { id: 's-cost', label: 'Investment' },
+    { id: 's-roi', label: 'ROI' },
+    { id: 's-verdict', label: 'Verdict' },
+    { id: 's-start', label: 'Start Now' }
+  ];
+
+  // Build navigation dots using safe DOM methods
+  var nav = document.getElementById('nav');
+  slides.forEach(function(s, i) {
+    var dot = document.createElement('div');
+    dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+
+    var tooltip = document.createElement('span');
+    tooltip.className = 'tooltip';
+    tooltip.textContent = s.label;
+    dot.appendChild(tooltip);
+
+    dot.addEventListener('click', function() {
+      document.getElementById(s.id).scrollIntoView({ behavior: 'smooth' });
+    });
+    nav.appendChild(dot);
+  });
+
+  var dots = nav.querySelectorAll('.nav-dot');
+  var progressBar = document.getElementById('progress');
+
+  // Scroll tracking
+  function updateNav() {
+    var scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+    var scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+    var pct = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
+    progressBar.style.width = pct + '%';
+
+    var activeIdx = 0;
+    slides.forEach(function(s, i) {
+      var el = document.getElementById(s.id);
+      var rect = el.getBoundingClientRect();
+      if (rect.top <= window.innerHeight * 0.5) activeIdx = i;
+    });
+
+    dots.forEach(function(d, i) {
+      if (i === activeIdx) {
+        d.classList.add('active');
+      } else {
+        d.classList.remove('active');
+      }
+    });
+  }
+
+  window.addEventListener('scroll', updateNav, { passive: true });
+  updateNav();
+
+  // Intersection Observer for animations
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+
+        // Trigger counters
+        var counters = entry.target.querySelectorAll('[data-counter]');
+        counters.forEach(function(el) {
+          if (el.dataset.counted) return;
+          el.dataset.counted = '1';
+          animateCounter(el);
+        });
+
+        // Trigger progress bars
+        var bars = entry.target.querySelectorAll('.bar-fill[data-width]');
+        bars.forEach(function(el) {
+          if (el.dataset.filled) return;
+          el.dataset.filled = '1';
+          setTimeout(function() { el.style.width = el.dataset.width + '%'; }, 300);
+        });
+
+        // Trigger donut chart
+        var rings = entry.target.querySelectorAll('.donut-ring[data-pct]');
+        rings.forEach(function(el) {
+          if (el.dataset.drawn) return;
+          el.dataset.drawn = '1';
+          var circumference = 2 * Math.PI * 80;
+          var pct = parseFloat(el.dataset.pct);
+          var offset = parseFloat(el.dataset.offset);
+          var dashLen = (pct / 100) * circumference;
+          var gapLen = circumference - dashLen;
+          var dashOffset = (offset / 100) * circumference;
+          el.style.strokeDasharray = dashLen + ' ' + gapLen;
+          el.style.strokeDashoffset = -dashOffset;
+        });
+
+        // Trigger timeline
+        var phases = entry.target.querySelectorAll('.timeline-phase');
+        phases.forEach(function(ph) {
+          var delay = parseInt(ph.dataset.delay) || 0;
+          setTimeout(function() { ph.classList.add('visible'); }, delay + 200);
+        });
+
+        // Trigger layer rings
+        ['layer-outer', 'layer-middle', 'layer-inner'].forEach(function(id, i) {
+          var el = document.getElementById(id);
+          if (el && entry.target.contains(el)) {
+            setTimeout(function() { el.classList.add('visible'); }, i * 300 + 200);
+          }
+        });
+      }
+    });
+  }, { threshold: 0.15, rootMargin: '0px 0px -5% 0px' });
+
+  var allAnimated = document.querySelectorAll('.anim, .anim-scale, .slide');
+  allAnimated.forEach(function(el) { observer.observe(el); });
+
+  // Counter animation
+  function animateCounter(el) {
+    var target = parseFloat(el.dataset.counter);
+    var prefix = el.dataset.prefix || '';
+    var suffix = el.dataset.suffix || '';
+    var decimals = parseInt(el.dataset.decimals) || 0;
+    var duration = 1500;
+    var start = performance.now();
+
+    function step(now) {
+      var elapsed = now - start;
+      var progress = Math.min(elapsed / duration, 1);
+      var eased = 1 - Math.pow(1 - progress, 4);
+      var current = target * eased;
+      el.textContent = prefix + current.toFixed(decimals) + suffix;
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  // Keyboard navigation
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
+      e.preventDefault();
+      var scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+      var nextSlide = null;
+      for (var i = 0; i < slides.length; i++) {
+        var el = document.getElementById(slides[i].id);
+        if (el.offsetTop > scrollTop + 10) { nextSlide = el; break; }
+      }
+      if (nextSlide) nextSlide.scrollIntoView({ behavior: 'smooth' });
+    }
+    if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+      e.preventDefault();
+      var scrollTop2 = document.documentElement.scrollTop || document.body.scrollTop;
+      var prevSlide = null;
+      for (var j = slides.length - 1; j >= 0; j--) {
+        var el2 = document.getElementById(slides[j].id);
+        if (el2.offsetTop < scrollTop2 - 10) { prevSlide = el2; break; }
+      }
+      if (prevSlide) prevSlide.scrollIntoView({ behavior: 'smooth' });
+    }
+    if (e.key === 'Home') {
+      e.preventDefault();
+      document.getElementById(slides[0].id).scrollIntoView({ behavior: 'smooth' });
+    }
+    if (e.key === 'End') {
+      e.preventDefault();
+      document.getElementById(slides[slides.length - 1].id).scrollIntoView({ behavior: 'smooth' });
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
