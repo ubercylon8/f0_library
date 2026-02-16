@@ -428,8 +428,21 @@ utils/                        # Build and signing utilities
 
 | Category | Location | Created By | Purpose |
 |----------|----------|------------|---------|
+| Cyber-Hygiene | `tests_source/cyber-hygiene/` | `@agent-sectest-builder` | Endpoint and cloud identity configuration validation |
 | Intel-Driven | `tests_source/intel-driven/` | `@agent-sectest-builder` | Tests from threat intelligence, APT reports, CVEs |
 | Phase-Aligned | `tests_source/phase-aligned/` | `@agent-pentest-readiness-builder` | DORA/TIBER-EU pentest phase validation |
+
+### Cyber-Hygiene Subcategories
+
+The cyber-hygiene category uses subcategories to distinguish test domains:
+
+| Subcategory | Purpose | Auth Required |
+|-------------|---------|---------------|
+| `baseline` | Endpoint OS hardening (Defender, ASR, LSASS, SMB, audit logging) | None (local registry/commands) |
+| `identity-tenant` | Entra ID tenant security (CISA SCuBA baseline: MFA, CA, PIM, guest access) | Service principal via Graph API |
+| `identity-endpoint` | Endpoint identity posture (device join, WHfB, MDM, PRT, BitLocker escrow) | None (local dsregcmd/registry) |
+
+**Identity-tenant tests** require environment variables: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` pointing to a service principal with read-only Graph API permissions (Policy.Read.All, Directory.Read.All, RoleManagement.Read.All, AuditLog.Read.All, Application.Read.All).
 
 ## Required Files for Each Test
 
@@ -482,7 +495,7 @@ AUTHOR: sectest-builder
 | `TARGET` | Yes | Target platforms | `windows-endpoint`, `active-directory`, `cloud-aws` |
 | `COMPLEXITY` | Yes | Execution complexity | `low` (<30s), `medium` (30s-5min), `high` (>5min) |
 | `THREAT_ACTOR` | Yes | APT attribution | `APT29`, `Lazarus`, `SafePay`, `N/A` |
-| `SUBCATEGORY` | Yes | Secondary classification | `ransomware`, `apt`, `c2`, `baseline` |
+| `SUBCATEGORY` | Yes | Secondary classification | `ransomware`, `apt`, `c2`, `baseline`, `identity-tenant`, `identity-endpoint` |
 | `TAGS` | Yes | Searchable keywords | `powershell, defender-evasion` |
 | `AUTHOR` | Yes | Test creator | `sectest-builder` |
 
@@ -542,6 +555,12 @@ f0rtika.is_protected: false AND f0rtika.severity: "critical"
 
 # Tests attributed to specific threat actor
 f0rtika.threat_actor: "APT29"
+
+# All identity hygiene tests (tenant + endpoint)
+f0rtika.category: "cyber-hygiene" AND f0rtika.subcategory: "identity-*"
+
+# Entra ID tenant security validation results
+f0rtika.subcategory: "identity-tenant"
 ```
 
 **See**: `limacharlie-iac/ELASTICSEARCH-ENRICHMENT-GUIDE.md` for full setup details.
