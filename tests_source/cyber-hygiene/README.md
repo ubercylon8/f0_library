@@ -25,6 +25,7 @@ This folder contains security tests that validate **endpoint and cloud identity 
 | # | UUID | Test Name | Techniques |
 |---|------|-----------|------------|
 | 12 | `4f484076-9816-4813-947e-b76bce3d3f83` | Entra ID Tenant Security Hygiene Bundle | T1078.004, T1556.007, T1110.001, T1098.003, T1098.001, T1566, T1528, T1562.008 |
+| 13 | `7659eeba-f315-440e-9882-4aa015d68b27` | Identity Endpoint Posture Bundle | T1078.004, T1556.007, T1556.006, T1528, T1550.001, T1588.004, T1005, T1111 |
 
 ## Purpose
 
@@ -68,6 +69,7 @@ Unlike attack simulation tests, **Cyber Hygiene tests validate defensive configu
 
 ### Cloud Identity
 - **Entra ID Tenant Security Hygiene Bundle** - CISA SCuBA baseline validation for Entra ID (MFA, Conditional Access, PIM, guest access, app governance)
+- **Identity Endpoint Posture Bundle** - Endpoint-level identity hardening (device join, WHfB, MDM enrollment, PRT protection, BitLocker escrow)
 
 ## Build Instructions
 
