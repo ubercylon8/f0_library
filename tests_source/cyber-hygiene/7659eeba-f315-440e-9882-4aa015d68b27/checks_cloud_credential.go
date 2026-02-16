@@ -49,11 +49,14 @@ func RunCloudCredentialChecks() ValidatorResult {
 // checkPRTStatus checks if a Primary Refresh Token is present
 func checkPRTStatus() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-015",
 		Name:        "PRT Status",
 		Category:    "cloud-credential",
 		Description: "Checks if a Primary Refresh Token (PRT) is issued for SSO",
 		Severity:    "critical",
 		Expected:    "AzureAdPrt : YES",
+		Techniques:  []string{"T1528", "T1550.001"},
+		Tactics:     []string{"credential-access", "defense-evasion", "lateral-movement"},
 	}
 
 	val, found := GetDsregcmdValue("SSO State", "AzureAdPrt")
@@ -74,11 +77,14 @@ func checkPRTStatus() CheckResult {
 // checkPRTUpdateTime checks if the PRT has been recently refreshed
 func checkPRTUpdateTime() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-016",
 		Name:        "PRT Update Time",
 		Category:    "cloud-credential",
 		Description: "Checks if PRT update time is populated (indicates active token refresh)",
 		Severity:    "low",
 		Expected:    "AzureAdPrtUpdateTime non-empty",
+		Techniques:  []string{"T1528"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	val, found := GetDsregcmdValue("SSO State", "AzureAdPrtUpdateTime")
@@ -105,11 +111,14 @@ func checkPRTUpdateTime() CheckResult {
 // checkCloudKerberosTrust checks if Cloud Kerberos Trust is enabled
 func checkCloudKerberosTrust() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-017",
 		Name:        "Cloud Kerberos Trust",
 		Category:    "cloud-credential",
 		Description: "Checks if Cloud Kerberos Trust is enabled for passwordless sign-in",
 		Severity:    "medium",
 		Expected:    "CloudKerberosTicketRetrievalEnabled = 1",
+		Techniques:  []string{"T1550.001"},
+		Tactics:     []string{"defense-evasion", "lateral-movement"},
 	}
 
 	match, val, err := CheckRegistryDWORD(registry.LOCAL_MACHINE, CloudKerberosPath,
@@ -130,11 +139,14 @@ func checkCloudKerberosTrust() CheckResult {
 // checkDeviceBoundPRT checks if the PRT is device-bound via NGC key
 func checkDeviceBoundPRT() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-018",
 		Name:        "Device-Bound PRT",
 		Category:    "cloud-credential",
 		Description: "Checks if PRT is bound to device via NGC key (stronger than session-bound)",
 		Severity:    "high",
 		Expected:    "NgcKeyId field non-empty in dsregcmd SSO State",
+		Techniques:  []string{"T1528", "T1550.001"},
+		Tactics:     []string{"credential-access", "defense-evasion", "lateral-movement"},
 	}
 
 	// Check NgcKeyId in SSO State section
@@ -169,11 +181,14 @@ func checkDeviceBoundPRT() CheckResult {
 // checkSSOState checks the overall SSO state
 func checkSSOState() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-019",
 		Name:        "SSO State",
 		Category:    "cloud-credential",
 		Description: "Checks that both PRT and authority are present for SSO",
 		Severity:    "medium",
 		Expected:    "AzureAdPrt and AzureAdPrtAuthority both present",
+		Techniques:  []string{"T1528"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	prt, prtFound := GetDsregcmdValue("SSO State", "AzureAdPrt")

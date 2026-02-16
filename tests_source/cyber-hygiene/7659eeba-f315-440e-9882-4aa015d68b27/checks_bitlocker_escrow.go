@@ -48,11 +48,14 @@ func RunBitLockerEscrowChecks() ValidatorResult {
 // checkBitLockerEnabled checks if BitLocker is enabled on the C: drive
 func checkBitLockerEnabled() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-020",
 		Name:        "BitLocker Enabled",
 		Category:    "bitlocker",
 		Description: "Checks if BitLocker encryption is enabled on the OS drive (C:)",
 		Severity:    "critical",
 		Expected:    "Protection status On for C: drive",
+		Techniques:  []string{"T1005"},
+		Tactics:     []string{"collection"},
 	}
 
 	// Try manage-bde first
@@ -117,11 +120,14 @@ func checkBitLockerEnabled() CheckResult {
 // checkRecoveryKeyAADBackup checks if recovery key is backed up to Azure AD
 func checkRecoveryKeyAADBackup() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-021",
 		Name:        "Recovery Key AAD Backup",
 		Category:    "bitlocker",
 		Description: "Checks if BitLocker recovery key is backed up to Azure AD",
 		Severity:    "high",
 		Expected:    "OSActiveDirectoryBackup = 1",
+		Techniques:  []string{"T1005"},
+		Tactics:     []string{"collection"},
 	}
 
 	// Check policy for AAD backup requirement
@@ -172,11 +178,14 @@ func checkRecoveryKeyAADBackup() CheckResult {
 // checkEncryptionMethod checks if the encryption method uses XTS-AES
 func checkEncryptionMethod() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-022",
 		Name:        "Encryption Method",
 		Category:    "bitlocker",
 		Description: "Checks if BitLocker uses XTS-AES encryption (128 or 256-bit)",
 		Severity:    "medium",
 		Expected:    "EncryptionMethodWithXtsOs = 6 (XTS-AES-128) or 7 (XTS-AES-256)",
+		Techniques:  []string{"T1005"},
+		Tactics:     []string{"collection"},
 	}
 
 	match6, val, err := CheckRegistryDWORD(registry.LOCAL_MACHINE, BitLockerPolicyPath,

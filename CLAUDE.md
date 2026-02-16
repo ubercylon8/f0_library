@@ -504,8 +504,9 @@ Control IDs use the format `CH-{CAT}-{NUM}` where `CAT` is a 3-letter uppercase 
 | `LOK` | Account Lockout | 5 |
 | `LAP` | LAPS Configuration | 2 |
 | `PRT` | Print Spooler | 2 |
+| `IEP` | Identity Endpoint Posture | 22 |
 
-Total: 48 controls across 10 validators (baseline subcategory).
+Total: 48 controls across 10 validators (baseline subcategory), 22 controls across 5 validators (identity-endpoint subcategory).
 
 ### Implementation Functions
 

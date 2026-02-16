@@ -47,11 +47,14 @@ func RunDeviceJoinChecks() ValidatorResult {
 // checkAzureADJoined checks if the device is Azure AD joined
 func checkAzureADJoined() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-001",
 		Name:        "Azure AD Joined",
 		Category:    "device-join",
 		Description: "Checks if device is joined to Azure Active Directory",
 		Severity:    "critical",
 		Expected:    "AzureAdJoined : YES",
+		Techniques:  []string{"T1078.004", "T1556.007"},
+		Tactics:     []string{"credential-access", "defense-evasion", "persistence", "initial-access"},
 	}
 
 	val, found := GetDsregcmdValue("Device State", "AzureAdJoined")
@@ -82,11 +85,14 @@ func checkAzureADJoined() CheckResult {
 // checkDomainJoined checks if the device is on-premises domain joined
 func checkDomainJoined() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-002",
 		Name:        "Domain Joined",
 		Category:    "device-join",
 		Description: "Checks if device is joined to on-premises Active Directory (informational)",
 		Severity:    "medium",
 		Expected:    "DomainJoined : YES (informational)",
+		Techniques:  []string{"T1556.007"},
+		Tactics:     []string{"credential-access", "defense-evasion"},
 	}
 
 	val, found := GetDsregcmdValue("Device State", "DomainJoined")
@@ -111,11 +117,14 @@ func checkDomainJoined() CheckResult {
 // checkDeviceJoinType determines the effective join type
 func checkDeviceJoinType() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-003",
 		Name:        "Device Join Type",
 		Category:    "device-join",
 		Description: "Determines if device is AAD-joined, hybrid-joined, or unjoined",
 		Severity:    "critical",
 		Expected:    "AAD-joined or Hybrid-joined (not unjoined)",
+		Techniques:  []string{"T1078.004", "T1556.007"},
+		Tactics:     []string{"credential-access", "defense-evasion", "persistence", "initial-access"},
 	}
 
 	aadVal, aadFound := GetDsregcmdValue("Device State", "AzureAdJoined")
@@ -166,11 +175,14 @@ func checkDeviceJoinType() CheckResult {
 // checkTenantInfoPresent checks if tenant details are populated
 func checkTenantInfoPresent() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-004",
 		Name:        "Tenant Info Present",
 		Category:    "device-join",
 		Description: "Checks if Azure AD tenant details (TenantId, TenantName) are populated",
 		Severity:    "high",
 		Expected:    "TenantId and TenantName non-empty",
+		Techniques:  []string{"T1078.004"},
+		Tactics:     []string{"credential-access", "defense-evasion", "persistence", "initial-access"},
 	}
 
 	tenantID, tidFound := GetDsregcmdValue("Tenant Details", "TenantId")
@@ -199,11 +211,14 @@ func checkTenantInfoPresent() CheckResult {
 // checkDeviceAuthStatus checks if device authentication is successful
 func checkDeviceAuthStatus() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-005",
 		Name:        "Device Auth Status",
 		Category:    "device-join",
 		Description: "Checks if device authentication to Azure AD is successful",
 		Severity:    "medium",
 		Expected:    "DeviceAuthStatus : SUCCESS",
+		Techniques:  []string{"T1078.004"},
+		Tactics:     []string{"credential-access", "defense-evasion"},
 	}
 
 	val, found := GetDsregcmdValue("Device State", "DeviceAuthStatus")

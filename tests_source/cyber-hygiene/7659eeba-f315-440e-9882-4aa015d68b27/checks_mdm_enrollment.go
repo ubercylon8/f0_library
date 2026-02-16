@@ -50,11 +50,14 @@ func RunMDMEnrollmentChecks() ValidatorResult {
 // checkMDMEnrollment checks if the device is enrolled in an MDM provider
 func checkMDMEnrollment() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-011",
 		Name:        "MDM Enrollment",
 		Category:    "mdm",
 		Description: "Checks if device is enrolled in an MDM provider (Intune)",
 		Severity:    "critical",
 		Expected:    "MDM enrollment subkey with ProviderID present",
+		Techniques:  []string{"T1078.004", "T1588.004"},
+		Tactics:     []string{"credential-access", "defense-evasion", "persistence", "initial-access"},
 	}
 
 	subkeys, err := CheckRegistrySubkeys(registry.LOCAL_MACHINE, MDMEnrollmentPath)
@@ -92,11 +95,14 @@ func checkMDMEnrollment() CheckResult {
 // checkMDMAuthority checks if the MDM authority is Microsoft (Intune)
 func checkMDMAuthority() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-012",
 		Name:        "MDM Authority",
 		Category:    "mdm",
 		Description: "Checks if the MDM provider is Microsoft DM Server (Intune)",
 		Severity:    "high",
 		Expected:    "ProviderID contains 'MS DM Server'",
+		Techniques:  []string{"T1588.004"},
+		Tactics:     []string{"credential-access", "defense-evasion"},
 	}
 
 	subkeys, err := CheckRegistrySubkeys(registry.LOCAL_MACHINE, MDMEnrollmentPath)
@@ -139,11 +145,14 @@ func checkMDMAuthority() CheckResult {
 // checkCompliancePolicies checks if compliance policies are applied
 func checkCompliancePolicies() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-013",
 		Name:        "Compliance Policies",
 		Category:    "mdm",
 		Description: "Checks if MDM compliance policies are applied via PolicyManager",
 		Severity:    "medium",
 		Expected:    "PolicyManager compliance keys present",
+		Techniques:  []string{"T1588.004"},
+		Tactics:     []string{"defense-evasion"},
 	}
 
 	// Check PolicyManager for device lock policies (indicates compliance policies)
@@ -179,11 +188,14 @@ func checkCompliancePolicies() CheckResult {
 // checkConfigProfiles checks if Intune configuration profiles are present
 func checkConfigProfiles() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-014",
 		Name:        "Config Profiles",
 		Category:    "mdm",
 		Description: "Checks if Intune Management Extension policies have subkeys",
 		Severity:    "medium",
 		Expected:    "IntuneManagementExtension\\Policies has subkeys",
+		Techniques:  []string{"T1588.004"},
+		Tactics:     []string{"defense-evasion"},
 	}
 
 	subkeys, err := CheckRegistrySubkeys(registry.LOCAL_MACHINE, IntuneExtensionPath)

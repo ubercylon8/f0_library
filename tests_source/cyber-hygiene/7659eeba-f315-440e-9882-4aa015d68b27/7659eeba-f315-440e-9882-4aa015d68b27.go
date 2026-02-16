@@ -146,6 +146,39 @@ func main() {
 		totalChecksFailed += result.FailedCount
 	}
 
+	// Collect per-control results and write bundle_results.json
+	allControls := make([]ControlResult, 0, totalChecksPassed+totalChecksFailed)
+	for _, result := range results {
+		controls := CollectControlResults(result.Name, "cyber-hygiene", "identity-endpoint", result.Checks)
+		allControls = append(allControls, controls...)
+	}
+
+	overallExitCode := EXIT_COMPLIANT
+	if validatorsFailed > 0 {
+		overallExitCode = EXIT_NON_COMPLIANT
+	}
+
+	bundleResults := &BundleResults{
+		SchemaVersion:     "1.0",
+		BundleID:          TEST_UUID,
+		BundleName:        TEST_NAME,
+		BundleCategory:    "cyber-hygiene",
+		BundleSubcategory: "identity-endpoint",
+		ExecutionID:       executionContext.ExecutionID,
+		StartedAt:         time.Now().UTC().Format(time.RFC3339),
+		OverallExitCode:   overallExitCode,
+		TotalControls:     len(allControls),
+		PassedControls:    totalChecksPassed,
+		FailedControls:    totalChecksFailed,
+		Controls:          allControls,
+	}
+
+	if err := WriteBundleResults(bundleResults); err != nil {
+		fmt.Printf("\n[WARNING] Failed to write bundle_results.json: %v\n", err)
+	} else {
+		fmt.Printf("\n[INFO] Bundle results written to c:\\F0\\bundle_results.json (%d controls)\n", len(allControls))
+	}
+
 	// Print summary
 	printSummary(validatorsPassed, validatorsFailed, totalChecksPassed, totalChecksFailed, failedValidatorNames)
 

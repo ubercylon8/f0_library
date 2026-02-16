@@ -58,11 +58,14 @@ func RunWHfBChecks() ValidatorResult {
 // checkWHfBPolicyEnabled checks if WHfB is enabled via policy
 func checkWHfBPolicyEnabled() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-006",
 		Name:        "WHfB Policy Enabled",
 		Category:    "whfb",
 		Description: "Checks if Windows Hello for Business is enabled via Group Policy",
 		Severity:    "high",
 		Expected:    "PassportForWork\\Enabled = 1",
+		Techniques:  []string{"T1556.006", "T1111"},
+		Tactics:     []string{"credential-access", "defense-evasion"},
 	}
 
 	match, val, err := CheckRegistryDWORD(registry.LOCAL_MACHINE, PassportPolicyPath, "Enabled", 1)
@@ -97,11 +100,14 @@ func checkWHfBPolicyEnabled() CheckResult {
 // checkNGCCredentialProvider checks if the NGC credential provider is registered
 func checkNGCCredentialProvider() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-007",
 		Name:        "NGC Credential Provider",
 		Category:    "whfb",
 		Description: "Checks if the NGC (Windows Hello) credential provider key exists",
 		Severity:    "high",
 		Expected:    "{D6886603-9D2F-4EB2-B667-1971041FA96B} provider key exists",
+		Techniques:  []string{"T1556.006"},
+		Tactics:     []string{"credential-access", "defense-evasion"},
 	}
 
 	exists, err := CheckRegistryExists(registry.LOCAL_MACHINE, PassportSystemPath, "")
@@ -126,11 +132,14 @@ func checkNGCCredentialProvider() CheckResult {
 // checkPINComplexity checks if PIN complexity requirements are configured
 func checkPINComplexity() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-008",
 		Name:        "PIN Complexity",
 		Category:    "whfb",
 		Description: "Checks if minimum PIN length is at least 6 digits",
 		Severity:    "medium",
 		Expected:    "MinimumPINLength >= 6",
+		Techniques:  []string{"T1556.006"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	pinPolicyPath := PassportPolicyPath + `\PINComplexity`
@@ -167,11 +176,14 @@ func checkPINComplexity() CheckResult {
 // checkNGCKeyContainer checks if the NGC key container directory exists and is non-empty
 func checkNGCKeyContainer() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-009",
 		Name:        "NGC Key Container",
 		Category:    "whfb",
 		Description: "Checks if the NGC key container directory exists with enrolled keys",
 		Severity:    "high",
 		Expected:    "NGC directory exists and is non-empty",
+		Techniques:  []string{"T1556.006", "T1111"},
+		Tactics:     []string{"credential-access", "defense-evasion"},
 	}
 
 	systemRoot := os.Getenv("SystemRoot")
@@ -204,11 +216,14 @@ func checkNGCKeyContainer() CheckResult {
 // checkBiometricAvailable checks if biometric authentication is available
 func checkBiometricAvailable() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-IEP-010",
 		Name:        "Biometric Available",
 		Category:    "whfb",
 		Description: "Checks if biometric authentication is enabled (informational)",
 		Severity:    "low",
 		Expected:    "Biometric hardware or policy enabled",
+		Techniques:  []string{"T1111"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check policy
