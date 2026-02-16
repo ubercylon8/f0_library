@@ -49,11 +49,14 @@ func RunLAPSChecks() ValidatorResult {
 // checkWindowsLAPS checks if Windows LAPS (built-in) is configured
 func checkWindowsLAPS() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LAP-001",
 		Name:        "Windows LAPS (Built-in)",
 		Category:    "laps",
 		Description: "Checks if Windows LAPS (Windows Server 2019+/Windows 10+) is configured",
 		Severity:    "high",
 		Expected:    "Configured with Azure AD or Active Directory backup",
+		Techniques:  []string{"T1078.003"},
+		Tactics:     []string{"persistence", "privilege-escalation"},
 	}
 
 	// Check via PowerShell - Get-LapsDiagnostics
@@ -108,11 +111,14 @@ func checkWindowsLAPS() CheckResult {
 // checkLegacyLAPS checks if Legacy LAPS (Microsoft LAPS) is configured
 func checkLegacyLAPS() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LAP-002",
 		Name:        "Legacy LAPS (Microsoft LAPS)",
 		Category:    "laps",
 		Description: "Checks if Legacy Microsoft LAPS is installed and enabled",
 		Severity:    "high",
 		Expected:    "Installed and enabled (AdmPwdEnabled = 1)",
+		Techniques:  []string{"T1078.003"},
+		Tactics:     []string{"persistence", "privilege-escalation"},
 	}
 
 	// Check if Legacy LAPS CSE DLL exists

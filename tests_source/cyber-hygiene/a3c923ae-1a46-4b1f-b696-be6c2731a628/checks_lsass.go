@@ -40,11 +40,14 @@ func RunLSASSChecks() ValidatorResult {
 // checkRunAsPPL verifies LSASS is running as Protected Process Light
 func checkRunAsPPL() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LSS-001",
 		Name:        "RunAsPPL",
 		Category:    "lsass",
 		Description: "Checks if LSASS is running as Protected Process Light",
 		Severity:    "critical",
 		Expected:    "Enabled (RunAsPPL = 1 or 2)",
+		Techniques:  []string{"T1003.001"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check RunAsPPL registry value
@@ -74,11 +77,14 @@ func checkRunAsPPL() CheckResult {
 // checkCredentialGuard verifies Credential Guard is enabled
 func checkCredentialGuard() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LSS-002",
 		Name:        "Credential Guard",
 		Category:    "lsass",
 		Description: "Checks if Credential Guard is enabled",
 		Severity:    "high",
 		Expected:    "Enabled",
+		Techniques:  []string{"T1003.001"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check via PowerShell - DeviceGuard status
@@ -140,11 +146,14 @@ func checkCredentialGuard() CheckResult {
 // checkVirtualizationBasedSecurity verifies VBS is enabled
 func checkVirtualizationBasedSecurity() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LSS-003",
 		Name:        "Virtualization-Based Security",
 		Category:    "lsass",
 		Description: "Checks if Virtualization-Based Security (VBS) is enabled",
 		Severity:    "high",
 		Expected:    "Enabled and Running",
+		Techniques:  []string{"T1003.001"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check via PowerShell

@@ -32,6 +32,22 @@ var CriticalASRRules = []string{
 	"26190899-1602-49E8-8B27-EB1D0A1CE869", // Office comms child processes
 }
 
+// ASR control ID and technique mapping (ordered same as CriticalASRRules)
+var ASRControlMeta = map[string]struct {
+	ControlID  string
+	Techniques []string
+	Tactics    []string
+}{
+	"BE9BA2D9-53EA-4CDC-84E5-9B1EEEE46550": {"CH-ASR-001", []string{"T1566.001"}, []string{"initial-access"}},
+	"D4F940AB-401B-4EFC-AADC-AD5F3C50688A": {"CH-ASR-002", []string{"T1204.002"}, []string{"execution"}},
+	"3B576869-A4EC-4529-8536-B80A7769E899": {"CH-ASR-003", []string{"T1204.002"}, []string{"execution"}},
+	"75668C1F-73B5-4CF0-BB93-3ECF5CB7CC84": {"CH-ASR-004", []string{"T1055"}, []string{"defense-evasion", "privilege-escalation"}},
+	"D3E037E1-3EB8-44C8-A917-57927947596D": {"CH-ASR-005", []string{"T1059.007"}, []string{"execution"}},
+	"5BEB7EFE-FD9A-4556-801D-275E5FFC04CC": {"CH-ASR-006", []string{"T1027"}, []string{"defense-evasion"}},
+	"92E97FA1-2EDF-4476-BDD6-9DD0B4DDDC7B": {"CH-ASR-007", []string{"T1106"}, []string{"execution"}},
+	"26190899-1602-49E8-8B27-EB1D0A1CE869": {"CH-ASR-008", []string{"T1204.002"}, []string{"execution"}},
+}
+
 // RunASRChecks performs all Attack Surface Reduction rule checks
 func RunASRChecks() ValidatorResult {
 	checks := make([]CheckResult, 0, len(CriticalASRRules))
@@ -98,12 +114,16 @@ func checkASRRule(ruleGUID, description string, states map[string]int) CheckResu
 		shortDesc = shortDesc[:47] + "..."
 	}
 
+	meta := ASRControlMeta[strings.ToUpper(ruleGUID)]
 	result := CheckResult{
+		ControlID:   meta.ControlID,
 		Name:        shortDesc,
 		Category:    "asr",
 		Description: description,
 		Severity:    "high",
 		Expected:    "Block mode (1) or Warn mode (6)",
+		Techniques:  meta.Techniques,
+		Tactics:     meta.Tactics,
 	}
 
 	action, exists := states[strings.ToUpper(ruleGUID)]

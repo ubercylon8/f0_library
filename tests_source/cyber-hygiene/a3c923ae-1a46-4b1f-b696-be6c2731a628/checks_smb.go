@@ -43,11 +43,14 @@ func RunSMBChecks() ValidatorResult {
 // checkSMBv1Disabled verifies SMBv1 is disabled
 func checkSMBv1Disabled() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-SMB-001",
 		Name:        "SMBv1 Disabled",
 		Category:    "smb",
 		Description: "Checks if SMBv1 protocol is disabled",
 		Severity:    "critical",
 		Expected:    "Disabled",
+		Techniques:  []string{"T1021.002"},
+		Tactics:     []string{"lateral-movement"},
 	}
 
 	// Check via PowerShell (most reliable)
@@ -91,11 +94,14 @@ func checkSMBv1Disabled() CheckResult {
 // checkSMBServerSigning verifies SMB server signing is required
 func checkSMBServerSigning() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-SMB-002",
 		Name:        "SMB Server Signing",
 		Category:    "smb",
 		Description: "Checks if SMB server signing is required",
 		Severity:    "high",
 		Expected:    "Required (RequireSecuritySignature = 1)",
+		Techniques:  []string{"T1557.001"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check via PowerShell
@@ -130,11 +136,14 @@ func checkSMBServerSigning() CheckResult {
 // checkSMBClientSigning verifies SMB client signing is required
 func checkSMBClientSigning() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-SMB-003",
 		Name:        "SMB Client Signing",
 		Category:    "smb",
 		Description: "Checks if SMB client signing is required",
 		Severity:    "high",
 		Expected:    "Required (RequireSecuritySignature = 1)",
+		Techniques:  []string{"T1557.001"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check via PowerShell
@@ -169,11 +178,14 @@ func checkSMBClientSigning() CheckResult {
 // checkSMBEncryption verifies SMB encryption is enabled
 func checkSMBEncryption() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-SMB-004",
 		Name:        "SMB Encryption",
 		Category:    "smb",
 		Description: "Checks if SMB encryption is enabled",
 		Severity:    "medium",
 		Expected:    "Enabled",
+		Techniques:  []string{"T1040"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check via PowerShell
@@ -204,11 +216,14 @@ func checkSMBEncryption() CheckResult {
 // checkNullSessionRestrictions verifies null session restrictions are in place
 func checkNullSessionRestrictions() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-SMB-005",
 		Name:        "Null Session Restrictions",
 		Category:    "smb",
 		Description: "Checks if anonymous/null session access is restricted",
 		Severity:    "high",
 		Expected:    "RestrictNullSessAccess = 1",
+		Techniques:  []string{"T1021.002"},
+		Tactics:     []string{"lateral-movement"},
 	}
 
 	match, val, err := CheckRegistryDWORD(registry.LOCAL_MACHINE, SMBServerPath, "RestrictNullSessAccess", 1)

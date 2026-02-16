@@ -46,11 +46,14 @@ func RunPrintSpoolerChecks() ValidatorResult {
 // checkPrintSpoolerStatus verifies Print Spooler service status
 func checkPrintSpoolerStatus() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-PRT-001",
 		Name:        "Print Spooler Service",
 		Category:    "printspooler",
 		Description: "Checks if Print Spooler service is disabled (if not needed)",
 		Severity:    "high",
 		Expected:    "Disabled (or Point and Print properly restricted)",
+		Techniques:  []string{"T1569.002"},
+		Tactics:     []string{"execution"},
 	}
 
 	// Check service status
@@ -107,11 +110,14 @@ func checkPrintSpoolerStatus() CheckResult {
 // checkPointAndPrintRestrictions verifies Point and Print restrictions (CVE-2021-34527)
 func checkPointAndPrintRestrictions() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-PRT-002",
 		Name:        "Point and Print Restrictions",
 		Category:    "printspooler",
 		Description: "Checks PrintNightmare mitigations (CVE-2021-34527)",
 		Severity:    "critical",
 		Expected:    "RestrictDriverInstallationToAdministrators = 1 and NoWarningNoElevationOnInstall = 0",
+		Techniques:  []string{"T1547.012"},
+		Tactics:     []string{"persistence", "privilege-escalation"},
 	}
 
 	// Check via PowerShell for comprehensive check

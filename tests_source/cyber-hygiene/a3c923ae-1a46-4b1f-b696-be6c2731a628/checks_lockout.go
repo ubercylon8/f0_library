@@ -65,11 +65,14 @@ func getNetAccountsOutput() map[string]string {
 // checkLockoutThreshold verifies account lockout threshold
 func checkLockoutThreshold() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LOK-001",
 		Name:        "Lockout Threshold",
 		Category:    "lockout",
 		Description: "Checks if account lockout threshold is configured",
 		Severity:    "high",
 		Expected:    fmt.Sprintf("<= %d failed attempts", MAX_LOCKOUT_THRESHOLD),
+		Techniques:  []string{"T1110"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	netAccounts := getNetAccountsOutput()
@@ -115,11 +118,14 @@ func checkLockoutThreshold() CheckResult {
 // checkLockoutDuration verifies account lockout duration
 func checkLockoutDuration() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LOK-002",
 		Name:        "Lockout Duration",
 		Category:    "lockout",
 		Description: "Checks if account lockout duration is sufficient",
 		Severity:    "high",
 		Expected:    fmt.Sprintf(">= %d minutes (or manual unlock)", MIN_LOCKOUT_DURATION),
+		Techniques:  []string{"T1110"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	netAccounts := getNetAccountsOutput()
@@ -173,11 +179,14 @@ func checkLockoutDuration() CheckResult {
 // checkResetCounter verifies lockout counter reset time
 func checkResetCounter() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LOK-003",
 		Name:        "Reset Counter After",
 		Category:    "lockout",
 		Description: "Checks if lockout counter reset time is sufficient",
 		Severity:    "medium",
 		Expected:    fmt.Sprintf(">= %d minutes", MIN_RESET_COUNTER),
+		Techniques:  []string{"T1110"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	netAccounts := getNetAccountsOutput()
@@ -224,11 +233,14 @@ func checkResetCounter() CheckResult {
 // checkMinPasswordLength verifies minimum password length
 func checkMinPasswordLength() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LOK-004",
 		Name:        "Minimum Password Length",
 		Category:    "lockout",
 		Description: "Checks if minimum password length is sufficient",
 		Severity:    "high",
 		Expected:    fmt.Sprintf(">= %d characters", MIN_PASSWORD_LENGTH),
+		Techniques:  []string{"T1110"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	netAccounts := getNetAccountsOutput()
@@ -263,11 +275,14 @@ func checkMinPasswordLength() CheckResult {
 // checkPasswordComplexity verifies password complexity is enabled
 func checkPasswordComplexity() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-LOK-005",
 		Name:        "Password Complexity",
 		Category:    "lockout",
 		Description: "Checks if password complexity requirements are enabled",
 		Severity:    "high",
 		Expected:    "Enabled",
+		Techniques:  []string{"T1110"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Use secedit to export and check password complexity

@@ -45,11 +45,14 @@ func RunDefenderChecks() ValidatorResult {
 // checkRealTimeProtection verifies real-time protection is enabled
 func checkRealTimeProtection() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-DEF-001",
 		Name:        "Real-time Protection",
 		Category:    "defender",
 		Description: "Checks if real-time protection is enabled",
 		Severity:    "critical",
 		Expected:    "Enabled (DisableRealtimeMonitoring = 0 or not set)",
+		Techniques:  []string{"T1562.001"},
+		Tactics:     []string{"defense-evasion"},
 	}
 
 	// Check via PowerShell first (most reliable)
@@ -82,11 +85,14 @@ func checkRealTimeProtection() CheckResult {
 // checkBehaviorMonitoring verifies behavior monitoring is enabled
 func checkBehaviorMonitoring() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-DEF-002",
 		Name:        "Behavior Monitoring",
 		Category:    "defender",
 		Description: "Checks if behavior monitoring is enabled",
 		Severity:    "high",
 		Expected:    "Enabled (DisableBehaviorMonitoring = 0 or not set)",
+		Techniques:  []string{"T1562.001"},
+		Tactics:     []string{"defense-evasion"},
 	}
 
 	output, err := RunPowerShell("(Get-MpPreference).DisableBehaviorMonitoring")
@@ -115,11 +121,14 @@ func checkBehaviorMonitoring() CheckResult {
 // checkTamperProtection verifies tamper protection is enabled
 func checkTamperProtection() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-DEF-003",
 		Name:        "Tamper Protection",
 		Category:    "defender",
 		Description: "Checks if tamper protection is enabled",
 		Severity:    "critical",
 		Expected:    "Enabled",
+		Techniques:  []string{"T1562.001"},
+		Tactics:     []string{"defense-evasion"},
 	}
 
 	output, err := RunPowerShell("(Get-MpComputerStatus).IsTamperProtected")
@@ -141,11 +150,14 @@ func checkTamperProtection() CheckResult {
 // checkCloudProtection verifies cloud-delivered protection (MAPS) is enabled
 func checkCloudProtection() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-DEF-004",
 		Name:        "Cloud Protection (MAPS)",
 		Category:    "defender",
 		Description: "Checks if cloud-delivered protection is enabled",
 		Severity:    "high",
 		Expected:    "Enabled (MAPSReporting >= 1)",
+		Techniques:  []string{"T1562.001"},
+		Tactics:     []string{"defense-evasion"},
 	}
 
 	output, err := RunPowerShell("(Get-MpPreference).MAPSReporting")
@@ -186,11 +198,14 @@ func checkCloudProtection() CheckResult {
 // checkSampleSubmission verifies automatic sample submission is enabled
 func checkSampleSubmission() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-DEF-005",
 		Name:        "Sample Submission",
 		Category:    "defender",
 		Description: "Checks if automatic sample submission is enabled",
 		Severity:    "medium",
 		Expected:    "Enabled (SubmitSamplesConsent >= 1)",
+		Techniques:  []string{"T1562.001"},
+		Tactics:     []string{"defense-evasion"},
 	}
 
 	output, err := RunPowerShell("(Get-MpPreference).SubmitSamplesConsent")
@@ -233,11 +248,14 @@ func checkSampleSubmission() CheckResult {
 // checkPUAProtection verifies potentially unwanted application protection is enabled
 func checkPUAProtection() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-DEF-006",
 		Name:        "PUA Protection",
 		Category:    "defender",
 		Description: "Checks if potentially unwanted application protection is enabled",
 		Severity:    "medium",
 		Expected:    "Enabled (PUAProtection = 1 or 2)",
+		Techniques:  []string{"T1562.001"},
+		Tactics:     []string{"defense-evasion"},
 	}
 
 	output, err := RunPowerShell("(Get-MpPreference).PUAProtection")

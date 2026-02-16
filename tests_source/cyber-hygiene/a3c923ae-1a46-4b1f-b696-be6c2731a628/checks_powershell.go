@@ -41,11 +41,14 @@ func RunPowerShellChecks() ValidatorResult {
 // checkScriptBlockLogging verifies PowerShell Script Block Logging is enabled
 func checkScriptBlockLogging() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-PWS-001",
 		Name:        "Script Block Logging",
 		Category:    "powershell",
 		Description: "Checks if PowerShell Script Block Logging is enabled",
 		Severity:    "high",
 		Expected:    "Enabled (EnableScriptBlockLogging = 1)",
+		Techniques:  []string{"T1059.001"},
+		Tactics:     []string{"execution"},
 	}
 
 	match, val, err := CheckRegistryDWORD(registry.LOCAL_MACHINE, PowerShellScriptBlockPath, "EnableScriptBlockLogging", 1)
@@ -65,11 +68,14 @@ func checkScriptBlockLogging() CheckResult {
 // checkModuleLogging verifies PowerShell Module Logging is enabled
 func checkModuleLogging() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-PWS-002",
 		Name:        "Module Logging",
 		Category:    "powershell",
 		Description: "Checks if PowerShell Module Logging is enabled",
 		Severity:    "high",
 		Expected:    "Enabled (EnableModuleLogging = 1)",
+		Techniques:  []string{"T1059.001"},
+		Tactics:     []string{"execution"},
 	}
 
 	match, val, err := CheckRegistryDWORD(registry.LOCAL_MACHINE, PowerShellModulePath, "EnableModuleLogging", 1)
@@ -101,11 +107,14 @@ func checkModuleLogging() CheckResult {
 // checkTranscription verifies PowerShell Transcription is enabled
 func checkTranscription() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-PWS-003",
 		Name:        "Transcription",
 		Category:    "powershell",
 		Description: "Checks if PowerShell Transcription is enabled",
 		Severity:    "medium",
 		Expected:    "Enabled (EnableTranscripting = 1)",
+		Techniques:  []string{"T1059.001"},
+		Tactics:     []string{"execution"},
 	}
 
 	match, val, err := CheckRegistryDWORD(registry.LOCAL_MACHINE, PowerShellTranscriptPath, "EnableTranscripting", 1)
@@ -134,11 +143,14 @@ func checkTranscription() CheckResult {
 // checkConstrainedLanguageMode verifies if Constrained Language Mode policy is configured
 func checkConstrainedLanguageMode() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-PWS-004",
 		Name:        "Constrained Language Mode Policy",
 		Category:    "powershell",
 		Description: "Checks if Constrained Language Mode is enabled via policy",
 		Severity:    "medium",
 		Expected:    "Configured via AppLocker or WDAC",
+		Techniques:  []string{"T1059.001"},
+		Tactics:     []string{"execution", "defense-evasion"},
 	}
 
 	// CLM is typically enforced through AppLocker/WDAC, not a direct registry setting

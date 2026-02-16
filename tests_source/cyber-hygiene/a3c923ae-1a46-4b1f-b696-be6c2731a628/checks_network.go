@@ -43,11 +43,14 @@ func RunNetworkChecks() ValidatorResult {
 // checkLLMNRDisabled verifies LLMNR is disabled
 func checkLLMNRDisabled() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-NET-001",
 		Name:        "LLMNR Disabled",
 		Category:    "network",
 		Description: "Checks if Link-Local Multicast Name Resolution is disabled",
 		Severity:    "high",
 		Expected:    "Disabled (EnableMulticast = 0)",
+		Techniques:  []string{"T1557.001"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check DNS Client policy
@@ -68,11 +71,14 @@ func checkLLMNRDisabled() CheckResult {
 // checkNetBIOSDisabled verifies NetBIOS over TCP/IP is disabled
 func checkNetBIOSDisabled() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-NET-002",
 		Name:        "NetBIOS over TCP/IP",
 		Category:    "network",
 		Description: "Checks if NetBIOS over TCP/IP is disabled",
 		Severity:    "high",
 		Expected:    "Disabled on all interfaces (NetbiosOptions = 2)",
+		Techniques:  []string{"T1557.001"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check via PowerShell - more reliable for checking all interfaces
@@ -141,11 +147,14 @@ func checkNetBIOSDisabled() CheckResult {
 // checkWPADDisabled verifies WPAD is disabled
 func checkWPADDisabled() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-NET-003",
 		Name:        "WPAD Disabled",
 		Category:    "network",
 		Description: "Checks if Web Proxy Auto-Discovery is disabled",
 		Severity:    "medium",
 		Expected:    "Disabled (WpadOverride = 1 or AutoDetect = 0)",
+		Techniques:  []string{"T1557.001"},
+		Tactics:     []string{"credential-access"},
 	}
 
 	// Check WpadOverride in WinHttp
@@ -194,11 +203,14 @@ func checkWPADDisabled() CheckResult {
 // checkIPv6DisabledOrSecured verifies IPv6 is properly configured
 func checkIPv6DisabledOrSecured() CheckResult {
 	result := CheckResult{
+		ControlID:   "CH-NET-004",
 		Name:        "IPv6 Tunneling Disabled",
 		Category:    "network",
 		Description: "Checks if IPv6 transition technologies (6to4, ISATAP, Teredo) are disabled",
 		Severity:    "medium",
 		Expected:    "Transition technologies disabled",
+		Techniques:  []string{"T1572"},
+		Tactics:     []string{"command-and-control"},
 	}
 
 	// Check via PowerShell
