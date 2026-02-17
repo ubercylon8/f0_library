@@ -718,6 +718,19 @@ tests_source/intel-driven/
    - Dependencies and requirements
    - How the tools integrate with the main test
 
+### Source-Built vs External Binaries
+
+The build system distinguishes between two kinds of `//go:embed` dependencies:
+
+1. **Source-built binaries** — Validators, stages, and cleanup utilities that have `.go` source in the test directory. These are compiled by `build_all.sh` during the build process. They should **never** be uploaded manually. Examples:
+   - `validator-defender.exe` ← compiled from `validator_defender.go`
+   - `<uuid>-T1486.exe` ← compiled from `stage-T1486.go`
+   - `cleanup_utility.exe` ← compiled from `cleanup_utility.go`
+
+2. **External binaries** — Third-party tools (mimikatz, seatbelt, tailscale MSI, pre-compiled helpers) that have no `.go` source in the test directory. These **must** be uploaded via the UI before building. The `//go:embed` directive references a file that genuinely cannot be built from source.
+
+**Rule**: If a binary can be compiled from Go source in the same directory, it is source-built and handled by `build_all.sh`. Only use `//go:embed` for external tools that cannot be built from source. The ProjectAchilles build UI detects source-built binaries automatically and shows them with an "Auto-built" indicator instead of an upload button.
+
 ## Standardized F0RT1KA Test Runner
 
 **ALL F0RT1KA tests now use a standardized custom runner** that eliminates the Endpoint framework's hardcoded 30-second timeout limitation. This approach provides consistent behavior and enhanced capabilities for all tests.
