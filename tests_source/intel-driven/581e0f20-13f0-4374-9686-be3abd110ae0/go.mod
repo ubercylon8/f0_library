@@ -8,4 +8,4 @@ require (
 	golang.org/x/sys v0.28.0
 )
 
-replace github.com/preludeorg/libraries/go/tests/endpoint => ../../preludeorg-libraries/go/tests/endpoint
+replace github.com/preludeorg/libraries/go/tests/endpoint => ../../../preludeorg-libraries/go/tests/endpoint
