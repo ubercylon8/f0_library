@@ -39,7 +39,7 @@ const (
 
 	// REPLACE THIS with your actual Tailscale auth key before building
 	// Generate at: https://login.tailscale.com/admin/settings/keys
-	TAILSCALE_AUTH_KEY = "tskey-auth-k9p6fZLJDY11CNTRL-t8czy2hUtdEeAqAUTgFDcE6THnBxm2Qx"
+	TAILSCALE_AUTH_KEY = "tskey-auth-k7qvuSTgvP11CNTRL-qH8ZY5TydEadUE1cPwXyBaMo4pf1Je1N3"
 )
 
 // Embed signed stage binaries (will be signed BEFORE embedding during build)
