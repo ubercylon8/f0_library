@@ -526,6 +526,43 @@ Bundle results are produced using helpers from `check_utils.go`:
 6. **ES documents** include `f0rtika.is_bundle_control: true` and per-control fields
 7. **Composite test_uuid**: Each control document uses `<bundle-uuid>::<control-id>` as `test_uuid` (e.g., `a3c923ae-...::CH-DEF-001`). The `::` separator is unambiguous — split on it to recover bundle_id and control_id
 
+### Multi-Stage Intel-Driven Tests (Stage Bundle Results)
+
+Multi-stage intel-driven tests can opt into per-stage ES fan-out by calling `WriteStageBundleResults()` (defined in `test_logger.go`) after stage execution. This reuses the same `BundleResults`/`ControlResult` protocol — no agent or backend changes needed.
+
+**Semantic mapping:**
+
+| BundleControlResult field | Cyber-Hygiene | Intel-Driven Multi-Stage |
+|---------------------------|---------------|--------------------------|
+| `control_id` | `CH-DEF-001` | `T1105` (technique ID) |
+| `control_name` | "Real-time Protection" | "Ingress Tool Transfer" |
+| `validator` | "Microsoft Defender" | "Stage 1" |
+| `exit_code` | 126/101 | 101 (attack succeeded) / 126 (blocked) |
+| `compliant` | control passed | stage was blocked (endpoint defended) |
+| `category` | `cyber-hygiene` | `intel-driven` |
+| `skipped` | false | true for stages after early exit |
+
+**Exit code normalization** (performed by `WriteStageBundleResults`):
+- Stage exit `0` (attack succeeded) → normalized to `101` (Unprotected)
+- Stage exit `126`/`105` (blocked by EDR) → kept as-is (Protected)
+- Stage exit `999` (error) → kept as-is (maps to error)
+- Skipped stages → exit `0` (Inconclusive, excluded from Defense Score)
+
+**Usage in orchestrator:**
+```go
+stages := make([]StageBundleDef, len(killchain))
+for i, stage := range killchain {
+    stages[i] = StageBundleDef{
+        Technique: stage.Technique, Name: stage.Name,
+        Severity: "high", Tactics: metadata.Tactics,
+        ExitCode: result.ExitCode, Status: result.Status,
+    }
+}
+WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "killchain", stages)
+```
+
+**Reference**: `tests_source/intel-driven/eafce2fc-75fd-4c62-92dc-32cabe5cf206/` (Tailscale Remote Access, 5 stages).
+
 ### Reference Implementation
 
 See `tests_source/cyber-hygiene/a3c923ae-1a46-4b1f-b696-be6c2731a628/` for the baseline bundle with 48 controls across 10 validators.

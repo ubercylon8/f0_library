@@ -223,8 +223,21 @@ func main() {
 	LogPhaseEnd(0, "success", fmt.Sprintf("Extracted %d stage binaries", len(killchain)))
 	Endpoint.Say("")
 
+	// Track per-stage results for bundle fan-out
+	stageResults := make([]StageBundleDef, len(killchain))
+	for i, stage := range killchain {
+		stageResults[i] = StageBundleDef{
+			Technique: stage.Technique,
+			Name:      stage.Name,
+			Severity:  "high",
+			Tactics:   metadata.Tactics,
+			ExitCode:  0,
+			Status:    "skipped", // default; overwritten when stage executes
+		}
+	}
+
 	// Execute killchain in sequential order
-	for _, stage := range killchain {
+	for idx, stage := range killchain {
 		LogStageStart(stage.ID, stage.Technique, fmt.Sprintf("%s (%s)", stage.Name, stage.Technique))
 
 		Endpoint.Say("=================================================================")
@@ -237,6 +250,9 @@ func main() {
 
 		if exitCode == 126 || exitCode == 105 {
 			// Stage blocked by EDR
+			stageResults[idx].ExitCode = exitCode
+			stageResults[idx].Status = "blocked"
+			stageResults[idx].Details = fmt.Sprintf("EDR blocked %s", stage.Technique)
 			LogStageEnd(stage.ID, stage.Technique, "blocked", fmt.Sprintf("EDR blocked %s", stage.Technique))
 
 			Endpoint.Say("")
@@ -250,6 +266,7 @@ func main() {
 			Endpoint.Say("=================================================================")
 
 			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("EDR blocked at %s", stage.Technique))
+			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "killchain", stageResults)
 
 			// Wait before exit to ensure monitoring platforms can read exit code
 			Endpoint.Say("")
@@ -260,8 +277,12 @@ func main() {
 
 		} else if exitCode != 0 {
 			// Stage error
+			stageResults[idx].ExitCode = exitCode
+			stageResults[idx].Status = "error"
+			stageResults[idx].Details = fmt.Sprintf("Stage error: exit code %d", exitCode)
 			LogStageEnd(stage.ID, stage.Technique, "error", fmt.Sprintf("Stage error: exit code %d", exitCode))
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage %s failed with code %d", stage.Technique, exitCode))
+			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "killchain", stageResults)
 
 			Endpoint.Say("")
 			Endpoint.Say("Stage %d failed with error code %d", stage.ID, exitCode)
@@ -275,6 +296,9 @@ func main() {
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 
+		stageResults[idx].ExitCode = exitCode
+		stageResults[idx].Status = "success"
+		stageResults[idx].Details = fmt.Sprintf("%s completed successfully", stage.Technique)
 		LogStageEnd(stage.ID, stage.Technique, "success", fmt.Sprintf("%s completed successfully", stage.Technique))
 		Endpoint.Say("  Stage %d completed successfully", stage.ID)
 		Endpoint.Say("")
@@ -307,6 +331,7 @@ func main() {
 	Endpoint.Say("=================================================================")
 
 	SaveLog(Endpoint.Unprotected, "Complete killchain succeeded - all techniques executed")
+	WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "killchain", stageResults)
 
 	// Wait before exit to ensure monitoring platforms can read exit code
 	Endpoint.Say("")

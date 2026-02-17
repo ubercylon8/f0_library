@@ -1059,6 +1059,153 @@ func truncateString(s string, maxLen int) string {
 }
 
 // ==============================================================================
+// BUNDLE RESULTS SUPPORT — Per-stage ES fan-out for multi-stage tests
+// ==============================================================================
+
+// BundleResults represents the complete bundle output written to bundle_results.json.
+// Reused from cyber-hygiene check_utils.go so all tests share the same protocol.
+type BundleResults struct {
+	SchemaVersion     string          `json:"schema_version"`
+	BundleID          string          `json:"bundle_id"`
+	BundleName        string          `json:"bundle_name"`
+	BundleCategory    string          `json:"bundle_category"`
+	BundleSubcategory string          `json:"bundle_subcategory"`
+	ExecutionID       string          `json:"execution_id"`
+	StartedAt         string          `json:"started_at"`
+	CompletedAt       string          `json:"completed_at"`
+	OverallExitCode   int             `json:"overall_exit_code"`
+	TotalControls     int             `json:"total_controls"`
+	PassedControls    int             `json:"passed_controls"`
+	FailedControls    int             `json:"failed_controls"`
+	Controls          []ControlResult `json:"controls"`
+}
+
+// ControlResult represents a single control/stage result for bundle_results.json.
+type ControlResult struct {
+	ControlID    string   `json:"control_id"`
+	ControlName  string   `json:"control_name"`
+	Validator    string   `json:"validator"`
+	ExitCode     int      `json:"exit_code"`
+	Compliant    bool     `json:"compliant"`
+	Severity     string   `json:"severity"`
+	Category     string   `json:"category"`
+	Subcategory  string   `json:"subcategory"`
+	Techniques   []string `json:"techniques"`
+	Tactics      []string `json:"tactics"`
+	Expected     string   `json:"expected"`
+	Actual       string   `json:"actual"`
+	Details      string   `json:"details"`
+	Skipped      bool     `json:"skipped"`
+	ErrorMessage string   `json:"error_message"`
+}
+
+// StageBundleDef describes one stage for bundle results generation.
+type StageBundleDef struct {
+	Technique string
+	Name      string
+	Severity  string
+	Tactics   []string
+	ExitCode  int    // raw stage exit code (0=success, 126=blocked, 999=error)
+	Status    string // "success", "blocked", "error", "skipped"
+	Details   string
+}
+
+// WriteStageBundleResults converts multi-stage execution data into bundle_results.json
+// so the agent/backend fan-out pipeline produces per-stage ES documents.
+//
+// Exit code normalization:
+//   - Stage 0 (attack succeeded) → 101 (Unprotected) for ES
+//   - Stage 126/105 (blocked by EDR) → kept as-is (Protected)
+//   - Stage 999 (error) → kept as-is (maps to error in ES)
+//   - Skipped stages → exit code 0 (Inconclusive, excluded from Defense Score)
+func WriteStageBundleResults(bundleID, bundleName, category, subcategory string, stages []StageBundleDef) error {
+	logMutex.Lock()
+	executionID := ""
+	if globalLog != nil {
+		executionID = globalLog.ExecutionContext.ExecutionID
+	}
+	logMutex.Unlock()
+
+	controls := make([]ControlResult, 0, len(stages))
+	passed := 0  // blocked stages = endpoint defended
+	failed := 0  // successful attack stages = endpoint failed
+	skipped := 0
+
+	for i, stage := range stages {
+		normalizedExit := stage.ExitCode
+		compliant := false
+
+		switch {
+		case stage.Status == "skipped":
+			normalizedExit = 0 // Inconclusive — excluded from Defense Score
+			skipped++
+		case stage.ExitCode == 0:
+			// Attack succeeded without EDR intervention → Unprotected
+			normalizedExit = 101
+			failed++
+		case stage.ExitCode == 126 || stage.ExitCode == 105:
+			// EDR blocked the stage → Protected
+			compliant = true
+			passed++
+		default:
+			// Error or other codes — keep as-is
+			failed++
+		}
+
+		controls = append(controls, ControlResult{
+			ControlID:   stage.Technique,
+			ControlName: stage.Name,
+			Validator:   fmt.Sprintf("Stage %d", i+1),
+			ExitCode:    normalizedExit,
+			Compliant:   compliant,
+			Severity:    stage.Severity,
+			Category:    category,
+			Subcategory: subcategory,
+			Techniques:  []string{stage.Technique},
+			Tactics:     stage.Tactics,
+			Details:     stage.Details,
+			Skipped:     stage.Status == "skipped",
+		})
+	}
+
+	overallExit := 101 // default: at least one stage succeeded (unprotected)
+	if passed == len(stages)-skipped && passed > 0 {
+		overallExit = 126 // all non-skipped stages were blocked
+	}
+
+	results := &BundleResults{
+		SchemaVersion:     "1.0",
+		BundleID:          bundleID,
+		BundleName:        bundleName,
+		BundleCategory:    category,
+		BundleSubcategory: subcategory,
+		ExecutionID:       executionID,
+		StartedAt:         time.Now().UTC().Format(time.RFC3339),
+		OverallExitCode:   overallExit,
+		TotalControls:     len(stages),
+		PassedControls:    passed,
+		FailedControls:    failed,
+		Controls:          controls,
+	}
+
+	// Write to disk
+	results.CompletedAt = time.Now().UTC().Format(time.RFC3339)
+	data, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal stage bundle results: %v", err)
+	}
+
+	outputPath := filepath.Join(`c:\F0`, "bundle_results.json")
+	if err := os.WriteFile(outputPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write stage bundle results to %s: %v", outputPath, err)
+	}
+
+	fmt.Printf("[*] Stage bundle results written: %s (%d stages, %d blocked, %d succeeded, %d skipped)\n",
+		outputPath, len(stages), passed, failed, skipped)
+	return nil
+}
+
+// ==============================================================================
 // BACKWARDS COMPATIBILITY STUBS
 // ==============================================================================
 
