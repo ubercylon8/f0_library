@@ -524,6 +524,7 @@ Bundle results are produced using helpers from `check_utils.go`:
 4. **Backend detects** `bundle_results.controls` in the result
 5. **Backend fans out** each control into an independent ES document via `client.bulk()`
 6. **ES documents** include `f0rtika.is_bundle_control: true` and per-control fields
+7. **Composite test_uuid**: Each control document uses `<bundle-uuid>::<control-id>` as `test_uuid` (e.g., `a3c923ae-...::CH-DEF-001`). The `::` separator is unambiguous — split on it to recover bundle_id and control_id
 
 ### Reference Implementation
 
