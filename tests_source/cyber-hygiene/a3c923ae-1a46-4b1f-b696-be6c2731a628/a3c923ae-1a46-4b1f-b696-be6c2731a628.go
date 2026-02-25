@@ -256,6 +256,18 @@ func main() {
 		}
 
 		// 6. Convert to control results and track status
+		// If validator ran but produced 0 checks (e.g., prerequisite not met), mark controls as skipped
+		if output.TotalChecks == 0 {
+			reason := fmt.Sprintf("validator returned no checks (exit %d) - prerequisite not met", exitCode)
+			fmt.Printf("       [SKIPPED] %s\n", reason)
+			controls := MakeSkippedControls(vd, "cyber-hygiene", "baseline", reason)
+			allControls = append(allControls, controls...)
+			validatorsSkipped++
+			skippedNames = append(skippedNames, vd.DisplayName)
+			CleanupValidator(vd.Name)
+			continue
+		}
+
 		controls := ConvertOutputToControls(vd.DisplayName, "cyber-hygiene", "baseline", output)
 		allControls = append(allControls, controls...)
 
