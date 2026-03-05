@@ -251,16 +251,7 @@ type IdentifierLog struct {
 	Timestamp    JSONTime `json:"timestamp"`
 }
 
-// NetworkTestSummary tracks network testing details
-type NetworkTestSummary struct {
-	TotalEndpoints    int           `json:"totalEndpoints"`
-	SuccessfulTests   int           `json:"successfulTests"`
-	FailedTests       int           `json:"failedTests"`
-	VulnerableCount   int           `json:"vulnerableCount"`
-	ProtectedCount    int           `json:"protectedCount"`
-	OverallVulnerable bool          `json:"overallVulnerable"`
-	Results           []interface{} `json:"results,omitempty"`
-}
+// NetworkTestSummary is defined in mde_network_tester.go (compiled together via build_all.sh)
 
 // Metrics provides pre-computed aggregation metrics
 type Metrics struct {
@@ -1205,25 +1196,5 @@ func WriteStageBundleResults(bundleID, bundleName, category, subcategory string,
 	return nil
 }
 
-// ==============================================================================
-// BACKWARDS COMPATIBILITY STUBS
-// ==============================================================================
-
-// MDEIdentifiers stub for compatibility with existing tests
-type MDEIdentifiers struct {
-	Source            string
-	MDEInstalled      bool
-	ExtractionSuccess bool
-	MachineID         string
-	TenantID          string
-	SenseID           string
-	OrgID             string
-}
-
-// BypassResult stub for compatibility with existing tests
-type BypassResult struct {
-	Success      bool
-	Blocked      bool
-	BlockedBy    string
-	TestDuration time.Duration
-}
+// MDEIdentifiers is defined in mde_identifier_extractor.go (compiled together via build_all.sh)
+// BypassResult is defined in cert_pinning_bypass.go (compiled together via build_all.sh)
