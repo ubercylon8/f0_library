@@ -554,7 +554,33 @@ func main() {
 	Endpoint.Say("")
 
 	// Initialize logger BEFORE extracting components (so LogFileDropped works)
-	InitLogger("b6c73735-0c24-4a1e-8f0a-3c24af39671b", "MDE Authentication Bypass Command Interception")
+	metadata := TestMetadata{
+		Version:  "1.0.0",
+		Category: "edr-evasion",
+		Severity: "high",
+		Techniques: []string{"T1562.001", "T1014", "T1090.003", "T1140"},
+		Tactics:    []string{"defense-evasion", "command-and-control"},
+		Score:      9.3,
+		ScoreBreakdown: &ScoreBreakdown{
+			RealWorldAccuracy:       3.0,
+			TechnicalSophistication: 2.8,
+			SafetyMechanisms:        2.0,
+			DetectionOpportunities:  0.5,
+			LoggingObservability:    1.0,
+		},
+		Tags: []string{"mde-bypass", "certificate-pinning", "network-isolation", "rootkit"},
+	}
+	executionContext := ExecutionContext{
+		ExecutionID:    fmt.Sprintf("%d", time.Now().UnixNano()),
+		Environment:    "lab",
+		DeploymentType: "manual",
+		Configuration: &ExecutionConfiguration{
+			TimeoutMs:         300000,
+			CertificateMode:   "pre-installed",
+			MultiStageEnabled: true,
+		},
+	}
+	InitLogger("b6c73735-0c24-4a1e-8f0a-3c24af39671b", "MDE Authentication Bypass Command Interception", metadata, executionContext)
 
 	// Extract embedded components (watchdog, recovery script)
 	Endpoint.Say("Single-binary deployment - extracting embedded components...")
