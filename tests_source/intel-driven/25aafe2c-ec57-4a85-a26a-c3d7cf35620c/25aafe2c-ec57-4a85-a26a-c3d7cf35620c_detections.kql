@@ -1,0 +1,201 @@
+// Behavioral Detection Queries for ESXi Hypervisor Ransomware Kill Chain
+// Test ID: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+// MITRE ATT&CK: T1046, T1018, T1021.004, T1068, T1489, T1529, T1048, T1567.002, T1486
+// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+
+//
+// QUERY 1: ESXi Management Command Execution
+// Purpose: Detect vim-cmd, esxcli, vmdumper execution patterns
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("vim-cmd", "esxcli", "vmdumper", "vim-cmd.exe", "esxcli.exe")
+    or ProcessCommandLine has_any ("vmsvc/getallvms", "vmsvc/snapshot.removeall",
+        "vm process kill", "vmsvc/power.off", "hostsvc/enable_ssh",
+        "vmdumper -l")
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName
+| summarize CommandCount=count(),
+    Commands=make_set(ProcessCommandLine),
+    FirstCommand=min(TimeGenerated),
+    LastCommand=max(TimeGenerated)
+    by DeviceName, AccountName
+| where CommandCount > 2
+| extend ThreatScore = 95,
+    Detection = "ESXi Management Command Execution - Possible Hypervisor Attack"
+
+//
+// QUERY 2: Mass VM Termination Pattern
+// Purpose: Detect rapid VM kill sequences (esxcli vm process kill)
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has "vm process kill"
+    or ProcessCommandLine has "vmsvc/power.off"
+    or ProcessCommandLine has "vmsvc/snapshot.removeall"
+| summarize KillCount=count(),
+    Techniques=make_set(tostring(split(ProcessCommandLine, " ")[3])),
+    FirstKill=min(TimeGenerated),
+    LastKill=max(TimeGenerated)
+    by DeviceName, AccountName, bin(TimeGenerated, 5m)
+| where KillCount > 3
+| extend OperationRate = KillCount / datetime_diff('second', LastKill, FirstKill)
+| extend ThreatScore = 99,
+    Detection = "Mass VM Termination - ESXi Ransomware Kill Sequence"
+
+//
+// QUERY 3: SSH Key Harvesting and Lateral Movement
+// Purpose: Detect SSH key file access patterns (SSH-Snake behavior)
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileRead" or ActionType == "FileAccessed"
+| where FolderPath has_any (".ssh/id_rsa", ".ssh/id_ed25519", ".ssh/id_ecdsa",
+    ".ssh/authorized_keys", ".ssh/known_hosts", ".ssh/config",
+    "ssh_host_rsa_key", "ssh_host_ed25519_key")
+| summarize KeyAccess=count(),
+    KeyFiles=make_set(FileName),
+    FirstAccess=min(TimeGenerated),
+    LastAccess=max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, AccountName
+| where KeyAccess > 3
+| extend ThreatScore = 85,
+    Detection = "SSH Key Harvesting - Possible SSH-Snake Lateral Movement"
+
+//
+// QUERY 4: Rclone Activity Detection (Including Renamed Binary)
+// Purpose: Detect Rclone execution patterns even with renamed binaries
+//
+let RcloneIndicators = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any ("rclone", "--transfers", "--checkers",
+    "mega:", "s3:", "sftp:", "--s3-chunk-size", "sync /", "copy /")
+    or ProcessCommandLine has_any ("rclone.conf", "--config");
+let RcloneConfigCreation = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FileName == "rclone.conf"
+    or FolderPath has ".config/rclone"
+| project TimeGenerated, DeviceName, FileName, FolderPath, AccountName;
+RcloneIndicators
+| union RcloneConfigCreation
+| summarize EventCount=count(),
+    Indicators=make_set(coalesce(ProcessCommandLine, FileName))
+    by DeviceName, AccountName
+| where EventCount > 0
+| extend ThreatScore = 90,
+    Detection = "Rclone Exfiltration Tool Activity"
+
+//
+// QUERY 5: CVE-2024-37085 ESXi Authentication Bypass
+// Purpose: Detect creation of "ESX Admins" AD group
+//
+SecurityEvent
+| where TimeGenerated > ago(24h)
+| where EventID in (4727, 4731, 4754)  // Group creation events
+| where TargetGroupName has_any ("ESX Admins", "ESXAdmins", "esxadmins")
+| project TimeGenerated, Computer, Account, TargetGroupName, EventID
+| extend ThreatScore = 99,
+    Detection = "CVE-2024-37085 - ESX Admins Group Creation (ESXi Auth Bypass)"
+
+//
+// QUERY 6: Ransomware File Encryption Patterns
+// Purpose: Detect mass file rename with ransomware extensions
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileRenamed"
+| where FileName endswith ".ransomhub"
+    or FileName endswith ".akira"
+    or FileName endswith ".lockbit"
+    or FileName endswith ".blackbasta"
+    or FileName endswith ".encrypted"
+| summarize RenameCount=count(),
+    Extensions=make_set(tostring(split(FileName, ".")[-1])),
+    OriginalExtensions=make_set(tostring(split(PreviousFileName, ".")[-1])),
+    FirstRename=min(TimeGenerated),
+    LastRename=max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 5m)
+| where RenameCount > 10
+| extend ThreatScore = 99,
+    Detection = "Ransomware Encryption - Mass File Rename with Ransomware Extension"
+
+//
+// QUERY 7: Ransom Note Deployment Detection
+// Purpose: Detect creation of ransom note files across multiple directories
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName in~ ("README.txt", "HOW_TO_DECRYPT.txt", "RECOVER_YOUR_FILES.txt",
+    "DECRYPT_INSTRUCTIONS.txt", "ransom_note.txt")
+| summarize NoteCount=count(),
+    Locations=make_set(FolderPath),
+    NoteNames=make_set(FileName)
+    by DeviceName, InitiatingProcessFileName, AccountName
+| where NoteCount > 3
+| extend ThreatScore = 95,
+    Detection = "Ransom Note Deployment - Multiple Ransom Notes Created"
+
+//
+// QUERY 8: Binary Rename Evasion (Rclone as svchost/csrss)
+// Purpose: Detect legitimate tool names executing with suspicious command lines
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("svchost.exe", "csrss.exe", "taskhost.exe", "svhost.exe", "lsass.exe")
+| where ProcessCommandLine has_any ("sync", "copy", "--transfers", "--checkers",
+    "mega:", "s3:", "sftp:", "rclone", "--config")
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine, AccountName,
+    InitiatingProcessFileName, FolderPath
+| extend ThreatScore = 95,
+    Detection = "Binary Rename Evasion - System Process Name with Data Transfer Commands"
+
+//
+// QUERY 9: Combined ESXi Hypervisor Attack Detection
+// Purpose: Correlate multiple indicators for high-confidence ESXi ransomware detection
+//
+let ESXiCommands = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any ("vim-cmd", "esxcli", "vmdumper",
+    "vmsvc/getallvms", "vm process kill", "snapshot.removeall")
+| distinct DeviceName, AccountName;
+let SSHActivity = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any ("ssh", "id_rsa", "authorized_keys")
+    or FileName has_any ("ssh-snake", "ssh_snake")
+| distinct DeviceName, AccountName;
+let DataExfil = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any ("rclone", "mega:", "s3:", "--transfers")
+| distinct DeviceName, AccountName;
+let Encryption = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileRenamed"
+| where FileName endswith_any (".ransomhub", ".akira", ".lockbit", ".encrypted")
+| summarize FileCount=count() by DeviceName
+| where FileCount > 5
+| distinct DeviceName;
+ESXiCommands
+| join kind=inner (SSHActivity) on DeviceName, AccountName
+| join kind=leftouter (DataExfil) on DeviceName, AccountName
+| extend HasEncryption = DeviceName in (Encryption)
+| extend ThreatScore = 99,
+    Detection = "CRITICAL: Multi-Stage ESXi Hypervisor Ransomware Attack In Progress"
+
+//
+// QUERY 10: Large Outbound Data Transfers (Exfiltration)
+// Purpose: Detect large data transfers to cloud storage providers
+//
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemoteUrl has_any ("mega.nz", "mega.co.nz", "s3.amazonaws.com",
+    "storage.googleapis.com", "blob.core.windows.net")
+| summarize TotalBytesSent=sum(SentBytes),
+    ConnectionCount=count(),
+    Destinations=make_set(RemoteUrl),
+    FirstConnection=min(TimeGenerated),
+    LastConnection=max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, AccountName
+| where TotalBytesSent > 104857600  // More than 100MB
+| extend ThreatScore = 85,
+    Detection = "Large Outbound Transfer to Cloud Storage - Possible Exfiltration"
