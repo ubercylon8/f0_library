@@ -19,11 +19,14 @@ AUTHOR: sectest-builder
 package main
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
@@ -79,13 +82,13 @@ func main() {
 		Severity:   "critical",
 		Techniques: []string{"T1204.002", "T1059.001", "T1547.001", "T1555.003", "T1102"},
 		Tactics:    []string{"execution", "persistence", "credential-access", "command-and-control"},
-		Score:      8.7,
+		Score:      9.2,
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.7,
 			TechnicalSophistication: 2.8,
-			SafetyMechanisms:        1.7,
+			SafetyMechanisms:        2.0,
 			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.5,
+			LoggingObservability:    0.7,
 		},
 		Tags: []string{"multi-stage", "fileless", "powershell", "browser-credentials", "credential-theft", "telegram-c2", "persistence", "apt42", "magic-hound", "tamecat"},
 	}
@@ -106,6 +109,9 @@ func main() {
 	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
 
 	defer func() {
+		// Safety: always clean up any persistence mechanisms that Stage 3 may have created
+		cleanupPersistenceFromOrchestrator()
+
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Test panic: %v", r))
@@ -185,6 +191,16 @@ func test() {
 			Endpoint.Say("    Error: %v", err)
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage extraction failed: %v", err))
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
+		}
+
+		// Check if EDR quarantined the extracted binary
+		if Endpoint.Quarantined(fmt.Sprintf("c:\\F0\\%s", stage.BinaryName)) {
+			LogMessage("BLOCKED", stage.Technique, fmt.Sprintf("Stage binary quarantined: %s", stage.BinaryName))
+			LogPhaseEnd(0, "blocked", fmt.Sprintf("EDR quarantined %s during extraction", stage.BinaryName))
+			Endpoint.Say("    [!] QUARANTINED: %s — EDR removed stage binary", stage.BinaryName)
+			SaveLog(Endpoint.FileQuarantinedOnExtraction, fmt.Sprintf("Stage binary %s quarantined during extraction", stage.BinaryName))
+			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
 		}
 	}
 
@@ -316,6 +332,32 @@ func test() {
 }
 
 // ==============================================================================
+// SAFETY: ORCHESTRATOR-LEVEL PERSISTENCE CLEANUP
+// ==============================================================================
+
+// cleanupPersistenceFromOrchestrator removes any persistence mechanisms that
+// Stage 3 (T1547.001) may have created, even if the orchestrator exits early
+// or panics. This is a safety backstop — Stage 3 also cleans up internally,
+// but this ensures no persistence survives an unexpected orchestrator exit.
+func cleanupPersistenceFromOrchestrator() {
+	// Attempt to remove Registry Run key "Renovation" (Stage 3 artifact)
+	cleanupCmd1 := exec.Command("reg.exe", "delete",
+		`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
+		"/v", "Renovation", "/f")
+	if output, err := cleanupCmd1.CombinedOutput(); err == nil {
+		LogMessage("INFO", "Safety", fmt.Sprintf("Orchestrator cleanup: removed Run key 'Renovation': %s", string(output)))
+	}
+
+	// Attempt to remove UserInitMprLogonScript (Stage 3 artifact)
+	cleanupCmd2 := exec.Command("reg.exe", "delete",
+		`HKCU\Environment`,
+		"/v", "UserInitMprLogonScript", "/f")
+	if output, err := cleanupCmd2.CombinedOutput(); err == nil {
+		LogMessage("INFO", "Safety", fmt.Sprintf("Orchestrator cleanup: removed UserInitMprLogonScript: %s", string(output)))
+	}
+}
+
+// ==============================================================================
 // HELPER FUNCTIONS
 // ==============================================================================
 
@@ -340,23 +382,45 @@ func executeKillchainStage(stage KillchainStage) int {
 	LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID), fmt.Sprintf("Executing %s", stage.BinaryName))
 
 	cmd := exec.Command(stagePath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Dir = "c:\\F0"
 
-	err := cmd.Run()
+	// Capture stdout/stderr to both console and file via io.MultiWriter
+	var outputBuffer bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuffer)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuffer)
+
+	if err := cmd.Start(); err != nil {
+		errMsg := fmt.Sprintf("Failed to start stage %s: %v", stage.Technique, err)
+		Endpoint.Say("  Failed to start stage: %v", err)
+		LogMessage("ERROR", stage.Technique, errMsg)
+		return 999
+	}
+
+	stageStart := time.Now()
+	err := cmd.Wait()
+	stageDuration := time.Since(stageStart)
+
+	Endpoint.Say("    [Timing] Stage %d (%s) completed in %s", stage.ID, stage.Technique, stageDuration.Round(time.Millisecond))
+	LogMessage("INFO", stage.Technique, fmt.Sprintf("Stage duration: %s", stageDuration.Round(time.Millisecond)))
+
+	// Save raw output to file
+	outputFilePath := filepath.Join("c:\\F0", fmt.Sprintf("%s_output.txt", stage.Technique))
+	if writeErr := os.WriteFile(outputFilePath, outputBuffer.Bytes(), 0644); writeErr != nil {
+		LogMessage("WARNING", "Output Capture", fmt.Sprintf("Failed to save output: %v", writeErr))
+	} else {
+		LogMessage("INFO", "Output Capture", fmt.Sprintf("Raw output saved to: %s (%d bytes)", outputFilePath, outputBuffer.Len()))
+	}
 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode := exitErr.ExitCode()
-			errMsg := fmt.Sprintf("Stage %s exited with code %d", stage.Technique, exitCode)
 			Endpoint.Say("  Stage %d exit code: %d", stage.ID, exitCode)
-			LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID), errMsg)
 			LogProcessExecution(stage.BinaryName, stagePath, 0, false, exitCode, exitErr.Error())
 			return exitCode
 		}
 		errMsg := fmt.Sprintf("Failed to execute stage %s: %v", stage.Technique, err)
-		fmt.Printf("[ORCHESTRATOR] %s\n", errMsg)
-		LogMessage("ERROR", fmt.Sprintf("Stage %d", stage.ID), errMsg)
+		Endpoint.Say("  Stage execution error: %v", err)
+		LogMessage("ERROR", stage.Technique, errMsg)
 		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999, err.Error())
 		return 999
 	}

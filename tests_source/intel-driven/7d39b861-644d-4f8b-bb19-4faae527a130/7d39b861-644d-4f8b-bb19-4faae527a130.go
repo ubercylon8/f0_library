@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 	_ "embed"
 
 	"github.com/google/uuid"
@@ -78,13 +79,13 @@ func main() {
 		Severity:   "critical",
 		Techniques: []string{"T1505.003", "T1543.003", "T1562.001", "T1485", "T1070.001"},
 		Tactics:    []string{"persistence", "defense-evasion", "impact"},
-		Score:      9.0,
+		Score:      9.2,
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8,
 			TechnicalSophistication: 2.7,
 			SafetyMechanisms:        2.0,
 			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.5,
+			LoggingObservability:    0.7,
 		},
 		Tags: []string{"wiper", "destructive", "multi-wiper", "edr-bypass", "agrius", "pink-sandstorm", "iranian-apt", "banking-infrastructure", "multi-stage"},
 	}
@@ -181,6 +182,16 @@ func test() {
 			LogPhaseEnd(0, "error", fmt.Sprintf("Failed to extract %s: %v", stage.BinaryName, err))
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage extraction failed: %v", err))
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
+		}
+
+		// Check if EDR quarantined the extracted binary
+		if Endpoint.Quarantined(fmt.Sprintf("c:\\F0\\%s", stage.BinaryName)) {
+			LogMessage("BLOCKED", stage.Technique, fmt.Sprintf("Stage binary quarantined: %s", stage.BinaryName))
+			LogPhaseEnd(0, "blocked", fmt.Sprintf("EDR quarantined %s during extraction", stage.BinaryName))
+			Endpoint.Say("    [!] QUARANTINED: %s — EDR removed stage binary", stage.BinaryName)
+			SaveLog(Endpoint.FileQuarantinedOnExtraction, fmt.Sprintf("Stage binary %s quarantined during extraction", stage.BinaryName))
+			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
 		}
 	}
 
@@ -349,7 +360,12 @@ func executeStage(stage KillchainStage) int {
 		return 999
 	}
 
+	stageStart := time.Now()
 	err := cmd.Wait()
+	stageDuration := time.Since(stageStart)
+
+	Endpoint.Say("    [Timing] Stage %d (%s) completed in %s", stage.ID, stage.Technique, stageDuration.Round(time.Millisecond))
+	LogMessage("INFO", stage.Technique, fmt.Sprintf("Stage duration: %s", stageDuration.Round(time.Millisecond)))
 
 	// Save raw output
 	outputFilePath := filepath.Join("c:\\F0", fmt.Sprintf("%s_output.txt", stage.Technique))

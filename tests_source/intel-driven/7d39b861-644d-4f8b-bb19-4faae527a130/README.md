@@ -1,6 +1,6 @@
 # Agrius Multi-Wiper Deployment Against Banking Infrastructure
 
-**Test Score**: **9.0/10**
+**Test Score**: **9.2/10**
 
 ## Overview
 Simulates the full Agrius (Pink Sandstorm / Agonizing Serpens / BlackShadow) destructive attack chain targeting banking infrastructure. This 5-stage multi-stage test models the confirmed active wiper campaigns against Israeli financial sector (Anomali, March 2026), covering ASPXSpy webshell deployment, IPsec Helper service persistence, EDR tampering via GMER64.sys driver loading, simultaneous multi-wiper deployment (MultiLayer + PartialWasher + BFG Agonizer), and anti-forensics via event log clearing and self-deletion. Tests business continuity and disaster recovery capabilities for core banking systems.

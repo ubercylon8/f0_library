@@ -1,6 +1,6 @@
 # APT42 TAMECAT Fileless Backdoor with Browser Credential Theft
 
-**Test Score**: **8.7/10**
+**Test Score**: **9.2/10**
 
 ## Overview
 Simulates an APT42 (Magic Hound / Educated Manticore / UNC788) multi-stage attack chain featuring the TAMECAT fileless PowerShell backdoor, dual persistence mechanisms, browser credential theft targeting financial applications, and multi-channel exfiltration via Telegram API. This test validates endpoint detection capabilities against Iranian state-sponsored threat actor TTPs targeting banking and financial sector organizations.
