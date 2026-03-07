@@ -12,8 +12,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -74,7 +76,10 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Wrote CacheHttp.dll to %s (%d bytes)", dllPath, len(dllContent)))
 	fmt.Printf("[STAGE %s] CacheHttp.dll written to %s (%d bytes)\n", TECHNIQUE_ID, dllPath, len(dllContent))
 
-	// Verify file persists (not immediately quarantined)
+	// Allow EDR time to scan the file
+	time.Sleep(2 * time.Second)
+
+	// Verify file persists (not quarantined)
 	if _, err := os.Stat(dllPath); os.IsNotExist(err) {
 		return fmt.Errorf("CacheHttp.dll was quarantined immediately after creation")
 	}
@@ -107,7 +112,55 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("IIS module registration artifact created: %s", regPath))
 	fmt.Printf("[STAGE %s] IIS module registration artifact created: %s\n", TECHNIQUE_ID, regPath)
 
-	// Step 3: Create HTTP request interception pattern file
+	// Step 3: Attempt IIS module registration via appcmd.exe (LOLBin)
+	// APT34 uses appcmd.exe to register CacheHttp.dll as a native IIS HTTP module
+	// appcmd.exe is a legitimate IIS management LOLBin used for module installation
+	fmt.Printf("[STAGE %s] Attempting IIS module registration via appcmd.exe (LOLBin)\n", TECHNIQUE_ID)
+	LogMessage("INFO", TECHNIQUE_ID, "Attempting IIS native module registration via appcmd.exe")
+
+	appcmdPath := `C:\Windows\System32\inetsrv\appcmd.exe`
+	if _, err := os.Stat(appcmdPath); err == nil {
+		// appcmd.exe exists (IIS is installed) — attempt module registration
+		LogMessage("INFO", TECHNIQUE_ID, "appcmd.exe found — IIS is installed, attempting module registration")
+
+		installCmd := exec.Command(appcmdPath, "install", "module",
+			"/name:CacheHttp",
+			fmt.Sprintf("/image:%s", dllPath),
+		)
+		installOutput, installErr := installCmd.CombinedOutput()
+		installOutputStr := strings.TrimSpace(string(installOutput))
+
+		if installErr != nil {
+			fmt.Printf("[STAGE %s] appcmd.exe module install result: %s (err: %v)\n", TECHNIQUE_ID, installOutputStr, installErr)
+			LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("appcmd.exe blocked or failed: %s", installOutputStr))
+
+			if strings.Contains(strings.ToLower(installOutputStr), "access") ||
+				strings.Contains(strings.ToLower(installOutputStr), "denied") ||
+				strings.Contains(strings.ToLower(installOutputStr), "blocked") {
+				return fmt.Errorf("IIS module registration blocked via appcmd.exe: %s", installOutputStr)
+			}
+			// Non-blocking failure (e.g., module name conflict) — continue
+			LogMessage("INFO", TECHNIQUE_ID, "appcmd.exe returned error but not blocked by EDR — continuing")
+		} else {
+			fmt.Printf("[STAGE %s] WARNING: IIS module registered without prevention: %s\n", TECHNIQUE_ID, installOutputStr)
+			LogMessage("CRITICAL", TECHNIQUE_ID, fmt.Sprintf("CacheHttp.dll registered as IIS module without detection: %s", installOutputStr))
+
+			// SAFETY: Immediately uninstall the module
+			uninstallCmd := exec.Command(appcmdPath, "uninstall", "module", "CacheHttp")
+			uninstallOutput, _ := uninstallCmd.CombinedOutput()
+			fmt.Printf("[STAGE %s] SAFETY: Module uninstalled: %s\n", TECHNIQUE_ID, strings.TrimSpace(string(uninstallOutput)))
+			LogMessage("INFO", TECHNIQUE_ID, "SAFETY: CacheHttp module uninstalled from IIS")
+		}
+
+		// Allow EDR reaction time
+		time.Sleep(2 * time.Second)
+	} else {
+		// IIS not installed — log and continue
+		fmt.Printf("[STAGE %s] appcmd.exe not found — IIS not installed, skipping module registration\n", TECHNIQUE_ID)
+		LogMessage("INFO", TECHNIQUE_ID, "IIS not installed (appcmd.exe not found) — skipping LOLBin registration, continuing with artifact-only simulation")
+	}
+
+	// Step 4: Create HTTP request interception pattern file
 	// Documents the specific HTTP patterns CacheHttp.dll looks for
 	interceptPatterns := `# F0RT1KA SIMULATION: CacheHttp.dll HTTP Interception Patterns
 # APT34's CacheHttp.dll monitors incoming HTTP requests for:
