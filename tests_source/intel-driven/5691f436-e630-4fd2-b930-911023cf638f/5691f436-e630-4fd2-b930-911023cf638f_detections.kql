@@ -1,0 +1,124 @@
+// Behavioral Detection Queries for APT34 Exchange Server Weaponization
+// Test ID: 5691f436-e630-4fd2-b930-911023cf638f
+// MITRE ATT&CK: T1505.003, T1071.003, T1556.002, T1048.003
+// Threat Actor: APT34 / OilRig / Hazel Sandstorm
+// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+
+//
+// QUERY 1: IIS Backdoor Module Detection (T1505.003)
+// Purpose: Detect deployment of suspicious DLL files mimicking IIS native modules
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".dll"
+| where FileName in~("CacheHttp.dll", "HttpProxy.dll", "IISModule.dll", "WebCache.dll")
+    or FolderPath has_any ("inetsrv", "IIS", "w3svc")
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, FileSizeBytes
+| extend ThreatScore = 85
+| extend Detection = "Suspicious IIS Module DLL Deployment (APT34 CacheHttp pattern)"
+
+//
+// QUERY 2: LSA Password Filter DLL Registration (T1556.002)
+// Purpose: Detect modification of LSA Notification Packages registry for credential interception
+//
+DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
+| where RegistryKey has_all ("SYSTEM", "Control", "Lsa")
+| where RegistryValueName =~ "Notification Packages"
+| project TimeGenerated, DeviceName, AccountName, RegistryKey,
+    RegistryValueName, RegistryValueData, RegistryValueType,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend ThreatScore = 95
+| extend Detection = "LSA Password Filter DLL Registration (T1556.002 - Credential Interception)"
+
+//
+// QUERY 3: Email-Based C2 Pattern Detection (T1071.003)
+// Purpose: Detect email files with @@ subject markers (PowerExchange C2 pattern)
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".eml" or FileName endswith ".msg"
+| where FolderPath has_any ("c2", "powerexchange", "staging")
+| summarize EmailCount=count(),
+    FirstFile=min(TimeGenerated),
+    LastFile=max(TimeGenerated),
+    FileNames=make_set(FileName)
+    by DeviceName, AccountName, FolderPath
+| where EmailCount > 3
+| extend ThreatScore = 75
+| extend Detection = "Suspicious Email File Generation (Possible Email-Based C2 Setup)"
+
+//
+// QUERY 4: Data Staging and Compression for Exfiltration (T1048.003)
+// Purpose: Detect data staging, compression, and email attachment generation
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith_any (".zip", ".7z", ".rar", ".dat")
+| where FolderPath has_any ("staging", "exfil", "stealhook")
+    or FileName has_any ("payload", "exfiltrat", "report_part")
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    FileSizeBytes, InitiatingProcessFileName
+| extend ThreatScore = 80
+| extend Detection = "Data Staging for Exfiltration (STEALHOOK Pattern)"
+
+//
+// QUERY 5: PowerShell Script Deployment to Suspicious Locations
+// Purpose: Detect PowerShell backdoor scripts deployed for C2 operations
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".ps1"
+| where FileName has_any ("Exchange", "PowerExchange", "C2", "backdoor", "shell")
+    or FolderPath has_any ("c2", "powerexchange", "backdoor")
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    FileSizeBytes, InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend ThreatScore = 85
+| extend Detection = "Suspicious PowerShell Script Deployment (Exchange C2 Pattern)"
+
+//
+// QUERY 6: Combined APT34 Behavioral Detection
+// Purpose: Correlate multiple APT34 indicators for high-confidence alerts
+//
+let DLLDrops = DeviceFileEvents
+| where TimeGenerated > ago(2h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".dll"
+| distinct DeviceName, AccountName;
+let RegistryMods = DeviceRegistryEvents
+| where TimeGenerated > ago(2h)
+| where RegistryKey has_all ("SYSTEM", "Control", "Lsa")
+| distinct DeviceName, AccountName;
+let DataStaging = DeviceFileEvents
+| where TimeGenerated > ago(2h)
+| where ActionType == "FileCreated"
+| where FileName endswith_any (".zip", ".eml")
+| summarize FileCount=count() by DeviceName, AccountName
+| where FileCount > 5
+| distinct DeviceName, AccountName;
+DLLDrops
+| join kind=inner (RegistryMods) on DeviceName, AccountName
+| join kind=inner (DataStaging) on DeviceName, AccountName
+| extend ThreatScore = 98
+| extend Detection = "APT34 Exchange Weaponization - Multi-Technique Correlation (DLL + LSA + Exfil)"
+| project DeviceName, AccountName, ThreatScore, Detection
+
+//
+// QUERY 7: Credential File Staging Detection
+// Purpose: Detect creation of files containing credential-like data
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName has_any ("credential", "password", "cred_dump", "captured_cred", "hash")
+| where FileName endswith_any (".log", ".txt", ".csv", ".dat")
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    FileSizeBytes, InitiatingProcessFileName
+| extend ThreatScore = 90
+| extend Detection = "Credential Data File Staging (Password Filter Output Pattern)"
