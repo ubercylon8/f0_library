@@ -1,0 +1,178 @@
+// Behavioral Detection Queries for Perfctl/Symbiote LD_PRELOAD Hijacking
+// Test ID: 54a0bd24-d75a-4d89-8dce-c381d932ca97
+// MITRE ATT&CK: T1574.006, T1003.008, T1548.001, T1014, T1059.004
+// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+//
+// These queries target Linux Syslog/Auditd data ingested into Sentinel
+// via the Linux agent or CEF connector
+
+//
+// QUERY 1: LD_PRELOAD Persistence - File Write to /etc/ld.preload or /etc/ld.so.preload
+// Purpose: Detect writes to the LD_PRELOAD configuration files (Auto-Color, WolfsBane pattern)
+// Severity: CRITICAL - Direct indicator of shared library hijacking persistence
+//
+Syslog
+| where TimeGenerated > ago(24h)
+| where Facility == "authpriv" or Facility == "kern"
+| where SyslogMessage has_any ("/etc/ld.preload", "/etc/ld.so.preload", "ld_preload")
+| project TimeGenerated, HostName, Facility, SyslogMessage
+| extend ThreatScore = 95
+| extend Detection = "T1574.006 - LD_PRELOAD persistence file modification detected"
+
+//
+// QUERY 2: Suspicious Shared Library Creation
+// Purpose: Detect new .so files in system library directories
+// Pattern: Perfctl (libgcwrap.so), Pygmy Goat (libsophos.so), Symbiote
+//
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".so" or FileName matches regex @"\.so\.\d+"
+| where FolderPath has_any ("/lib/", "/usr/lib/", "/lib64/", "/usr/lib64/")
+| where FileName !in~ ("libc.so.6", "libpthread.so.0", "libdl.so.2", "libm.so.6")
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend ThreatScore = 85
+| extend Detection = "T1574.006 - Suspicious shared library created in system path"
+
+//
+// QUERY 3: PAM Module Modification or Credential Hooking
+// Purpose: Detect PAM configuration changes or suspicious PAM-related activity
+// Pattern: Perfctl hooking pam_authenticate for credential capture
+//
+Syslog
+| where TimeGenerated > ago(24h)
+| where SyslogMessage has_any ("pam_authenticate", "pam_unix", "pam_ldap")
+    and SyslogMessage has_any ("error", "failed", "unknown module", "module is unknown")
+| project TimeGenerated, HostName, Facility, SyslogMessage
+| summarize AlertCount = count(),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    SampleMessages = make_set(SyslogMessage, 5)
+    by HostName
+| where AlertCount > 10  // Bulk PAM errors may indicate hooking interference
+| extend ThreatScore = 80
+| extend Detection = "T1003.008 - Potential PAM credential hooking detected"
+
+//
+// QUERY 4: /etc/shadow Access by Non-Root Process
+// Purpose: Detect credential dumping via /etc/shadow access
+// Pattern: Post-exploitation credential harvesting (Perfctl, Akira)
+//
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where FileName == "shadow" and FolderPath has "/etc/"
+| where ActionType in ("FileRead", "FileModified", "FileCopied")
+| where InitiatingProcessFileName !in~ ("passwd", "chpasswd", "useradd", "usermod",
+    "login", "sshd", "cron", "pam_unix.so")
+| project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName,
+    InitiatingProcessCommandLine, AccountName
+| extend ThreatScore = 90
+| extend Detection = "T1003.008 - Suspicious /etc/shadow access detected"
+
+//
+// QUERY 5: SUID Binary Enumeration
+// Purpose: Detect find commands searching for SUID binaries
+// Pattern: find / -type f -perm -u=s (standard privilege escalation recon)
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName == "find"
+| where ProcessCommandLine has "-perm" and ProcessCommandLine has_any ("-u=s", "/4000", "-4000", "+4000")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend ThreatScore = 75
+| extend Detection = "T1548.001 - SUID binary enumeration detected"
+
+//
+// QUERY 6: SUID Bit Modification on System Binaries
+// Purpose: Detect chmod u+s on critical binaries (bash, sh, python)
+// Pattern: Perfctl/post-exploitation privilege persistence
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName == "chmod"
+| where ProcessCommandLine has_any ("u+s", "+4", "4755", "4711")
+| where ProcessCommandLine has_any ("/bin/bash", "/bin/sh", "/usr/bin/python",
+    "/usr/bin/perl", "/usr/bin/vim", "/usr/bin/find")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    InitiatingProcessFileName
+| extend ThreatScore = 95
+| extend Detection = "T1548.001 - SUID bit set on system binary (privilege persistence)"
+
+//
+// QUERY 7: XOR-Encrypted Configuration File Detection
+// Purpose: Detect creation of encrypted binary blobs in suspicious locations
+// Pattern: Perfctl XOR-encrypts strings with key 0xAC
+//
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".bin" or FileName endswith ".dat" or FileName endswith ".conf"
+| where FolderPath has_any ("/tmp/", "/var/tmp/", "/dev/shm/", "/.hidden/")
+| where FileSize > 100 and FileSize < 100000  // Config files are typically small
+| project TimeGenerated, DeviceName, FileName, FolderPath, FileSize,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend ThreatScore = 70
+| extend Detection = "T1059.004 - Suspicious encrypted config file created in temp directory"
+
+//
+// QUERY 8: Systemd Service with LD_PRELOAD Environment Variable
+// Purpose: Detect systemd services that set LD_PRELOAD for persistence
+// Pattern: Perfctl creates systemd services with LD_PRELOAD pointing to malicious .so
+//
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType in ("FileCreated", "FileModified")
+| where FolderPath has_any ("/etc/systemd/system/", "/lib/systemd/system/",
+    "/usr/lib/systemd/system/", "/run/systemd/system/")
+| where FileName endswith ".service"
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, AccountName
+| extend ThreatScore = 85
+| extend Detection = "T1574.006 - New systemd service created (potential LD_PRELOAD persistence)"
+
+//
+// QUERY 9: /proc/net/tcp Discrepancy Detection (Rootkit Indicator)
+// Purpose: Detect userland rootkit network hiding by comparing connection sources
+// Pattern: Auto-Color hooks open() to filter /proc/net/tcp; compare with conntrack
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where ProcessCommandLine has_any ("conntrack -L", "ss -tunapl", "netstat -tunapl")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    InitiatingProcessFileName
+| join kind=inner (
+    DeviceProcessEvents
+    | where TimeGenerated > ago(24h)
+    | where ProcessCommandLine has "cat /proc/net/tcp"
+    | project TimeGenerated, DeviceName, AccountName
+) on DeviceName, AccountName
+| extend ThreatScore = 80
+| extend Detection = "T1014 - Multiple network enumeration tools used (rootkit verification pattern)"
+
+//
+// QUERY 10: Combined Behavioral Detection - LD_PRELOAD Attack Chain
+// Purpose: Correlate multiple indicators of LD_PRELOAD-based attack
+// Pattern: .so creation + /etc/shadow access + SUID enumeration within time window
+//
+let SuspiciousSO = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".so"
+| where FolderPath has_any ("/lib/", "/usr/lib/", "/tmp/", "/var/tmp/")
+| distinct DeviceName, AccountName;
+let ShadowAccess = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FileName == "shadow" and FolderPath has "/etc/"
+| distinct DeviceName, AccountName;
+let SUIDEnum = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName == "find" and ProcessCommandLine has "-perm"
+| distinct DeviceName, AccountName;
+SuspiciousSO
+| join kind=inner (ShadowAccess) on DeviceName, AccountName
+| join kind=inner (SUIDEnum) on DeviceName, AccountName
+| extend ThreatScore = 98
+| extend Detection = "CRITICAL: LD_PRELOAD attack chain detected - .so creation + credential access + privilege escalation recon"
+| project DeviceName, AccountName, ThreatScore, Detection
