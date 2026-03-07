@@ -82,9 +82,9 @@ func main() {
 		Severity:   "critical",
 		Techniques: []string{"T1204.002", "T1059.001", "T1547.001", "T1555.003", "T1102"},
 		Tactics:    []string{"execution", "persistence", "credential-access", "command-and-control"},
-		Score:      9.2,
+		Score:      9.4,
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.7,
+			RealWorldAccuracy:       2.9,
 			TechnicalSophistication: 2.8,
 			SafetyMechanisms:        2.0,
 			DetectionOpportunities:  1.0,

@@ -15,6 +15,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,7 +204,41 @@ Content-Disposition: attachment; filename="report_part_%d.dat"
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Created %d exfiltration emails with attachment chunks", len(chunks)))
 	fmt.Printf("[STAGE %s] Created %d exfiltration emails (STEALHOOK pattern)\n", TECHNIQUE_ID, len(chunks))
 
-	// Step 5: Create exfiltration summary
+	// Step 5: Outbound SMTP connectivity probe (real STEALHOOK behavior)
+	// APT34's STEALHOOK uses Exchange transport — test if SMTP ports are reachable
+	// This tests network egress controls: EDR/firewall should block outbound SMTP
+	fmt.Printf("[STAGE %s] Probing outbound SMTP connectivity (ports 25, 587)\n", TECHNIQUE_ID)
+	LogMessage("INFO", TECHNIQUE_ID, "Probing outbound SMTP connectivity — tests network egress controls")
+
+	smtpTargets := []struct {
+		host string
+		port string
+	}{
+		{"smtp.gmail.com", "587"},   // Submission port
+		{"smtp.gmail.com", "25"},    // Traditional SMTP
+	}
+
+	for _, target := range smtpTargets {
+		addr := net.JoinHostPort(target.host, target.port)
+		conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+		if err != nil {
+			fmt.Printf("[STAGE %s]   SMTP %s: blocked/unreachable (%v)\n", TECHNIQUE_ID, addr, err)
+			LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("SMTP %s: blocked (%v)", addr, err))
+		} else {
+			// Send EHLO and immediately disconnect (minimal handshake)
+			fmt.Fprintf(conn, "EHLO f0rtika-test\r\n")
+			// Read banner (with short timeout)
+			conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			banner := make([]byte, 512)
+			n, _ := conn.Read(banner)
+			conn.Close()
+			bannerStr := strings.TrimSpace(string(banner[:n]))
+			fmt.Printf("[STAGE %s]   SMTP %s: OPEN (banner: %s)\n", TECHNIQUE_ID, addr, bannerStr)
+			LogMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("SMTP %s: reachable — egress not blocked (banner: %s)", addr, bannerStr))
+		}
+	}
+
+	// Step 6: Create exfiltration summary
 	summaryContent := fmt.Sprintf(`# STEALHOOK Exfiltration Summary
 # Generated: %s
 # Test: %s

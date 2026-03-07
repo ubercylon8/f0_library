@@ -10,6 +10,7 @@ Writes a benign DLL file to c:\F0 and simulates IIS module registration.
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"os/exec"
@@ -60,14 +61,10 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, "Creating simulated CacheHttp.dll backdoor...")
 	fmt.Printf("[STAGE %s] Creating simulated CacheHttp.dll IIS backdoor module\n", TECHNIQUE_ID)
 
-	// Simulated DLL content - just a marker file, not actual malicious code
-	dllContent := []byte("MZ" + strings.Repeat("\x00", 62) + // Minimal PE header marker
-		"F0RT1KA_SIMULATION_APT34_CacheHttp.dll_IIS_Backdoor\x00" +
-		"This is a simulation artifact for security testing.\x00" +
-		"APT34/OilRig deploys CacheHttp.dll as a passive IIS module\x00" +
-		"that intercepts HTTP requests containing specific patterns.\x00" +
-		"The real backdoor processes requests with special headers to\x00" +
-		"execute commands and exfiltrate data via HTTP responses.\x00")
+	// Build a proper PE-structured DLL with IIS module export table
+	// Real CacheHttp.dll is a native IIS module exporting CHttpModule class methods
+	// EDR heuristics inspect PE headers, export tables, and section names
+	dllContent := buildCacheHttpPEDll()
 
 	dllPath := filepath.Join(targetDir, "CacheHttp.dll")
 	if err := os.WriteFile(dllPath, dllContent, 0755); err != nil {
@@ -188,6 +185,139 @@ POST /owa/auth/logon.aspx (with X-Cache-Http header)
 
 	LogMessage("SUCCESS", TECHNIQUE_ID, "IIS backdoor simulation artifacts deployed successfully")
 	return nil
+}
+
+// buildCacheHttpPEDll constructs a valid PE DLL binary with IIS module exports.
+// The DLL has proper MZ/PE headers, .text and .edata sections, and an export table
+// advertising CHttpModule class methods (RegisterModule, OnBeginRequest, etc.)
+// that are all no-op stubs. This triggers EDR heuristics that inspect PE structure
+// and IIS module exports without containing any executable payload.
+func buildCacheHttpPEDll() []byte {
+	buf := make([]byte, 4096) // Minimum PE section alignment
+
+	// ── DOS Header (64 bytes) ──
+	copy(buf[0:2], []byte("MZ"))                            // e_magic
+	binary.LittleEndian.PutUint32(buf[60:64], 0x80)         // e_lfanew → PE signature at offset 0x80
+
+	// ── DOS stub message ──
+	copy(buf[64:], []byte("This program cannot be run in DOS mode.\r\n"))
+
+	// ── PE Signature (offset 0x80) ──
+	pe := 0x80
+	copy(buf[pe:pe+4], []byte("PE\x00\x00"))
+
+	// ── COFF Header (20 bytes at offset 0x84) ──
+	coff := pe + 4
+	binary.LittleEndian.PutUint16(buf[coff:], 0x14C)        // Machine: IMAGE_FILE_MACHINE_I386
+	binary.LittleEndian.PutUint16(buf[coff+2:], 2)           // NumberOfSections (.text, .edata)
+	binary.LittleEndian.PutUint32(buf[coff+4:], 0x67CA0000)  // TimeDateStamp (fake)
+	binary.LittleEndian.PutUint16(buf[coff+16:], 0xE0)       // SizeOfOptionalHeader
+	binary.LittleEndian.PutUint16(buf[coff+18:], 0x2102)     // Characteristics: DLL | EXECUTABLE_IMAGE | 32BIT_MACHINE
+
+	// ── Optional Header PE32 (224 = 0xE0 bytes at offset 0x98) ──
+	opt := coff + 20
+	binary.LittleEndian.PutUint16(buf[opt:], 0x10B)          // Magic: PE32
+	buf[opt+2] = 14                                           // MajorLinkerVersion
+	binary.LittleEndian.PutUint32(buf[opt+16:], 0x1000)      // AddressOfEntryPoint (RVA)
+	binary.LittleEndian.PutUint32(buf[opt+28:], 0x10000000)  // ImageBase
+	binary.LittleEndian.PutUint32(buf[opt+32:], 0x1000)      // SectionAlignment
+	binary.LittleEndian.PutUint32(buf[opt+36:], 0x200)       // FileAlignment
+	binary.LittleEndian.PutUint16(buf[opt+40:], 6)           // MajorOSVersion
+	binary.LittleEndian.PutUint16(buf[opt+44:], 6)           // MajorSubsystemVersion
+	binary.LittleEndian.PutUint32(buf[opt+56:], 0x3000)      // SizeOfImage
+	binary.LittleEndian.PutUint32(buf[opt+60:], 0x200)       // SizeOfHeaders
+	binary.LittleEndian.PutUint16(buf[opt+68:], 2)           // Subsystem: GUI
+	binary.LittleEndian.PutUint16(buf[opt+70:], 0x8160)      // DllCharacteristics: NX | DYNAMIC_BASE | HIGH_ENTROPY_VA | TERMINAL_SERVER_AWARE
+	binary.LittleEndian.PutUint32(buf[opt+72:], 0x100000)    // SizeOfStackReserve
+	binary.LittleEndian.PutUint32(buf[opt+76:], 0x1000)      // SizeOfStackCommit
+	binary.LittleEndian.PutUint32(buf[opt+80:], 0x100000)    // SizeOfHeapReserve
+	binary.LittleEndian.PutUint32(buf[opt+84:], 0x1000)      // SizeOfHeapCommit
+	binary.LittleEndian.PutUint32(buf[opt+88:], 16)          // NumberOfRvaAndSizes
+
+	// Data Directory[0] — Export Table (RVA=0x2000 in .edata, size filled below)
+	dd := opt + 96
+	binary.LittleEndian.PutUint32(buf[dd:], 0x2000)          // Export Table RVA
+	binary.LittleEndian.PutUint32(buf[dd+4:], 0x200)         // Export Table Size
+
+	// ── Section Table (at offset 0x178) ──
+	secTable := opt + 0xE0 // = 0x178
+	// Section 1: .text
+	copy(buf[secTable:], []byte(".text\x00\x00\x00"))
+	binary.LittleEndian.PutUint32(buf[secTable+8:], 0x100)   // VirtualSize
+	binary.LittleEndian.PutUint32(buf[secTable+12:], 0x1000) // VirtualAddress
+	binary.LittleEndian.PutUint32(buf[secTable+16:], 0x200)  // SizeOfRawData
+	binary.LittleEndian.PutUint32(buf[secTable+20:], 0x200)  // PointerToRawData
+	binary.LittleEndian.PutUint32(buf[secTable+36:], 0x60000020) // Characteristics: CODE | EXECUTE | READ
+
+	// Section 2: .edata
+	secTable2 := secTable + 40
+	copy(buf[secTable2:], []byte(".edata\x00\x00"))
+	binary.LittleEndian.PutUint32(buf[secTable2+8:], 0x200)  // VirtualSize
+	binary.LittleEndian.PutUint32(buf[secTable2+12:], 0x2000) // VirtualAddress
+	binary.LittleEndian.PutUint32(buf[secTable2+16:], 0x200) // SizeOfRawData
+	binary.LittleEndian.PutUint32(buf[secTable2+20:], 0x400) // PointerToRawData
+	binary.LittleEndian.PutUint32(buf[secTable2+36:], 0x40000040) // Characteristics: INITIALIZED_DATA | READ
+
+	// ── .text section (at file offset 0x200): DllMain stub (ret 1) ──
+	// x86: mov eax,1; ret 0Ch  (standard DllMain returning TRUE)
+	copy(buf[0x200:], []byte{0xB8, 0x01, 0x00, 0x00, 0x00, 0xC2, 0x0C, 0x00})
+
+	// ── .edata section (at file offset 0x400): Export Directory + names ──
+	edata := 0x400
+	// Export names — IIS CHttpModule interface methods
+	exports := []string{
+		"RegisterModule",
+		"OnBeginRequest",
+		"OnEndRequest",
+		"OnAuthenticateRequest",
+		"OnSendResponse",
+		"GetHttpModule",
+	}
+
+	// Export Directory Table (40 bytes)
+	binary.LittleEndian.PutUint32(buf[edata+12:], 0x2080)      // Name RVA (DLL name string)
+	binary.LittleEndian.PutUint32(buf[edata+16:], 1)            // OrdinalBase
+	binary.LittleEndian.PutUint32(buf[edata+20:], uint32(len(exports))) // NumberOfFunctions
+	binary.LittleEndian.PutUint32(buf[edata+24:], uint32(len(exports))) // NumberOfNames
+	binary.LittleEndian.PutUint32(buf[edata+28:], 0x2028)       // AddressOfFunctions RVA
+	binary.LittleEndian.PutUint32(buf[edata+32:], 0x2040)       // AddressOfNames RVA
+	binary.LittleEndian.PutUint32(buf[edata+36:], 0x2058)       // AddressOfNameOrdinals RVA
+
+	// Export Address Table (EAT) — all point to DllMain stub at RVA 0x1000
+	eat := edata + 0x28
+	for i := 0; i < len(exports); i++ {
+		binary.LittleEndian.PutUint32(buf[eat+i*4:], 0x1000)
+	}
+
+	// Export Name Pointer Table
+	nameTable := edata + 0x40
+	// Export Ordinal Table
+	ordTable := edata + 0x58
+
+	// DLL name at offset 0x80
+	dllName := "CacheHttp.dll\x00"
+	copy(buf[edata+0x80:], dllName)
+
+	// Name strings start at offset 0x90 within .edata
+	nameStrOffset := edata + 0x90
+	for i, name := range exports {
+		// Name pointer (RVA)
+		nameRVA := uint32(0x2000 + (nameStrOffset - edata))
+		binary.LittleEndian.PutUint32(buf[nameTable+i*4:], nameRVA)
+		// Ordinal
+		binary.LittleEndian.PutUint16(buf[ordTable+i*2:], uint16(i))
+		// Name string
+		copy(buf[nameStrOffset:], name+"\x00")
+		nameStrOffset += len(name) + 1
+	}
+
+	// Pad to 4096 and append simulation marker in the .edata padding area
+	marker := "F0RT1KA_SIMULATION_APT34_CacheHttp_IIS_Backdoor"
+	if nameStrOffset+len(marker) < len(buf) {
+		copy(buf[nameStrOffset:], marker)
+	}
+
+	return buf
 }
 
 func determineExitCode(err error) int {

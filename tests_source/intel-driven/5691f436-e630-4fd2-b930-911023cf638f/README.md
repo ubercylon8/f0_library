@@ -1,6 +1,6 @@
 # APT34 Exchange Server Weaponization with Email-Based C2
 
-**Test Score**: **9.2/10**
+**Test Score**: **9.4/10**
 
 ## Overview
 Simulates APT34 (OilRig / Helix Kitten / Hazel Sandstorm) techniques for weaponizing compromised Exchange servers as command-and-control infrastructure and data exfiltration channels. This multi-stage test evaluates EDR detection capabilities against four distinct attack techniques used by this Iranian threat group to target financial institutions and government organizations.

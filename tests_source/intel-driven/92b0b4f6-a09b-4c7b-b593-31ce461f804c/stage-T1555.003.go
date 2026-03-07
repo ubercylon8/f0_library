@@ -19,7 +19,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -255,12 +257,19 @@ func attemptChromeCredentialAccess() string {
 	if err != nil {
 		return fmt.Sprintf("partial_copy: %v", err)
 	}
-
-	// Clean up the copy immediately (simulation - we don't need the data)
 	dst.Close()
+
+	// Attempt CryptUnprotectData DPAPI call on the copied database
+	// Real credential stealers call DPAPI to decrypt Chrome's encrypted_value column
+	// This call will fail (wrong key context) but triggers EDR behavioral detection
+	dpapiResult := attemptDPAPIDecrypt(destPath)
+	fmt.Printf("[STAGE %s]   DPAPI decrypt attempt: %s\n", TECHNIQUE_ID, dpapiResult)
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("DPAPI decrypt attempt: %s", dpapiResult))
+
+	// Clean up the copy immediately
 	os.Remove(destPath)
 
-	return fmt.Sprintf("success - copied %d bytes (immediately deleted)", written)
+	return fmt.Sprintf("success - copied %d bytes, dpapi=%s (copy deleted)", written, dpapiResult)
 }
 
 // attemptEdgeCredentialAccess tries to read Edge's Login Data
@@ -346,6 +355,63 @@ func simulateRunsDllChunking(targetDir string) string {
 	os.RemoveAll(stagingDir)
 
 	return fmt.Sprintf("success - %d chunks created and cleaned up", len(chunks))
+}
+
+// DATA_BLOB is the Windows DPAPI data structure for CryptUnprotectData
+type DATA_BLOB struct {
+	cbData uint32
+	pbData *byte
+}
+
+// attemptDPAPIDecrypt calls CryptUnprotectData on simulated encrypted data.
+// Chrome stores credential encryption keys protected by DPAPI. Real stealers
+// read the encrypted_value from Login Data SQLite, then call CryptUnprotectData.
+// This call triggers EDR DPAPI monitoring without decrypting anything real.
+func attemptDPAPIDecrypt(dbPath string) string {
+	crypt32 := syscall.NewLazyDLL("crypt32.dll")
+	procDecrypt := crypt32.NewProc("CryptUnprotectData")
+
+	// Use a fake 48-byte "encrypted" blob (Chrome encrypted_value prefix v10/v20)
+	// This is NOT real encrypted data — just triggers the DPAPI API call
+	fakeEncrypted := []byte{
+		0x76, 0x31, 0x30, // "v10" Chrome encryption version prefix
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+		0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,
+		0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+		0x29, 0x2A, 0x2B, 0x2C, 0x2D,
+	}
+
+	inBlob := DATA_BLOB{
+		cbData: uint32(len(fakeEncrypted)),
+		pbData: &fakeEncrypted[0],
+	}
+	var outBlob DATA_BLOB
+
+	// Call CryptUnprotectData — expected to fail (fake data, wrong DPAPI context)
+	// The API call itself is what triggers EDR detection
+	ret, _, err := procDecrypt.Call(
+		uintptr(unsafe.Pointer(&inBlob)),  // pDataIn
+		0,                                  // ppszDataDescr
+		0,                                  // pOptionalEntropy
+		0,                                  // pvReserved
+		0,                                  // pPromptStruct
+		0,                                  // dwFlags
+		uintptr(unsafe.Pointer(&outBlob)), // pDataOut
+	)
+
+	if ret == 0 {
+		return fmt.Sprintf("expected_failure (err: %v)", err)
+	}
+
+	// If it somehow succeeded, free the output buffer
+	if outBlob.pbData != nil {
+		kernel32 := syscall.NewLazyDLL("kernel32.dll")
+		localFree := kernel32.NewProc("LocalFree")
+		localFree.Call(uintptr(unsafe.Pointer(outBlob.pbData)))
+	}
+	return "unexpected_success"
 }
 
 // generateSimulatedCredentialData creates benign simulated credential data
