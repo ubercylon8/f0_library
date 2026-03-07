@@ -153,6 +153,19 @@ func test() {
 		},
 	}
 
+	// Initialize per-stage results for bundle fan-out (before extraction so quarantine path can use it)
+	stageResults := make([]StageBundleDef, len(killchain))
+	for i, stage := range killchain {
+		stageResults[i] = StageBundleDef{
+			Technique: stage.Technique,
+			Name:      stage.Name,
+			Severity:  "critical",
+			Tactics:   []string{"persistence", "command-and-control", "credential-access", "exfiltration"},
+			ExitCode:  0,
+			Status:    "skipped",
+		}
+	}
+
 	// Phase 0: Extract all stage binaries
 	LogPhaseStart(0, "Stage Binary Extraction")
 	Endpoint.Say("[*] Phase 0: Extracting %d stage binaries...", len(killchain))
@@ -169,7 +182,7 @@ func test() {
 		Endpoint.Say("  [+] Extracted: %s (%d bytes)", stage.BinaryName, len(stage.BinaryData))
 
 		// Check if EDR quarantined the extracted binary
-		if Endpoint.Quarantined(fmt.Sprintf("c:\\F0\\%s", stage.BinaryName)) {
+		if Endpoint.Quarantined(fmt.Sprintf("c:\\F0\\%s", stage.BinaryName), stage.BinaryData) {
 			LogMessage("BLOCKED", stage.Technique, fmt.Sprintf("Stage binary quarantined: %s", stage.BinaryName))
 			LogPhaseEnd(0, "blocked", fmt.Sprintf("EDR quarantined %s during extraction", stage.BinaryName))
 			Endpoint.Say("  [!] QUARANTINED: %s — EDR removed stage binary", stage.BinaryName)
@@ -183,19 +196,6 @@ func test() {
 	LogPhaseEnd(0, "success", fmt.Sprintf("Extracted %d stage binaries", len(killchain)))
 	Endpoint.Say("    All stage binaries extracted successfully")
 	Endpoint.Say("")
-
-	// Initialize per-stage results for bundle fan-out
-	stageResults := make([]StageBundleDef, len(killchain))
-	for i, stage := range killchain {
-		stageResults[i] = StageBundleDef{
-			Technique: stage.Technique,
-			Name:      stage.Name,
-			Severity:  "critical",
-			Tactics:   []string{"persistence", "command-and-control", "credential-access", "exfiltration"},
-			ExitCode:  0,
-			Status:    "skipped",
-		}
-	}
 
 	// Execute killchain sequentially
 	Endpoint.Say("[*] Executing %d-stage APT34 attack killchain...", len(killchain))
