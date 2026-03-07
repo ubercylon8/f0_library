@@ -1,0 +1,145 @@
+// Behavioral Detection Queries for APT42 TAMECAT Fileless Backdoor
+// Test ID: 92b0b4f6-a09b-4c7b-b593-31ce461f804c
+// MITRE ATT&CK: T1204.002, T1059.005, T1059.001, T1547.001, T1037.001, T1555.003, T1102
+// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+
+//
+// QUERY 1: VBScript WMI AV Enumeration Detection (T1059.005)
+// Purpose: Detect VBScript-based WMI queries to SecurityCenter2 for AV product enumeration
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("cscript.exe", "wscript.exe")
+| where ProcessCommandLine has_any (".vbs", ".vbe")
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend IsAVEnumeration = ProcessCommandLine has_any ("SecurityCenter", "AntiVirus", "Defender")
+| where IsAVEnumeration == true or true  // Show all VBScript execution
+
+//
+// QUERY 2: PowerShell Encoded Command from Conhost (T1059.001 - TAMECAT)
+// Purpose: Detect TAMECAT pattern of conhost.exe spawning PowerShell with encoded commands
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine has "-EncodedCommand"
+| where InitiatingProcessFileName in~ ("conhost.exe", "cmd.exe", "cscript.exe", "wscript.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    FileName, ProcessCommandLine
+| extend EncodedCmdLength = strlen(extract("-EncodedCommand\\s+(\\S+)", 1, ProcessCommandLine))
+| where EncodedCmdLength > 100  // Significant encoded payload
+
+//
+// QUERY 3: Dual Registry Persistence Detection (T1547.001 + T1037.001)
+// Purpose: Detect simultaneous creation of Run key and UserInitMprLogonScript
+//
+let RunKeyChanges = DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where RegistryKey has @"CurrentVersion\Run"
+| where ActionType == "RegistryValueSet"
+| where RegistryValueName =~ "Renovation" or RegistryValueData has_any ("cscript", "wscript", ".vbs")
+| project TimeGenerated, DeviceName, AccountName, RegistryKey, RegistryValueName, RegistryValueData,
+    InitiatingProcessFileName;
+let LogonScriptChanges = DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where RegistryValueName =~ "UserInitMprLogonScript"
+| where ActionType == "RegistryValueSet"
+| project TimeGenerated, DeviceName, AccountName, RegistryKey, RegistryValueName, RegistryValueData,
+    InitiatingProcessFileName;
+RunKeyChanges
+| union LogonScriptChanges
+| summarize PersistenceCount=count(), Mechanisms=make_set(RegistryValueName),
+    FirstChange=min(TimeGenerated), LastChange=max(TimeGenerated)
+    by DeviceName, AccountName
+| where PersistenceCount >= 2  // Dual persistence indicator
+
+//
+// QUERY 4: Browser Credential Database Access (T1555.003)
+// Purpose: Detect access to Chrome/Edge Login Data SQLite databases
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileRead", "FileCopied", "FileCreated", "FileModified")
+| where FolderPath has_any (
+    @"Chrome\User Data\Default\Login Data",
+    @"Edge\User Data\Default\Login Data",
+    @"Chrome\User Data\Default\Cookies",
+    @"Edge\User Data\Default\Cookies"
+)
+| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "MsMpEng.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    FileName, FolderPath, ActionType
+
+//
+// QUERY 5: Edge Remote Debugging Port Activation (T1555.003)
+// Purpose: Detect Edge launched with --remote-debugging-port flag
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "msedge.exe"
+| where ProcessCommandLine has "--remote-debugging-port"
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, FileName, ProcessCommandLine
+| extend DebugPort = extract("--remote-debugging-port=(\\d+)", 1, ProcessCommandLine)
+
+//
+// QUERY 6: Telegram API Traffic Detection (T1102)
+// Purpose: Detect outbound connections to Telegram API from workstations
+//
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemoteUrl has "api.telegram.org" or RemoteUrl has "telegram.org"
+| where InitiatingProcessFileName !in~ ("Telegram.exe", "TelegramDesktop.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, RemoteUrl, RemoteIP, RemotePort,
+    ActionType
+| extend ThreatScore = 85
+| extend Detection = "Non-Telegram process connecting to Telegram API"
+
+//
+// QUERY 7: Combined APT42 Kill Chain Detection
+// Purpose: Correlate multiple APT42 indicators for high-confidence detection
+//
+let VBScriptExec = DeviceProcessEvents
+| where TimeGenerated > ago(4h)
+| where FileName in~ ("cscript.exe", "wscript.exe")
+| distinct DeviceName, AccountName;
+let PSEncodedCmd = DeviceProcessEvents
+| where TimeGenerated > ago(4h)
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine has "-EncodedCommand"
+| distinct DeviceName, AccountName;
+let RegistryPersistence = DeviceRegistryEvents
+| where TimeGenerated > ago(4h)
+| where RegistryValueName in~ ("Renovation", "UserInitMprLogonScript")
+| distinct DeviceName, AccountName;
+let BrowserCredAccess = DeviceFileEvents
+| where TimeGenerated > ago(4h)
+| where FolderPath has_any ("Login Data", "Cookies")
+| where FolderPath has_any ("Chrome", "Edge")
+| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe")
+| distinct DeviceName, AccountName;
+VBScriptExec
+| join kind=inner (PSEncodedCmd) on DeviceName, AccountName
+| join kind=leftouter (RegistryPersistence) on DeviceName, AccountName
+| join kind=leftouter (BrowserCredAccess) on DeviceName, AccountName
+| extend ThreatScore = 95
+| extend Detection = "APT42 TAMECAT Kill Chain - Multiple indicators correlated"
+| project DeviceName, AccountName, ThreatScore, Detection
+
+//
+// QUERY 8: UserInitMprLogonScript Persistence (Rare - High Signal)
+// Purpose: Detect the uncommon UserInitMprLogonScript persistence technique
+//
+DeviceRegistryEvents
+| where TimeGenerated > ago(24h)
+| where RegistryValueName =~ "UserInitMprLogonScript"
+| where ActionType == "RegistryValueSet"
+| project TimeGenerated, DeviceName, AccountName,
+    RegistryKey, RegistryValueName, RegistryValueData,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend ThreatScore = 90
+| extend Detection = "UserInitMprLogonScript modification - rare persistence mechanism"
