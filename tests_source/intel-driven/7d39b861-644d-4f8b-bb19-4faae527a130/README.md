@@ -51,7 +51,7 @@ Multi-stage test with 5 embedded stage binaries:
 1. ASPXSpy webshell file creation (.aspx files in staging directory)
 2. Windows service creation with unknown binary path (sc.exe create)
 3. GMER64.sys driver file deployment and kernel service creation
-4. EDR service modification attempts (sc.exe config/stop on Defender/CrowdStrike)
+4. EDR service modification attempts (sc.exe config/stop on Defender, CrowdStrike, SentinelOne, Cortex XDR, Carbon Black, Sophos, ESET, Trend Micro, Elastic, Cylance, Symantec)
 5. Mass file overwrite patterns (simultaneous multi-wiper operations)
 6. Event log clearing via wevtutil.exe
 7. Self-deletion batch script execution (remover.bat pattern)

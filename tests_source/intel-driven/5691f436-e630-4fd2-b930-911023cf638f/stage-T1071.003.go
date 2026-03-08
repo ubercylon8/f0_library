@@ -60,7 +60,7 @@ func performTechnique() error {
 	fmt.Printf("[STAGE %s] Setting up PowerExchange email-based C2 infrastructure\n", TECHNIQUE_ID)
 
 	if err := os.MkdirAll(c2Dir, 0755); err != nil {
-		return fmt.Errorf("failed to create C2 directory: %v (access denied)", err)
+		return fmt.Errorf("failed to create C2 directory: %v", err)
 	}
 
 	// Step 2: Create simulated PowerExchange backdoor script

@@ -64,7 +64,7 @@ func performTechnique() error {
 	fmt.Printf("[STAGE %s] Setting up STEALHOOK data staging area\n", TECHNIQUE_ID)
 
 	if err := os.MkdirAll(exfilDir, 0755); err != nil {
-		return fmt.Errorf("failed to create staging directory: %v (access denied)", err)
+		return fmt.Errorf("failed to create staging directory: %v", err)
 	}
 
 	// Step 2: Create simulated stolen data (financial/compliance data relevant to banking)
