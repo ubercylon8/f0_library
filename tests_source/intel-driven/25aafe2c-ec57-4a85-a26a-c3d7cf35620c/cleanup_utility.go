@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build linux
+// +build linux
 
 /*
 Cleanup Utility for ESXi Hypervisor Ransomware Kill Chain Test
@@ -23,8 +23,8 @@ func main() {
 	fmt.Println("=================================================================")
 	fmt.Println("")
 
-	targetDir := "c:\\F0"
-	simulationDir := "c:\\Users\\fortika-test\\vmfs_simulation"
+	targetDir := "/tmp/F0"
+	simulationDir := "/home/fortika-test/vmfs_simulation"
 
 	errors := 0
 
@@ -78,8 +78,8 @@ func main() {
 	}
 	removeFile(filepath.Join(targetDir, "encryption_summary.txt"), &errors)
 
-	// Remove simulation directory (c:\Users\fortika-test\vmfs_simulation)
-	fmt.Println("[*] Removing simulation artifacts from c:\\Users\\fortika-test...")
+	// Remove simulation directory (/home/fortika-test/vmfs_simulation)
+	fmt.Println("[*] Removing simulation artifacts from /home/fortika-test...")
 	if err := os.RemoveAll(simulationDir); err != nil {
 		fmt.Printf("    WARNING: Failed to remove vmfs_simulation: %v\n", err)
 		errors++
@@ -92,10 +92,10 @@ func main() {
 	testUUID := "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
 	techniques := []string{"T1046", "T1021.004", "T1489", "T1048", "T1486"}
 	for _, t := range techniques {
-		binaryName := fmt.Sprintf("%s-%s.exe", testUUID, t)
+		binaryName := fmt.Sprintf("%s-%s", testUUID, t)
 		removeFile(filepath.Join(targetDir, binaryName), &errors)
 	}
-	removeFile(filepath.Join(targetDir, "esxi_cleanup.exe"), &errors)
+	removeFile(filepath.Join(targetDir, "esxi_cleanup"), &errors)
 
 	// Remove test config
 	removeFile(filepath.Join(targetDir, "test_config.txt"), &errors)

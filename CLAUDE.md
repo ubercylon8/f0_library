@@ -7,8 +7,8 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 
 ## Critical Development Rules (NEVER VIOLATE)
 
-1. **ALL binaries MUST be dropped to `c:\F0`** - Hard requirement for all tests
-2. **Simulation artifacts (test documents, PDFs, etc.) MUST be created in `c:\Users\fortika-test`** - This path is NOT whitelisted, allowing EDR to detect file operations
+1. **ALL binaries MUST be dropped to the platform-specific LOG_DIR** - `c:\F0` (Windows) / `/tmp/F0` (Linux/macOS)
+2. **Simulation artifacts MUST be created in the platform-specific ARTIFACT_DIR** - `c:\Users\fortika-test` (Windows) / `/home/fortika-test` (Linux) / `/Users/fortika-test` (macOS) — NOT whitelisted, allowing EDR to detect file operations
 3. **ALL tests MUST be SINGLE-BINARY deployments** - Embed all dependencies using `//go:embed`
 4. **ALL tests MUST implement comprehensive logging** - Use test_logger.go pattern
 5. **ALL tests MUST capture embedded binary stdout/stderr to file** - Use `io.MultiWriter` for console + file output
@@ -284,7 +284,7 @@ Validate: `./utils/validate-score-format.sh [test-uuid]`
 
 - **Prelude Libraries**: Must be set up in `preludeorg-libraries/` directory
 - **Go 1.21+**: Required for building
-- **Windows Target**: Tests are Windows-specific
+- **Supported platforms**: Windows (primary), Linux, macOS
 
 ## Key Conventions
 
@@ -293,9 +293,65 @@ Validate: `./utils/validate-score-format.sh [test-uuid]`
 - Always clean up artifacts after test completion
 - Follow MITRE ATT&CK mapping standards
 
+## Cross-Platform Test Development
+
+Tests can target Windows, Linux, or macOS. The platform is determined by the threat being simulated.
+
+### Platform Constants
+
+| Platform | `LOG_DIR` | `ARTIFACT_DIR` | Build Tag | Binary Extension |
+|----------|-----------|----------------|-----------|-----------------|
+| Windows | `C:\F0` | `c:\Users\fortika-test` | `//go:build windows` | `.exe` |
+| Linux | `/tmp/F0` | `/home/fortika-test` | `//go:build linux` | (none) |
+| macOS | `/tmp/F0` | `/Users/fortika-test` | `//go:build darwin` | (none) |
+
+### Platform-Specific Logger Files
+
+The `test_logger.go` shared code uses `LOG_DIR` and `ARTIFACT_DIR` constants defined in platform-specific files:
+
+- `test_logger.go` — Shared logger code (NO build tag, NO platform imports)
+- `test_logger_windows.go` — Windows constants + system info functions (`//go:build windows`)
+- `test_logger_linux.go` — Linux constants + system info functions (`//go:build linux`)
+- `test_logger_darwin.go` — macOS constants + system info functions (`//go:build darwin`)
+
+When creating a new test, copy the shared `test_logger.go` AND the appropriate platform file from `sample_tests/multistage_template/`.
+
+### Build Commands Per Platform
+
+```bash
+# Windows (default)
+GOOS=windows GOARCH=amd64 go build -o test.exe main.go test_logger.go test_logger_windows.go org_resolver.go
+
+# Linux
+GOOS=linux GOARCH=amd64 go build -o test main.go test_logger.go test_logger_linux.go org_resolver.go
+
+# macOS (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o test main.go test_logger.go test_logger_darwin.go org_resolver.go
+```
+
+### Code Signing Per Platform
+
+| Platform | Signing Method | Tool |
+|----------|---------------|------|
+| Windows | Authenticode (PFX) | `osslsigncode` / `utils/codesign` |
+| Linux | N/A (signing skipped) | — |
+| macOS | Ad-hoc codesign | `codesign -s -` |
+
+### macOS Deployment
+
+macOS binaries may be quarantined by Gatekeeper. Before execution:
+```bash
+xattr -cr /tmp/F0/<binary>
+```
+
+### go.mod Dependencies
+
+- Windows tests: include `golang.org/x/sys` (for registry access)
+- Linux/macOS tests: do NOT include `golang.org/x/sys` (not needed)
+
 ## Stdout/Stderr Capture Pattern (MANDATORY)
 
-When executing embedded binaries, capture stdout/stderr to both console and file using `io.MultiWriter`. Output file naming: `c:\F0\<binary-name>_output.txt`. See `sample_tests/` for implementation pattern.
+When executing embedded binaries, capture stdout/stderr to both console and file using `io.MultiWriter`. Output file naming: `LOG_DIR/<binary-name>_output.txt`. See `sample_tests/` for implementation pattern.
 
 ## Test Architecture Patterns
 

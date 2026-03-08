@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build linux
+// +build linux
 
 /*
 ID: 54a0bd24-d75a-4d89-8dce-c381d932ca97
@@ -100,7 +100,7 @@ func phaseLD_PreloadInjection() (bool, string) {
 	Endpoint.Say("    Source: Perfctl (libgcwrap.so), Auto-Color (/etc/ld.preload), WolfsBane (BEURK rootkit)")
 	Endpoint.Say("")
 
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 
 	// Step 1: Create simulated malicious shared library (libgcwrap.so - Perfctl naming)
 	soPath := filepath.Join(targetDir, "libgcwrap.so")
@@ -207,7 +207,7 @@ func phasePAMCredentialHooking() (bool, string) {
 	Endpoint.Say("    Source: Perfctl hooks pam_authenticate for credential capture + auth bypass")
 	Endpoint.Say("")
 
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 
 	// Step 1: Simulate hooked pam_authenticate capturing credentials
 	credentialLog := []PAMCredentialEntry{
@@ -340,7 +340,7 @@ func phaseNetworkArtifactHiding() (bool, string) {
 	Endpoint.Say("    Source: Auto-Color hooks open() to scrub /proc/net/tcp; Symbiote hooks libc+libpcap")
 	Endpoint.Say("")
 
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 
 	// Step 1: Generate simulated /proc/net/tcp with hidden entries
 	procNetEntries := []ProcNetTCPEntry{
@@ -469,7 +469,7 @@ func phaseXOREncryptedC2Config() (bool, string) {
 	Endpoint.Say("    Source: Perfctl uses XOR encryption with key 0xAC for strings")
 	Endpoint.Say("")
 
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 
 	// Step 1: Create plaintext C2 config (what the malware decrypts at runtime)
 	c2Config := `{
@@ -561,7 +561,7 @@ func phaseSUIDAbuse() (bool, string) {
 	Endpoint.Say("    Source: Perfctl uses SUID manipulation; GTFOBins exploitation")
 	Endpoint.Say("")
 
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 
 	// Step 1: Simulate SUID binary discovery (find / -type f -perm -u=s)
 	suidResults := []SUIDResult{
@@ -665,42 +665,42 @@ func phaseSUIDAbuse() (bool, string) {
 // Phase 6: Cleanup utility creation
 func phaseCreateCleanup() {
 	Endpoint.Say("[*] Phase 6: Creating cleanup utility")
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 
-	cleanupScript := `@echo off
-REM F0RT1KA Test Cleanup - LD_PRELOAD Hijacking Simulation
-REM Removes ALL simulation artifacts from c:\F0
+	cleanupScript := `#!/bin/bash
+# F0RT1KA Test Cleanup - LD_PRELOAD Hijacking Simulation
+# Removes ALL simulation artifacts from /tmp/F0
 
-echo Cleaning up LD_PRELOAD hijacking simulation artifacts...
+echo "Cleaning up LD_PRELOAD hijacking simulation artifacts..."
 
-del /q "c:\F0\libgcwrap.so" 2>nul
-del /q "c:\F0\etc_ld.preload" 2>nul
-del /q "c:\F0\etc_ld.so.preload" 2>nul
-del /q "c:\F0\perfctl_systemd_service.txt" 2>nul
-del /q "c:\F0\profile_modification.txt" 2>nul
-del /q "c:\F0\pam_credential_capture.log" 2>nul
-del /q "c:\F0\shadow_dump.txt" 2>nul
-del /q "c:\F0\passwd_enum.txt" 2>nul
-del /q "c:\F0\proc_net_tcp_original.txt" 2>nul
-del /q "c:\F0\proc_net_tcp_scrubbed.txt" 2>nul
-del /q "c:\F0\hidden_connections_report.txt" 2>nul
-del /q "c:\F0\pcap_filter_rules.txt" 2>nul
-del /q "c:\F0\c2_config_plaintext.json" 2>nul
-del /q "c:\F0\c2_config_encrypted.bin" 2>nul
-del /q "c:\F0\trojanized_crontab.txt" 2>nul
-del /q "c:\F0\suid_enumeration.txt" 2>nul
-del /q "c:\F0\suid_exploit_log.txt" 2>nul
-del /q "c:\F0\test_execution_log.json" 2>nul
-del /q "c:\F0\test_execution_log.txt" 2>nul
-del /q "c:\F0\cleanup.bat" 2>nul
+rm -f "/tmp/F0/libgcwrap.so"
+rm -f "/tmp/F0/etc_ld.preload"
+rm -f "/tmp/F0/etc_ld.so.preload"
+rm -f "/tmp/F0/perfctl_systemd_service.txt"
+rm -f "/tmp/F0/profile_modification.txt"
+rm -f "/tmp/F0/pam_credential_capture.log"
+rm -f "/tmp/F0/shadow_dump.txt"
+rm -f "/tmp/F0/passwd_enum.txt"
+rm -f "/tmp/F0/proc_net_tcp_original.txt"
+rm -f "/tmp/F0/proc_net_tcp_scrubbed.txt"
+rm -f "/tmp/F0/hidden_connections_report.txt"
+rm -f "/tmp/F0/pcap_filter_rules.txt"
+rm -f "/tmp/F0/c2_config_plaintext.json"
+rm -f "/tmp/F0/c2_config_encrypted.bin"
+rm -f "/tmp/F0/trojanized_crontab.txt"
+rm -f "/tmp/F0/suid_enumeration.txt"
+rm -f "/tmp/F0/suid_exploit_log.txt"
+rm -f "/tmp/F0/test_execution_log.json"
+rm -f "/tmp/F0/test_execution_log.txt"
+rm -f "/tmp/F0/cleanup.sh"
 
-echo Cleanup complete.
+echo "Cleanup complete."
 `
-	cleanupPath := filepath.Join(targetDir, "cleanup.bat")
+	cleanupPath := filepath.Join(targetDir, "cleanup.sh")
 	if err := os.WriteFile(cleanupPath, []byte(cleanupScript), 0755); err != nil {
 		LogMessage("WARNING", "Cleanup", fmt.Sprintf("Failed to create cleanup script: %v", err))
 	} else {
-		LogFileDropped("cleanup.bat", cleanupPath, int64(len(cleanupScript)), false)
+		LogFileDropped("cleanup.sh", cleanupPath, int64(len(cleanupScript)), false)
 		Endpoint.Say("    [+] Created cleanup script: %s", cleanupPath)
 	}
 }
@@ -808,7 +808,7 @@ func test() {
 	}
 
 	// Ensure target directory exists
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		LogMessage("ERROR", "Initialization", fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
@@ -971,7 +971,7 @@ func test() {
 	Endpoint.Say("  - Auto-Color (universities, government targets)")
 	Endpoint.Say("  - WolfsBane/Gelsemium APT (state-sponsored)")
 	Endpoint.Say("")
-	Endpoint.Say("Cleanup: Run c:\\F0\\cleanup.bat to remove all simulation artifacts")
+	Endpoint.Say("Cleanup: Run /tmp/F0/cleanup.sh to remove all simulation artifacts")
 	Endpoint.Say("")
 	Endpoint.Say("Exit Code: 101 (Unprotected)")
 	Endpoint.Say("=================================================================")

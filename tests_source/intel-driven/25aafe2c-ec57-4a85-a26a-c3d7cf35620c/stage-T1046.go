@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build linux
+// +build linux
 
 /*
 STAGE 1: Network Reconnaissance & VM Enumeration (T1046, T1018)
@@ -57,7 +57,7 @@ func main() {
 }
 
 func performTechnique() error {
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 	artifactDir := filepath.Join(targetDir, "esxi_recon")
 
 	// Create artifact directory for reconnaissance output

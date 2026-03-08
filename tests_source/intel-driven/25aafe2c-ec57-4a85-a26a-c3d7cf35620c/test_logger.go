@@ -16,22 +16,16 @@
 // - Thread-safe log file operations for concurrent stage execution
 // - Stage result tracking with technique-level precision
 
-//go:build windows
-// +build windows
-
 package main
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/sys/windows/registry"
 )
 
 // ==============================================================================
@@ -379,7 +373,7 @@ func AttachLogger(testID, stageName string) {
 	isStage = true
 
 	// Load existing log if available
-	logPath := filepath.Join("C:\\F0", "test_execution_log.json")
+	logPath := filepath.Join(LOG_DIR, "test_execution_log.json")
 	if data, err := os.ReadFile(logPath); err == nil {
 		if err := json.Unmarshal(data, &globalLog); err == nil {
 			addMessage("INFO", stageName, "Stage attached to shared log")
@@ -625,8 +619,8 @@ func SaveLog(exitCode int, exitReason string) error {
 
 	// Set artifacts
 	globalLog.Artifacts = &Artifacts{
-		LogFilePath:  "C:\\F0\\test_execution_log.txt",
-		JSONFilePath: "C:\\F0\\test_execution_log.json",
+		LogFilePath:  LOG_DIR + "/test_execution_log.txt",
+		JSONFilePath: LOG_DIR + "/test_execution_log.json",
 	}
 
 	return persistLog()
@@ -735,7 +729,7 @@ func computeMetrics() *Metrics {
 
 // persistLog writes log to disk (assumes lock is held)
 func persistLog() error {
-	targetDir := "C:\\F0"
+	targetDir := LOG_DIR
 	os.MkdirAll(targetDir, 0755)
 
 	// Save JSON log
@@ -966,90 +960,7 @@ func formatTextLog(log *TestLog) string {
 // HELPER FUNCTIONS
 // ==============================================================================
 
-func captureSystemInfo() SystemInfo {
-	hostname, _ := os.Hostname()
-
-	info := SystemInfo{
-		Hostname:        hostname,
-		OSVersion:       getOSVersion(),
-		Architecture:    getArchitecture(),
-		DefenderRunning: isDefenderRunning(),
-		MDEInstalled:    isMDEInstalled(),
-		ProcessID:       os.Getpid(),
-		Username:        os.Getenv("USERNAME"),
-		IsAdmin:         isAdmin(),
-		EDRProducts:     []EDRProduct{},
-	}
-
-	if info.MDEInstalled {
-		info.MDEVersion = getMDEVersion()
-		// Add MDE to EDR products list
-		info.EDRProducts = append(info.EDRProducts, EDRProduct{
-			Name:    "Microsoft Defender for Endpoint",
-			Version: info.MDEVersion,
-			Running: info.DefenderRunning,
-		})
-	}
-
-	return info
-}
-
-func getOSVersion() string {
-	cmd := exec.Command("cmd", "/C", "ver")
-	output, err := cmd.Output()
-	if err != nil {
-		return "Unknown"
-	}
-	return strings.TrimSpace(string(output))
-}
-
-func getArchitecture() string {
-	arch := os.Getenv("PROCESSOR_ARCHITECTURE")
-	if arch != "" {
-		return arch
-	}
-	return "Unknown"
-}
-
-func isDefenderRunning() bool {
-	cmd := exec.Command("sc", "query", "WinDefend")
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(output), "RUNNING")
-}
-
-func isMDEInstalled() bool {
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
-		`SOFTWARE\Microsoft\Windows Advanced Threat Protection`, registry.QUERY_VALUE)
-	if err != nil {
-		return false
-	}
-	defer key.Close()
-	return true
-}
-
-func getMDEVersion() string {
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
-		`SOFTWARE\Microsoft\Windows Advanced Threat Protection`, registry.QUERY_VALUE)
-	if err != nil {
-		return ""
-	}
-	defer key.Close()
-
-	version, _, err := key.GetStringValue("Version")
-	if err != nil {
-		return "Unknown"
-	}
-	return version
-}
-
-func isAdmin() bool {
-	cmd := exec.Command("net", "session")
-	err := cmd.Run()
-	return err == nil
-}
+// Platform-specific functions are in test_logger_linux.go
 
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {

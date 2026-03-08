@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build darwin
+// +build darwin
 
 /*
 ID: 3e985e9e-8141-49d3-a23c-6c7f5e3282f5
@@ -887,7 +887,7 @@ func test() {
 	LogPhaseStart(0, "Initialization")
 	Endpoint.Say("[*] Phase 0: Test Initialization")
 
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		LogMessage("ERROR", "Initialization", fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
@@ -895,9 +895,9 @@ func test() {
 		Endpoint.Stop(1)
 	}
 
-	// Create simulation artifacts directory at c:\Users\fortika-test
+	// Create simulation artifacts directory at /Users/fortika-test
 	// This path is NOT whitelisted, allowing EDR to detect file operations
-	simulationDir := "c:\\Users\\fortika-test"
+	simulationDir := "/Users/fortika-test"
 	if err := os.MkdirAll(simulationDir, 0755); err != nil {
 		LogMessage("WARNING", "Initialization", fmt.Sprintf("Failed to create simulation directory: %v (non-fatal)", err))
 		// Fall back to targetDir for artifacts
@@ -1221,10 +1221,10 @@ func test() {
 func cleanupArtifacts() {
 	Endpoint.Say("[*] Cleaning up simulation artifacts...")
 
-	simulationDir := "c:\\Users\\fortika-test"
-	targetDir := "c:\\F0"
+	simulationDir := "/Users/fortika-test"
+	targetDir := "/tmp/F0"
 
-	// Clean simulation artifacts from c:\Users\fortika-test
+	// Clean simulation artifacts from /Users/fortika-test
 	artifactsToClean := []string{
 		"amos_credential_dialog.applescript",
 		"osascript_execution_log.txt",

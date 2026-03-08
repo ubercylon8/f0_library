@@ -54,8 +54,8 @@ func loadRegistry() (*OrganizationRegistry, error) {
 
 	// Try multiple potential locations for the registry file
 	registryPaths := []string{
-		"c:\\F0\\organization-registry.json",                     // Runtime location (Windows)
-		"/etc/f0rt1ka/organization-registry.json",               // Runtime location (Linux)
+		"/tmp/F0/organization-registry.json",                     // Runtime location (Linux)
+		"/etc/f0rt1ka/organization-registry.json",               // Runtime location (Linux alt)
 		"../../signing-certs/organization-registry.json",        // Build time (from test dir)
 		"../signing-certs/organization-registry.json",           // Build time (from sample_tests)
 		"signing-certs/organization-registry.json",              // Build time (from root)
@@ -226,7 +226,7 @@ func GetCertificatePathForOrg(orgIdentifier string) string {
 	if orgInfo.CertificateFile != "" {
 		// Check common certificate locations
 		certPaths := []string{
-			filepath.Join("c:\\F0", orgInfo.CertificateFile),
+			filepath.Join("/tmp/F0", orgInfo.CertificateFile),
 			filepath.Join("signing-certs", orgInfo.CertificateFile),
 			filepath.Join("..", "..", "signing-certs", orgInfo.CertificateFile),
 		}

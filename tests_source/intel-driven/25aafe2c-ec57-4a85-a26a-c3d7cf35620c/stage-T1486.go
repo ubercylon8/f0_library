@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build linux
+// +build linux
 
 /*
 STAGE 5: VMDK Encryption (T1486)
@@ -61,10 +61,10 @@ func main() {
 }
 
 func performTechnique() error {
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 	artifactDir := filepath.Join(targetDir, "esxi_encrypt")
-	// Use c:\Users\fortika-test for simulation artifacts (NOT whitelisted - EDR can detect)
-	simulationDir := "c:\\Users\\fortika-test\\vmfs_simulation"
+	// Use /home/fortika-test for simulation artifacts (NOT whitelisted - EDR can detect)
+	simulationDir := "/home/fortika-test/vmfs_simulation"
 
 	if err := os.MkdirAll(artifactDir, 0755); err != nil {
 		return fmt.Errorf("failed to create encryption directory: %v", err)
@@ -88,10 +88,10 @@ func performTechnique() error {
 
 	// Phase 2: Create simulated VMDK files for encryption demonstration
 	fmt.Printf("[STAGE %s] Phase 2: Creating simulated VMDK/VMX/VMSN files...\n", TECHNIQUE_ID)
-	LogMessage("INFO", TECHNIQUE_ID, "Creating simulation artifacts in c:\\Users\\fortika-test")
+	LogMessage("INFO", TECHNIQUE_ID, "Creating simulation artifacts in /home/fortika-test")
 
 	createdFiles := createSimulationFiles(simulationDir)
-	fmt.Printf("[STAGE %s]   Created %d simulation files in c:\\Users\\fortika-test\n", TECHNIQUE_ID, createdFiles)
+	fmt.Printf("[STAGE %s]   Created %d simulation files in /home/fortika-test\n", TECHNIQUE_ID, createdFiles)
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Created %d simulation files", createdFiles))
 
 	// Phase 3: Simulate ChaCha20+Curve25519 intermittent encryption (RansomHub pattern)

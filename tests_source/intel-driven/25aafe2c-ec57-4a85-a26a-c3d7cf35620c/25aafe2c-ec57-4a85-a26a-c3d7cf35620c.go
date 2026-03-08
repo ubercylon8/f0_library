@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build linux
+// +build linux
 
 /*
 ID: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
@@ -38,23 +38,23 @@ const (
 )
 
 // Embed signed stage binaries (MUST be signed BEFORE embedding)
-//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1046.exe
+//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1046
 var stage1Binary []byte
 
-//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1021.004.exe
+//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1021.004
 var stage2Binary []byte
 
-//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1489.exe
+//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1489
 var stage3Binary []byte
 
-//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1048.exe
+//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1048
 var stage4Binary []byte
 
-//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1486.exe
+//go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1486
 var stage5Binary []byte
 
 // Embed cleanup utility
-//go:embed cleanup_utility.exe
+//go:embed cleanup_utility
 var cleanupBinary []byte
 
 // KillchainStage definition for multi-stage execution
@@ -125,7 +125,7 @@ func main() {
 			ID:          1,
 			Name:        "Network Reconnaissance & VM Enumeration",
 			Technique:   "T1046",
-			BinaryName:  fmt.Sprintf("%s-T1046.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1046", TEST_UUID),
 			BinaryData:  stage1Binary,
 			Description: "Simulate ESXi host discovery, VM enumeration via vim-cmd/esxcli, datastore scanning",
 		},
@@ -133,7 +133,7 @@ func main() {
 			ID:          2,
 			Name:        "SSH Lateral Movement & Privilege Escalation",
 			Technique:   "T1021.004",
-			BinaryName:  fmt.Sprintf("%s-T1021.004.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1021.004", TEST_UUID),
 			BinaryData:  stage2Binary,
 			Description: "Simulate SSH-Snake lateral movement, CVE-2024-37085/CVE-2024-1086 exploitation",
 		},
@@ -141,7 +141,7 @@ func main() {
 			ID:          3,
 			Name:        "VM Kill & Snapshot Deletion",
 			Technique:   "T1489",
-			BinaryName:  fmt.Sprintf("%s-T1489.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1489", TEST_UUID),
 			BinaryData:  stage3Binary,
 			Description: "Simulate force-kill VMs, delete snapshots, stop critical services (LockBit 9x retry)",
 		},
@@ -149,7 +149,7 @@ func main() {
 			ID:          4,
 			Name:        "Data Exfiltration via Rclone",
 			Technique:   "T1048",
-			BinaryName:  fmt.Sprintf("%s-T1048.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1048", TEST_UUID),
 			BinaryData:  stage4Binary,
 			Description: "Simulate Rclone config creation, data staging, cloud sync to Mega/S3",
 		},
@@ -157,7 +157,7 @@ func main() {
 			ID:          5,
 			Name:        "VMDK Encryption (ChaCha20+Curve25519)",
 			Technique:   "T1486",
-			BinaryName:  fmt.Sprintf("%s-T1486.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1486", TEST_UUID),
 			BinaryData:  stage5Binary,
 			Description: "Simulate intermittent encryption of VMDK/VMX/VMSN files, ransom note drop",
 		},
@@ -180,12 +180,12 @@ func main() {
 	}
 
 	// Extract cleanup utility
-	cleanupPath := filepath.Join("c:\\F0", "esxi_cleanup.exe")
+	cleanupPath := filepath.Join("/tmp/F0", "esxi_cleanup")
 	if err := os.WriteFile(cleanupPath, cleanupBinary, 0755); err != nil {
 		LogMessage("ERROR", "Extraction", fmt.Sprintf("Failed to extract cleanup utility: %v", err))
 	} else {
-		Endpoint.Say("  [+] Extracted: esxi_cleanup.exe (cleanup utility)")
-		LogFileDropped("esxi_cleanup.exe", cleanupPath, int64(len(cleanupBinary)), false)
+		Endpoint.Say("  [+] Extracted: esxi_cleanup (cleanup utility)")
+		LogFileDropped("esxi_cleanup", cleanupPath, int64(len(cleanupBinary)), false)
 	}
 
 	LogPhaseEnd(0, "success", fmt.Sprintf("Extracted %d stage binaries + cleanup utility", len(killchain)))
@@ -241,7 +241,7 @@ func main() {
 			Endpoint.Say("  Remaining Stages: %d (not executed)", len(killchain)-stage.ID)
 			Endpoint.Say("")
 			Endpoint.Say("Security Status: ENDPOINT IS SECURE")
-			Endpoint.Say("Cleanup: Run 'C:\\F0\\esxi_cleanup.exe' to remove test artifacts")
+			Endpoint.Say("Cleanup: Run '/tmp/F0/esxi_cleanup' to remove test artifacts")
 			Endpoint.Say("=================================================================")
 
 			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("EDR blocked at stage %d: %s (%s)", stage.ID, stage.Name, stage.Technique))
@@ -263,7 +263,7 @@ func main() {
 
 			Endpoint.Say("")
 			Endpoint.Say("Stage %d failed with error code %d", stage.ID, exitCode)
-			Endpoint.Say("Cleanup: Run 'C:\\F0\\esxi_cleanup.exe' if needed")
+			Endpoint.Say("Cleanup: Run '/tmp/F0/esxi_cleanup' if needed")
 			Endpoint.Say("")
 			Endpoint.Say("Finalizing test results (waiting 5 seconds for platform sync)...")
 			time.Sleep(5 * time.Second)
@@ -302,7 +302,7 @@ func main() {
 	Endpoint.Say("  - Review EDR/AV configuration for ESXi-related indicators")
 	Endpoint.Say("  - Enable detection for vim-cmd, esxcli, rclone usage")
 	Endpoint.Say("  - Implement network segmentation for hypervisor management")
-	Endpoint.Say("  - Run cleanup: C:\\F0\\esxi_cleanup.exe")
+	Endpoint.Say("  - Run cleanup: /tmp/F0/esxi_cleanup")
 	Endpoint.Say("=================================================================")
 
 	SaveLog(Endpoint.Unprotected, "Complete ESXi ransomware killchain succeeded - all 5 techniques executed")
@@ -315,7 +315,7 @@ func main() {
 }
 
 func extractStage(stage KillchainStage) error {
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 	os.MkdirAll(targetDir, 0755)
 
 	stagePath := filepath.Join(targetDir, stage.BinaryName)
@@ -328,7 +328,7 @@ func extractStage(stage KillchainStage) error {
 }
 
 func executeStage(stage KillchainStage) int {
-	stagePath := filepath.Join("c:\\F0", stage.BinaryName)
+	stagePath := filepath.Join("/tmp/F0", stage.BinaryName)
 
 	// Set timeout based on stage complexity
 	var timeout time.Duration
@@ -343,7 +343,7 @@ func executeStage(stage KillchainStage) int {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, stagePath)
-	cmd.Dir = "c:\\F0"
+	cmd.Dir = "/tmp/F0"
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build darwin
+// +build darwin
 
 /*
 STAGE 3: Credential Harvesting via AppleScript & Keychain Access (T1059.002, T1555.001, T1056.002)
@@ -72,8 +72,8 @@ func main() {
 }
 
 func performTechnique() error {
-	targetDir := "c:\\F0"
-	artifactDir := "c:\\Users\\fortika-test"
+	targetDir := "/tmp/F0"
+	artifactDir := "/Users/fortika-test"
 	stagingDir := filepath.Join(targetDir, "credential_staging")
 
 	if err := os.MkdirAll(stagingDir, 0755); err != nil {

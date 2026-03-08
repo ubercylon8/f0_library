@@ -12,7 +12,7 @@
 # 7. Cleanup temporary binaries + calculate hashes
 #
 # Usage: ./build_all.sh [--org <org-identifier>]
-# Output: build/<uuid>/<uuid>.exe
+# Output: build/<uuid>/<uuid>
 
 set -e  # Exit on any error
 set -u  # Exit on undefined variable
@@ -83,7 +83,7 @@ if [ -n "$PROJECT_ROOT" ] && [ -f "${PROJECT_ROOT}/utils/resolve_org.sh" ]; then
 fi
 
 # Build configuration
-GOOS="${GOOS:-windows}"
+GOOS="${GOOS:-linux}"
 GOARCH="${GOARCH:-amd64}"
 export CGO_ENABLED="${CGO_ENABLED:-0}"
 
@@ -238,12 +238,12 @@ print_step "1/7" "Building ${#STAGES[@]} unsigned stage binaries..."
 stage_count=0
 for stage in "${STAGES[@]}"; do
     IFS=':' read -r technique source <<< "$stage"
-    output_name="${TEST_UUID}-${technique}.exe"
+    output_name="${TEST_UUID}-${technique}"
 
     echo "  Building ${technique} (${source}.go)..."
     GOOS=${GOOS} GOARCH=${GOARCH} go build \
         -o "${output_name}" \
-        "${source}.go" test_logger.go org_resolver.go es_config.go
+        "${source}.go" test_logger.go test_logger_linux.go org_resolver.go es_config.go
 
     if [ ! -f "${output_name}" ]; then
         print_error "Failed to build ${output_name}"
@@ -257,39 +257,43 @@ print_success "Built ${stage_count} unsigned stage binaries"
 # Step 2: Build cleanup utility
 print_step "2/7" "Building cleanup utility..."
 GOOS=${GOOS} GOARCH=${GOARCH} go build \
-    -o cleanup_utility.exe \
+    -o cleanup_utility \
     cleanup_utility.go
-print_success "cleanup_utility.exe built"
+print_success "cleanup_utility built"
 
 # Step 3: Sign stage binaries + cleanup (CRITICAL - before embedding!)
 print_step "3/7" "Signing stage binaries..."
-if [ "$SIGN_MODE" = "none" ]; then
+if [ "$GOOS" = "linux" ]; then
+    echo "  Skipped (Authenticode signing not applicable for Linux ELF binaries)"
+elif [ "$SIGN_MODE" = "none" ]; then
     print_warning "No signing certificate found - stages will be unsigned"
 else
     for stage in "${STAGES[@]}"; do
         IFS=':' read -r technique _ <<< "$stage"
-        sign_binary "${TEST_UUID}-${technique}.exe"
+        sign_binary "${TEST_UUID}-${technique}"
     done
-    sign_binary "cleanup_utility.exe"
+    sign_binary "cleanup_utility"
     print_success "Stage signing complete"
 fi
 
 # Step 4: Verify signatures
 print_step "4/7" "Verifying stage signatures..."
-if [ "$SIGN_MODE" != "none" ] && command -v osslsigncode &> /dev/null; then
+if [ "$GOOS" = "linux" ]; then
+    echo "  Skipped (Authenticode signing not applicable for Linux ELF binaries)"
+elif [ "$SIGN_MODE" != "none" ] && command -v osslsigncode &> /dev/null; then
     for stage in "${STAGES[@]}"; do
         IFS=':' read -r technique _ <<< "$stage"
-        binary="${TEST_UUID}-${technique}.exe"
+        binary="${TEST_UUID}-${technique}"
         if osslsigncode verify "${binary}" 2>&1 | grep -q "Message digest"; then
             echo "    Verified: ${binary}"
         else
             print_warning "Could not verify signature for ${binary}"
         fi
     done
-    if osslsigncode verify "cleanup_utility.exe" 2>&1 | grep -q "Message digest"; then
-        echo "    Verified: cleanup_utility.exe"
+    if osslsigncode verify "cleanup_utility" 2>&1 | grep -q "Message digest"; then
+        echo "    Verified: cleanup_utility"
     else
-        print_warning "Could not verify signature for cleanup_utility.exe"
+        print_warning "Could not verify signature for cleanup_utility"
     fi
     print_success "Signature verification complete"
 else
@@ -300,11 +304,11 @@ fi
 print_step "5/7" "Building orchestrator (embedding signed stages)..."
 
 mkdir -p "${BUILD_DIR}"
-main_binary="${BUILD_DIR}/${TEST_UUID}.exe"
+main_binary="${BUILD_DIR}/${TEST_UUID}"
 
 GOOS=${GOOS} GOARCH=${GOARCH} go build \
     -o "${main_binary}" \
-    "${TEST_UUID}.go" test_logger.go org_resolver.go es_config.go
+    "${TEST_UUID}.go" test_logger.go test_logger_linux.go org_resolver.go es_config.go
 
 if [ ! -f "${main_binary}" ]; then
     print_error "Failed to build orchestrator"
@@ -316,7 +320,9 @@ print_success "Orchestrator built (${main_size})"
 
 # Step 6: Sign orchestrator
 print_step "6/7" "Signing orchestrator..."
-if [ "$SIGN_MODE" != "none" ]; then
+if [ "$GOOS" = "linux" ]; then
+    echo "  Skipped (Authenticode signing not applicable for Linux ELF binaries)"
+elif [ "$SIGN_MODE" != "none" ]; then
     sign_binary "${main_binary}"
     print_success "Orchestrator signing complete"
 else
@@ -327,9 +333,9 @@ fi
 print_step "7/7" "Cleaning up and calculating hashes..."
 for stage in "${STAGES[@]}"; do
     IFS=':' read -r technique _ <<< "$stage"
-    rm -f "${TEST_UUID}-${technique}.exe"
+    rm -f "${TEST_UUID}-${technique}"
 done
-rm -f cleanup_utility.exe
+rm -f cleanup_utility
 
 main_hash=$(sha1sum "${main_binary}" | awk '{print $1}')
 main_size_final=$(ls -lh "${main_binary}" | awk '{print $5}')
@@ -345,7 +351,7 @@ echo ""
 echo "  Test UUID:        ${TEST_UUID}"
 echo "  Test Name:        ESXi Hypervisor Ransomware Kill Chain (RansomHub/Akira)"
 echo "  Stages Built:     ${stage_count}"
-echo "  Final Binary:     ${BUILD_DIR}/${TEST_UUID}.exe"
+echo "  Final Binary:     ${BUILD_DIR}/${TEST_UUID}"
 echo "  Binary Size:      ${main_size_final}"
 echo "  SHA1 Hash:        ${main_hash}"
 echo "  Signing Mode:     ${SIGN_MODE}"
@@ -353,15 +359,15 @@ echo ""
 echo "Stages:"
 for stage in "${STAGES[@]}"; do
     IFS=':' read -r technique source <<< "$stage"
-    echo "  - ${TEST_UUID}-${technique}.exe (${source}.go)"
+    echo "  - ${TEST_UUID}-${technique} (${source}.go)"
 done
-echo "  - cleanup_utility.exe"
+echo "  - cleanup_utility"
 echo ""
 print_success "Multi-stage test ready for deployment!"
 echo ""
 echo "Deployment:"
-echo "  1. Copy ${BUILD_DIR}/${TEST_UUID}.exe to target Windows system"
-echo "  2. Run: C:\\${TEST_UUID}.exe"
+echo "  1. Copy ${BUILD_DIR}/${TEST_UUID} to target Linux system"
+echo "  2. Run: ./${TEST_UUID}"
 echo "  3. Test will extract and execute 5 stages in killchain order"
-echo "  4. Cleanup: C:\\F0\\esxi_cleanup.exe"
+echo "  4. Cleanup: /tmp/F0/esxi_cleanup"
 echo ""

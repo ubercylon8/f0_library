@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build darwin
+// +build darwin
 
 /*
 ID: 244dfb88-9068-4db4-9fa8-dbc49517f63d
@@ -40,23 +40,23 @@ const (
 )
 
 // Embed signed stage binaries (MUST be signed before embedding!)
-//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1553.001.exe
+//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1553.001
 var stage1Binary []byte
 
-//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1543.004.exe
+//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1543.004
 var stage2Binary []byte
 
-//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1059.002.exe
+//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1059.002
 var stage3Binary []byte
 
-//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1071.001.exe
+//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1071.001
 var stage4Binary []byte
 
-//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1041.exe
+//go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1041
 var stage5Binary []byte
 
 // Embed cleanup utility
-//go:embed cleanup_utility.exe
+//go:embed cleanup_utility
 var cleanupBinary []byte
 
 // KillchainStage definition for multi-stage execution
@@ -82,7 +82,7 @@ func main() {
 	Endpoint.Say("  Threat Actor: BlueNoroff/Lazarus (DPRK)")
 	Endpoint.Say("  Campaigns: RustBucket, Hidden Risk, TodoSwift, KANDYKORN, BeaverTail")
 	Endpoint.Say("  Target Sector: Financial / Cryptocurrency")
-	Endpoint.Say("  Target Platform: macOS (simulated on Windows)")
+	Endpoint.Say("  Target Platform: macOS")
 	Endpoint.Say("")
 
 	// Initialize Schema v2.0 metadata
@@ -148,7 +148,7 @@ func test() {
 			ID:          1,
 			Name:        "Gatekeeper Bypass & Payload Delivery",
 			Technique:   "T1553.001",
-			BinaryName:  fmt.Sprintf("%s-T1553.001.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1553.001", TEST_UUID),
 			BinaryData:  stage1Binary,
 			Description: "Simulate curl-based download (no quarantine), notarized malware with hijacked developer ID, xattr removal",
 		},
@@ -156,7 +156,7 @@ func test() {
 			ID:          2,
 			Name:        "LaunchAgent Persistence",
 			Technique:   "T1543.004",
-			BinaryName:  fmt.Sprintf("%s-T1543.004.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1543.004", TEST_UUID),
 			BinaryData:  stage2Binary,
 			Description: "Install RustBucket LaunchAgent, BeaverTail LaunchAgent, Hidden Risk .zshenv, LaunchDaemon",
 		},
@@ -164,7 +164,7 @@ func test() {
 			ID:          3,
 			Name:        "Credential Harvesting",
 			Technique:   "T1059.002",
-			BinaryName:  fmt.Sprintf("%s-T1059.002.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1059.002", TEST_UUID),
 			BinaryData:  stage3Binary,
 			Description: "Simulate osascript password dialog, Keychain dump, browser creds, crypto wallet theft",
 		},
@@ -172,7 +172,7 @@ func test() {
 			ID:          4,
 			Name:        "Multi-Protocol C2 Communication",
 			Technique:   "T1071.001",
-			BinaryName:  fmt.Sprintf("%s-T1071.001.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1071.001", TEST_UUID),
 			BinaryData:  stage4Binary,
 			Description: "Establish Sliver mTLS beacon, HTTPS fallback, DNS tunnel, Google Drive staging",
 		},
@@ -180,7 +180,7 @@ func test() {
 			ID:          5,
 			Name:        "Financial Data Exfiltration",
 			Technique:   "T1041",
-			BinaryName:  fmt.Sprintf("%s-T1041.exe", TEST_UUID),
+			BinaryName:  fmt.Sprintf("%s-T1041", TEST_UUID),
 			BinaryData:  stage5Binary,
 			Description: "Archive data (AMOS pattern), exfiltrate via AWS S3, Google Drive, HTTP POST",
 		},
@@ -203,12 +203,12 @@ func test() {
 	}
 
 	// Extract cleanup utility
-	cleanupPath := filepath.Join("c:\\F0", "bluenoroff_cleanup.exe")
+	cleanupPath := filepath.Join("/tmp/F0", "bluenoroff_cleanup")
 	if err := os.WriteFile(cleanupPath, cleanupBinary, 0755); err != nil {
 		LogMessage("ERROR", "Extraction", fmt.Sprintf("Failed to extract cleanup utility: %v", err))
 	} else {
-		Endpoint.Say("  [+] Extracted: bluenoroff_cleanup.exe (cleanup utility)")
-		LogFileDropped("bluenoroff_cleanup.exe", cleanupPath, int64(len(cleanupBinary)), false)
+		Endpoint.Say("  [+] Extracted: bluenoroff_cleanup (cleanup utility)")
+		LogFileDropped("bluenoroff_cleanup", cleanupPath, int64(len(cleanupBinary)), false)
 	}
 
 	LogPhaseEnd(0, "success", fmt.Sprintf("Extracted %d stage binaries + cleanup utility", len(killchain)))
@@ -264,7 +264,7 @@ func test() {
 			Endpoint.Say("  Blocked Stage: %d (%s)", stage.ID, stage.Technique)
 			Endpoint.Say("  Remaining Stages: %d (not executed)", len(killchain)-stage.ID)
 			Endpoint.Say("")
-			Endpoint.Say("Cleanup: Run 'C:\\F0\\bluenoroff_cleanup.exe'")
+			Endpoint.Say("Cleanup: Run '/tmp/F0/bluenoroff_cleanup'")
 			Endpoint.Say("=================================================================")
 
 			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("EDR blocked at stage %d: %s (%s)", stage.ID, stage.Name, stage.Technique))
@@ -284,7 +284,7 @@ func test() {
 
 			Endpoint.Say("")
 			Endpoint.Say("Stage %d encountered error (exit code %d)", stage.ID, exitCode)
-			Endpoint.Say("Cleanup: Run 'C:\\F0\\bluenoroff_cleanup.exe'")
+			Endpoint.Say("Cleanup: Run '/tmp/F0/bluenoroff_cleanup'")
 
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage %d (%s) failed with code %d", stage.ID, stage.Technique, exitCode))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
@@ -334,7 +334,7 @@ func test() {
 	Endpoint.Say("  - Implement LaunchAgent monitoring")
 	Endpoint.Say("  - Monitor .zshenv modifications")
 	Endpoint.Say("  - Enable network-level C2 detection")
-	Endpoint.Say("  - Cleanup: C:\\F0\\bluenoroff_cleanup.exe")
+	Endpoint.Say("  - Cleanup: /tmp/F0/bluenoroff_cleanup")
 	Endpoint.Say("=================================================================")
 
 	SaveLog(Endpoint.Unprotected, "Complete BlueNoroff killchain succeeded - all 5 stages executed")
@@ -347,7 +347,7 @@ func test() {
 }
 
 func extractStage(stage KillchainStage) error {
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 	os.MkdirAll(targetDir, 0755)
 
 	stagePath := filepath.Join(targetDir, stage.BinaryName)
@@ -360,7 +360,7 @@ func extractStage(stage KillchainStage) error {
 }
 
 func executeStage(stage KillchainStage) int {
-	stagePath := filepath.Join("c:\\F0", stage.BinaryName)
+	stagePath := filepath.Join("/tmp/F0", stage.BinaryName)
 
 	// Standard 5-minute timeout per stage
 	timeout := 5 * time.Minute
@@ -369,7 +369,7 @@ func executeStage(stage KillchainStage) int {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, stagePath)
-	cmd.Dir = "c:\\F0"
+	cmd.Dir = "/tmp/F0"
 
 	// Capture stdout/stderr to both console and buffer
 	var outputBuffer bytes.Buffer
@@ -408,7 +408,7 @@ func executeStage(stage KillchainStage) int {
 	close(done)
 
 	// Save raw output to file
-	outputFilePath := filepath.Join("c:\\F0", fmt.Sprintf("%s_output.txt", stage.Technique))
+	outputFilePath := filepath.Join("/tmp/F0", fmt.Sprintf("%s_output.txt", stage.Technique))
 	if writeErr := os.WriteFile(outputFilePath, outputBuffer.Bytes(), 0644); writeErr != nil {
 		LogMessage("WARNING", "Output Capture", fmt.Sprintf("Failed to save raw output: %v", writeErr))
 	} else {

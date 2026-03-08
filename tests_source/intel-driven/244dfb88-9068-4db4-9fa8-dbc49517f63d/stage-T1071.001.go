@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build darwin
+// +build darwin
 
 /*
 STAGE 4: Multi-Protocol C2 Communication (T1071.001, T1573.002, T1071.004)
@@ -87,7 +87,7 @@ func main() {
 }
 
 func performTechnique() error {
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 	c2Dir := filepath.Join(targetDir, "c2_simulation")
 
 	if err := os.MkdirAll(c2Dir, 0755); err != nil {

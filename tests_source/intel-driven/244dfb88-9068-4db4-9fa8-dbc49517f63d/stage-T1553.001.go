@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build darwin
+// +build darwin
 
 /*
 STAGE 1: Gatekeeper Bypass & Payload Delivery (T1553.001)
@@ -67,8 +67,8 @@ func main() {
 
 // performTechnique simulates the Gatekeeper bypass and payload delivery
 func performTechnique() error {
-	targetDir := "c:\\F0"
-	artifactDir := "c:\\Users\\fortika-test"
+	targetDir := "/tmp/F0"
+	artifactDir := "/Users/fortika-test"
 
 	// Ensure directories exist
 	if err := os.MkdirAll(targetDir, 0755); err != nil {

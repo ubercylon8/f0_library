@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build linux
+// +build linux
 
 /*
 STAGE 2: SSH Lateral Movement & Privilege Escalation (T1021.004, T1068)
@@ -57,7 +57,7 @@ func main() {
 }
 
 func performTechnique() error {
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 	artifactDir := filepath.Join(targetDir, "esxi_lateral")
 
 	if err := os.MkdirAll(artifactDir, 0755); err != nil {

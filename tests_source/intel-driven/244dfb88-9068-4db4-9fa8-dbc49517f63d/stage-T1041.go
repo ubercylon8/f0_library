@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build darwin
+// +build darwin
 
 /*
 STAGE 5: Financial Data Exfiltration (T1041, T1567.002, T1560.001)
@@ -76,8 +76,8 @@ func main() {
 }
 
 func performTechnique() error {
-	targetDir := "c:\\F0"
-	artifactDir := "c:\\Users\\fortika-test"
+	targetDir := "/tmp/F0"
+	artifactDir := "/Users/fortika-test"
 	stagingDir := filepath.Join(targetDir, "credential_staging")
 	exfilDir := filepath.Join(targetDir, "exfil_staging")
 

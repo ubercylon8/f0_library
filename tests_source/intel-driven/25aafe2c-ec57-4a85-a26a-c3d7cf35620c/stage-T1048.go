@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build linux
+// +build linux
 
 /*
 STAGE 4: Data Exfiltration via Rclone (T1048, T1567.002)
@@ -58,7 +58,7 @@ func main() {
 }
 
 func performTechnique() error {
-	targetDir := "c:\\F0"
+	targetDir := "/tmp/F0"
 	artifactDir := filepath.Join(targetDir, "esxi_exfil")
 
 	if err := os.MkdirAll(artifactDir, 0755); err != nil {

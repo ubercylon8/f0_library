@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build darwin
+// +build darwin
 
 /*
 STAGE 2: LaunchAgent Installation / Persistence (T1543.004)
@@ -63,8 +63,8 @@ func main() {
 }
 
 func performTechnique() error {
-	targetDir := "c:\\F0"
-	artifactDir := "c:\\Users\\fortika-test"
+	targetDir := "/tmp/F0"
+	artifactDir := "/Users/fortika-test"
 
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("failed to create target directory: %v", err)

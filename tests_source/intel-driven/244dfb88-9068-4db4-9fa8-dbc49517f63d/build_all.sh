@@ -3,7 +3,7 @@
 # DPRK BlueNoroff Financial Sector Attack Chain -- 5 stages + cleanup utility
 #
 # CRITICAL BUILD SEQUENCE:
-# 1. Build unsigned stage binaries (each from stage .go + test_logger.go + org_resolver.go)
+# 1. Build unsigned stage binaries (each from stage .go + test_logger.go + test_logger_darwin.go + org_resolver.go)
 # 2. Build cleanup utility
 # 3. Sign stage binaries + cleanup (BEFORE embedding!)
 # 4. Verify signatures
@@ -16,7 +16,7 @@
 #   - Local f0_library development (--org flag + signing-certs/)
 #
 # Usage: ./build_all.sh [--org <org-identifier>]
-# Output: build/<uuid>/<uuid>.exe
+# Output: build/<uuid>/<uuid>
 
 set -e  # Exit on any error
 set -u  # Exit on undefined variable
@@ -87,8 +87,8 @@ if [ -n "$PROJECT_ROOT" ] && [ -f "${PROJECT_ROOT}/utils/resolve_org.sh" ]; then
 fi
 
 # Build configuration
-GOOS="${GOOS:-windows}"
-GOARCH="${GOARCH:-amd64}"
+GOOS="${GOOS:-darwin}"
+GOARCH="${GOARCH:-arm64}"
 export CGO_ENABLED="${CGO_ENABLED:-0}"
 
 # ==============================================================================
@@ -150,11 +150,21 @@ sign_binary() {
     binary_name=$(basename "$binary")
 
     if [ "$SIGN_MODE" = "none" ]; then
+        # For macOS, apply ad-hoc signing when no certificate is available
+        if [ "$GOOS" = "darwin" ] && command -v codesign &>/dev/null; then
+            codesign -s - "${binary}" 2>/dev/null || true
+            echo "    Ad-hoc signed: ${binary_name}"
+        fi
         return 0
     fi
 
     if ! command -v osslsigncode &> /dev/null; then
         print_warning "osslsigncode not installed -- skipping signing for ${binary_name}"
+        # Apply macOS ad-hoc signing as fallback
+        if [ "$GOOS" = "darwin" ] && command -v codesign &>/dev/null; then
+            codesign -s - "${binary}" 2>/dev/null || true
+            echo "    Ad-hoc signed: ${binary_name}"
+        fi
         return 0
     fi
 
@@ -212,6 +222,11 @@ sign_binary() {
         rm -f "$signed_binary"
         print_warning "Signing failed for ${binary_name} -- continuing unsigned"
     fi
+
+    # Apply macOS ad-hoc signing after certificate signing
+    if [ "$GOOS" = "darwin" ] && command -v codesign &>/dev/null; then
+        codesign -s - "${binary}" 2>/dev/null || true
+    fi
 }
 
 # ==============================================================================
@@ -242,12 +257,12 @@ print_step "1/7" "Building ${#STAGES[@]} unsigned stage binaries..."
 stage_count=0
 for stage in "${STAGES[@]}"; do
     IFS=':' read -r technique source <<< "$stage"
-    output_name="${TEST_UUID}-${technique}.exe"
+    output_name="${TEST_UUID}-${technique}"
 
     echo "  Building ${technique} (${source}.go)..."
     GOOS=${GOOS} GOARCH=${GOARCH} go build \
         -o "${output_name}" \
-        "${source}.go" test_logger.go org_resolver.go
+        "${source}.go" test_logger.go test_logger_darwin.go org_resolver.go
 
     if [ ! -f "${output_name}" ]; then
         print_error "Failed to build ${output_name}"
@@ -261,20 +276,30 @@ print_success "Built ${stage_count} unsigned stage binaries"
 # Step 2: Build cleanup utility
 print_step "2/7" "Building cleanup utility..."
 GOOS=${GOOS} GOARCH=${GOARCH} go build \
-    -o cleanup_utility.exe \
+    -o cleanup_utility \
     cleanup_utility.go
-print_success "cleanup_utility.exe built"
+print_success "cleanup_utility built"
 
 # Step 3: Sign stage binaries + cleanup (CRITICAL -- before embedding!)
 print_step "3/7" "Signing stage binaries + cleanup..."
 if [ "$SIGN_MODE" = "none" ]; then
     print_warning "No signing certificate found -- stages will be unsigned"
+    # Apply macOS ad-hoc signing
+    if [ "$GOOS" = "darwin" ] && command -v codesign &>/dev/null; then
+        for stage in "${STAGES[@]}"; do
+            IFS=':' read -r technique _ <<< "$stage"
+            codesign -s - "${TEST_UUID}-${technique}" 2>/dev/null || true
+            echo "    Ad-hoc signed: ${TEST_UUID}-${technique}"
+        done
+        codesign -s - "cleanup_utility" 2>/dev/null || true
+        echo "    Ad-hoc signed: cleanup_utility"
+    fi
 else
     for stage in "${STAGES[@]}"; do
         IFS=':' read -r technique _ <<< "$stage"
-        sign_binary "${TEST_UUID}-${technique}.exe"
+        sign_binary "${TEST_UUID}-${technique}"
     done
-    sign_binary "cleanup_utility.exe"
+    sign_binary "cleanup_utility"
     print_success "Signing complete"
 fi
 
@@ -283,32 +308,43 @@ print_step "4/7" "Verifying stage signatures..."
 if [ "$SIGN_MODE" != "none" ] && command -v osslsigncode &> /dev/null; then
     for stage in "${STAGES[@]}"; do
         IFS=':' read -r technique _ <<< "$stage"
-        binary="${TEST_UUID}-${technique}.exe"
+        binary="${TEST_UUID}-${technique}"
         if osslsigncode verify "${binary}" 2>&1 | grep -q "Message digest"; then
             echo "    Verified: ${binary}"
         else
             print_warning "Could not verify signature for ${binary}"
         fi
     done
-    if osslsigncode verify "cleanup_utility.exe" 2>&1 | grep -q "Message digest"; then
-        echo "    Verified: cleanup_utility.exe"
+    if osslsigncode verify "cleanup_utility" 2>&1 | grep -q "Message digest"; then
+        echo "    Verified: cleanup_utility"
     else
-        print_warning "Could not verify signature for cleanup_utility.exe"
+        print_warning "Could not verify signature for cleanup_utility"
     fi
     print_success "Signature verification complete"
+elif [ "$GOOS" = "darwin" ] && command -v codesign &>/dev/null; then
+    for stage in "${STAGES[@]}"; do
+        IFS=':' read -r technique _ <<< "$stage"
+        binary="${TEST_UUID}-${technique}"
+        if codesign -v "${binary}" 2>/dev/null; then
+            echo "    Verified: ${binary}"
+        else
+            print_warning "Could not verify signature for ${binary}"
+        fi
+    done
+    print_success "macOS signature verification complete"
 else
-    echo "  Skipped (no signing or osslsigncode not installed)"
+    echo "  Skipped (no signing or verification tool installed)"
 fi
 
 # Step 5: Build main orchestrator (embeds SIGNED stage binaries + cleanup)
 print_step "5/7" "Building orchestrator (embedding signed stages)..."
 
 mkdir -p "${BUILD_DIR}"
-main_binary="${BUILD_DIR}/${TEST_UUID}.exe"
+main_binary="${BUILD_DIR}/${TEST_UUID}"
 
 GOOS=${GOOS} GOARCH=${GOARCH} go build \
     -o "${main_binary}" \
-    "${TEST_UUID}.go" test_logger.go org_resolver.go
+    "${TEST_UUID}.go" test_logger.go test_logger_darwin.go org_resolver.go
 
 if [ ! -f "${main_binary}" ]; then
     print_error "Failed to build orchestrator"
@@ -325,6 +361,10 @@ if [ "$SIGN_MODE" != "none" ]; then
     print_success "Orchestrator signing complete"
 else
     print_warning "Skipping orchestrator signing (no certificate)"
+    if [ "$GOOS" = "darwin" ] && command -v codesign &>/dev/null; then
+        codesign -s - "${main_binary}" 2>/dev/null || true
+        echo "    Ad-hoc signed: $(basename "${main_binary}")"
+    fi
 fi
 
 # Step 7: Cleanup temporary binaries + calculate hashes
@@ -332,11 +372,12 @@ print_step "7/7" "Cleaning up and calculating hashes..."
 
 for stage in "${STAGES[@]}"; do
     IFS=':' read -r technique _ <<< "$stage"
-    rm -f "${TEST_UUID}-${technique}.exe"
+    rm -f "${TEST_UUID}-${technique}"
 done
-rm -f cleanup_utility.exe
+rm -f cleanup_utility
 
-main_hash=$(sha1sum "${main_binary}" | awk '{print $1}')
+main_hash=$(sha1sum "${main_binary}" 2>/dev/null || shasum "${main_binary}" | awk '{print $1}')
+main_hash=$(echo "$main_hash" | awk '{print $1}')
 main_size_final=$(ls -lh "${main_binary}" | awk '{print $5}')
 
 print_success "Cleanup complete"
@@ -350,7 +391,7 @@ echo ""
 echo "  Test UUID:        ${TEST_UUID}"
 echo "  Test Name:        DPRK BlueNoroff Financial Sector Attack Chain"
 echo "  Stages Built:     ${stage_count}"
-echo "  Final Binary:     ${BUILD_DIR}/${TEST_UUID}.exe"
+echo "  Final Binary:     ${BUILD_DIR}/${TEST_UUID}"
 echo "  Binary Size:      ${main_size_final}"
 echo "  SHA1 Hash:        ${main_hash}"
 echo "  Signing Mode:     ${SIGN_MODE}"
@@ -358,15 +399,16 @@ echo ""
 echo "Stages:"
 for stage in "${STAGES[@]}"; do
     IFS=':' read -r technique source <<< "$stage"
-    echo "  - ${TEST_UUID}-${technique}.exe (${source}.go)"
+    echo "  - ${TEST_UUID}-${technique} (${source}.go)"
 done
-echo "  - cleanup_utility.exe"
+echo "  - cleanup_utility"
 echo ""
 print_success "Multi-stage test ready for deployment!"
 echo ""
 echo "Deployment:"
-echo "  1. Copy ${BUILD_DIR}/${TEST_UUID}.exe to target Windows system"
-echo "  2. Run: C:\\${TEST_UUID}.exe"
-echo "  3. Test will extract and execute 5 stages in killchain order"
-echo "  4. Cleanup: C:\\F0\\bluenoroff_cleanup.exe"
+echo "  1. Copy ${BUILD_DIR}/${TEST_UUID} to target macOS system at /tmp/F0/"
+echo "  2. Remove quarantine attribute: xattr -cr /tmp/F0/${TEST_UUID}"
+echo "  3. Run: /tmp/F0/${TEST_UUID}"
+echo "  4. Test will extract and execute 5 stages in killchain order"
+echo "  5. Cleanup: /tmp/F0/bluenoroff_cleanup"
 echo ""

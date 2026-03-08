@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build darwin
+// +build darwin
 
 /*
 Cleanup Utility for DPRK BlueNoroff Financial Sector Attack Chain
@@ -26,19 +26,19 @@ func main() {
 	fmt.Println("=================================================================")
 	fmt.Println()
 
-	targetDir := "c:\\F0"
-	artifactDir := "c:\\Users\\fortika-test"
+	targetDir := "/tmp/F0"
+	artifactDir := "/Users/fortika-test"
 	removed := 0
 	errors := 0
 
 	// --- Clean up stage binaries ---
 	fmt.Println("[*] Removing stage binaries...")
 	stageBinaries := []string{
-		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1553.001.exe",
-		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1543.004.exe",
-		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1059.002.exe",
-		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1071.001.exe",
-		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1041.exe",
+		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1553.001",
+		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1543.004",
+		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1059.002",
+		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1071.001",
+		"244dfb88-9068-4db4-9fa8-dbc49517f63d-T1041",
 	}
 	for _, bin := range stageBinaries {
 		path := filepath.Join(targetDir, bin)
@@ -71,8 +71,8 @@ func main() {
 		}
 	}
 
-	// --- Clean up simulation artifacts in c:\F0 ---
-	fmt.Println("[*] Removing simulation artifacts from c:\\F0...")
+	// --- Clean up simulation artifacts in /tmp/F0 ---
+	fmt.Println("[*] Removing simulation artifacts from /tmp/F0...")
 	f0Artifacts := []string{
 		"codesign_metadata.json",
 		"remove_quarantine.sh",
@@ -108,8 +108,8 @@ func main() {
 		}
 	}
 
-	// --- Clean up artifacts in c:\Users\fortika-test ---
-	fmt.Println("[*] Removing artifacts from c:\\Users\\fortika-test...")
+	// --- Clean up artifacts in /Users/fortika-test ---
+	fmt.Println("[*] Removing artifacts from /Users/fortika-test...")
 	testArtifacts := []string{
 		filepath.Join(artifactDir, "InternalPDFViewer.sh"),
 		filepath.Join(artifactDir, "CryptoExchangePro_Info.plist"),
