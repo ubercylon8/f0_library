@@ -209,7 +209,12 @@ func test() {
 		}
 
 		// Check if EDR quarantined the extracted binary
-		if Endpoint.Quarantined(fmt.Sprintf("c:\\F0\\%s", stage.BinaryName), stage.BinaryData) {
+		// Note: We use os.Stat instead of Endpoint.Quarantined() because Quarantined()
+		// internally calls Pwd(filename) which does filepath.Join(cwd, filename), producing
+		// an invalid doubled path (e.g. C:\F0\tasks\task-xxx\c:\F0\binary.exe) when given
+		// an absolute path. Direct stat check on the known extraction path is more reliable.
+		time.Sleep(3 * time.Second)
+		if _, statErr := os.Stat(filepath.Join("c:\\F0", stage.BinaryName)); os.IsNotExist(statErr) {
 			LogMessage("BLOCKED", stage.Technique, fmt.Sprintf("Stage binary quarantined: %s", stage.BinaryName))
 			LogPhaseEnd(0, "blocked", fmt.Sprintf("EDR quarantined %s during extraction", stage.BinaryName))
 			Endpoint.Say("    [!] QUARANTINED: %s — EDR removed stage binary", stage.BinaryName)
