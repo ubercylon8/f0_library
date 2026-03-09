@@ -1,0 +1,142 @@
+// Behavioral Detection Queries for APT33 Tickler Backdoor DLL Sideloading
+// Test ID: 13c2d073-8e33-4fca-ab27-68f20c408ce9
+// MITRE ATT&CK: T1566.001, T1574.002, T1547.001, T1053.005, T1036, T1071.001
+// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+
+//
+// QUERY 1: DLL Side-Loading Detection
+// Purpose: Detect renamed Microsoft binaries loading DLLs from non-standard paths
+// Covers: T1574.002
+//
+DeviceImageLoadEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~("msvcp140.dll", "vcruntime140.dll")
+| where FolderPath !startswith "C:\\Windows\\"
+    and FolderPath !startswith "C:\\Program Files\\"
+    and FolderPath !startswith "C:\\Program Files (x86)\\"
+| where InitiatingProcessFileName has_any("SharePoint", "NativeMessaging", "Microsoft.")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    FileName, FolderPath
+| extend ThreatScore = 85
+| extend Detection = "APT33 Tickler DLL Sideloading - Renamed binary loading VC++ DLLs from non-standard path"
+
+//
+// QUERY 2: Registry Run Key Persistence with SharePoint Masquerading
+// Purpose: Detect Run key additions referencing SharePoint in non-standard paths
+// Covers: T1547.001, T1036
+//
+DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey has_any(
+    @"Software\Microsoft\Windows\CurrentVersion\Run",
+    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run")
+| where RegistryValueName =~ "SharePoint"
+    or RegistryValueData has "SharePoint.exe"
+    or RegistryValueData has "NativeMessaging"
+| where RegistryValueData !startswith "\"C:\\Program Files\\"
+    and RegistryValueData !startswith "\"C:\\Program Files (x86)\\"
+| project TimeGenerated, DeviceName, AccountName,
+    RegistryKey, RegistryValueName, RegistryValueData,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend ThreatScore = 90
+| extend Detection = "APT33 Tickler Persistence - SharePoint Run key in non-standard path"
+
+//
+// QUERY 3: Suspicious Scheduled Task Creation
+// Purpose: Detect scheduled tasks referencing masqueraded binaries
+// Covers: T1053.005
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "schtasks.exe"
+| where ProcessCommandLine has "/Create"
+| where ProcessCommandLine has_any("SharePoint", "NativeMessaging", "MicrosoftSharePointSync")
+| where ProcessCommandLine has_any("/SC ONLOGON", "/SC ONSTART", "/RL HIGHEST")
+| project TimeGenerated, DeviceName, AccountName,
+    ProcessCommandLine, InitiatingProcessFileName,
+    InitiatingProcessCommandLine
+| extend ThreatScore = 80
+| extend Detection = "APT33 Tickler Scheduled Task - Persistence via masqueraded binary"
+
+//
+// QUERY 4: Renamed Microsoft Binary Execution
+// Purpose: Detect execution of binaries masquerading as Microsoft SharePoint components
+// Covers: T1036
+//
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~("Microsoft.SharePoint.NativeMessaging.exe", "SharePoint.exe")
+| where FolderPath !startswith "C:\\Program Files\\"
+    and FolderPath !startswith "C:\\Program Files (x86)\\"
+| where not(ProcessVersionInfoCompanyName has "Microsoft")
+    or ProcessVersionInfoOriginalFileName != FileName
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, FolderPath, ProcessCommandLine,
+    ProcessVersionInfoOriginalFileName, ProcessVersionInfoCompanyName,
+    SHA256
+| extend ThreatScore = 85
+| extend Detection = "APT33 Tickler Masquerading - Non-Microsoft binary posing as SharePoint component"
+
+//
+// QUERY 5: HTTP POST C2 on Non-Standard Ports
+// Purpose: Detect outbound HTTP POST traffic on ports 808 and 880 (Tickler C2)
+// Covers: T1071.001
+//
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "ConnectionSuccess"
+| where RemotePort in (808, 880)
+| where RemoteIPType != "Private"
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    RemoteIP, RemotePort, RemoteUrl
+| summarize ConnectionCount=count(),
+    UniqueRemoteIPs=dcount(RemoteIP),
+    Processes=make_set(InitiatingProcessFileName),
+    FirstConnection=min(TimeGenerated),
+    LastConnection=max(TimeGenerated)
+    by DeviceName, AccountName, RemotePort
+| extend ThreatScore = 75
+| extend Detection = "APT33 Tickler C2 - HTTP traffic on non-standard ports (808/880)"
+
+//
+// QUERY 6: Spearphishing ZIP with PDF Extension
+// Purpose: Detect creation of ZIP files with double extensions (.pdf.zip)
+// Covers: T1566.001
+//
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".pdf.zip" or FileName endswith ".doc.zip" or FileName endswith ".pdf.rar"
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, FolderPath, FileSize,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend ThreatScore = 70
+| extend Detection = "APT33 Spearphishing - ZIP archive with double extension masquerading as document"
+
+//
+// QUERY 7: Combined APT33 Tickler Behavioral Detection
+// Purpose: Correlate multiple indicators for high-confidence APT33 detection
+//
+let DLLSideloading = DeviceImageLoadEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~("msvcp140.dll", "vcruntime140.dll")
+| where FolderPath !startswith "C:\\Windows\\" and FolderPath !startswith "C:\\Program Files\\"
+| distinct DeviceName;
+let SharePointPersistence = DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where RegistryValueName =~ "SharePoint"
+| where RegistryKey has @"CurrentVersion\Run"
+| distinct DeviceName;
+let ScheduledTaskPersistence = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "schtasks.exe" and ProcessCommandLine has "SharePoint"
+| distinct DeviceName;
+DLLSideloading
+| join kind=inner (SharePointPersistence) on DeviceName
+| join kind=leftouter (ScheduledTaskPersistence) on DeviceName
+| extend ThreatScore = 95
+| extend Detection = "HIGH CONFIDENCE: APT33 Tickler Activity - DLL Sideloading + SharePoint Persistence"
+| project DeviceName, ThreatScore, Detection
