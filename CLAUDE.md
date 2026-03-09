@@ -289,7 +289,7 @@ Validate: `./utils/validate-score-format.sh [test-uuid]`
 ## Key Conventions
 
 - Use `Endpoint.Say()` for console output
-- Check `Endpoint.Quarantined()` after dropping binaries
+- Use `os.Stat()` for quarantine detection (see Bug Prevention Rules)
 - Always clean up artifacts after test completion
 - Follow MITRE ATT&CK mapping standards
 
@@ -386,6 +386,17 @@ For building new tests, use the **sectest-builder agent**: `@agent-sectest-build
 - **DO** evaluate protection effectiveness before choosing exit code
 - **DO** clean up build artifacts after embedding
 - **DO** use established test structure patterns
+
+## Bug Prevention Rules (Lessons Learned)
+
+These rules prevent recurring false-positive bugs found across multiple tests:
+
+1. **NEVER inject blame keywords into `fmt.Errorf()` wrappers** — words like "access denied", "blocked", "prevented" in error messages poison `determineExitCode()` into returning exit 126 for ANY error, not just actual EDR blocks. Describe the operation, not the cause.
+2. **Handle SYSTEM vs user context** — Tests on Prelude run as SYSTEM where HKCU maps to `HKU\.DEFAULT`. Detect with `isSystemContext()` and use HKLM for machine-wide operations.
+3. **Use `os.Stat()` for quarantine detection** — `Endpoint.Quarantined()` has a path-doubling bug with absolute paths. Use `time.Sleep(3s)` + `os.Stat()` instead.
+4. **Separate benign from critical metrics** — Track simulation steps and protection tests with separate counters. Exit code must reflect critical protection metrics only.
+5. **Handle empty sc.exe output** — Tamper-protected services may return empty output on stop/config. Treat unclear results as "blocked".
+6. **Use Windows service names, not display names** — `sc.exe` uses registry service names (e.g., `CSFalconService`), not display names (e.g., `CrowdStrike Falcon Sensor`).
 
 ## Multi-Stage Test Build Requirements (MANDATORY)
 
