@@ -7,9 +7,10 @@
 # 2. Build cleanup utility
 # 3. Sign stage binaries (BEFORE embedding)
 # 4. Verify signatures
-# 5. Build main orchestrator (embeds SIGNED stages)
-# 6. Sign orchestrator
-# 7. Cleanup temporary binaries + calculate hashes
+# 5. Compress signed binaries with gzip (reduces orchestrator ~31MB -> ~20MB)
+# 6. Build main orchestrator (embeds SIGNED+COMPRESSED stages)
+# 7. Sign orchestrator
+# 8. Cleanup temporary binaries + calculate hashes
 #
 # Usage: ./build_all.sh [--org <org-identifier>]
 # Output: build/<uuid>/<uuid>.exe
@@ -222,7 +223,7 @@ echo "  Signing:    ${SIGN_MODE}"
 echo "  Stages:     ${#STAGES[@]}"
 
 # Step 0: Validate environment
-print_step "0/7" "Validating environment..."
+print_step "0/8" "Validating environment..."
 
 if ! command -v go &> /dev/null; then
     print_error "Go is not installed or not in PATH"
@@ -234,7 +235,7 @@ go mod download 2>/dev/null || true
 print_success "Environment validated"
 
 # Step 1: Build unsigned stage binaries
-print_step "1/7" "Building ${#STAGES[@]} unsigned stage binaries..."
+print_step "1/8" "Building ${#STAGES[@]} unsigned stage binaries..."
 
 stage_count=0
 for stage in "${STAGES[@]}"; do
@@ -256,14 +257,14 @@ done
 print_success "Built ${stage_count} unsigned stage binaries"
 
 # Step 2: Build cleanup utility
-print_step "2/7" "Building cleanup utility..."
+print_step "2/8" "Building cleanup utility..."
 GOOS=${GOOS} GOARCH=${GOARCH} go build \
     -o cleanup_utility.exe \
     cleanup_utility.go
 print_success "cleanup_utility.exe built"
 
 # Step 3: Sign stage binaries (CRITICAL — before embedding!)
-print_step "3/7" "Signing stage binaries..."
+print_step "3/8" "Signing stage binaries..."
 if [ "$SIGN_MODE" = "none" ]; then
     print_warning "No signing certificate found — stages will be unsigned"
 else
@@ -276,7 +277,7 @@ else
 fi
 
 # Step 4: Verify signatures
-print_step "4/7" "Verifying stage signatures..."
+print_step "4/8" "Verifying stage signatures..."
 if [ "$SIGN_MODE" != "none" ] && command -v osslsigncode &> /dev/null; then
     for stage in "${STAGES[@]}"; do
         IFS=':' read -r technique _ <<< "$stage"
@@ -297,8 +298,24 @@ else
     echo "  Skipped (no signing or osslsigncode not installed)"
 fi
 
-# Step 5: Build main orchestrator (embeds SIGNED stage binaries)
-print_step "5/7" "Building orchestrator (embedding signed stages)..."
+# Step 5: Compress signed binaries with gzip (reduces orchestrator ~31MB -> ~20MB)
+# This is EDR-safe: the orchestrator is a normal Go PE, files extracted to disk are
+# decompressed first (normal PEs). No runtime packer signatures or UPX headers.
+print_step "5/8" "Compressing signed binaries with gzip..."
+for stage in "${STAGES[@]}"; do
+    IFS=':' read -r technique _ <<< "$stage"
+    binary="${TEST_UUID}-${technique}.exe"
+    orig_size=$(stat -c%s "$binary" 2>/dev/null || stat -f%z "$binary" 2>/dev/null)
+    gzip -9 -k "$binary"
+    gz_size=$(stat -c%s "${binary}.gz" 2>/dev/null || stat -f%z "${binary}.gz" 2>/dev/null)
+    echo "    ${binary}: $(numfmt --to=iec ${orig_size} 2>/dev/null || echo ${orig_size}B) -> $(numfmt --to=iec ${gz_size} 2>/dev/null || echo ${gz_size}B)"
+done
+gzip -9 -k "cleanup_utility.exe"
+echo "    cleanup_utility.exe compressed"
+print_success "Compression complete"
+
+# Step 6: Build main orchestrator (embeds SIGNED+COMPRESSED stage binaries)
+print_step "6/8" "Building orchestrator (embedding compressed stages)..."
 
 mkdir -p "${BUILD_DIR}"
 main_binary="${BUILD_DIR}/${TEST_UUID}.exe"
@@ -315,8 +332,8 @@ fi
 main_size=$(ls -lh "${main_binary}" | awk '{print $5}')
 print_success "Orchestrator built (${main_size})"
 
-# Step 6: Sign orchestrator
-print_step "6/7" "Signing orchestrator..."
+# Step 7: Sign orchestrator
+print_step "7/8" "Signing orchestrator..."
 if [ "$SIGN_MODE" != "none" ]; then
     sign_binary "${main_binary}"
     print_success "Orchestrator signing complete"
@@ -324,18 +341,18 @@ else
     print_warning "Skipping orchestrator signing (no certificate)"
 fi
 
-# Step 7: Cleanup temporary stage binaries + calculate hashes
-print_step "7/7" "Cleaning up and calculating hashes..."
+# Step 8: Cleanup temporary stage binaries + calculate hashes
+print_step "8/8" "Cleaning up and calculating hashes..."
 
 main_hash=$(sha1sum "${main_binary}" | awk '{print $1}')
 main_size_final=$(ls -lh "${main_binary}" | awk '{print $5}')
 
-# Clean up temporary files
+# Clean up temporary files (both .exe and .exe.gz)
 for stage in "${STAGES[@]}"; do
     IFS=':' read -r technique _ <<< "$stage"
-    rm -f "${TEST_UUID}-${technique}.exe"
+    rm -f "${TEST_UUID}-${technique}.exe" "${TEST_UUID}-${technique}.exe.gz"
 done
-rm -f cleanup_utility.exe
+rm -f cleanup_utility.exe cleanup_utility.exe.gz
 
 print_header "Build Complete"
 echo ""

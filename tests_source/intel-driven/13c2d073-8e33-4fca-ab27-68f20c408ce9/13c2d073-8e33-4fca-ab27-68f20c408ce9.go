@@ -21,6 +21,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	_ "embed"
 	"fmt"
 	"io"
@@ -42,27 +43,29 @@ const (
 	TEST_NAME = "APT33 Tickler Backdoor DLL Sideloading"
 )
 
-// Embed signed stage binaries (MUST be signed before embedding!)
-//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1566.001.exe
-var stage1Binary []byte
+// Embed gzip-compressed signed stage binaries
+// Compressed at build time to reduce orchestrator size (~31MB -> ~20MB)
+// Decompressed in memory during extraction — files on disk are normal PEs
+//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1566.001.exe.gz
+var stage1Compressed []byte
 
-//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1574.002.exe
-var stage2Binary []byte
+//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1574.002.exe.gz
+var stage2Compressed []byte
 
-//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1547.001.exe
-var stage3Binary []byte
+//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1547.001.exe.gz
+var stage3Compressed []byte
 
-//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1053.005.exe
-var stage4Binary []byte
+//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1053.005.exe.gz
+var stage4Compressed []byte
 
-//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1036.exe
-var stage5Binary []byte
+//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1036.exe.gz
+var stage5Compressed []byte
 
-//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1071.001.exe
-var stage6Binary []byte
+//go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1071.001.exe.gz
+var stage6Compressed []byte
 
-//go:embed cleanup_utility.exe
-var cleanupBinary []byte
+//go:embed cleanup_utility.exe.gz
+var cleanupCompressed []byte
 
 // ==============================================================================
 // STAGE DEFINITION
@@ -146,7 +149,7 @@ func test() {
 			Name:        "Spearphishing Attachment",
 			Technique:   "T1566.001",
 			BinaryName:  fmt.Sprintf("%s-T1566.001.exe", TEST_UUID),
-			BinaryData:  stage1Binary,
+			BinaryData:  stage1Compressed,
 			Description: "Simulate ZIP archive delivery masquerading as PDF containing Tickler payload and legitimate DLLs",
 		},
 		{
@@ -154,7 +157,7 @@ func test() {
 			Name:        "DLL Side-Loading",
 			Technique:   "T1574.002",
 			BinaryName:  fmt.Sprintf("%s-T1574.002.exe", TEST_UUID),
-			BinaryData:  stage2Binary,
+			BinaryData:  stage2Compressed,
 			Description: "Simulate DLL sideloading via renamed Microsoft binary loading msvcp140.dll/vcruntime140.dll",
 		},
 		{
@@ -162,7 +165,7 @@ func test() {
 			Name:        "Registry Run Keys",
 			Technique:   "T1547.001",
 			BinaryName:  fmt.Sprintf("%s-T1547.001.exe", TEST_UUID),
-			BinaryData:  stage3Binary,
+			BinaryData:  stage3Compressed,
 			Description: "Add registry Run key persistence as SharePoint.exe in non-standard path",
 		},
 		{
@@ -170,7 +173,7 @@ func test() {
 			Name:        "Scheduled Task",
 			Technique:   "T1053.005",
 			BinaryName:  fmt.Sprintf("%s-T1053.005.exe", TEST_UUID),
-			BinaryData:  stage4Binary,
+			BinaryData:  stage4Compressed,
 			Description: "Create scheduled task for redundant Tickler persistence",
 		},
 		{
@@ -178,7 +181,7 @@ func test() {
 			Name:        "Masquerading",
 			Technique:   "T1036",
 			BinaryName:  fmt.Sprintf("%s-T1036.exe", TEST_UUID),
-			BinaryData:  stage5Binary,
+			BinaryData:  stage5Compressed,
 			Description: "Rename binary to Microsoft.SharePoint.NativeMessaging.exe to blend with legitimate software",
 		},
 		{
@@ -186,7 +189,7 @@ func test() {
 			Name:        "Web Protocols C2",
 			Technique:   "T1071.001",
 			BinaryName:  fmt.Sprintf("%s-T1071.001.exe", TEST_UUID),
-			BinaryData:  stage6Binary,
+			BinaryData:  stage6Compressed,
 			Description: "Simulate HTTP POST exfiltration to Azure-hosted C2 on non-standard ports (808/880)",
 		},
 	}
@@ -207,13 +210,16 @@ func test() {
 		}
 	}
 
-	// Extract cleanup utility
+	// Extract cleanup utility (decompress from gzip)
 	cleanupPath := filepath.Join("c:\\F0", "cleanup_utility.exe")
-	if err := os.WriteFile(cleanupPath, cleanupBinary, 0755); err != nil {
+	cleanupData, cleanupErr := decompressGzip(cleanupCompressed)
+	if cleanupErr != nil {
+		LogMessage("WARNING", "Extraction", fmt.Sprintf("Failed to decompress cleanup utility: %v", cleanupErr))
+	} else if err := os.WriteFile(cleanupPath, cleanupData, 0755); err != nil {
 		LogMessage("WARNING", "Extraction", fmt.Sprintf("Failed to extract cleanup utility: %v", err))
 	} else {
-		LogFileDropped("cleanup_utility.exe", cleanupPath, int64(len(cleanupBinary)), false)
-		Endpoint.Say("    [+] Extracted cleanup_utility.exe (%d bytes)", len(cleanupBinary))
+		LogFileDropped("cleanup_utility.exe", cleanupPath, int64(len(cleanupData)), false)
+		Endpoint.Say("    [+] Extracted cleanup_utility.exe (%d bytes)", len(cleanupData))
 	}
 
 	LogPhaseEnd(0, "success", fmt.Sprintf("Successfully extracted %d stage binaries + cleanup", len(killchain)))
@@ -359,21 +365,42 @@ func extractKillchainStage(stage KillchainStage) error {
 		return fmt.Errorf("failed to create directory %s: %v", targetDir, err)
 	}
 
+	// Decompress gzip-compressed binary data
+	binaryData, err := decompressGzip(stage.BinaryData)
+	if err != nil {
+		return fmt.Errorf("failed to decompress %s: %v", stage.BinaryName, err)
+	}
+
 	stagePath := filepath.Join(targetDir, stage.BinaryName)
-	if err := os.WriteFile(stagePath, stage.BinaryData, 0755); err != nil {
+	if err := os.WriteFile(stagePath, binaryData, 0755); err != nil {
 		return fmt.Errorf("failed to write %s: %v", stage.BinaryName, err)
 	}
 
-	LogFileDropped(stage.BinaryName, stagePath, int64(len(stage.BinaryData)), false)
+	LogFileDropped(stage.BinaryName, stagePath, int64(len(binaryData)), false)
 
 	// Check for quarantine using os.Stat (Rule 3: avoid Endpoint.Quarantined)
 	time.Sleep(1500 * time.Millisecond)
 	if _, err := os.Stat(stagePath); os.IsNotExist(err) {
-		LogFileDropped(stage.BinaryName, stagePath, int64(len(stage.BinaryData)), true)
+		LogFileDropped(stage.BinaryName, stagePath, int64(len(binaryData)), true)
 		return fmt.Errorf("file quarantined after extraction")
 	}
 
 	return nil
+}
+
+// decompressGzip decompresses gzip-compressed data in memory
+func decompressGzip(compressed []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gzip reader: %v", err)
+	}
+	defer reader.Close()
+
+	decompressed, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress data: %v", err)
+	}
+	return decompressed, nil
 }
 
 func executeKillchainStage(stage KillchainStage) int {
