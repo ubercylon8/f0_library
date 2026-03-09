@@ -203,6 +203,86 @@ flowchart TD
 
 ---
 
+## 4. APT33 (Elfin / Peach Sandstorm) — Tickler Backdoor DLL Sideloading
+**UUID**: `13c2d073-8e33-4fca-ab27-68f20c408ce9` | **Score**: 8.7/10
+
+```mermaid
+flowchart TD
+    subgraph INIT["ORCHESTRATOR"]
+        START([Deploy to c:\F0]) --> EXTRACT[Extract 6 embedded<br/>stage binaries]
+    end
+
+    subgraph S1["STAGE 1 — Spearphishing Delivery (T1566.001)"]
+        S1A["Create ZIP archive<br/>with .pdf.zip extension"] --> S1B["Pack Tickler payload +<br/>msvcp140.dll + vcruntime140.dll"]
+        S1B --> S1C[Verify archive<br/>creation]
+        S1C --> S1D{EDR<br/>blocked?}
+    end
+
+    subgraph S2["STAGE 2 — DLL Side-Loading (T1574.002)"]
+        S2A["Rename notepad.exe →<br/>Microsoft.SharePoint.<br/>NativeMessaging.exe"] --> S2B["Place msvcp140.dll &<br/>vcruntime140.dll alongside"]
+        S2B --> S2C[Execute renamed binary<br/>to trigger sideloading]
+        S2C --> S2D{EDR<br/>blocked?}
+    end
+
+    subgraph S3["STAGE 3 — Registry Persistence (T1547.001)"]
+        S3A["isSystemContext() check"] --> S3B{"SYSTEM<br/>context?"}
+        S3B -->|Yes| S3C["HKLM Run key<br/>''SharePoint'' → payload"]
+        S3B -->|No| S3D["HKCU Run key<br/>''SharePoint'' → payload"]
+        S3C --> S3E[Verify & cleanup]
+        S3D --> S3E
+    end
+
+    subgraph S4["STAGE 4 — Scheduled Task (T1053.005)"]
+        S4A["schtasks /create<br/>MicrosoftSharePointSync"] --> S4B[ONLOGON trigger<br/>for redundant persistence]
+        S4B --> S4C[Verify & cleanup task]
+        S4C --> S4D{EDR<br/>blocked?}
+    end
+
+    subgraph S5["STAGE 5 — Masquerading (T1036)"]
+        S5A["Copy binary as<br/>SharePoint.exe"] --> S5B["Place in non-standard<br/>path c:\F0"]
+        S5B --> S5C[SHA256 hash tracking<br/>for detection]
+        S5C --> S5D{EDR<br/>blocked?}
+    end
+
+    subgraph S6["STAGE 6 — HTTP C2 (T1071.001)"]
+        S6A["Base64-encode system<br/>fingerprint data"] --> S6B["HTTP POST to Azure<br/>port 808/880"]
+        S6B --> S6C[SharePoint User-Agent<br/>string masquerading]
+        S6C --> S6D{EDR<br/>blocked?}
+    end
+
+    EXTRACT --> S1A
+    S1D -->|No| S2A
+    S1D -->|Yes| PROT1([EXIT 126 — PROTECTED<br/>Spearphish ZIP detected])
+    S2D -->|No| S3A
+    S2D -->|Yes| PROT2([EXIT 126 — PROTECTED<br/>DLL sideload blocked])
+    S3E --> S3F{EDR<br/>blocked?}
+    S3F -->|No| S4A
+    S3F -->|Yes| PROT3([EXIT 126 — PROTECTED<br/>Registry persistence blocked])
+    S4D -->|No| S5A
+    S4D -->|Yes| PROT4([EXIT 126 — PROTECTED<br/>Sched task blocked])
+    S5D -->|No| S6A
+    S5D -->|Yes| PROT5([EXIT 126 — PROTECTED<br/>Masquerading detected])
+    S6D -->|No| UNPROT([EXIT 101 — UNPROTECTED<br/>Full APT33 chain succeeded])
+    S6D -->|Yes| PROT6([EXIT 126 — PROTECTED<br/>C2 traffic blocked])
+
+    style INIT fill:#1a1a2e,color:#e0e0e0,stroke:#0f3460
+    style S1 fill:#2d1b4e,color:#e0e0e0,stroke:#6a3d9a
+    style S2 fill:#2d1b4e,color:#e0e0e0,stroke:#6a3d9a
+    style S3 fill:#2d1b4e,color:#e0e0e0,stroke:#6a3d9a
+    style S4 fill:#2d1b4e,color:#e0e0e0,stroke:#6a3d9a
+    style S5 fill:#2d1b4e,color:#e0e0e0,stroke:#6a3d9a
+    style S6 fill:#2d1b4e,color:#e0e0e0,stroke:#6a3d9a
+    style PROT1 fill:#1b4332,color:#95d5b2,stroke:#2d6a4f
+    style PROT2 fill:#1b4332,color:#95d5b2,stroke:#2d6a4f
+    style PROT3 fill:#1b4332,color:#95d5b2,stroke:#2d6a4f
+    style PROT4 fill:#1b4332,color:#95d5b2,stroke:#2d6a4f
+    style PROT5 fill:#1b4332,color:#95d5b2,stroke:#2d6a4f
+    style PROT6 fill:#1b4332,color:#95d5b2,stroke:#2d6a4f
+    style UNPROT fill:#6a040f,color:#ffd6a5,stroke:#9d0208
+```
+
+---
+
 ## Legend
 
 | Color | Meaning |
@@ -219,11 +299,13 @@ flowchart LR
     subgraph IA["Initial Access"]
         T1190[T1190<br/>Exploit Public App]
         T1204[T1204.002<br/>Malicious File]
+        T1566[T1566.001<br/>Spearphishing Attach]
     end
 
     subgraph EX["Execution"]
         T1059_1[T1059.001<br/>PowerShell]
         T1059_5[T1059.005<br/>VBScript]
+        T1053[T1053.005<br/>Scheduled Task]
     end
 
     subgraph PE["Persistence"]
@@ -236,6 +318,8 @@ flowchart LR
     subgraph DE["Defense Evasion"]
         T1562[T1562.001<br/>Disable Tools]
         T1070[T1070.001<br/>Clear Event Logs]
+        T1574[T1574.002<br/>DLL Side-Loading]
+        T1036[T1036<br/>Masquerading]
     end
 
     subgraph CA["Credential Access"]
@@ -244,7 +328,8 @@ flowchart LR
     end
 
     subgraph CC["Command & Control"]
-        T1071[T1071.003<br/>Mail Protocols]
+        T1071_3[T1071.003<br/>Mail Protocols]
+        T1071_1[T1071.001<br/>Web Protocols]
         T1102[T1102<br/>Web Service]
     end
 
