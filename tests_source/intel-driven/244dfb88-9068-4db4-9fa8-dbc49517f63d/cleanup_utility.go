@@ -108,36 +108,53 @@ func main() {
 		}
 	}
 
-	// --- Clean up artifacts in /Users/fortika-test ---
-	fmt.Println("[*] Removing artifacts from /Users/fortika-test...")
-	testArtifacts := []string{
-		filepath.Join(artifactDir, "InternalPDFViewer.sh"),
-		filepath.Join(artifactDir, "CryptoExchangePro_Info.plist"),
-		filepath.Join(artifactDir, ".zshenv"),
-		filepath.Join(artifactDir, "password_prompt.applescript"),
+	// --- Clean up artifacts in /Users/fortika-test (and fallback) ---
+	// Clean both ARTIFACT_DIR and fallback location
+	artifactLocations := []string{artifactDir}
+	fallbackArtifactDir := filepath.Join(targetDir, "fortika-test")
+	if _, err := os.Stat(fallbackArtifactDir); err == nil {
+		artifactLocations = append(artifactLocations, fallbackArtifactDir)
 	}
-	for _, f := range testArtifacts {
-		if err := os.Remove(f); err == nil {
-			fmt.Printf("  [+] Removed: %s\n", filepath.Base(f))
-			removed++
-		} else if !os.IsNotExist(err) {
-			fmt.Printf("  [!] Failed to remove %s: %v\n", filepath.Base(f), err)
-			errors++
+
+	for _, aDir := range artifactLocations {
+		fmt.Printf("[*] Removing artifacts from %s...\n", aDir)
+		testArtifacts := []string{
+			filepath.Join(aDir, "InternalPDFViewer.sh"),
+			filepath.Join(aDir, "CryptoExchangePro_Info.plist"),
+			filepath.Join(aDir, ".zshenv"),
+			filepath.Join(aDir, "password_prompt.applescript"),
+		}
+		for _, f := range testArtifacts {
+			if err := os.Remove(f); err == nil {
+				fmt.Printf("  [+] Removed: %s\n", filepath.Base(f))
+				removed++
+			} else if !os.IsNotExist(err) {
+				fmt.Printf("  [!] Failed to remove %s: %v\n", filepath.Base(f), err)
+				errors++
+			}
+		}
+
+		// Remove simulated LaunchAgents/LaunchDaemons directories
+		subDirs := []string{
+			filepath.Join(aDir, "Library", "LaunchAgents"),
+			filepath.Join(aDir, "Library", "LaunchDaemons"),
+			filepath.Join(aDir, "Library"),
+		}
+		for _, dir := range subDirs {
+			if err := os.RemoveAll(dir); err == nil {
+				if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+					fmt.Printf("  [+] Removed directory: %s\n", dir)
+					removed++
+				}
+			}
 		}
 	}
 
-	// Remove simulated LaunchAgents/LaunchDaemons directories
-	artifactDirs := []string{
-		filepath.Join(artifactDir, "Library", "LaunchAgents"),
-		filepath.Join(artifactDir, "Library", "LaunchDaemons"),
-		filepath.Join(artifactDir, "Library"),
-	}
-	for _, dir := range artifactDirs {
-		if err := os.RemoveAll(dir); err == nil {
-			if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
-				fmt.Printf("  [+] Removed directory: %s\n", dir)
-				removed++
-			}
+	// Remove fallback directory itself if it exists
+	if _, err := os.Stat(fallbackArtifactDir); err == nil {
+		if err := os.RemoveAll(fallbackArtifactDir); err == nil {
+			fmt.Printf("  [+] Removed fallback directory: %s\n", fallbackArtifactDir)
+			removed++
 		}
 	}
 

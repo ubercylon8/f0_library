@@ -64,13 +64,18 @@ func main() {
 
 func performTechnique() error {
 	targetDir := "/tmp/F0"
-	artifactDir := "/Users/fortika-test"
+	artifactDir := ARTIFACT_DIR
 
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("failed to create target directory: %v", err)
 	}
 	if err := os.MkdirAll(artifactDir, 0755); err != nil {
-		return fmt.Errorf("failed to create artifact directory: %v", err)
+		fmt.Printf("[STAGE %s]   ARTIFACT_DIR %s not writable, falling back to /tmp/F0/fortika-test\n", TECHNIQUE_ID, artifactDir)
+		LogMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("ARTIFACT_DIR %s not writable, using fallback", artifactDir))
+		artifactDir = filepath.Join(targetDir, "fortika-test")
+		if err := os.MkdirAll(artifactDir, 0755); err != nil {
+			return fmt.Errorf("failed to create artifact directory: %v", err)
+		}
 	}
 
 	// --- Persistence 1: RustBucket LaunchAgent ---

@@ -77,9 +77,17 @@ func main() {
 
 func performTechnique() error {
 	targetDir := "/tmp/F0"
-	artifactDir := "/Users/fortika-test"
+	artifactDir := ARTIFACT_DIR
 	stagingDir := filepath.Join(targetDir, "credential_staging")
 	exfilDir := filepath.Join(targetDir, "exfil_staging")
+
+	// Check if ARTIFACT_DIR exists; if not, use fallback (matching earlier stages)
+	if _, err := os.Stat(artifactDir); os.IsNotExist(err) {
+		fallback := filepath.Join(targetDir, "fortika-test")
+		if _, err := os.Stat(fallback); err == nil {
+			artifactDir = fallback
+		}
+	}
 
 	if err := os.MkdirAll(exfilDir, 0755); err != nil {
 		return fmt.Errorf("failed to create exfil directory: %v", err)
