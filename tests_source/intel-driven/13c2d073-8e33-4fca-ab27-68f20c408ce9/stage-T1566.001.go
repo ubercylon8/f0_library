@@ -187,7 +187,8 @@ func determineExitCode(err error) int {
 	if containsAny(errStr, []string{"not found", "does not exist", "no such", "not running", "not available"}) {
 		return StageError
 	}
-	return StageBlocked
+	// Default to error (999), NOT blocked (126) — prevents false "EDR blocked" results
+	return StageError
 }
 
 func containsAny(s string, substrings []string) bool {

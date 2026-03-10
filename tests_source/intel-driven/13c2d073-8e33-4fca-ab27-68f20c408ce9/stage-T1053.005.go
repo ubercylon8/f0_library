@@ -90,17 +90,34 @@ func performTechnique() error {
 
 	// Create the scheduled task using schtasks.exe
 	// Models APT33's use of logon triggers for persistence
+	//
+	// Rule 2: Handle SYSTEM vs user context
+	// SYSTEM context: Use /RU SYSTEM (avoids SID resolution error with /RL HIGHEST)
+	// User context: Use /RL HIGHEST for elevated persistence
+	isSystem := isSystemContext()
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Execution context: SYSTEM=%v", isSystem))
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Creating scheduled task: %s", TASK_NAME))
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Task action: %s", backdoorPath))
 
-	cmd := exec.Command("schtasks.exe",
+	args := []string{
 		"/Create",
 		"/TN", TASK_NAME,
 		"/TR", fmt.Sprintf("\"%s\"", backdoorPath),
 		"/SC", "ONLOGON",
-		"/RL", "HIGHEST",
 		"/F", // Force overwrite if exists
-	)
+	}
+
+	if isSystem {
+		// SYSTEM has no interactive user SID — /RL HIGHEST causes
+		// "No mapping between account names and security IDs" error
+		args = append(args, "/RU", "SYSTEM")
+		LogMessage("INFO", TECHNIQUE_ID, "Using /RU SYSTEM for SYSTEM context")
+	} else {
+		args = append(args, "/RL", "HIGHEST")
+		LogMessage("INFO", TECHNIQUE_ID, "Using /RL HIGHEST for user context")
+	}
+
+	cmd := exec.Command("schtasks.exe", args...)
 
 	output, err := cmd.CombinedOutput()
 	outputStr := strings.TrimSpace(string(output))
@@ -148,6 +165,15 @@ func scheduledTaskExists(taskName string) bool {
 }
 
 // ==============================================================================
+// CONTEXT DETECTION (Rule 2)
+// ==============================================================================
+
+func isSystemContext() bool {
+	username := os.Getenv("USERNAME")
+	return strings.HasSuffix(username, "$") || strings.EqualFold(username, "SYSTEM")
+}
+
+// ==============================================================================
 // EXIT CODE DETERMINATION
 // ==============================================================================
 
@@ -165,7 +191,9 @@ func determineExitCode(err error) int {
 	if containsAny(errStr, []string{"not found", "does not exist", "no such", "not running", "not available"}) {
 		return StageError
 	}
-	return StageBlocked
+	// Default to error (999), NOT blocked (126) — prevents false "EDR blocked" results
+	// Only pattern-matched keywords above should trigger blocked/quarantined exit codes
+	return StageError
 }
 
 func containsAny(s string, substrings []string) bool {
