@@ -397,12 +397,21 @@ These rules prevent recurring false-positive bugs found across multiple tests:
 4. **Separate benign from critical metrics** — Track simulation steps and protection tests with separate counters. Exit code must reflect critical protection metrics only.
 5. **Handle empty sc.exe output** — Tamper-protected services may return empty output on stop/config. Treat unclear results as "blocked".
 6. **Use Windows service names, not display names** — `sc.exe` uses registry service names (e.g., `CSFalconService`), not display names (e.g., `CrowdStrike Falcon Sensor`).
+7. **Use gzip compression for multi-stage embedded binaries** — Embed `.exe.gz` files and decompress in memory with `compress/gzip`. NEVER use UPX or runtime packers (they trigger EDR heuristic detections for packer entropy, poisoning test results).
 
 ## Multi-Stage Test Build Requirements (MANDATORY)
 
-All multi-stage tests MUST use the modern 7-step `build_all.sh` pattern with org registry integration, dual signing, signature verification, and SHA1 hashing.
+All multi-stage tests MUST use the modern 8-step `build_all.sh` pattern with org registry integration, dual signing, signature verification, **gzip compression**, and SHA1 hashing.
 
-Reference implementation: `tests_source/intel-driven/eafce2fc-75fd-4c62-92dc-32cabe5cf206/build_all.sh`
+**Build sequence**: Build stages → Sign stages → **Compress with gzip** → Embed compressed stages in orchestrator → Sign orchestrator
+
+**Gzip compression is MANDATORY** for all multi-stage tests. Stage binaries are gzip-compressed at build time and decompressed in memory during extraction. This reduces orchestrator size by ~35% (e.g., 31MB → 20MB) without triggering EDR heuristics. Files written to disk are normal signed PEs.
+
+- Orchestrator embeds `.exe.gz` files (not `.exe`)
+- Orchestrator imports `"compress/gzip"` and decompresses via `decompressGzip()` helper
+- UPX and runtime packers are FORBIDDEN (they trigger EDR entropy/packer detections)
+
+Reference implementation: `tests_source/intel-driven/13c2d073-8e33-4fca-ab27-68f20c408ce9/build_all.sh`
 
 Details: `docs/MULTISTAGE_QUICK_REFERENCE.md`
 

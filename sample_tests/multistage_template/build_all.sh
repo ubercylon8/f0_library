@@ -10,9 +10,12 @@
 # 1. Build unsigned stage binaries
 # 2. Sign stage binaries (BEFORE embedding)
 # 3. Verify signatures
-# 4. Build main orchestrator (embeds SIGNED stage binaries)
-# 5. Sign main binary
-# 6. Cleanup temporary files
+# 4. Compress signed binaries with gzip (reduces orchestrator size ~35%)
+# 5. Build main orchestrator (embeds SIGNED+COMPRESSED stage binaries)
+# 6. Sign main binary
+# 7. Cleanup temporary files
+#
+# NOTE: NEVER use UPX or runtime packers — they trigger EDR heuristic detections
 #
 # Usage: ./build_all.sh [--org <org-identifier>] [--es <profile>]
 # Output: build/<uuid>/<uuid>[.exe] (single deployable binary)
@@ -254,7 +257,7 @@ print_success() {
 
 # Validate environment
 validate_environment() {
-    print_step "0/7" "Validating environment..."
+    print_step "0/8" "Validating environment..."
 
     # Check if test directory exists
     if [ ! -d "${TEST_DIR}" ]; then
@@ -302,7 +305,7 @@ validate_environment
 cd "${TEST_DIR}"
 
 # Step 1: Build unsigned stage binaries
-print_step "1/7" "Building unsigned stage binaries..."
+print_step "1/8" "Building unsigned stage binaries..."
 stage_count=0
 for stage_def in "${STAGES[@]}"; do
     IFS=':' read -r technique source_file <<< "$stage_def"
@@ -329,7 +332,7 @@ print_success "Built ${stage_count} unsigned stage binaries"
 # Step 2: Sign stage binaries (CRITICAL - before embedding)
 if [ "$GOOS" = "windows" ]; then
     if [ "$SIGNING_MODE" = "dual" ]; then
-        print_step "2/7" "Dual-signing stage binaries (org + F0RT1KA)..."
+        print_step "2/8" "Dual-signing stage binaries (org + F0RT1KA)..."
         for stage_def in "${STAGES[@]}"; do
             IFS=':' read -r technique _ <<< "$stage_def"
             stage_binary="${TEST_UUID}-${technique}${EXT}"
@@ -344,7 +347,7 @@ if [ "$GOOS" = "windows" ]; then
         done
         print_success "Dual-signed ${stage_count} stage binaries"
     else
-        print_step "2/7" "Signing stage binaries (F0RT1KA)..."
+        print_step "2/8" "Signing stage binaries (F0RT1KA)..."
         PRIMARY_PASSWORD=$(cat "${PRIMARY_PASSWORD_FILE}" | tr -d '\n\r')
 
         for stage_def in "${STAGES[@]}"; do
@@ -362,7 +365,7 @@ if [ "$GOOS" = "windows" ]; then
         print_success "Signed ${stage_count} stage binaries"
     fi
 elif [ "$GOOS" = "darwin" ]; then
-    print_step "2/7" "Ad-hoc signing stage binaries (macOS)..."
+    print_step "2/8" "Ad-hoc signing stage binaries (macOS)..."
     if command -v codesign &> /dev/null; then
         for stage_def in "${STAGES[@]}"; do
             IFS=':' read -r technique _ <<< "$stage_def"
@@ -375,12 +378,12 @@ elif [ "$GOOS" = "darwin" ]; then
         print_warning "macOS codesign not available - skipping stage signing"
     fi
 else
-    print_step "2/7" "Signing stage binaries..."
+    print_step "2/8" "Signing stage binaries..."
     print_warning "Signing skipped for ${GOOS} (no Authenticode for ELF binaries)"
 fi
 
 # Step 3: Verify signatures (self-signed certs will show warnings but are cryptographically valid)
-print_step "3/7" "Verifying stage signatures..."
+print_step "3/8" "Verifying stage signatures..."
 if [ "$GOOS" = "windows" ] && command -v osslsigncode &> /dev/null; then
     for stage_def in "${STAGES[@]}"; do
         IFS=':' read -r technique _ <<< "$stage_def"
@@ -408,8 +411,23 @@ else
     print_warning "Skipping signature verification (not applicable for ${GOOS})"
 fi
 
-# Step 4: Build main orchestrator (embeds SIGNED stage binaries)
-print_step "4/7" "Building main orchestrator (embedding signed stages)..."
+# Step 4: Compress signed binaries with gzip (reduces orchestrator size ~35%)
+# EDR-safe: orchestrator is a normal Go PE, extracted files are decompressed first (normal PEs)
+print_step "4/8" "Compressing signed binaries with gzip..."
+for stage_def in "${STAGES[@]}"; do
+    IFS=':' read -r technique _ <<< "$stage_def"
+    stage_binary="${TEST_UUID}-${technique}${EXT}"
+    if [ -f "${stage_binary}" ]; then
+        orig_size=$(stat -c%s "$stage_binary" 2>/dev/null || stat -f%z "$stage_binary" 2>/dev/null)
+        gzip -9 -k "$stage_binary"
+        gz_size=$(stat -c%s "${stage_binary}.gz" 2>/dev/null || stat -f%z "${stage_binary}.gz" 2>/dev/null)
+        echo "  ${stage_binary}: $(numfmt --to=iec ${orig_size} 2>/dev/null || echo ${orig_size}B) -> $(numfmt --to=iec ${gz_size} 2>/dev/null || echo ${gz_size}B)"
+    fi
+done
+print_success "Compression complete"
+
+# Step 5: Build main orchestrator (embeds SIGNED+COMPRESSED stage binaries)
+print_step "5/8" "Building main orchestrator (embedding compressed stages)..."
 
 # Create build directory if it doesn't exist
 mkdir -p "${BUILD_DIR}"
@@ -428,12 +446,12 @@ fi
 main_size_before=$(ls -lh "${main_binary}" | awk '{print $5}')
 print_success "Main orchestrator built (${main_size_before})"
 
-# Step 5: Sign main binary
+# Step 6: Sign main binary
 cd "${PROJECT_ROOT}"
 
 if [ "$GOOS" = "windows" ]; then
     if [ "$SIGNING_MODE" = "dual" ]; then
-        print_step "5/7" "Dual-signing main binary (org + F0RT1KA)..."
+        print_step "6/8" "Dual-signing main binary (org + F0RT1KA)..."
         "${PROJECT_ROOT}/utils/codesign" sign-nested "${main_binary}" "${ORG_CERT_FILE}" "${SECONDARY_CERT}"
 
         if [ $? -ne 0 ]; then
@@ -441,7 +459,7 @@ if [ "$GOOS" = "windows" ]; then
             exit 1
         fi
     else
-        print_step "5/7" "Signing main binary (F0RT1KA)..."
+        print_step "6/8" "Signing main binary (F0RT1KA)..."
         "${PROJECT_ROOT}/utils/codesign" --cert "${PRIMARY_CERT}" --password "${PRIMARY_PASSWORD}" sign "${main_binary}"
 
         if [ $? -ne 0 ]; then
@@ -459,7 +477,7 @@ if [ "$GOOS" = "windows" ]; then
         fi
     fi
 elif [ "$GOOS" = "darwin" ]; then
-    print_step "5/7" "Ad-hoc signing main binary (macOS)..."
+    print_step "6/8" "Ad-hoc signing main binary (macOS)..."
     if command -v codesign &> /dev/null; then
         codesign -s - "${main_binary}"
         print_success "Main binary ad-hoc signed"
@@ -467,15 +485,15 @@ elif [ "$GOOS" = "darwin" ]; then
         print_warning "macOS codesign not available - skipping"
     fi
 else
-    print_step "5/7" "Signing main binary..."
+    print_step "6/8" "Signing main binary..."
     print_warning "Signing skipped for ${GOOS}"
 fi
 
 main_size_after=$(ls -lh "${main_binary}" | awk '{print $5}')
 print_success "Main binary ready (${main_size_after})"
 
-# Step 6: Cleanup temporary stage binaries
-print_step "6/7" "Cleaning up temporary stage binaries..."
+# Step 7: Cleanup temporary stage binaries (both .exe and .exe.gz)
+print_step "7/8" "Cleaning up temporary stage binaries..."
 cd "${TEST_DIR}"
 for stage_def in "${STAGES[@]}"; do
     IFS=':' read -r technique _ <<< "$stage_def"
@@ -485,11 +503,15 @@ for stage_def in "${STAGES[@]}"; do
         echo "  Removing ${stage_binary}..."
         rm -f "${stage_binary}"
     fi
+    if [ -f "${stage_binary}.gz" ]; then
+        echo "  Removing ${stage_binary}.gz..."
+        rm -f "${stage_binary}.gz"
+    fi
 done
 print_success "Stage binaries cleaned up"
 
-# Step 7: Calculate SHA1 hashes and cleanup generated config
-print_step "7/7" "Calculating hashes and final cleanup..."
+# Step 8: Calculate SHA1 hashes and cleanup generated config
+print_step "8/8" "Calculating hashes and final cleanup..."
 
 # Calculate SHA1 hash of final binary
 # Use sha1sum (Linux) or shasum (macOS)

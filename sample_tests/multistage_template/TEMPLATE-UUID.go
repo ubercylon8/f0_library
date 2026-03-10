@@ -42,11 +42,14 @@ AUTHOR: sectest-builder
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
+	_ "embed"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	_ "embed"
 
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
@@ -61,29 +64,31 @@ const (
 	TEST_NAME = "Multi-Stage Attack Chain Template"  // Replace with your test name
 )
 
-// Embed signed stage binaries (MUST be signed before embedding!)
-// Replace these with your actual stage binary names after building and signing them
+// Embed gzip-compressed signed stage binaries
+// Compressed at build time to reduce orchestrator size (~35% smaller)
+// Decompressed in memory during extraction — files on disk are normal signed PEs
 //
 // Build process:
 // 1. Build: GOOS=windows GOARCH=amd64 go build -o TEMPLATE-UUID-T1234.001.exe stage-T1234.001.go test_logger.go org_resolver.go
 // 2. Sign:  ../../utils/codesign sign TEMPLATE-UUID-T1234.001.exe
-// 3. Then this //go:embed directive will embed the SIGNED binary
+// 3. Compress: gzip -9 -k TEMPLATE-UUID-T1234.001.exe
+// 4. Then this //go:embed directive will embed the SIGNED+COMPRESSED binary
 //
-// Note: Stage binaries also include org_resolver.go for organization resolution
+// IMPORTANT: NEVER use UPX or runtime packers (trigger EDR heuristic detections)
 
-//go:embed TEMPLATE-UUID-T1134.001.exe
-var stage1Binary []byte
+//go:embed TEMPLATE-UUID-T1134.001.exe.gz
+var stage1Compressed []byte
 
-//go:embed TEMPLATE-UUID-T1055.001.exe
-var stage2Binary []byte
+//go:embed TEMPLATE-UUID-T1055.001.exe.gz
+var stage2Compressed []byte
 
-//go:embed TEMPLATE-UUID-T1003.001.exe
-var stage3Binary []byte
+//go:embed TEMPLATE-UUID-T1003.001.exe.gz
+var stage3Compressed []byte
 
 // Add more stage binaries as needed for your test
 // Example:
-// //go:embed TEMPLATE-UUID-T1071.001.exe
-// var stage4Binary []byte
+// //go:embed TEMPLATE-UUID-T1071.001.exe.gz
+// var stage4Compressed []byte
 
 // ==============================================================================
 // STAGE DEFINITION
@@ -176,7 +181,7 @@ func test() {
 			Name:        "Access Token Manipulation",
 			Technique:   "T1134.001",
 			BinaryName:  fmt.Sprintf("%s-T1134.001.exe", TEST_UUID),
-			BinaryData:  stage1Binary,
+			BinaryData:  stage1Compressed,
 			Description: "Manipulate access tokens for privilege escalation",
 		},
 		{
@@ -184,7 +189,7 @@ func test() {
 			Name:        "Process Injection: DLL Injection",
 			Technique:   "T1055.001",
 			BinaryName:  fmt.Sprintf("%s-T1055.001.exe", TEST_UUID),
-			BinaryData:  stage2Binary,
+			BinaryData:  stage2Compressed,
 			Description: "Inject malicious DLL into target process",
 		},
 		{
@@ -192,7 +197,7 @@ func test() {
 			Name:        "LSASS Memory Dump",
 			Technique:   "T1003.001",
 			BinaryName:  fmt.Sprintf("%s-T1003.001.exe", TEST_UUID),
-			BinaryData:  stage3Binary,
+			BinaryData:  stage3Compressed,
 			Description: "Dump LSASS process memory to extract credentials",
 		},
 		// Add more stages as needed
@@ -356,7 +361,7 @@ func test() {
 // HELPER FUNCTIONS
 // ==============================================================================
 
-// extractStage extracts a stage binary to C:\F0
+// extractStage extracts a gzip-compressed stage binary to C:\F0
 func extractStage(stage Stage) error {
 	targetDir := "c:\\F0"
 
@@ -365,16 +370,37 @@ func extractStage(stage Stage) error {
 		return fmt.Errorf("failed to create directory %s: %v", targetDir, err)
 	}
 
-	// Write stage binary to disk
+	// Decompress gzip-compressed binary data
+	binaryData, err := decompressGzip(stage.BinaryData)
+	if err != nil {
+		return fmt.Errorf("failed to decompress %s: %v", stage.BinaryName, err)
+	}
+
+	// Write decompressed stage binary to disk (normal signed PE)
 	stagePath := filepath.Join(targetDir, stage.BinaryName)
-	if err := os.WriteFile(stagePath, stage.BinaryData, 0755); err != nil {
+	if err := os.WriteFile(stagePath, binaryData, 0755); err != nil {
 		return fmt.Errorf("failed to write %s: %v", stage.BinaryName, err)
 	}
 
 	// Log file drop
-	LogFileDropped(stage.BinaryName, stagePath, int64(len(stage.BinaryData)), false)
+	LogFileDropped(stage.BinaryName, stagePath, int64(len(binaryData)), false)
 
 	return nil
+}
+
+// decompressGzip decompresses gzip-compressed data in memory
+func decompressGzip(compressed []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gzip reader: %v", err)
+	}
+	defer reader.Close()
+
+	decompressed, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress data: %v", err)
+	}
+	return decompressed, nil
 }
 
 // executeStage executes a stage binary and returns its exit code
