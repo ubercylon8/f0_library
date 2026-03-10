@@ -331,9 +331,14 @@ func generateExfilSummary() string {
 
 func isBlockedError(err error) bool {
 	errStr := strings.ToLower(err.Error())
+	// Only match EDR/AV-specific indicators, NOT standard OS errors.
+	// "permission denied" and "operation not permitted" are standard POSIX errors
+	// from filesystem operations — not EDR blocks. On Linux, EDR blocks manifest
+	// as process kills (SIGKILL), file quarantine (file disappears), or security
+	// policy enforcement — never as simple EACCES/EPERM on mkdir/write.
 	blockedPatterns := []string{
-		"access denied", "access is denied", "permission denied",
-		"operation not permitted", "blocked", "prevented", "quarantined",
+		"quarantined", "blocked by security", "blocked by endpoint",
+		"malware detected", "threat detected", "security policy",
 	}
 	for _, pattern := range blockedPatterns {
 		if strings.Contains(errStr, pattern) {

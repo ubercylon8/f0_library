@@ -63,14 +63,22 @@ func main() {
 func performTechnique() error {
 	targetDir := "/tmp/F0"
 	artifactDir := filepath.Join(targetDir, "esxi_encrypt")
-	// Use /home/fortika-test for simulation artifacts (NOT whitelisted - EDR can detect)
-	simulationDir := "/home/fortika-test/vmfs_simulation"
-
 	if err := os.MkdirAll(artifactDir, 0755); err != nil {
 		return fmt.Errorf("failed to create encryption directory: %v", err)
 	}
+
+	// Use ARTIFACT_DIR for simulation artifacts (NOT whitelisted - EDR can detect)
+	// Fall back to /tmp/F0/fortika-test if ARTIFACT_DIR is not writable
+	simulationDir := ARTIFACT_DIR + "/vmfs_simulation"
 	if err := os.MkdirAll(simulationDir, 0755); err != nil {
-		return fmt.Errorf("failed to create simulation directory: %v", err)
+		// ARTIFACT_DIR not available (e.g. non-root user can't create /home/fortika-test)
+		// Fall back to subdirectory under /tmp/F0
+		fmt.Printf("[STAGE %s]   ARTIFACT_DIR %s not writable, falling back to /tmp/F0/fortika-test\n", TECHNIQUE_ID, ARTIFACT_DIR)
+		LogMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("ARTIFACT_DIR %s not writable, using fallback", ARTIFACT_DIR))
+		simulationDir = filepath.Join(targetDir, "fortika-test", "vmfs_simulation")
+		if err := os.MkdirAll(simulationDir, 0755); err != nil {
+			return fmt.Errorf("failed to create simulation directory: %v", err)
+		}
 	}
 
 	// Phase 1: Enumerate target files on datastores
@@ -88,10 +96,10 @@ func performTechnique() error {
 
 	// Phase 2: Create simulated VMDK files for encryption demonstration
 	fmt.Printf("[STAGE %s] Phase 2: Creating simulated VMDK/VMX/VMSN files...\n", TECHNIQUE_ID)
-	LogMessage("INFO", TECHNIQUE_ID, "Creating simulation artifacts in /home/fortika-test")
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Creating simulation artifacts in %s", simulationDir))
 
 	createdFiles := createSimulationFiles(simulationDir)
-	fmt.Printf("[STAGE %s]   Created %d simulation files in /home/fortika-test\n", TECHNIQUE_ID, createdFiles)
+	fmt.Printf("[STAGE %s]   Created %d simulation files in %s\n", TECHNIQUE_ID, createdFiles, simulationDir)
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Created %d simulation files", createdFiles))
 
 	// Phase 3: Simulate ChaCha20+Curve25519 intermittent encryption (RansomHub pattern)
@@ -511,9 +519,14 @@ func generateFakePublicKey() string {
 
 func isBlockedError(err error) bool {
 	errStr := strings.ToLower(err.Error())
+	// Only match EDR/AV-specific indicators, NOT standard OS errors.
+	// "permission denied" and "operation not permitted" are standard POSIX errors
+	// from filesystem operations — not EDR blocks. On Linux, EDR blocks manifest
+	// as process kills (SIGKILL), file quarantine (file disappears), or security
+	// policy enforcement — never as simple EACCES/EPERM on mkdir/write.
 	blockedPatterns := []string{
-		"access denied", "access is denied", "permission denied",
-		"operation not permitted", "blocked", "prevented", "quarantined",
+		"quarantined", "blocked by security", "blocked by endpoint",
+		"malware detected", "threat detected", "security policy",
 	}
 	for _, pattern := range blockedPatterns {
 		if strings.Contains(errStr, pattern) {

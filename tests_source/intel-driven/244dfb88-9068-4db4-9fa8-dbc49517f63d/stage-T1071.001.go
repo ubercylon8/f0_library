@@ -349,17 +349,18 @@ func performTechnique() error {
 }
 
 func isBlockedError(err error) bool {
-	if err == nil {
-		return false
-	}
 	errStr := strings.ToLower(err.Error())
-	blockIndicators := []string{
-		"access denied", "access is denied", "permission denied",
-		"blocked", "prevented", "quarantined", "removed by security",
-		"connection refused", "connection reset",
+	// Only match EDR/AV-specific indicators, NOT standard OS errors.
+	// "permission denied" and "operation not permitted" are standard POSIX errors
+	// from filesystem operations — not EDR blocks. On Linux/macOS, EDR blocks manifest
+	// as process kills (SIGKILL), file quarantine (file disappears), or security
+	// policy enforcement — never as simple EACCES/EPERM on mkdir/write.
+	blockedPatterns := []string{
+		"quarantined", "blocked by security", "blocked by endpoint",
+		"malware detected", "threat detected", "security policy",
 	}
-	for _, indicator := range blockIndicators {
-		if strings.Contains(errStr, indicator) {
+	for _, pattern := range blockedPatterns {
+		if strings.Contains(errStr, pattern) {
 			return true
 		}
 	}

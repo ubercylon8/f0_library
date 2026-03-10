@@ -78,13 +78,23 @@ func main() {
 	}
 	removeFile(filepath.Join(targetDir, "encryption_summary.txt"), &errors)
 
-	// Remove simulation directory (/home/fortika-test/vmfs_simulation)
-	fmt.Println("[*] Removing simulation artifacts from /home/fortika-test...")
+	// Remove simulation directory (try both ARTIFACT_DIR and fallback location)
+	fmt.Println("[*] Removing simulation artifacts...")
 	if err := os.RemoveAll(simulationDir); err != nil {
-		fmt.Printf("    WARNING: Failed to remove vmfs_simulation: %v\n", err)
+		fmt.Printf("    WARNING: Failed to remove %s: %v\n", simulationDir, err)
 		errors++
 	} else {
-		fmt.Println("    [+] vmfs_simulation/ removed")
+		fmt.Println("    [+] vmfs_simulation/ removed from ARTIFACT_DIR")
+	}
+	// Also clean fallback location
+	fallbackSimDir := filepath.Join(targetDir, "fortika-test")
+	if _, err := os.Stat(fallbackSimDir); err == nil {
+		if err := os.RemoveAll(fallbackSimDir); err != nil {
+			fmt.Printf("    WARNING: Failed to remove fallback dir: %v\n", err)
+			errors++
+		} else {
+			fmt.Println("    [+] fortika-test/ fallback removed")
+		}
 	}
 
 	// Remove stage binaries
