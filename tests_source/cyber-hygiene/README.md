@@ -20,12 +20,21 @@ This folder contains security tests that validate **endpoint and cloud identity 
 | 10 | `bac53a6e-dd97-4764-bb10-2ee605f24808` | CrowdStrike Falcon Configuration Validator | T1562.001, T1562.004, T1070 |
 | 11 | `c6d2bdfc-ba48-4811-9f7f-8034855daed3` | Print Spooler Hardening Validator | T1547.012, T1569.002, T1068 |
 
+### CIS Level 1 Bundles
+
+| # | UUID | Test Name | Platform | Controls | Techniques |
+|---|------|-----------|----------|----------|------------|
+| 12 | `078f1409-9f7b-4492-bb35-3fd596e85ce0` | CIS Windows Endpoint Level 1 Hardening Bundle | Windows | 52 | T1110, T1078.001, T1557.001, T1003.001, T1562.001, T1059.001, T1021.001 |
+| 13 | `602a5333-e9cf-4ddf-a132-a22aa7126447` | CIS Identity & Active Directory Level 1 Bundle | Windows | 28 | T1078.002, T1098.001, T1098.003, T1558.003, T1558.004, T1078.004, T1556.007 |
+| 14 | `7f0d43e7-8a7b-48f3-9aff-cfa9703a51e8` | CIS Linux Endpoint Level 1 Hardening Bundle | Linux | 35 | T1562.001, T1021.004, T1548.001, T1059.004, T1070.002, T1543.002 |
+| 15 | `6d63934b-963f-4e3b-83f5-8166e33eb6da` | CIS macOS Endpoint Level 1 Hardening Bundle | macOS | 22 | T1562.001, T1553.001, T1071.001, T1021.004, T1548.004 |
+
 ### Cloud Identity Tests
 
 | # | UUID | Test Name | Techniques |
 |---|------|-----------|------------|
-| 12 | `4f484076-9816-4813-947e-b76bce3d3f83` | Entra ID Tenant Security Hygiene Bundle | T1078.004, T1556.007, T1110.001, T1098.003, T1098.001, T1566, T1528, T1562.008 |
-| 13 | `7659eeba-f315-440e-9882-4aa015d68b27` | Identity Endpoint Posture Bundle | T1078.004, T1556.007, T1556.006, T1528, T1550.001, T1588.004, T1005, T1111 |
+| 16 | `4f484076-9816-4813-947e-b76bce3d3f83` | Entra ID Tenant Security Hygiene Bundle | T1078.004, T1556.007, T1110.001, T1098.003, T1098.001, T1566, T1528, T1562.008 |
+| 17 | `7659eeba-f315-440e-9882-4aa015d68b27` | Identity Endpoint Posture Bundle | T1078.004, T1556.007, T1556.006, T1528, T1550.001, T1588.004, T1005, T1111 |
 
 ## Purpose
 
@@ -39,10 +48,12 @@ Unlike attack simulation tests, **Cyber Hygiene tests validate defensive configu
 
 ## Path Conventions
 
-| Artifact Type | Path | Reason |
-|--------------|------|--------|
-| Test binaries (.exe) | `c:\F0` | Whitelisted - allows execution |
-| Log files | `c:\F0` | Standard location |
+| Platform | Artifact Type | Path | Reason |
+|----------|--------------|------|--------|
+| Windows | Test binaries (.exe) | `c:\F0` | Whitelisted - allows execution |
+| Windows | Log files | `c:\F0` | Standard location |
+| Linux | Test binaries / logs | `/tmp/F0` | Standard location |
+| macOS | Test binaries / logs | `/tmp/F0` | Standard location |
 
 ## Test Categories
 
@@ -70,6 +81,12 @@ Unlike attack simulation tests, **Cyber Hygiene tests validate defensive configu
 ### Cloud Identity
 - **Entra ID Tenant Security Hygiene Bundle** - CISA SCuBA baseline validation for Entra ID (MFA, Conditional Access, PIM, guest access, app governance)
 - **Identity Endpoint Posture Bundle** - Endpoint-level identity hardening (device join, WHfB, MDM enrollment, PRT protection, BitLocker escrow)
+
+### CIS Level 1 Benchmarks
+- **CIS Windows Endpoint L1 Bundle** - 52 CIS controls: password policy, account management, network auth, credential protection, firewall, audit logging, endpoint protection (7 validators, multi-binary)
+- **CIS Identity & AD L1 Bundle** - 28 CIS controls: privileged accounts, service accounts, auth hardening, AD infrastructure, group policy, Entra ID (6 validators, single-binary)
+- **CIS Linux Endpoint L1 Bundle** - 35 CIS controls: filesystem, services, network, audit, SSH, access control, system maintenance (7 validators, multi-binary)
+- **CIS macOS Endpoint L1 Bundle** - 22 CIS controls: system preferences, audit, network, access control, endpoint protection (5 validators, multi-binary)
 
 ## Build Instructions
 
