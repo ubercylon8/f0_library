@@ -62,27 +62,12 @@ func IsAdmin() bool {
 // BUNDLE RESULTS PROTOCOL
 // ==============================================================================
 
-// ControlResult represents a single control's result for bundle_results.json
-type ControlResult struct {
-	ControlID    string   `json:"control_id"`
-	ControlName  string   `json:"control_name"`
-	Validator    string   `json:"validator"`
-	ExitCode     int      `json:"exit_code"`
-	Compliant    bool     `json:"compliant"`
-	Severity     string   `json:"severity"`
-	Category     string   `json:"category"`
-	Subcategory  string   `json:"subcategory"`
-	Techniques   []string `json:"techniques"`
-	Tactics      []string `json:"tactics"`
-	Expected     string   `json:"expected"`
-	Actual       string   `json:"actual"`
-	Details      string   `json:"details"`
-	Skipped      bool     `json:"skipped"`
-	ErrorMessage string   `json:"error_message"`
-}
+// NOTE: BundleResults and ControlResult types are defined in test_logger.go.
+// This file provides WriteBundleResultsExt for cyber-hygiene bundles that need
+// the SkippedControls field not present in the base BundleResults.
 
-// BundleResults represents the complete bundle output written to bundle_results.json
-type BundleResults struct {
+// BundleResultsExt extends BundleResults with SkippedControls for cyber-hygiene bundles
+type BundleResultsExt struct {
 	SchemaVersion     string          `json:"schema_version"`
 	BundleID          string          `json:"bundle_id"`
 	BundleName        string          `json:"bundle_name"`
@@ -99,8 +84,8 @@ type BundleResults struct {
 	Controls          []ControlResult `json:"controls"`
 }
 
-// WriteBundleResults writes bundle_results.json to /tmp/F0
-func WriteBundleResults(results *BundleResults) error {
+// WriteBundleResultsExt writes bundle_results.json to /tmp/F0 (extended version with SkippedControls)
+func WriteBundleResultsExt(results *BundleResultsExt) error {
 	results.CompletedAt = time.Now().UTC().Format(time.RFC3339)
 
 	data, err := json.MarshalIndent(results, "", "  ")

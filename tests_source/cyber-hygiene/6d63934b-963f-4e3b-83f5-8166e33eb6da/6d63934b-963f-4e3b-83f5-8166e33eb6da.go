@@ -271,7 +271,7 @@ func main() {
 		overallExitCode = EXIT_NON_COMPLIANT
 	}
 
-	bundleResults := &BundleResults{
+	bundleResults := &BundleResultsExt{
 		SchemaVersion:     "1.0",
 		BundleID:          TEST_UUID,
 		BundleName:        TEST_NAME,
@@ -287,7 +287,7 @@ func main() {
 		Controls:          allControls,
 	}
 
-	if err := WriteBundleResults(bundleResults); err != nil {
+	if err := WriteBundleResultsExt(bundleResults); err != nil {
 		fmt.Printf("\n[WARNING] Failed to write bundle_results.json: %v\n", err)
 	} else {
 		fmt.Printf("\n[INFO] Bundle results written to /tmp/F0/bundle_results.json (%d controls)\n", len(allControls))
