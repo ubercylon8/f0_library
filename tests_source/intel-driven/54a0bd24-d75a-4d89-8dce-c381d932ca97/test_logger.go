@@ -1106,7 +1106,7 @@ func WriteStageBundleResults(bundleID, bundleName, category, subcategory string,
 		return fmt.Errorf("failed to marshal stage bundle results: %v", err)
 	}
 
-	outputPath := filepath.Join(`c:\F0`, "bundle_results.json")
+	outputPath := filepath.Join(LOG_DIR, "bundle_results.json")
 	if err := os.WriteFile(outputPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write stage bundle results to %s: %v", outputPath, err)
 	}
