@@ -11,6 +11,7 @@ TARGET: windows-endpoint, active-directory, entra-id
 COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: cis-identity-ad-l1
+INTEGRATIONS: azure
 TAGS: cis-benchmark, level-1, active-directory, entra-id, identity-hardening, compliance, gmsa, kerberos
 UNIT: response
 CREATED: 2026-03-11

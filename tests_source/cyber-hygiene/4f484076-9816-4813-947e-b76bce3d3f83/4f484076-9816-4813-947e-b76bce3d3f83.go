@@ -11,6 +11,7 @@ TARGET: entra-id, microsoft-365
 COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: identity-tenant
+INTEGRATIONS: azure
 TAGS: entra-id, mfa, conditional-access, pim, scuba, cis-benchmark, cloud-identity, zero-trust
 UNIT: response
 CREATED: 2026-02-15
