@@ -427,6 +427,7 @@ Details: `docs/MULTISTAGE_QUICK_REFERENCE.md`
 | Test specific threat/technique | `@agent-sectest-builder` |
 | Validate TIBER-EU phase readiness | `@agent-pentest-readiness-builder` |
 | Visualize attack flow | `@agent-attack-flow-diagram-builder` |
+| Visualize kill chain | `@agent-kill-chain-diagram-builder` |
 | Generate detection rules | `@agent-defense-guidance-builder` |
 
 ## Additional Documentation
