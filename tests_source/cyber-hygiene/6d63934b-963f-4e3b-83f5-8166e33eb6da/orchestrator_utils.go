@@ -62,9 +62,41 @@ func IsAdmin() bool {
 // BUNDLE RESULTS PROTOCOL
 // ==============================================================================
 
-// NOTE: BundleResults and ControlResult types are defined in test_logger.go.
-// This file provides WriteBundleResultsExt for cyber-hygiene bundles that need
-// the SkippedControls field not present in the base BundleResults.
+// ControlResult represents a single control's result for bundle_results.json
+type ControlResult struct {
+	ControlID    string   `json:"control_id"`
+	ControlName  string   `json:"control_name"`
+	Validator    string   `json:"validator"`
+	ExitCode     int      `json:"exit_code"`
+	Compliant    bool     `json:"compliant"`
+	Severity     string   `json:"severity"`
+	Category     string   `json:"category"`
+	Subcategory  string   `json:"subcategory"`
+	Techniques   []string `json:"techniques"`
+	Tactics      []string `json:"tactics"`
+	Expected     string   `json:"expected"`
+	Actual       string   `json:"actual"`
+	Details      string   `json:"details"`
+	Skipped      bool     `json:"skipped"`
+	ErrorMessage string   `json:"error_message"`
+}
+
+// BundleResults represents the complete bundle output written to bundle_results.json
+type BundleResults struct {
+	SchemaVersion     string          `json:"schema_version"`
+	BundleID          string          `json:"bundle_id"`
+	BundleName        string          `json:"bundle_name"`
+	BundleCategory    string          `json:"bundle_category"`
+	BundleSubcategory string          `json:"bundle_subcategory"`
+	ExecutionID       string          `json:"execution_id"`
+	StartedAt         string          `json:"started_at"`
+	CompletedAt       string          `json:"completed_at"`
+	OverallExitCode   int             `json:"overall_exit_code"`
+	TotalControls     int             `json:"total_controls"`
+	PassedControls    int             `json:"passed_controls"`
+	FailedControls    int             `json:"failed_controls"`
+	Controls          []ControlResult `json:"controls"`
+}
 
 // BundleResultsExt extends BundleResults with SkippedControls for cyber-hygiene bundles
 type BundleResultsExt struct {

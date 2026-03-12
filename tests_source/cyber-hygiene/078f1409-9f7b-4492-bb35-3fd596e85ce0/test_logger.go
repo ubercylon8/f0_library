@@ -975,42 +975,8 @@ func truncateString(s string, maxLen int) string {
 // BUNDLE RESULTS SUPPORT — Per-stage ES fan-out for multi-stage tests
 // ==============================================================================
 
-// BundleResults represents the complete bundle output written to bundle_results.json.
-// Reused from cyber-hygiene check_utils.go so all tests share the same protocol.
-type BundleResults struct {
-	SchemaVersion     string          `json:"schema_version"`
-	BundleID          string          `json:"bundle_id"`
-	BundleName        string          `json:"bundle_name"`
-	BundleCategory    string          `json:"bundle_category"`
-	BundleSubcategory string          `json:"bundle_subcategory"`
-	ExecutionID       string          `json:"execution_id"`
-	StartedAt         string          `json:"started_at"`
-	CompletedAt       string          `json:"completed_at"`
-	OverallExitCode   int             `json:"overall_exit_code"`
-	TotalControls     int             `json:"total_controls"`
-	PassedControls    int             `json:"passed_controls"`
-	FailedControls    int             `json:"failed_controls"`
-	Controls          []ControlResult `json:"controls"`
-}
-
-// ControlResult represents a single control/stage result for bundle_results.json.
-type ControlResult struct {
-	ControlID    string   `json:"control_id"`
-	ControlName  string   `json:"control_name"`
-	Validator    string   `json:"validator"`
-	ExitCode     int      `json:"exit_code"`
-	Compliant    bool     `json:"compliant"`
-	Severity     string   `json:"severity"`
-	Category     string   `json:"category"`
-	Subcategory  string   `json:"subcategory"`
-	Techniques   []string `json:"techniques"`
-	Tactics      []string `json:"tactics"`
-	Expected     string   `json:"expected"`
-	Actual       string   `json:"actual"`
-	Details      string   `json:"details"`
-	Skipped      bool     `json:"skipped"`
-	ErrorMessage string   `json:"error_message"`
-}
+// NOTE: BundleResults and ControlResult types are defined in orchestrator_utils.go
+// for multi-binary bundles. This avoids redeclaration conflicts.
 
 // StageBundleDef describes one stage for bundle results generation.
 type StageBundleDef struct {
