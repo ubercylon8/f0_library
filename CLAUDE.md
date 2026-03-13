@@ -424,11 +424,13 @@ Details: `docs/MULTISTAGE_QUICK_REFERENCE.md`
 
 | Need | Agent |
 |------|-------|
-| Test specific threat/technique | `@agent-sectest-builder` |
+| Test specific threat/technique | `@agent-sectest-builder` (orchestrates skills + sub-agents) |
 | Validate TIBER-EU phase readiness | `@agent-pentest-readiness-builder` |
 | Visualize attack flow | `@agent-attack-flow-diagram-builder` |
-| Visualize kill chain | `@agent-kill-chain-diagram-builder` |
-| Generate detection rules | `@agent-defense-guidance-builder` |
+| Visualize kill chain | `@agent-kill-chain-diagram-builder` (mandatory for multi-stage tests) |
+| Generate detection rules (standalone) | `@agent-sectest-detection-rules` |
+| Generate defense guidance (standalone) | `@agent-sectest-defense-guidance` |
+| Generate all defense artifacts (legacy) | `@agent-defense-guidance-builder` (delegates to above two) |
 
 ## Additional Documentation
 
