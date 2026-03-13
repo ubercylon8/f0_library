@@ -1,4 +1,4 @@
-github.com/preludeorg/libraries/go/tests/dropper v0.0.0-20250422164350-bf20ca854e1d h1:VTmHsqVV2KhQIu7wngxOEEXP3Xn4CFgtBneXWByAoQ0=
-github.com/preludeorg/libraries/go/tests/dropper v0.0.0-20250422164350-bf20ca854e1d/go.mod h1:pU4Lj0+FCcdQGMtT7P2qzNngoW/rKybuR4z7T9puNa0=
-github.com/preludeorg/libraries/go/tests/endpoint v0.0.0-20250422164350-bf20ca854e1d h1:2vfU6hkicVceFX5u2l4010M9PoLlsTkvQVRujES6giU=
-github.com/preludeorg/libraries/go/tests/endpoint v0.0.0-20250422164350-bf20ca854e1d/go.mod h1:A6TYm/x6ehzNFvc4v7b4EIGzx2RVvvvZRbOBkkG/k8g=
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+golang.org/x/sys v0.28.0 h1:Fksou7UEQUWlKvIdsqzJmUmCX3cZuD2+P3XyyzwMhlA=
+golang.org/x/sys v0.28.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
