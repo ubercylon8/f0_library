@@ -1,0 +1,388 @@
+# ============================================================
+# APT33 Tickler Backdoor DLL Sideloading - Sigma Rules
+# Test ID: 13c2d073-8e33-4fca-ab27-68f20c408ce9
+# MITRE ATT&CK: T1566.001, T1574.002, T1547.001, T1053.005, T1036, T1071.001
+# Threat Actor: APT33 (Elfin / Peach Sandstorm / Refined Kitten)
+# Generated: 2026-03-13
+# ============================================================
+# FOCUS: Technique-level attack behaviors only.
+# Detections target the underlying attack patterns, NOT test framework artifacts.
+# ============================================================
+---
+title: DLL Side-Loading - VC++ Runtime from Non-Standard Path
+id: 13c2d073-sigma-001
+status: stable
+description: |
+  Detects loading of Visual C++ runtime DLLs (msvcp140.dll, vcruntime140.dll)
+  from directories outside Windows, Program Files, or ProgramData. APT33 Tickler
+  uses DLL sideloading by placing malicious versions of these DLLs alongside a
+  renamed Microsoft binary. This behavior is technique-inherent and detected
+  regardless of the specific tool used.
+references:
+  - https://attack.mitre.org/techniques/T1574/002/
+  - https://www.microsoft.com/en-us/security/blog/2024/08/28/peach-sandstorm-deploys-new-custom-tickler-malware-in-long-running-intelligence-gathering-operations/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense-evasion
+  - attack.t1574.002
+  - attack.persistence
+  - apt33
+  - tickler
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection:
+    ImageLoaded|endswith:
+      - '\msvcp140.dll'
+      - '\vcruntime140.dll'
+      - '\msvcp140d.dll'
+      - '\vcruntime140d.dll'
+  filter_standard_paths:
+    ImageLoaded|startswith:
+      - 'C:\Windows\'
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+      - 'C:\ProgramData\Microsoft\'
+  filter_standard_processes:
+    Image|startswith:
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+      - 'C:\Windows\'
+  condition: selection and not filter_standard_paths and not filter_standard_processes
+falsepositives:
+  - Portable applications bundling VC++ runtime DLLs
+  - Development tools in user directories
+  - Game launchers with bundled runtime libraries
+level: high
+
+---
+title: Renamed Binary with Microsoft SharePoint Name Execution
+id: 13c2d073-sigma-002
+status: stable
+description: |
+  Detects execution of binaries named as Microsoft SharePoint components from
+  non-standard paths. APT33 Tickler renames the backdoor to
+  Microsoft.SharePoint.NativeMessaging.exe or SharePoint.exe and executes
+  from user-writable directories. Legitimate SharePoint components always
+  run from Program Files.
+references:
+  - https://attack.mitre.org/techniques/T1036/
+  - https://attack.mitre.org/groups/G0064/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense-evasion
+  - attack.t1036
+  - apt33
+  - tickler
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\Microsoft.SharePoint.NativeMessaging.exe'
+      - '\SharePoint.exe'
+      - '\Microsoft.SharePoint.exe'
+      - '\SharePointSync.exe'
+  filter_legitimate:
+    Image|startswith:
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+      - 'C:\Windows\'
+  condition: selection and not filter_legitimate
+falsepositives:
+  - ClickOnce-deployed SharePoint add-ins
+  - Legitimate SharePoint migration tools in non-standard paths
+level: high
+
+---
+title: Registry Run Key Persistence Pointing to User Directory
+id: 13c2d073-sigma-003
+status: stable
+description: |
+  Detects creation or modification of registry Run key values that reference
+  executables in user-writable directories (Users, AppData, Temp). APT33 Tickler
+  creates a Run key named 'SharePoint' pointing to a binary in a user directory.
+  This generic detection catches any attacker abusing Run keys with non-standard paths.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.persistence
+  - attack.t1547.001
+  - apt33
+  - tickler
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    TargetObject|contains:
+      - '\Software\Microsoft\Windows\CurrentVersion\Run\'
+      - '\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\'
+      - '\Software\Microsoft\Windows\CurrentVersion\RunOnce\'
+  selection_user_path:
+    Details|contains:
+      - '\Users\'
+      - '\AppData\'
+      - '\Temp\'
+  filter_program_files:
+    Details|contains:
+      - 'Program Files'
+      - 'Windows\System32'
+  condition: selection and selection_user_path and not filter_program_files
+falsepositives:
+  - Legitimate user-installed applications adding Run keys
+  - Portable application auto-start configuration
+level: high
+
+---
+title: SharePoint-Themed Registry Run Key Persistence
+id: 13c2d073-sigma-004
+status: stable
+description: |
+  Detects registry Run key additions specifically using the 'SharePoint' value name
+  or referencing SharePoint-named executables outside Program Files. This is a
+  high-fidelity indicator of APT33 Tickler persistence. Legitimate SharePoint
+  clients do not create Run key entries named 'SharePoint'.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+  - https://attack.mitre.org/groups/G0064/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.persistence
+  - attack.t1547.001
+  - attack.defense-evasion
+  - attack.t1036
+  - apt33
+  - tickler
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection_name:
+    TargetObject|endswith:
+      - '\Run\SharePoint'
+      - '\RunOnce\SharePoint'
+  selection_data:
+    Details|contains:
+      - 'SharePoint.exe'
+      - 'NativeMessaging'
+      - 'Microsoft.SharePoint'
+  filter_legitimate:
+    Details|contains:
+      - 'Program Files'
+      - 'Program Files (x86)'
+  condition: (selection_name or selection_data) and not filter_legitimate
+falsepositives:
+  - Very unlikely - legitimate SharePoint uses standard installation paths
+level: critical
+
+---
+title: Scheduled Task Creation with SharePoint-Themed Name or Binary
+id: 13c2d073-sigma-005
+status: stable
+description: |
+  Detects schtasks.exe creating tasks that reference SharePoint-themed binary names
+  or use SharePoint-related task names. APT33 Tickler creates 'MicrosoftSharePointSync'
+  as redundant persistence alongside the registry Run key. The task uses ONLOGON
+  trigger with elevated privileges.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.persistence
+  - attack.execution
+  - attack.t1053.005
+  - apt33
+  - tickler
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\schtasks.exe'
+    CommandLine|contains: '/Create'
+  selection_sharepoint:
+    CommandLine|contains:
+      - 'SharePoint'
+      - 'NativeMessaging'
+      - 'MicrosoftSharePointSync'
+  condition: selection and selection_sharepoint
+falsepositives:
+  - Legitimate SharePoint sync utilities creating scheduled tasks
+level: high
+
+---
+title: Elevated Scheduled Task with Logon Trigger to Non-Standard Path
+id: 13c2d073-sigma-006
+status: stable
+description: |
+  Detects creation of scheduled tasks with ONLOGON triggers and elevated privileges
+  (HIGHEST or SYSTEM) that reference executables outside standard directories. This
+  broader detection catches persistence mechanisms regardless of naming.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.persistence
+  - attack.execution
+  - attack.t1053.005
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\schtasks.exe'
+    CommandLine|contains|all:
+      - '/Create'
+  selection_trigger:
+    CommandLine|contains:
+      - 'ONLOGON'
+      - 'ONSTART'
+  selection_elevated:
+    CommandLine|contains:
+      - 'HIGHEST'
+      - '/RU SYSTEM'
+  filter_standard:
+    CommandLine|contains:
+      - 'Program Files'
+      - 'Windows\System32'
+  condition: selection and selection_trigger and selection_elevated and not filter_standard
+falsepositives:
+  - System management tools creating elevated logon tasks
+  - Software updaters with elevated scheduled tasks
+level: medium
+
+---
+title: Outbound Connection on APT33 Tickler C2 Ports 808 or 880
+id: 13c2d073-sigma-007
+status: stable
+description: |
+  Detects outbound network connections to TCP ports 808 and 880. These are the
+  documented command-and-control ports used by APT33 Tickler backdoor to communicate
+  with Azure-hosted C2 infrastructure via HTTP POST. Non-standard HTTP ports
+  are uncommonly used for legitimate outbound connections.
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+  - https://www.microsoft.com/en-us/security/blog/2024/08/28/peach-sandstorm-deploys-new-custom-tickler-malware-in-long-running-intelligence-gathering-operations/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command-and-control
+  - attack.t1071.001
+  - apt33
+  - tickler
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    DestinationPort:
+      - 808
+      - 880
+    Initiated: 'true'
+  filter_system:
+    Image|endswith:
+      - '\svchost.exe'
+      - '\services.exe'
+  filter_loopback:
+    DestinationIp:
+      - '127.0.0.1'
+      - '::1'
+  condition: selection and not filter_system and not filter_loopback
+falsepositives:
+  - WCF services using port 808
+  - Internal web applications on non-standard ports
+level: high
+
+---
+title: Double Extension Archive File Creation - Spearphishing Delivery
+id: 13c2d073-sigma-008
+status: stable
+description: |
+  Detects creation of archive files (ZIP, RAR, 7z) with double extensions that
+  masquerade as documents (.pdf.zip, .doc.zip, .xlsx.rar). APT33 delivers
+  the Tickler backdoor as a ZIP file disguised as a PDF report. This social
+  engineering technique is used by multiple threat actors.
+references:
+  - https://attack.mitre.org/techniques/T1566/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.initial-access
+  - attack.t1566.001
+  - apt33
+  - tickler
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|endswith:
+      - '.pdf.zip'
+      - '.doc.zip'
+      - '.docx.zip'
+      - '.xls.zip'
+      - '.xlsx.zip'
+      - '.ppt.zip'
+      - '.pptx.zip'
+      - '.pdf.rar'
+      - '.doc.rar'
+      - '.pdf.7z'
+  condition: selection
+falsepositives:
+  - Document archival workflows
+  - Backup scripts that compress files preserving original extensions
+level: medium
+
+---
+title: Combined APT33 Tickler Indicators - DLL Sideloading and SharePoint Persistence
+id: 13c2d073-sigma-009
+status: stable
+description: |
+  Temporal correlation of multiple APT33 Tickler indicators on the same endpoint.
+  This rule triggers when DLL sideloading from non-standard paths AND SharePoint-themed
+  persistence mechanisms are observed within a short timeframe. Two independent
+  APT33 indicators on the same host is a near-certain compromise indicator.
+  Note: This rule requires correlation capability in the SIEM platform.
+references:
+  - https://attack.mitre.org/groups/G0064/
+  - https://www.microsoft.com/en-us/security/blog/2024/08/28/peach-sandstorm-deploys-new-custom-tickler-malware-in-long-running-intelligence-gathering-operations/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense-evasion
+  - attack.t1574.002
+  - attack.persistence
+  - attack.t1547.001
+  - attack.t1053.005
+  - attack.t1036
+  - apt33
+  - tickler
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  # This is a placeholder for SIEM-level correlation
+  # Actual implementation requires temporal correlation of rules
+  # 13c2d073-sigma-001 AND (13c2d073-sigma-004 OR 13c2d073-sigma-005)
+  selection_masquerading:
+    Image|endswith:
+      - '\Microsoft.SharePoint.NativeMessaging.exe'
+      - '\SharePoint.exe'
+  filter_legitimate:
+    Image|startswith:
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+  condition: selection_masquerading and not filter_legitimate
+falsepositives:
+  - Extremely unlikely when combined with DLL sideloading indicators
+level: critical

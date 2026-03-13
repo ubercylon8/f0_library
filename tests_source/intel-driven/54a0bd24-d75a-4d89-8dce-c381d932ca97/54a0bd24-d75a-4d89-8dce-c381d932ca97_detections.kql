@@ -1,178 +1,498 @@
-// Behavioral Detection Queries for Perfctl/Symbiote LD_PRELOAD Hijacking
+// ============================================================================
+// DEFENSE GUIDANCE: KQL Detection Queries
+// ============================================================================
 // Test ID: 54a0bd24-d75a-4d89-8dce-c381d932ca97
+// Test Name: Perfctl/Symbiote LD_PRELOAD Hijacking with PAM Credential Harvesting
 // MITRE ATT&CK: T1574.006, T1003.008, T1548.001, T1014, T1059.004
-// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+// Created: 2026-03-13
+// Author: F0RT1KA Defense Guidance Builder
+// ============================================================================
 //
-// These queries target Linux Syslog/Auditd data ingested into Sentinel
-// via the Linux agent or CEF connector
+// TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+// These queries detect the underlying Linux attack techniques (LD_PRELOAD
+// hijacking, PAM credential hooking, userland rootkit, SUID abuse),
+// NOT the F0RT1KA testing framework. They will catch real-world attackers
+// using Perfctl, Symbiote, Auto-Color, WolfsBane, or any custom tooling
+// employing these same techniques.
+//
+// DATA SOURCES:
+// - Syslog (via Linux agent / CEF connector)
+// - DeviceFileEvents (via MDE for Linux / Sysmon for Linux)
+// - DeviceProcessEvents (via MDE for Linux / Sysmon for Linux)
+// - AuditD logs (via Syslog)
+// ============================================================================
 
-//
-// QUERY 1: LD_PRELOAD Persistence - File Write to /etc/ld.preload or /etc/ld.so.preload
-// Purpose: Detect writes to the LD_PRELOAD configuration files (Auto-Color, WolfsBane pattern)
-// Severity: CRITICAL - Direct indicator of shared library hijacking persistence
-//
+
+// ============================================================================
+// QUERY 1: LD_PRELOAD Persistence File Modification
+// Technique: T1574.006 - Hijack Execution Flow: LD_PRELOAD
+// Confidence: CRITICAL
+// Purpose: Detect writes to /etc/ld.preload or /etc/ld.so.preload
+// False Positives: Extremely rare - legitimate use of these files is
+//   almost nonexistent. Application developers should use rpath or
+//   LD_LIBRARY_PATH in controlled environments instead.
+// Threshold: Any single event is high-confidence
+// ============================================================================
 Syslog
 | where TimeGenerated > ago(24h)
-| where Facility == "authpriv" or Facility == "kern"
-| where SyslogMessage has_any ("/etc/ld.preload", "/etc/ld.so.preload", "ld_preload")
-| project TimeGenerated, HostName, Facility, SyslogMessage
-| extend ThreatScore = 95
-| extend Detection = "T1574.006 - LD_PRELOAD persistence file modification detected"
+| where Facility in ("authpriv", "kern", "daemon", "local0")
+| where SyslogMessage has_any ("/etc/ld.preload", "/etc/ld.so.preload")
+| where SyslogMessage has_any ("open", "write", "create", "modify", "rename", "unlink")
+| project TimeGenerated, HostName, Facility, SeverityLevel, SyslogMessage
+| extend
+    Severity = "Critical",
+    ThreatType = "LD_PRELOAD Persistence",
+    MitreAttack = "T1574.006",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, HostName, Facility, SyslogMessage, Severity, ThreatType, MitreAttack
 
-//
-// QUERY 2: Suspicious Shared Library Creation
-// Purpose: Detect new .so files in system library directories
-// Pattern: Perfctl (libgcwrap.so), Pygmy Goat (libsophos.so), Symbiote
-//
+// ============================================================================
+// QUERY 2: Suspicious Shared Library Creation in System Directories
+// Technique: T1574.006 - Hijack Execution Flow: LD_PRELOAD
+// Confidence: HIGH
+// Purpose: Detect new .so files in /lib/, /usr/lib/, or hidden directories
+// False Positives: Package manager installations (apt, yum, dnf), system
+//   updates. Tune by excluding known package manager parent processes.
+// Threshold: Any single event outside package management context
+// ============================================================================
 DeviceFileEvents
 | where TimeGenerated > ago(24h)
 | where ActionType == "FileCreated"
 | where FileName endswith ".so" or FileName matches regex @"\.so\.\d+"
-| where FolderPath has_any ("/lib/", "/usr/lib/", "/lib64/", "/usr/lib64/")
-| where FileName !in~ ("libc.so.6", "libpthread.so.0", "libdl.so.2", "libm.so.6")
+| where FolderPath has_any (
+    "/lib/", "/usr/lib/", "/lib64/", "/usr/lib64/",
+    "/usr/local/lib/", "/.hidden/", "/dev/shm/",
+    "/var/tmp/", "/tmp/"
+)
+// Exclude legitimate package managers as parent processes
+| where InitiatingProcessFileName !in~ (
+    "dpkg", "rpm", "apt", "apt-get", "yum", "dnf", "zypper",
+    "pacman", "pip", "pip3", "make", "install", "ldconfig"
+)
 | project TimeGenerated, DeviceName, FileName, FolderPath,
     InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
-| extend ThreatScore = 85
-| extend Detection = "T1574.006 - Suspicious shared library created in system path"
+| extend
+    Severity = "High",
+    ThreatType = "Suspicious Shared Library Drop",
+    MitreAttack = "T1574.006",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    AccountName, Severity, ThreatType, MitreAttack
 
-//
-// QUERY 3: PAM Module Modification or Credential Hooking
-// Purpose: Detect PAM configuration changes or suspicious PAM-related activity
-// Pattern: Perfctl hooking pam_authenticate for credential capture
-//
+// ============================================================================
+// QUERY 3: Systemd Service Creation with LD_PRELOAD
+// Technique: T1574.006 - Hijack Execution Flow: LD_PRELOAD
+// Confidence: HIGH
+// Purpose: Detect new systemd services that contain LD_PRELOAD directives
+// False Positives: Very rare. Legitimate services almost never use
+//   LD_PRELOAD environment variables. Custom developer services may
+//   occasionally set this for debugging.
+// Threshold: Any single event is significant
+// ============================================================================
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType in ("FileCreated", "FileModified")
+| where FolderPath has_any (
+    "/etc/systemd/system/",
+    "/lib/systemd/system/",
+    "/usr/lib/systemd/system/",
+    "/run/systemd/system/",
+    "/etc/systemd/user/"
+)
+| where FileName endswith ".service"
+// Exclude known package managers
+| where InitiatingProcessFileName !in~ ("dpkg", "rpm", "apt", "apt-get", "yum", "dnf")
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend
+    Severity = "High",
+    ThreatType = "Suspicious Systemd Service Creation",
+    MitreAttack = "T1574.006",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+// ============================================================================
+// QUERY 4: Shell Profile Injection for LD_PRELOAD Persistence
+// Technique: T1574.006 - Hijack Execution Flow: LD_PRELOAD
+// Confidence: HIGH
+// Purpose: Detect modifications to shell profile files that add LD_PRELOAD
+// False Positives: Developers may legitimately modify .bashrc/.profile for
+//   library paths. The key indicator is LD_PRELOAD specifically.
+// Threshold: Any modification adding LD_PRELOAD to profile files
+// ============================================================================
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType == "FileModified"
+| where FileName in~ (".profile", ".bashrc", ".bash_profile", ".bash_login", ".zshrc", ".zprofile")
+    or FolderPath has_any ("/etc/profile.d/", "/etc/profile")
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend
+    Severity = "High",
+    ThreatType = "Shell Profile Modification for Persistence",
+    MitreAttack = "T1574.006",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+// ============================================================================
+// QUERY 5: PAM Module Modification or Credential Hooking Indicators
+// Technique: T1003.008 - OS Credential Dumping: /etc/passwd and /etc/shadow
+// Confidence: HIGH
+// Purpose: Detect PAM configuration changes or suspicious PAM library modifications
+// False Positives: PAM configuration during system updates or security
+//   hardening. Filter by excluding dpkg/rpm parent processes.
+// Threshold: Any single event outside maintenance windows
+// ============================================================================
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType in ("FileCreated", "FileModified")
+| where FolderPath has_any (
+    "/etc/pam.d/",
+    "/lib/security/",
+    "/lib/x86_64-linux-gnu/security/",
+    "/lib64/security/",
+    "/usr/lib/security/"
+)
+| where InitiatingProcessFileName !in~ ("dpkg", "rpm", "apt", "apt-get", "yum", "dnf", "pam-auth-update")
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend
+    Severity = "High",
+    ThreatType = "PAM Module Modification",
+    MitreAttack = "T1003.008",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+// ============================================================================
+// QUERY 6: /etc/shadow Access by Non-Standard Process
+// Technique: T1003.008 - OS Credential Dumping: /etc/passwd and /etc/shadow
+// Confidence: HIGH
+// Purpose: Detect credential dumping via /etc/shadow reads
+// False Positives: Password change utilities (passwd, chpasswd), user
+//   management tools, cron-based backup scripts. Tune by excluding known
+//   legitimate parent processes.
+// Threshold: Any single access from unexpected process
+// ============================================================================
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where FileName == "shadow" and FolderPath has "/etc/"
+| where ActionType in ("FileRead", "FileModified", "FileCopied", "FileAccessed")
+| where InitiatingProcessFileName !in~ (
+    "passwd", "chpasswd", "useradd", "usermod", "userdel",
+    "login", "sshd", "cron", "crond", "pam_unix.so",
+    "sudo", "su", "groupadd", "groupmod", "newusers",
+    "shadow", "nscd", "sssd"
+)
+| project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName,
+    InitiatingProcessCommandLine, AccountName
+| extend
+    Severity = "High",
+    ThreatType = "Credential Dumping - Shadow File Access",
+    MitreAttack = "T1003.008",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName,
+    InitiatingProcessCommandLine, AccountName, Severity, ThreatType, MitreAttack
+
+// ============================================================================
+// QUERY 7: Bulk PAM Authentication Failures (Credential Hooking Side Effect)
+// Technique: T1003.008 - OS Credential Dumping: /etc/passwd and /etc/shadow
+// Confidence: MEDIUM
+// Purpose: Detect PAM hooking interference causing authentication anomalies
+// False Positives: Brute-force attacks, misconfigured services, LDAP issues.
+//   This query specifically looks for bulk PAM errors that may indicate
+//   a hooked PAM module interfering with authentication.
+// Threshold: 20+ PAM errors within 1 hour from a single host
+// ============================================================================
 Syslog
 | where TimeGenerated > ago(24h)
-| where SyslogMessage has_any ("pam_authenticate", "pam_unix", "pam_ldap")
-    and SyslogMessage has_any ("error", "failed", "unknown module", "module is unknown")
+| where SyslogMessage has_any ("pam_authenticate", "pam_unix", "pam_ldap", "pam_sss")
+    and SyslogMessage has_any ("error", "failed", "unknown module", "module is unknown",
+        "no such file", "cannot open", "corrupted")
 | project TimeGenerated, HostName, Facility, SyslogMessage
-| summarize AlertCount = count(),
+| summarize
+    AlertCount = count(),
     FirstSeen = min(TimeGenerated),
     LastSeen = max(TimeGenerated),
     SampleMessages = make_set(SyslogMessage, 5)
     by HostName
-| where AlertCount > 10  // Bulk PAM errors may indicate hooking interference
-| extend ThreatScore = 80
-| extend Detection = "T1003.008 - Potential PAM credential hooking detected"
+| where AlertCount > 20
+| extend
+    Severity = "Medium",
+    ThreatType = "Potential PAM Credential Hooking",
+    MitreAttack = "T1003.008",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project HostName, AlertCount, FirstSeen, LastSeen, SampleMessages,
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 4: /etc/shadow Access by Non-Root Process
-// Purpose: Detect credential dumping via /etc/shadow access
-// Pattern: Post-exploitation credential harvesting (Perfctl, Akira)
-//
-DeviceFileEvents
-| where TimeGenerated > ago(24h)
-| where FileName == "shadow" and FolderPath has "/etc/"
-| where ActionType in ("FileRead", "FileModified", "FileCopied")
-| where InitiatingProcessFileName !in~ ("passwd", "chpasswd", "useradd", "usermod",
-    "login", "sshd", "cron", "pam_unix.so")
-| project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName,
-    InitiatingProcessCommandLine, AccountName
-| extend ThreatScore = 90
-| extend Detection = "T1003.008 - Suspicious /etc/shadow access detected"
-
-//
-// QUERY 5: SUID Binary Enumeration
-// Purpose: Detect find commands searching for SUID binaries
-// Pattern: find / -type f -perm -u=s (standard privilege escalation recon)
-//
+// ============================================================================
+// QUERY 8: SUID Binary Enumeration via find Command
+// Technique: T1548.001 - Abuse Elevation Control Mechanism: SUID/SGID
+// Confidence: HIGH
+// Purpose: Detect privilege escalation reconnaissance via SUID discovery
+// False Positives: Security auditing tools (Lynis, OpenSCAP), system
+//   administrators performing security assessments.
+// Threshold: Any single execution is suspicious in production
+// ============================================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(24h)
 | where FileName == "find"
-| where ProcessCommandLine has "-perm" and ProcessCommandLine has_any ("-u=s", "/4000", "-4000", "+4000")
+| where ProcessCommandLine has "-perm"
+    and ProcessCommandLine has_any ("-u=s", "/4000", "-4000", "+4000", "-04000", "/6000", "-6000")
 | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
     InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend ThreatScore = 75
-| extend Detection = "T1548.001 - SUID binary enumeration detected"
+| extend
+    Severity = "High",
+    ThreatType = "SUID Binary Enumeration",
+    MitreAttack = "T1548.001",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    InitiatingProcessFileName, Severity, ThreatType, MitreAttack
 
-//
-// QUERY 6: SUID Bit Modification on System Binaries
-// Purpose: Detect chmod u+s on critical binaries (bash, sh, python)
-// Pattern: Perfctl/post-exploitation privilege persistence
-//
+// ============================================================================
+// QUERY 9: SUID Bit Modification on System Binaries
+// Technique: T1548.001 - Abuse Elevation Control Mechanism: SUID/SGID
+// Confidence: CRITICAL
+// Purpose: Detect chmod u+s on bash, sh, python, or other interpreters
+// False Positives: Extremely rare. Setting SUID on interpreters is almost
+//   never legitimate and represents a critical privilege escalation vector.
+// Threshold: Any single event is critical
+// ============================================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(24h)
 | where FileName == "chmod"
-| where ProcessCommandLine has_any ("u+s", "+4", "4755", "4711")
-| where ProcessCommandLine has_any ("/bin/bash", "/bin/sh", "/usr/bin/python",
-    "/usr/bin/perl", "/usr/bin/vim", "/usr/bin/find")
+| where ProcessCommandLine has_any ("u+s", "+4", "4755", "4711", "4777", "4775")
+| where ProcessCommandLine has_any (
+    "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh",
+    "/usr/bin/python", "/usr/bin/python3", "/usr/bin/perl",
+    "/usr/bin/vim", "/usr/bin/find", "/usr/bin/nmap",
+    "/usr/bin/env", "/usr/bin/awk", "/usr/bin/less",
+    "/usr/bin/nano", "/usr/bin/ruby"
+)
 | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
     InitiatingProcessFileName
-| extend ThreatScore = 95
-| extend Detection = "T1548.001 - SUID bit set on system binary (privilege persistence)"
+| extend
+    Severity = "Critical",
+    ThreatType = "SUID Bit Set on System Binary",
+    MitreAttack = "T1548.001",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 7: XOR-Encrypted Configuration File Detection
-// Purpose: Detect creation of encrypted binary blobs in suspicious locations
-// Pattern: Perfctl XOR-encrypts strings with key 0xAC
-//
-DeviceFileEvents
-| where TimeGenerated > ago(24h)
-| where ActionType == "FileCreated"
-| where FileName endswith ".bin" or FileName endswith ".dat" or FileName endswith ".conf"
-| where FolderPath has_any ("/tmp/", "/var/tmp/", "/dev/shm/", "/.hidden/")
-| where FileSize > 100 and FileSize < 100000  // Config files are typically small
-| project TimeGenerated, DeviceName, FileName, FolderPath, FileSize,
-    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
-| extend ThreatScore = 70
-| extend Detection = "T1059.004 - Suspicious encrypted config file created in temp directory"
-
-//
-// QUERY 8: Systemd Service with LD_PRELOAD Environment Variable
-// Purpose: Detect systemd services that set LD_PRELOAD for persistence
-// Pattern: Perfctl creates systemd services with LD_PRELOAD pointing to malicious .so
-//
-DeviceFileEvents
-| where TimeGenerated > ago(24h)
-| where ActionType in ("FileCreated", "FileModified")
-| where FolderPath has_any ("/etc/systemd/system/", "/lib/systemd/system/",
-    "/usr/lib/systemd/system/", "/run/systemd/system/")
-| where FileName endswith ".service"
-| project TimeGenerated, DeviceName, FileName, FolderPath,
-    InitiatingProcessFileName, AccountName
-| extend ThreatScore = 85
-| extend Detection = "T1574.006 - New systemd service created (potential LD_PRELOAD persistence)"
-
-//
-// QUERY 9: /proc/net/tcp Discrepancy Detection (Rootkit Indicator)
-// Purpose: Detect userland rootkit network hiding by comparing connection sources
-// Pattern: Auto-Color hooks open() to filter /proc/net/tcp; compare with conntrack
-//
+// ============================================================================
+// QUERY 10: GTFOBins SUID Exploitation Patterns
+// Technique: T1548.001 - Abuse Elevation Control Mechanism: SUID/SGID
+// Confidence: HIGH
+// Purpose: Detect known GTFOBins SUID exploitation command patterns
+// False Positives: Some find -exec patterns are legitimate for file
+//   management. The combination with -p flag or shell invocation is key.
+// Threshold: Any single matching pattern
+// ============================================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(24h)
-| where ProcessCommandLine has_any ("conntrack -L", "ss -tunapl", "netstat -tunapl")
+| where ProcessCommandLine has_any (
+    // find SUID exploitation
+    "find ./ -exec /bin/sh",
+    "find . -exec /bin/sh",
+    "find ./ -exec /bin/bash",
+    "find . -exec /bin/bash",
+    // vim SUID exploitation
+    "vim -c ':!/bin/sh'",
+    "vim -c ':shell'",
+    "vim.basic -c",
+    // bash privileged mode
+    "bash -p",
+    "/bin/bash -p",
+    // nmap interactive
+    "nmap --interactive",
+    // python SUID shell
+    "python -c 'import os; os.setuid(0)'",
+    "python3 -c 'import os; os.setuid(0)'",
+    // perl SUID shell
+    "perl -e 'exec \"/bin/sh\"'"
+)
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "High",
+    ThreatType = "GTFOBins SUID Exploitation",
+    MitreAttack = "T1548.001",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
 | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
-    InitiatingProcessFileName
-| join kind=inner (
-    DeviceProcessEvents
-    | where TimeGenerated > ago(24h)
-    | where ProcessCommandLine has "cat /proc/net/tcp"
-    | project TimeGenerated, DeviceName, AccountName
-) on DeviceName, AccountName
-| extend ThreatScore = 80
-| extend Detection = "T1014 - Multiple network enumeration tools used (rootkit verification pattern)"
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 10: Combined Behavioral Detection - LD_PRELOAD Attack Chain
-// Purpose: Correlate multiple indicators of LD_PRELOAD-based attack
-// Pattern: .so creation + /etc/shadow access + SUID enumeration within time window
-//
-let SuspiciousSO = DeviceFileEvents
-| where TimeGenerated > ago(1h)
+// ============================================================================
+// QUERY 11: Network Connection Enumeration Comparison (Rootkit Detection)
+// Technique: T1014 - Rootkit
+// Confidence: MEDIUM
+// Purpose: Detect rootkit verification patterns where an analyst or attacker
+//   uses multiple network enumeration tools to compare results
+// False Positives: Security auditors, incident responders, system admins
+//   troubleshooting connectivity. Context is important.
+// Threshold: Multiple enumeration tools used within 10 minutes
+// ============================================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where ProcessCommandLine has_any (
+    "conntrack -L", "conntrack --dump",
+    "ss -tunapl", "ss -tlnp", "ss -anp",
+    "netstat -tunapl", "netstat -tlnp", "netstat -anp",
+    "cat /proc/net/tcp", "cat /proc/net/tcp6",
+    "lsof -i", "lsof -nP"
+)
+| summarize
+    ToolCount = dcount(ProcessCommandLine),
+    Commands = make_set(ProcessCommandLine, 10),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, AccountName, bin(TimeGenerated, 10m)
+| where ToolCount >= 3
+| extend
+    Severity = "Medium",
+    ThreatType = "Multiple Network Enumeration Tools (Rootkit Verification)",
+    MitreAttack = "T1014",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project DeviceName, AccountName, ToolCount, Commands, FirstSeen, LastSeen,
+    Severity, ThreatType, MitreAttack
+
+// ============================================================================
+// QUERY 12: XOR-Encrypted Configuration Files in Suspicious Locations
+// Technique: T1059.004 - Command and Scripting Interpreter: Unix Shell
+// Confidence: MEDIUM
+// Purpose: Detect creation of encrypted binary blobs in temp/hidden dirs
+// False Positives: Application caches, temporary data files. Focus on
+//   file creation in /tmp, /dev/shm, or hidden directories.
+// Threshold: Files with .bin/.dat extension in temp directories
+// ============================================================================
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
 | where ActionType == "FileCreated"
-| where FileName endswith ".so"
-| where FolderPath has_any ("/lib/", "/usr/lib/", "/tmp/", "/var/tmp/")
+| where FileName endswith ".bin" or FileName endswith ".dat" or FileName endswith ".enc"
+| where FolderPath has_any ("/tmp/", "/var/tmp/", "/dev/shm/", "/.hidden/", "/run/")
+| where FileSize > 100 and FileSize < 100000
+| where InitiatingProcessFileName !in~ ("apt", "dpkg", "rpm", "yum", "dnf")
+| project TimeGenerated, DeviceName, FileName, FolderPath, FileSize,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend
+    Severity = "Medium",
+    ThreatType = "Suspicious Encrypted Config File",
+    MitreAttack = "T1059.004",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, FileName, FolderPath, FileSize,
+    InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+// ============================================================================
+// QUERY 13: Crontab Binary Integrity Violation
+// Technique: T1059.004 - Command and Scripting Interpreter: Unix Shell
+// Confidence: HIGH
+// Purpose: Detect modification or replacement of the crontab binary
+// False Positives: Package updates replacing crontab. Exclude package
+//   manager parent processes.
+// Threshold: Any modification to crontab binary outside package updates
+// ============================================================================
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType in ("FileModified", "FileCreated", "FileRenamed")
+| where FileName == "crontab"
+| where FolderPath has_any ("/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/")
+| where InitiatingProcessFileName !in~ ("dpkg", "rpm", "apt", "apt-get", "yum", "dnf")
+| project TimeGenerated, DeviceName, FileName, FolderPath, ActionType,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend
+    Severity = "High",
+    ThreatType = "Crontab Binary Modification (Trojanized Crontab)",
+    MitreAttack = "T1059.004",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, FileName, FolderPath, ActionType,
+    InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+// ============================================================================
+// QUERY 14: Cryptomining Pool Connection Indicators
+// Technique: T1059.004 - Command and Scripting Interpreter: Unix Shell
+// Confidence: HIGH
+// Purpose: Detect network connections to known mining pools (Perfctl)
+// False Positives: Legitimate cryptocurrency mining operations.
+// Threshold: Any connection to known mining pool domains
+// ============================================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(24h)
+| where RemoteUrl has_any (
+    "supportxmr.com", "xmrpool.eu", "pool.minexmr.com",
+    "pool.hashvault.pro", "mine.c3pool.com", "rx.unmineable.com",
+    "stratum+tcp://", "stratum+ssl://",
+    "nanopool.org", "f2pool.com", "2miners.com"
+)
+    or RemoteIP has_any ("185.141.27.", "91.215.85.", "45.77.65.")
+| project TimeGenerated, DeviceName, RemoteUrl, RemoteIP, RemotePort,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend
+    Severity = "High",
+    ThreatType = "Cryptomining Pool Connection (Perfctl Pattern)",
+    MitreAttack = "T1059.004",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, DeviceName, RemoteUrl, RemoteIP, RemotePort,
+    InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+// ============================================================================
+// QUERY 15: Combined Behavioral Detection - LD_PRELOAD Attack Chain
+// Technique: T1574.006 + T1003.008 + T1548.001 (Correlated)
+// Confidence: CRITICAL
+// Purpose: Correlate multiple indicators of a complete LD_PRELOAD-based
+//   attack chain within a 1-hour window on the same host
+// False Positives: Extremely unlikely. The combination of .so creation,
+//   shadow access, and SUID enumeration on the same host is a very strong
+//   indicator of compromise.
+// Threshold: Any correlation match is critical
+// ============================================================================
+let timeWindow = 1h;
+let SuspiciousSO = DeviceFileEvents
+| where TimeGenerated > ago(timeWindow)
+| where ActionType == "FileCreated"
+| where FileName endswith ".so" or FileName matches regex @"\.so\.\d+"
+| where FolderPath has_any ("/lib/", "/usr/lib/", "/tmp/", "/var/tmp/", "/dev/shm/")
+| where InitiatingProcessFileName !in~ ("dpkg", "rpm", "apt", "yum", "dnf", "ldconfig")
 | distinct DeviceName, AccountName;
 let ShadowAccess = DeviceFileEvents
-| where TimeGenerated > ago(1h)
+| where TimeGenerated > ago(timeWindow)
 | where FileName == "shadow" and FolderPath has "/etc/"
+| where InitiatingProcessFileName !in~ ("passwd", "chpasswd", "useradd", "usermod", "login", "sshd", "sudo")
 | distinct DeviceName, AccountName;
 let SUIDEnum = DeviceProcessEvents
-| where TimeGenerated > ago(1h)
+| where TimeGenerated > ago(timeWindow)
 | where FileName == "find" and ProcessCommandLine has "-perm"
+    and ProcessCommandLine has_any ("-u=s", "/4000", "-4000")
 | distinct DeviceName, AccountName;
 SuspiciousSO
 | join kind=inner (ShadowAccess) on DeviceName, AccountName
 | join kind=inner (SUIDEnum) on DeviceName, AccountName
-| extend ThreatScore = 98
-| extend Detection = "CRITICAL: LD_PRELOAD attack chain detected - .so creation + credential access + privilege escalation recon"
-| project DeviceName, AccountName, ThreatScore, Detection
+| extend
+    Severity = "Critical",
+    ThreatType = "CRITICAL: LD_PRELOAD Attack Chain Detected",
+    MitreAttack = "T1574.006,T1003.008,T1548.001",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project DeviceName, AccountName, Severity, ThreatType, MitreAttack
+
+// ============================================================================
+// QUERY 16: AuditD - LD_PRELOAD File Integrity Monitoring
+// Technique: T1574.006 - Hijack Execution Flow: LD_PRELOAD
+// Confidence: CRITICAL
+// Purpose: Detect file writes to ld.preload via auditd
+// False Positives: None expected - these files should never be modified
+// Threshold: Any single event
+// NOTE: Requires auditd rule: -w /etc/ld.so.preload -p wa -k ld_preload
+// ============================================================================
+Syslog
+| where TimeGenerated > ago(24h)
+| where SyslogMessage has "ld_preload"
+    or (SyslogMessage has "SYSCALL" and SyslogMessage has_any ("ld.preload", "ld.so.preload"))
+| where SyslogMessage has_any ("key=\"ld_preload\"", "ld.preload", "ld.so.preload")
+| project TimeGenerated, HostName, Facility, SyslogMessage
+| extend
+    Severity = "Critical",
+    ThreatType = "AuditD: LD_PRELOAD File Write Detected",
+    MitreAttack = "T1574.006",
+    TestID = "54a0bd24-d75a-4d89-8dce-c381d932ca97"
+| project TimeGenerated, HostName, SyslogMessage, Severity, ThreatType, MitreAttack

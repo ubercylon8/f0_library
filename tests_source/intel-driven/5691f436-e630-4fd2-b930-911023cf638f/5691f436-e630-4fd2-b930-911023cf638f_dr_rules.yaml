@@ -1,0 +1,425 @@
+# ============================================================
+# APT34 Exchange Server Weaponization - LimaCharlie D&R Rules
+# Test ID: 5691f436-e630-4fd2-b930-911023cf638f
+# MITRE ATT&CK: T1505.003, T1071.003, T1556.002, T1048.003
+# Threat Actor: APT34 / OilRig / Hazel Sandstorm
+# Generated: 2026-03-13
+# ============================================================
+#
+# FILE FORMAT: For use with `limacharlie dr add` or `config push`
+#
+# Deployment:
+#   limacharlie dr add 5691f436-e630-4fd2-b930-911023cf638f_dr_rules.yaml
+#
+# FOCUS: Technique behaviors only - no test framework artifacts
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: IIS Backdoor DLL Deployment (T1505.003)
+  # ============================================================
+  # Confidence: High
+  # Description: Detects creation of DLL files with names matching
+  #              known APT34 IIS backdoor patterns (CacheHttp.dll)
+  # False Positives: Legitimate IIS module deployment
+  # ============================================================
+  apt34-iis-backdoor-dll-deployment:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: .dll
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: CacheHttp
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: HttpProxy.dll
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: WebCache.dll
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: inetsrv
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: APT34 IIS Backdoor DLL Deployment Detected
+        metadata:
+          severity: high
+          mitre_attack: T1505.003
+          test_id: 5691f436-e630-4fd2-b930-911023cf638f
+          description: Suspicious DLL created matching IIS backdoor patterns used by APT34
+          threat_actor: APT34
+
+
+  # ============================================================
+  # Rule 2: IIS Module Registration via appcmd.exe (T1505.003)
+  # ============================================================
+  # Confidence: High
+  # Description: Detects use of appcmd.exe to install IIS native modules
+  # False Positives: Legitimate IIS administration
+  # ============================================================
+  apt34-iis-module-registration-appcmd:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: appcmd.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: install
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: module
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: IIS Module Registration via appcmd.exe
+        metadata:
+          severity: high
+          mitre_attack: T1505.003
+          test_id: 5691f436-e630-4fd2-b930-911023cf638f
+          description: appcmd.exe used to install IIS native module - potential backdoor registration
+          threat_actor: APT34
+
+
+  # ============================================================
+  # Rule 3: LSA Password Filter Registration (T1556.002)
+  # ============================================================
+  # Confidence: Critical
+  # Description: Detects modification of LSA Notification Packages
+  #              registry value for password filter DLL registration
+  # False Positives: Legitimate password filter installations (very rare)
+  # ============================================================
+  apt34-lsa-password-filter-registration:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        - op: contains
+          path: event/REGISTRY_KEY
+          value: SYSTEM\CurrentControlSet\Control\Lsa
+          case sensitive: false
+        - op: is
+          path: event/VALUE_NAME
+          value: Notification Packages
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: LSA Password Filter DLL Registration Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1556.002
+          test_id: 5691f436-e630-4fd2-b930-911023cf638f
+          description: Modification of LSA Notification Packages - credential interception technique
+          threat_actor: APT34
+
+
+  # ============================================================
+  # Rule 4: Password Filter DLL File Creation (T1556.002)
+  # ============================================================
+  # Confidence: Medium
+  # Description: Detects DLL files created with password filter naming
+  # False Positives: Enterprise password policy enforcement software
+  # ============================================================
+  apt34-password-filter-dll-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: .dll
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: credfilter
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: passfilt
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: pwdfilter
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: password_filter
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Suspicious Password Filter DLL Created
+        metadata:
+          severity: medium
+          mitre_attack: T1556.002
+          test_id: 5691f436-e630-4fd2-b930-911023cf638f
+          description: DLL file created with password filter naming pattern
+
+
+  # ============================================================
+  # Rule 5: PowerShell Exchange C2 Script Deployment (T1071.003)
+  # ============================================================
+  # Confidence: High
+  # Description: Detects PowerShell scripts with Exchange/EWS interaction
+  #              patterns deployed to disk (PowerExchange C2)
+  # False Positives: Legitimate Exchange management scripts
+  # ============================================================
+  apt34-powerexchange-script-deployment:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: .ps1
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: PowerExchange
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: Exchange
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: EWS
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: PowerExchange C2 Script Deployment Detected
+        metadata:
+          severity: high
+          mitre_attack: T1071.003
+          test_id: 5691f436-e630-4fd2-b930-911023cf638f
+          description: PowerShell script targeting Exchange infrastructure deployed - possible email C2
+          threat_actor: APT34
+
+
+  # ============================================================
+  # Rule 6: Outbound SMTP from Non-Mail Process (T1048.003)
+  # ============================================================
+  # Confidence: High
+  # Description: Detects outbound SMTP connections (ports 25, 587)
+  #              from processes that should not be sending email
+  # False Positives: Legitimate mail relay applications
+  # ============================================================
+  apt34-stealhook-outbound-smtp:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: is
+              path: event/NETWORK_ACTIVITY/DESTINATION/PORT
+              value: 25
+            - op: is
+              path: event/NETWORK_ACTIVITY/DESTINATION/PORT
+              value: 587
+            - op: is
+              path: event/NETWORK_ACTIVITY/DESTINATION/PORT
+              value: 465
+        - op: is not
+          path: event/NETWORK_ACTIVITY/IS_OUTGOING
+          value: "false"
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: EdgeTransport.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: MSExchangeTransport.exe
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Outbound SMTP from Non-Mail Process (STEALHOOK Pattern)
+        metadata:
+          severity: high
+          mitre_attack: T1048.003
+          test_id: 5691f436-e630-4fd2-b930-911023cf638f
+          description: Outbound SMTP connection from non-mail process - potential email-based exfiltration
+          threat_actor: APT34
+
+
+  # ============================================================
+  # Rule 7: Data Archive Creation for Exfiltration (T1048.003)
+  # ============================================================
+  # Confidence: Medium
+  # Description: Detects creation of archive files in staging
+  #              directories or with exfiltration-related naming
+  # False Positives: Legitimate backup/archive operations
+  # ============================================================
+  apt34-stealhook-data-staging:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: .zip
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: .7z
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: .rar
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: staging
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: stealhook
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: exfil
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: payload
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Data Staging Archive Created (STEALHOOK Pattern)
+        metadata:
+          severity: medium
+          mitre_attack: T1048.003
+          test_id: 5691f436-e630-4fd2-b930-911023cf638f
+          description: Archive file created in staging location - potential pre-exfiltration data collection
+          threat_actor: APT34
+
+
+  # ============================================================
+  # Rule 8: Credential File Creation (T1556.002)
+  # ============================================================
+  # Confidence: High
+  # Description: Detects creation of files containing credential dumps
+  # False Positives: Security scanning tools generating test reports
+  # ============================================================
+  apt34-credential-file-staging:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: captured_credential
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: cred_dump
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: hash_dump
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: secretsdump
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: ntds_dump
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Credential Data File Created
+        metadata:
+          severity: high
+          mitre_attack: T1556.002
+          test_id: 5691f436-e630-4fd2-b930-911023cf638f
+          description: File with credential dump naming convention created
+
+
+  # ============================================================
+  # Rule 9: Bulk EML File Generation (T1048.003)
+  # ============================================================
+  # Confidence: Medium
+  # Description: Detects rapid creation of .eml files, which may
+  #              indicate email-based data exfiltration preparation
+  # False Positives: Email migration tools, backup operations
+  # ============================================================
+  apt34-bulk-eml-generation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: .eml
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: exfil
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: stealhook
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: c2_
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Suspicious EML File Generation (Email Exfiltration)
+        metadata:
+          severity: medium
+          mitre_attack: T1048.003
+          test_id: 5691f436-e630-4fd2-b930-911023cf638f
+          description: Email message files generated in suspicious context - possible email-based exfiltration
+          threat_actor: APT34

@@ -1,158 +1,436 @@
-// Behavioral Detection Queries for Agrius Multi-Wiper Deployment
+// ============================================================
+// F0RT1KA Behavioral Detection Queries
 // Test ID: 7d39b861-644d-4f8b-bb19-4faae527a130
+// Test Name: Agrius Multi-Wiper Deployment Against Banking Infrastructure
 // MITRE ATT&CK: T1505.003, T1543.003, T1562.001, T1485, T1070.001
-// Threat Actor: Agrius / Pink Sandstorm / Agonizing Serpens
-// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+// Threat Actor: Agrius / Pink Sandstorm / Agonizing Serpens / BlackShadow
+// Author: F0RT1KA Defense Guidance Builder
+// Date: 2026-03-13
+// Version: 2.0.0
+// ============================================================
+//
+// IMPORTANT: All detections target TECHNIQUE BEHAVIORS, not test
+// framework artifacts. These rules will detect any attacker using
+// the same techniques regardless of tooling.
+//
+// Query Index:
+//   1. ASPXSpy Webshell Deployment (T1505.003)
+//   2. Webshell Content Patterns in File Writes (T1505.003)
+//   3. Suspicious Windows Service Creation via sc.exe (T1543.003)
+//   4. Kernel Driver Service Installation (T1562.001)
+//   5. EDR/AV Service Tampering via sc.exe (T1562.001)
+//   6. GMER Driver Deployment (T1562.001)
+//   7. Mass File Overwrite - Wiper Behavior (T1485)
+//   8. Multi-Pass File Overwrite Pattern (T1485)
+//   9. Event Log Clearing via wevtutil (T1070.001)
+//  10. Self-Deleting Batch Script with Ping Delay (T1070.001)
+//  11. Correlated Agrius Attack Chain (Multi-TTP)
+//  12. Rapid Sequential Destructive Operations (Multi-TTP)
+// ============================================================
 
-//
-// QUERY 1: Webshell Deployment Detection (T1505.003)
-// Purpose: Detect .aspx file creation in unusual directories (ASPXSpy pattern)
-//
+// ============================================================
+// QUERY 1: ASPXSpy Webshell Deployment (T1505.003)
+// Confidence: HIGH
+// Purpose: Detect .aspx file creation with known webshell naming
+//          patterns used by Agrius and other threat actors
+// False Positives: IIS deployment, SharePoint page updates,
+//                  legitimate CMS publishing
+// Threshold: Any single occurrence warrants investigation
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
 | where FileName endswith ".aspx" or FileName endswith ".ashx" or FileName endswith ".asmx"
-| where FileName in~("aspxspy.aspx", "error5.aspx", "contact.aspx", "shell.aspx", "cmd.aspx")
-    or FolderPath !has "inetpub"  // .aspx files outside IIS directories are suspicious
+| where FileName in~ (
+    "aspxspy.aspx", "error5.aspx", "contact.aspx",        // Agrius ASPXSpy variants
+    "shell.aspx", "cmd.aspx", "webshell.aspx",            // Common webshell names
+    "test.aspx", "upload.aspx", "eval.aspx",              // Suspicious webshell names
+    "tunnel.aspx", "connect.aspx", "proxy.aspx"           // Tunneling webshells
+  )
+  or FolderPath !has_any ("inetpub", "wwwroot", "Program Files", "Exchange Server")
+| extend
+    Severity = "High",
+    ThreatType = "Webshell Deployment",
+    MitreAttack = "T1505.003",
+    ThreatActor = "Agrius / Pink Sandstorm"
 | project TimeGenerated, DeviceName, AccountName, FileName, FolderPath, SHA256,
-    InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend Detection = "Potential Webshell Deployment (T1505.003)"
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, ThreatActor
 
-//
-// QUERY 2: Suspicious Windows Service Creation (T1543.003)
+// ============================================================
+// QUERY 2: Webshell Content Patterns in File Writes (T1505.003)
+// Confidence: HIGH
+// Purpose: Detect files written with ASP.NET webshell code patterns
+//          regardless of filename
+// False Positives: Legitimate ASP.NET development on servers
+// Threshold: Alert on any match outside development environments
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated" or ActionType == "FileModified"
+| where FileName endswith ".aspx" or FileName endswith ".ashx"
+| join kind=inner (
+    DeviceFileCertificateInfo
+    | where TimeGenerated > ago(1h)
+) on SHA256
+| where InitiatingProcessFileName !in~ ("w3wp.exe", "msdeploy.exe", "devenv.exe", "code.exe")
+| extend
+    Severity = "High",
+    ThreatType = "Potential Webshell Content",
+    MitreAttack = "T1505.003"
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    InitiatingProcessFileName, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// QUERY 3: Suspicious Windows Service Creation via sc.exe (T1543.003)
+// Confidence: HIGH
 // Purpose: Detect service creation with non-standard binary paths
-//
+//          commonly used for persistence by APTs
+// False Positives: Legitimate software installers, IT admin scripts
+// Threshold: Any service creation from suspicious paths
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName =~ "sc.exe"
 | where ProcessCommandLine has "create"
-| where ProcessCommandLine has_any("binPath", "binpath")
-| where ProcessCommandLine has_any("C:\\F0", "C:\\Users\\Public", "C:\\ProgramData",
-    "C:\\Windows\\Temp", "\\AppData\\")
+| where ProcessCommandLine has_any ("binPath", "binpath")
+// Flag services pointing to non-standard locations
+| where ProcessCommandLine has_any (
+    "C:\\Users\\Public", "C:\\ProgramData", "C:\\Windows\\Temp",
+    "\\AppData\\", "\\Temp\\", "\\Downloads\\", "\\Desktop\\"
+  )
+  or ProcessCommandLine has "start= auto"
+| where ProcessCommandLine !has_any (
+    "C:\\Program Files", "C:\\Windows\\System32",
+    "C:\\Windows\\SysWOW64"
+  )
+| extend ServiceName = extract(@"create\s+(\S+)", 1, ProcessCommandLine)
+| extend BinPath = extract(@"binPath=?\s*""?([^""]+)""?", 1, ProcessCommandLine)
+| extend
+    Severity = "High",
+    ThreatType = "Suspicious Service Persistence",
+    MitreAttack = "T1543.003"
 | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
-    InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend Detection = "Suspicious Service Creation with Non-Standard Path (T1543.003)"
+    ServiceName, BinPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 3: EDR Tampering Attempts (T1562.001)
-// Purpose: Detect attempts to disable or modify security services
-//
+// ============================================================
+// QUERY 4: Kernel Driver Service Installation (T1562.001)
+// Confidence: HIGH
+// Purpose: Detect creation of kernel-type services via sc.exe
+//          which is used to load vulnerable/malicious drivers
+//          for EDR bypass (BYOVD attacks)
+// False Positives: Legitimate driver installations via admin tools
+// Threshold: Any kernel service creation outside standard paths
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName =~ "sc.exe"
-| where ProcessCommandLine has_any("config", "stop", "delete")
-| where ProcessCommandLine has_any("Sense", "WinDefend", "MsSense",
-    "CrowdStrike", "CSFalconService", "SentinelAgent", "CylanceSvc",
-    "CarbonBlack", "SEP", "McAfee")
+| where ProcessCommandLine has "create"
+| where ProcessCommandLine has "kernel"
+| where ProcessCommandLine has "type="
+// Exclude standard system driver installations
+| where InitiatingProcessFileName !in~ (
+    "services.exe", "msiexec.exe", "DrvInst.exe",
+    "setup.exe", "TiWorker.exe"
+  )
+| extend DriverName = extract(@"create\s+(\S+)", 1, ProcessCommandLine)
+| extend DriverPath = extract(@"binPath=?\s*""?([^""]+)""?", 1, ProcessCommandLine)
+| extend
+    Severity = "Critical",
+    ThreatType = "Kernel Driver Loading (BYOVD)",
+    MitreAttack = "T1562.001"
 | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
-    InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend ThreatScore = 95
-| extend Detection = "EDR/AV Service Tampering Attempt (T1562.001)"
+    DriverName, DriverPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 4: GMER64.sys Driver Loading (T1562.001)
-// Purpose: Detect deployment and loading of GMER anti-rootkit driver (abused for EDR bypass)
-//
+// ============================================================
+// QUERY 5: EDR/AV Service Tampering via sc.exe (T1562.001)
+// Confidence: CRITICAL
+// Purpose: Detect attempts to disable, stop, or modify security
+//          service configurations -- a hallmark of destructive APTs
+// False Positives: Legitimate IT maintenance (rare, should be
+//                  change-managed)
+// Threshold: Any single attempt is critical
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has_any ("config", "stop", "delete")
+| where ProcessCommandLine has_any (
+    // Microsoft Defender
+    "Sense", "WinDefend", "MsSense", "MpDefenderCoreService",
+    // CrowdStrike
+    "CSFalconService", "CrowdStrike",
+    // SentinelOne
+    "SentinelAgent", "SentinelStaticEngine",
+    // Palo Alto Cortex XDR
+    "CortexXDR", "cyserver",
+    // Carbon Black
+    "CbDefense", "CbDefenseWSC",
+    // Sophos
+    "SAVService", "Sophos",
+    // ESET
+    "ekrn", "EsetService",
+    // Trend Micro
+    "Ntrtscan", "ds_agent",
+    // Elastic
+    "elastic-endpoint",
+    // Cylance
+    "CylanceSvc",
+    // Symantec / Broadcom
+    "SepMasterService", "ccSvcHst"
+  )
+| extend TargetService = extract(@"(config|stop|delete)\s+(\S+)", 2, ProcessCommandLine)
+| extend TamperAction = extract(@"(config|stop|delete)", 1, ProcessCommandLine)
+| extend
+    Severity = "Critical",
+    ThreatType = "EDR/AV Service Tampering",
+    MitreAttack = "T1562.001",
+    ThreatActor = "Agrius / Pink Sandstorm"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    TargetService, TamperAction,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, ThreatActor
+
+// ============================================================
+// QUERY 6: GMER Driver Deployment (T1562.001)
+// Confidence: HIGH
+// Purpose: Detect deployment of GMER64.sys or similar anti-rootkit
+//          drivers abused by threat actors for BYOVD attacks
+// False Positives: IT admins running GMER for legitimate purposes
+// Threshold: Any detection warrants investigation
+// ============================================================
 union DeviceFileEvents, DeviceProcessEvents
 | where TimeGenerated > ago(1h)
-| where (ActionType == "FileCreated" and FileName =~ "GMER64.sys")
+| where
+    (ActionType == "FileCreated" and FileName =~ "GMER64.sys")
+    or (ActionType == "FileCreated" and FileName endswith ".sys"
+        and FolderPath !has "System32\\drivers"
+        and FolderPath !has "DriverStore")
     or (FileName =~ "sc.exe" and ProcessCommandLine has "kernel"
-        and ProcessCommandLine has_any("GMER", "gmer"))
+        and ProcessCommandLine has_any ("GMER", "gmer"))
+| extend
+    Severity = "Critical",
+    ThreatType = "Vulnerable Driver Deployment (BYOVD)",
+    MitreAttack = "T1562.001"
 | project TimeGenerated, DeviceName, AccountName, ActionType, FileName,
-    ProcessCommandLine, FolderPath
-| extend ThreatScore = 90
-| extend Detection = "GMER64.sys Driver Deployment/Loading (T1562.001)"
+    FolderPath, ProcessCommandLine,
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 5: Mass File Destruction (T1485)
-// Purpose: Detect bulk file overwrite and deletion patterns (wiper behavior)
-//
+// ============================================================
+// QUERY 7: Mass File Overwrite - Wiper Behavior (T1485)
+// Confidence: HIGH
+// Purpose: Detect rapid bulk file modification and deletion
+//          patterns consistent with wiper malware
+// False Positives: Disk cleanup tools, backup software,
+//                  defragmentation, batch file operations
+// Threshold: >20 files modified in <2 minutes by single process
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType in ("FileModified", "FileDeleted")
-| summarize FileCount=count(),
-    FileTypes=make_set(tostring(split(FileName, ".")[-1])),
-    ActionTypes=make_set(ActionType),
-    FirstOperation=min(TimeGenerated),
-    LastOperation=max(TimeGenerated)
+| summarize
+    FileCount = count(),
+    FileTypes = make_set(tostring(split(FileName, ".")[-1])),
+    ActionTypes = make_set(ActionType),
+    UniqueDirectories = dcount(FolderPath),
+    FirstOperation = min(TimeGenerated),
+    LastOperation = max(TimeGenerated)
     by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 2m)
 | where FileCount > 20
-| extend OperationDurationSec = datetime_diff('second', LastOperation, FirstOperation)
+| extend OperationDurationSec = datetime_diff("second", LastOperation, FirstOperation)
 | extend OperationRate = iff(OperationDurationSec > 0,
     toreal(FileCount) / toreal(OperationDurationSec), toreal(FileCount))
 | where OperationRate > 1.0  // More than 1 file per second
-| extend ThreatScore = 95
-| extend Detection = "Mass File Destruction Pattern (T1485 - Wiper Activity)"
+| extend
+    Severity = "Critical",
+    ThreatType = "Mass File Destruction (Wiper Activity)",
+    MitreAttack = "T1485"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+    FileCount, UniqueDirectories, OperationRate, FileTypes, ActionTypes,
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 6: Event Log Clearing (T1070.001)
-// Purpose: Detect Windows Event Log clearing via wevtutil
-//
+// ============================================================
+// QUERY 8: Multi-Pass File Overwrite Pattern (T1485)
+// Confidence: HIGH
+// Purpose: Detect files being repeatedly modified (opened/written/
+//          closed multiple times in succession) which is characteristic
+//          of secure wipe algorithms (Gutmann, DoD 5220.22-M, BFG)
+// False Positives: Database transaction logs, swap files
+// Threshold: Same file modified 3+ times within 30 seconds
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileModified"
+| summarize
+    ModificationCount = count(),
+    FirstMod = min(TimeGenerated),
+    LastMod = max(TimeGenerated)
+    by DeviceName, FileName, FolderPath, InitiatingProcessFileName
+| where ModificationCount >= 3
+| extend DurationSec = datetime_diff("second", LastMod, FirstMod)
+| where DurationSec <= 30
+| extend
+    Severity = "Critical",
+    ThreatType = "Multi-Pass Secure Wipe Pattern",
+    MitreAttack = "T1485"
+| project DeviceName, FileName, FolderPath, InitiatingProcessFileName,
+    ModificationCount, DurationSec,
+    Severity, ThreatType, MitreAttack
+
+// ============================================================
+// QUERY 9: Event Log Clearing via wevtutil (T1070.001)
+// Confidence: HIGH
+// Purpose: Detect attempts to clear Windows Event Logs using
+//          wevtutil.exe -- a critical anti-forensics technique
+// False Positives: Scheduled log maintenance (should be rare and
+//                  change-managed in enterprise environments)
+// Threshold: Any event log clearing is suspicious
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName =~ "wevtutil.exe"
 | where ProcessCommandLine has "cl"
-| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
-    InitiatingProcessFileName, InitiatingProcessCommandLine
 | extend TargetLog = extract(@"cl\s+""?([^""]+)""?", 1, ProcessCommandLine)
-| extend ThreatScore = 90
-| extend Detection = "Event Log Clearing via wevtutil (T1070.001)"
+| extend
+    Severity = "Critical",
+    ThreatType = "Event Log Clearing (Anti-Forensics)",
+    MitreAttack = "T1070.001"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    TargetLog,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 7: Self-Deletion Batch Script (T1070.001)
-// Purpose: Detect self-deleting batch scripts with ping-based delays (Agrius remover.bat pattern)
-//
+// ============================================================
+// QUERY 10: Self-Deleting Batch Script with Ping Delay (T1070.001)
+// Confidence: MEDIUM
+// Purpose: Detect batch scripts that use ping-based delays before
+//          self-deletion -- a known Agrius anti-forensics pattern
+//          also common across many APT groups
+// False Positives: Some legacy installer cleanup scripts
+// Threshold: Any match warrants investigation
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName =~ "cmd.exe"
-| where ProcessCommandLine has_any("remover.bat", "cleaner.bat", "deleter.bat")
-    or (ProcessCommandLine has ".bat"
-        and ProcessCommandLine has "del"
-        and ProcessCommandLine has "%~f0")
+| where ProcessCommandLine has ".bat"
+| where
+    // Self-deletion pattern
+    (ProcessCommandLine has "del" and ProcessCommandLine has "%~f0")
+    // OR known malicious batch names
+    or ProcessCommandLine has_any ("remover.bat", "cleaner.bat", "deleter.bat", "wiper.bat")
+    // OR ping delay + delete combination
+    or (ProcessCommandLine has "ping" and ProcessCommandLine has "del")
+| extend
+    Severity = "High",
+    ThreatType = "Self-Deleting Batch Script (Anti-Forensics)",
+    MitreAttack = "T1070.001"
 | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
-    InitiatingProcessFileName, InitiatingProcessId
-| extend ThreatScore = 80
-| extend Detection = "Self-Deletion Batch Script (T1070.001 - Anti-Forensics)"
+    InitiatingProcessFileName, InitiatingProcessId,
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 8: Combined Agrius Attack Pattern Detection
-// Purpose: Correlate multiple Agrius TTPs for high-confidence alert
-//
+// ============================================================
+// QUERY 11: Correlated Agrius Attack Chain (Multi-TTP)
+// Confidence: CRITICAL
+// Purpose: Correlate multiple attack indicators on a single host
+//          to detect the full Agrius wiper killchain with very
+//          high confidence -- any 3 of 5 TTPs on same device
+// False Positives: Extremely unlikely outside testing
+// Threshold: 3+ correlated indicators = critical alert
+// ============================================================
 let WebshellActivity = DeviceFileEvents
-| where TimeGenerated > ago(1h)
-| where ActionType == "FileCreated" and FileName endswith ".aspx"
+| where TimeGenerated > ago(4h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".aspx" or FileName endswith ".ashx"
 | distinct DeviceName;
 let ServiceCreation = DeviceProcessEvents
-| where TimeGenerated > ago(1h)
+| where TimeGenerated > ago(4h)
 | where FileName =~ "sc.exe" and ProcessCommandLine has "create"
+| where ProcessCommandLine !has_any ("C:\\Program Files", "C:\\Windows\\System32")
 | distinct DeviceName;
 let EDRTampering = DeviceProcessEvents
-| where TimeGenerated > ago(1h)
+| where TimeGenerated > ago(4h)
 | where FileName =~ "sc.exe"
-| where ProcessCommandLine has_any("Sense", "WinDefend", "CrowdStrike")
+| where ProcessCommandLine has_any ("config", "stop")
+| where ProcessCommandLine has_any (
+    "Sense", "WinDefend", "CSFalconService", "SentinelAgent",
+    "CylanceSvc", "CbDefense", "ekrn", "SepMasterService",
+    "CortexXDR", "elastic-endpoint"
+  )
 | distinct DeviceName;
 let MassFileOps = DeviceFileEvents
-| where TimeGenerated > ago(1h)
+| where TimeGenerated > ago(4h)
 | where ActionType in ("FileModified", "FileDeleted")
-| summarize FileCount=count() by DeviceName
+| summarize FileCount = count() by DeviceName
 | where FileCount > 20
 | distinct DeviceName;
 let EventLogClearing = DeviceProcessEvents
-| where TimeGenerated > ago(1h)
+| where TimeGenerated > ago(4h)
 | where FileName =~ "wevtutil.exe" and ProcessCommandLine has "cl"
 | distinct DeviceName;
-// Correlate: any device with 3+ indicators
+// Pattern 1: Webshell + Service + EDR tampering (initial access -> persistence -> evasion)
 WebshellActivity
 | join kind=inner (ServiceCreation) on DeviceName
 | join kind=inner (EDRTampering) on DeviceName
 | extend ThreatScore = 99
-| extend Detection = "Agrius Multi-Wiper Attack Chain - HIGH CONFIDENCE (3+ TTPs correlated)"
+| extend Detection = "Agrius Kill Chain: Webshell + Service Persistence + EDR Tampering"
 | project DeviceName, ThreatScore, Detection
 | union (
+    // Pattern 2: Webshell + Wiper + Log clearing (full destructive chain)
     WebshellActivity
     | join kind=inner (MassFileOps) on DeviceName
     | join kind=inner (EventLogClearing) on DeviceName
-    | extend ThreatScore = 98
-    | extend Detection = "Agrius Destructive Campaign - HIGH CONFIDENCE (webshell + wiper + anti-forensics)"
+    | extend ThreatScore = 99
+    | extend Detection = "Agrius Destructive Chain: Webshell + Data Destruction + Anti-Forensics"
     | project DeviceName, ThreatScore, Detection
 )
+| union (
+    // Pattern 3: EDR tampering + Wiper + Log clearing (defense evasion -> impact)
+    EDRTampering
+    | join kind=inner (MassFileOps) on DeviceName
+    | join kind=inner (EventLogClearing) on DeviceName
+    | extend ThreatScore = 98
+    | extend Detection = "Destructive Campaign: EDR Tampering + Data Destruction + Anti-Forensics"
+    | project DeviceName, ThreatScore, Detection
+)
+
+// ============================================================
+// QUERY 12: Rapid Sequential Destructive Operations (Multi-TTP)
+// Confidence: HIGH
+// Purpose: Detect a rapid sequence of destructive operations on
+//          the same host: service tampering, mass file ops, and
+//          log clearing within a short time window
+// False Positives: Very unlikely in production
+// Threshold: 3+ destructive event types within 30 minutes
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where
+    (FileName =~ "sc.exe" and ProcessCommandLine has_any ("stop", "config", "delete")
+     and ProcessCommandLine has_any ("Sense", "WinDefend", "CSFalconService", "SentinelAgent"))
+    or (FileName =~ "wevtutil.exe" and ProcessCommandLine has "cl")
+    or (FileName =~ "cmd.exe" and ProcessCommandLine has ".bat" and ProcessCommandLine has "del")
+| extend EventCategory = case(
+    FileName =~ "sc.exe", "EDR_Tampering",
+    FileName =~ "wevtutil.exe", "Log_Clearing",
+    FileName =~ "cmd.exe", "Self_Deletion",
+    "Other"
+  )
+| summarize
+    EventCategories = make_set(EventCategory),
+    TotalEvents = count(),
+    FirstEvent = min(TimeGenerated),
+    LastEvent = max(TimeGenerated),
+    CommandLines = make_set(ProcessCommandLine, 10)
+    by DeviceName, AccountName, bin(TimeGenerated, 30m)
+| where array_length(EventCategories) >= 2
+| extend
+    Severity = "Critical",
+    ThreatType = "Rapid Sequential Destructive Operations",
+    MitreAttack = "T1562.001,T1070.001,T1485"
+| project TimeGenerated, DeviceName, AccountName,
+    EventCategories, TotalEvents, CommandLines,
+    Severity, ThreatType, MitreAttack

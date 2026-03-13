@@ -1,0 +1,521 @@
+# ============================================================
+# EDR-Freeze Defense Evasion - Sigma Detection Rules
+# Test ID: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+# MITRE ATT&CK: T1562.001, T1055, T1574
+# Author: F0RT1KA Defense Guidance Builder
+# Version: 1.0.0
+# Date: 2026-03-13
+# ============================================================
+#
+# This file contains Sigma rules for detecting EDR-Freeze attacks
+# and associated defense evasion behaviors. Rules are designed to
+# detect the underlying attack technique, NOT test framework artifacts.
+#
+# Rule Index:
+#   1. WerFaultSecure Targeting Security Processes
+#   2. Certutil Downloading Executable Content
+#   3. Security Process Thread Suspension via Non-System Process
+#   4. WerFaultSecure Launched with PPL Dump Parameters
+#   5. EDR-Freeze Full Attack Chain Correlation
+#   6. CreateProcessAsPPL Usage Detection
+#   7. LOLBin Download from Offensive Tool Repository
+#   8. Defender Process Unexpected Termination
+#   9. WerFaultSecure Memory Dump of Security Process
+#   10. Executable Staging in Suspicious Directory via LOLBin
+#
+# ============================================================
+
+title: WerFaultSecure Targeting Security Processes
+id: a1b2c3d4-0001-4edr-freeze-werfault00001
+status: experimental
+description: |
+    Detects WerFaultSecure.exe launched with command-line parameters referencing
+    security product process names. This is characteristic of the EDR-Freeze
+    technique which abuses MiniDumpWriteDump via WerFaultSecure to suspend
+    security processes through a race condition. Legitimate WerFaultSecure
+    invocations are system-initiated and rarely reference security process
+    names in user-controlled parameters.
+references:
+    - https://github.com/TwoSevenOneT/EDR-Freeze
+    - https://www.zerosalarium.com/2025/09/EDR-Freeze-Puts-EDRs-Antivirus-Into-Coma.html
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.t1574
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_process:
+        Image|endswith: '\WerFaultSecure.exe'
+    selection_targets:
+        CommandLine|contains:
+            - 'MsMpEng'
+            - 'MpDefenderCoreService'
+            - 'NisSrv'
+            - 'SenseCE'
+            - 'SenseIR'
+            - 'MsSense'
+            - 'CylanceSvc'
+            - 'CSFalconService'
+            - 'SentinelAgent'
+            - 'TmListen'
+            - 'TmCCSF'
+            - 'cb.exe'
+            - 'RepMgr'
+    condition: selection_process and selection_targets
+falsepositives:
+    - Legitimate Windows Error Reporting crash dumps of security processes (rare; verify with WER reports)
+level: high
+
+---
+
+title: Certutil Downloading Executable Content
+id: a1b2c3d4-0002-4edr-freeze-certutil00001
+status: experimental
+description: |
+    Detects certutil.exe being used with download flags (-urlcache, -urlfetch,
+    -verifyctl) to retrieve executable files from the internet. Certutil is
+    a legitimate Windows certificate utility frequently abused as a LOLBin
+    to download malicious payloads. This is commonly observed as a follow-on
+    action after EDR/AV suspension attacks.
+references:
+    - https://lolbas-project.github.io/lolbas/Binaries/Certutil/
+    - https://attack.mitre.org/techniques/T1105/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command-and-control
+    - attack.t1105
+    - attack.defense-evasion
+    - attack.t1218
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_process:
+        Image|endswith: '\certutil.exe'
+    selection_download_flags:
+        CommandLine|contains:
+            - '-urlcache'
+            - '-urlfetch'
+            - '-verifyctl'
+            - '/urlcache'
+            - '/urlfetch'
+            - '/verifyctl'
+    selection_executable_target:
+        CommandLine|contains:
+            - '.exe'
+            - '.dll'
+            - '.ps1'
+            - '.bat'
+            - '.vbs'
+            - '.hta'
+    condition: selection_process and selection_download_flags and selection_executable_target
+falsepositives:
+    - Legitimate certificate verification referencing executable file extensions
+    - Administrators using certutil for legitimate certificate management
+level: high
+
+---
+
+title: Security Process Thread Suspension by Non-System Process
+id: a1b2c3d4-0003-4edr-freeze-suspend00001
+status: experimental
+description: |
+    Detects non-system processes accessing security product processes with
+    thread suspension intent. Tools like EDR-Freeze use NtSuspendProcess
+    or SuspendThread APIs against security processes to create a temporary
+    bypass window. This detection relies on Sysmon Event ID 10 (ProcessAccess)
+    with PROCESS_SUSPEND_RESUME (0x0800) access rights.
+references:
+    - https://github.com/TwoSevenOneT/EDR-Freeze
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.t1055
+logsource:
+    category: process_access
+    product: windows
+detection:
+    selection_target:
+        TargetImage|endswith:
+            - '\MsMpEng.exe'
+            - '\MpDefenderCoreService.exe'
+            - '\NisSrv.exe'
+            - '\SenseCE.exe'
+            - '\SenseIR.exe'
+            - '\MsSense.exe'
+            - '\CSFalconService.exe'
+            - '\SentinelAgent.exe'
+            - '\CylanceSvc.exe'
+    selection_access:
+        GrantedAccess|contains:
+            - '0x0800'
+            - '0x1fffff'
+            - '0x001fffff'
+    filter_system:
+        SourceImage|endswith:
+            - '\svchost.exe'
+            - '\services.exe'
+            - '\wininit.exe'
+            - '\csrss.exe'
+            - '\lsass.exe'
+            - '\smss.exe'
+            - '\MsMpEng.exe'
+            - '\NisSrv.exe'
+    condition: selection_target and selection_access and not filter_system
+falsepositives:
+    - Legitimate debugging tools accessing security processes
+    - System management or monitoring software with process inspection
+level: critical
+
+---
+
+title: WerFaultSecure Launched with PPL Memory Dump Parameters
+id: a1b2c3d4-0004-4edr-freeze-pplparam0001
+status: experimental
+description: |
+    Detects WerFaultSecure.exe launched with specific parameter combinations
+    (/h, /pid, /tid) that indicate memory dump creation targeting a specific
+    process. When the parent process is not a standard system process, this
+    strongly indicates abuse of the WER mechanism for process suspension.
+    The EDR-Freeze technique uses CreateProcessAsPPL to launch WerFaultSecure
+    with WinTCB protection level.
+references:
+    - https://github.com/TwoSevenOneT/EDR-Freeze
+    - https://github.com/TwoSevenOneT/CreateProcessAsPPL
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1574
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_process:
+        Image|endswith: '\WerFaultSecure.exe'
+    selection_params_h:
+        CommandLine|contains: '/h'
+    selection_params_pid:
+        CommandLine|contains: '/pid'
+    selection_params_tid:
+        CommandLine|contains: '/tid'
+    filter_parent:
+        ParentImage|endswith:
+            - '\svchost.exe'
+            - '\wininit.exe'
+            - '\services.exe'
+    condition: selection_process and selection_params_h and selection_params_pid and selection_params_tid and not filter_parent
+falsepositives:
+    - Legitimate WER crash handling initiated by system processes (excluded)
+level: high
+
+---
+
+title: EDR-Freeze Attack Chain - WerFaultSecure Abuse with Subsequent Download
+id: a1b2c3d4-0005-4edr-freeze-chain000001
+status: experimental
+description: |
+    Temporal correlation rule detecting WerFaultSecure.exe abuse targeting
+    security processes followed by a LOLBin-based executable download within
+    a 120-second window. This sequence is highly specific to EDR/AV suspension
+    attacks (EDR-Freeze and variants) where the attacker first disables
+    security controls, then downloads malicious tools during the bypass window.
+    Requires a SIEM with temporal correlation capability.
+references:
+    - https://github.com/TwoSevenOneT/EDR-Freeze
+    - https://www.zerosalarium.com/2025/09/EDR-Freeze-Puts-EDRs-Antivirus-Into-Coma.html
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.command-and-control
+    - attack.t1105
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    # NOTE: This is a temporal correlation rule. In Sigma, this requires
+    # backend-specific correlation syntax. The conditions below describe
+    # both events that must occur on the same host within 120 seconds.
+    # Implement as two correlated rules in your SIEM.
+    #
+    # Event A: WerFaultSecure targeting security process
+    event_a_process:
+        Image|endswith: '\WerFaultSecure.exe'
+    event_a_target:
+        CommandLine|contains:
+            - 'MsMpEng'
+            - 'MpDefenderCoreService'
+            - 'NisSrv'
+            - 'Sense'
+            - 'Defender'
+            - 'Falcon'
+            - 'Sentinel'
+            - 'Cylance'
+    # Event B: LOLBin download within 120 seconds
+    event_b_process:
+        Image|endswith:
+            - '\certutil.exe'
+            - '\bitsadmin.exe'
+            - '\curl.exe'
+            - '\wget.exe'
+    event_b_download:
+        CommandLine|contains:
+            - 'http'
+            - 'ftp'
+    event_b_executable:
+        CommandLine|contains:
+            - '.exe'
+            - '.dll'
+            - '.ps1'
+    condition: (event_a_process and event_a_target) or (event_b_process and event_b_download and event_b_executable)
+    # SIEM Implementation Note: Create two separate rules from event_a and event_b,
+    # then correlate them with a 120-second window on the same hostname.
+falsepositives:
+    - Extremely unlikely in production; validate with security team if authorized testing
+level: critical
+
+---
+
+title: CreateProcessAsPPL Usage Detection
+id: a1b2c3d4-0006-4edr-freeze-pplcreate001
+status: experimental
+description: |
+    Detects command-line references to CreateProcessAsPPL, WinTCB, or
+    PsProtectedSigner which indicate an attempt to create a Protected Process
+    Light (PPL) process. Legitimate PPL creation is exclusively performed by
+    the Windows kernel and system services. User-mode tools referencing these
+    patterns are typically attack tools designed to abuse PPL for security
+    process manipulation.
+references:
+    - https://github.com/TwoSevenOneT/CreateProcessAsPPL
+    - https://attack.mitre.org/techniques/T1055/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege-escalation
+    - attack.t1055
+    - attack.defense-evasion
+    - attack.t1574
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_cmdline:
+        CommandLine|contains:
+            - 'CreateProcessAsPPL'
+            - 'PsProtectedSigner'
+            - 'WinTCB'
+    condition: selection_cmdline
+falsepositives:
+    - Security research tools or authorized penetration testing
+    - Kernel debugging sessions (extremely rare in production)
+level: high
+
+---
+
+title: LOLBin Download from Known Offensive Tool Repository
+id: a1b2c3d4-0007-4edr-freeze-lolbin00001
+status: experimental
+description: |
+    Detects Living-Off-the-Land Binaries (certutil, bitsadmin, curl, wget,
+    PowerShell) downloading content from known offensive tool repositories
+    such as SharpCollection, GhostPack forks, or common malware hosting
+    platforms. This is a strong indicator of post-exploitation activity,
+    especially when combined with prior EDR/AV suspension.
+references:
+    - https://lolbas-project.github.io/
+    - https://attack.mitre.org/techniques/T1105/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command-and-control
+    - attack.t1105
+    - attack.execution
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_lolbin:
+        Image|endswith:
+            - '\certutil.exe'
+            - '\bitsadmin.exe'
+            - '\curl.exe'
+            - '\wget.exe'
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_repo:
+        CommandLine|contains:
+            - 'SharpCollection'
+            - 'GhostPack'
+            - 'Flangvik'
+            - 'Seatbelt'
+            - 'Rubeus'
+            - 'Mimikatz'
+            - 'SharpHound'
+            - 'BloodHound'
+            - 'LaZagne'
+            - 'Certify'
+            - 'KeeThief'
+            - 'SharpDPAPI'
+    condition: selection_lolbin and selection_repo
+falsepositives:
+    - Authorized red team engagements downloading tools for testing
+    - Security researchers downloading tools for analysis
+level: high
+
+---
+
+title: Windows Defender Process Unexpected Termination
+id: a1b2c3d4-0008-4edr-freeze-defterm0001
+status: experimental
+description: |
+    Detects Windows Defender core processes being terminated when the
+    termination is not initiated by standard system processes (services.exe,
+    wininit.exe, svchost.exe). Unexpected Defender process termination
+    may indicate a successful EDR-Freeze attack where WerFaultSecure is
+    released after the suspension window, causing the security process to
+    crash, or direct process killing.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_termination
+    product: windows
+detection:
+    selection_defender:
+        Image|endswith:
+            - '\MsMpEng.exe'
+            - '\MpDefenderCoreService.exe'
+            - '\NisSrv.exe'
+            - '\SecurityHealthService.exe'
+    filter_system_parent:
+        ParentImage|endswith:
+            - '\services.exe'
+            - '\wininit.exe'
+            - '\svchost.exe'
+            - '\MsMpEng.exe'
+    condition: selection_defender and not filter_system_parent
+falsepositives:
+    - Windows Defender service restarts during updates (normally via services.exe, excluded)
+    - System shutdown sequences
+level: critical
+
+---
+
+title: WerFaultSecure Creating Memory Dump of Security Process
+id: a1b2c3d4-0009-4edr-freeze-memdump0001
+status: experimental
+description: |
+    Detects WerFaultSecure.exe or WerFault.exe creating memory dump files
+    (.dmp, .hdmp, .mdmp) that reference security process names or are
+    written to non-standard locations. During the EDR-Freeze attack,
+    WerFaultSecure creates a dump of the target security process as part
+    of the MiniDumpWriteDump suspension mechanism.
+references:
+    - https://github.com/TwoSevenOneT/EDR-Freeze
+    - https://attack.mitre.org/techniques/T1003/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.credential-access
+    - attack.t1003.001
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_process:
+        Image|endswith:
+            - '\WerFaultSecure.exe'
+            - '\WerFault.exe'
+    selection_dumpfile:
+        TargetFilename|endswith:
+            - '.dmp'
+            - '.hdmp'
+            - '.mdmp'
+    selection_security_target:
+        TargetFilename|contains:
+            - 'MsMpEng'
+            - 'MpDefenderCoreService'
+            - 'NisSrv'
+            - 'Sense'
+            - 'Defender'
+    filter_standard_location:
+        TargetFilename|startswith: 'C:\ProgramData\Microsoft\Windows\WER\'
+    condition: selection_process and selection_dumpfile and (selection_security_target or not filter_standard_location)
+falsepositives:
+    - Legitimate crash dumps of security processes written to non-standard WER paths (rare)
+level: high
+
+---
+
+title: Executable File Staging in Suspicious Directory via LOLBin
+id: a1b2c3d4-0010-4edr-freeze-staging0001
+status: experimental
+description: |
+    Detects executable files (.exe, .dll, .ps1) being created in common
+    attacker staging directories (Temp, Public, AppData, ProgramData,
+    Downloads) when the creating process is a LOLBin or command shell.
+    After suspending security processes, attackers typically stage tools
+    in these writable directories before execution.
+references:
+    - https://attack.mitre.org/techniques/T1074/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.collection
+    - attack.t1074.001
+    - attack.defense-evasion
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_directory:
+        TargetFilename|contains:
+            - '\Temp\'
+            - '\Users\Public\'
+            - '\AppData\Local\Temp\'
+            - '\AppData\Roaming\'
+            - '\ProgramData\'
+    selection_extension:
+        TargetFilename|endswith:
+            - '.exe'
+            - '.dll'
+            - '.ps1'
+            - '.bat'
+            - '.vbs'
+    selection_creator:
+        Image|endswith:
+            - '\cmd.exe'
+            - '\powershell.exe'
+            - '\pwsh.exe'
+            - '\certutil.exe'
+            - '\bitsadmin.exe'
+            - '\curl.exe'
+            - '\wget.exe'
+            - '\wscript.exe'
+            - '\cscript.exe'
+            - '\mshta.exe'
+    condition: selection_directory and selection_extension and selection_creator
+falsepositives:
+    - Legitimate software installations via command line
+    - Automation scripts creating executables in temp directories
+    - Software update mechanisms using command-line downloaders
+level: medium

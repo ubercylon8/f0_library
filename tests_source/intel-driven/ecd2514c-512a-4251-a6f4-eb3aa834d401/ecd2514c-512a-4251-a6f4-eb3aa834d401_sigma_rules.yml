@@ -1,0 +1,521 @@
+# ============================================================
+# Sigma Rules: CyberEye RAT - Windows Defender Disabling via PowerShell
+# Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+# MITRE ATT&CK: T1562.001 - Impair Defenses: Disable or Modify Tools
+# Generated: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================
+
+# Rule 1: Windows Defender Tamper Protection Disabled via Registry
+title: Windows Defender Tamper Protection Disabled via Registry Modification
+id: ecd2514c-0001-4251-a6f4-eb3aa834d401
+status: stable
+level: critical
+description: |
+    Detects modification of the Windows Defender TamperProtection registry value to 0.
+    Disabling Tamper Protection is a prerequisite for further Defender configuration tampering
+    and is observed in CyberEye RAT and similar threats.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://cybersecuritynews.com/cybereye-rat-disable-windows-defender-using-powershell/
+    - https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection:
+        TargetObject|endswith: '\Microsoft\Windows Defender\Features\TamperProtection'
+        Details: 'DWORD (0x00000000)'
+    filter_trusted:
+        Image|startswith:
+            - 'C:\Windows\System32\svchost.exe'
+            - 'C:\ProgramData\Microsoft\Windows Defender\Platform\'
+    condition: selection and not filter_trusted
+falsepositives:
+    - MDM solutions (Microsoft Intune) applying Defender policies
+    - Windows Update temporarily modifying Defender configuration
+---
+
+# Rule 2: Windows Defender AntiSpyware Disabled via Policy Registry
+title: Windows Defender Disabled via DisableAntiSpyware Registry Policy
+id: ecd2514c-0002-4251-a6f4-eb3aa834d401
+status: stable
+level: critical
+description: |
+    Detects setting the DisableAntiSpyware value to 1 under the Windows Defender policy key.
+    This effectively disables Windows Defender and is used by numerous malware families
+    including CyberEye RAT as part of defense evasion.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection:
+        TargetObject|endswith: '\Policies\Microsoft\Windows Defender\DisableAntiSpyware'
+        Details: 'DWORD (0x00000001)'
+    condition: selection
+falsepositives:
+    - Third-party antivirus installations that legitimately replace Windows Defender
+    - Group Policy changes during planned maintenance windows
+---
+
+# Rule 3: Windows Defender Real-Time Protection Components Disabled
+title: Windows Defender Real-Time Protection Disabled via Registry
+id: ecd2514c-0003-4251-a6f4-eb3aa834d401
+status: stable
+level: high
+description: |
+    Detects modification of Windows Defender Real-Time Protection registry values to disable
+    behavior monitoring, on-access protection, or real-time scanning. Attackers disable these
+    components individually to evade detection while conducting further malicious activity.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection:
+        TargetObject|contains: '\Policies\Microsoft\Windows Defender\Real-Time Protection'
+        TargetObject|endswith:
+            - '\DisableBehaviorMonitoring'
+            - '\DisableOnAccessProtection'
+            - '\DisableScanOnRealtimeEnable'
+            - '\DisableRealtimeMonitoring'
+        Details: 'DWORD (0x00000001)'
+    condition: selection
+falsepositives:
+    - Group Policy enforcement during domain join or policy refresh
+    - Legitimate administrator configuration changes via GPO
+---
+
+# Rule 4: PowerShell Execution Policy Bypass with Script File
+title: PowerShell Execution Policy Bypass Executing Script File
+id: ecd2514c-0004-4251-a6f4-eb3aa834d401
+status: stable
+level: medium
+description: |
+    Detects PowerShell launched with -ExecutionPolicy Bypass and -File parameters, which
+    is used by malware to execute dropped scripts that would otherwise be blocked by
+    execution policies. The CyberEye RAT uses this technique to run its Defender-disabling script.
+references:
+    - https://attack.mitre.org/techniques/T1059/001/
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.execution
+    - attack.t1059.001
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_bypass:
+        CommandLine|contains|all:
+            - '-ExecutionPolicy'
+            - 'Bypass'
+            - '-File'
+    filter_system_paths:
+        CommandLine|contains:
+            - '\Program Files\Microsoft'
+            - '\Windows\CCM\'
+            - '\Microsoft Intune'
+    condition: selection_img and selection_bypass and not filter_system_paths
+falsepositives:
+    - Legitimate system administration scripts deployed via management tools
+    - Software installation scripts that use execution policy bypass
+    - SCCM/Intune compliance scripts
+---
+
+# Rule 5: PowerShell Script Block Logging - Defender Registry Manipulation
+title: PowerShell Script Modifying Windows Defender Registry Settings
+id: ecd2514c-0005-4251-a6f4-eb3aa834d401
+status: stable
+level: high
+description: |
+    Detects PowerShell script block log entries containing commands that modify Windows
+    Defender registry keys. This catches both Set-ItemProperty and New-ItemProperty
+    cmdlets targeting Defender configuration, regardless of script obfuscation at the
+    command line level.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1059/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    product: windows
+    service: powershell-script
+detection:
+    selection_cmdlet:
+        ScriptBlockText|contains:
+            - 'Set-ItemProperty'
+            - 'New-ItemProperty'
+    selection_defender_keys:
+        ScriptBlockText|contains:
+            - 'Windows Defender\Features\TamperProtection'
+            - 'Windows Defender\DisableAntiSpyware'
+            - 'Windows Defender\Real-Time Protection\DisableBehaviorMonitoring'
+            - 'Windows Defender\Real-Time Protection\DisableOnAccessProtection'
+            - 'Windows Defender\Real-Time Protection\DisableScanOnRealtimeEnable'
+    condition: selection_cmdlet and selection_defender_keys
+falsepositives:
+    - Administrative scripts that query and restore Defender settings
+    - Endpoint management tools that configure Defender via PowerShell
+---
+
+# Rule 6: PowerShell Set-MpPreference to Disable Defender Components
+title: PowerShell Set-MpPreference Used to Disable Defender Protections
+id: ecd2514c-0006-4251-a6f4-eb3aa834d401
+status: stable
+level: high
+description: |
+    Detects use of Set-MpPreference cmdlet with parameters that disable Windows Defender
+    protection components. This is an alternative method to registry manipulation for
+    disabling Defender and is used by various malware and attacker tooling.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_cmdlet:
+        CommandLine|contains: 'Set-MpPreference'
+    selection_disable:
+        CommandLine|contains:
+            - '-DisableRealtimeMonitoring $true'
+            - '-DisableBehaviorMonitoring $true'
+            - '-DisableIOAVProtection $true'
+            - '-DisableIntrusionPreventionSystem $true'
+            - '-DisableBlockAtFirstSeen $true'
+            - '-DisableScriptScanning $true'
+    condition: selection_img and selection_cmdlet and selection_disable
+falsepositives:
+    - IT administrators temporarily disabling Defender for software installation
+    - Automated deployment scripts during system provisioning
+---
+
+# Rule 7: WinDefend Service Query After Suspicious Activity
+title: Windows Defender Service Query Following Registry Modification
+id: ecd2514c-0007-4251-a6f4-eb3aa834d401
+status: stable
+level: medium
+description: |
+    Detects the sc.exe query command targeting the WinDefend service, which attackers
+    use to verify that their Defender-disabling techniques were successful. When observed
+    after registry modifications, this strongly indicates an active attack.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1007/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.discovery
+    - attack.t1007
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\sc.exe'
+        CommandLine|contains|all:
+            - 'query'
+            - 'WinDefend'
+    condition: selection
+falsepositives:
+    - System monitoring scripts that check Defender service health
+    - IT administrators troubleshooting Defender service issues
+---
+
+# Rule 8: Linux Security Tool Disabled via systemctl
+title: Linux Security Service Disabled via systemctl
+id: ecd2514c-0008-4251-a6f4-eb3aa834d401
+status: stable
+level: high
+description: |
+    Detects attempts to stop or disable Linux security services including SELinux enforcement,
+    AppArmor, auditd, firewalld, and endpoint protection agents. This is the Linux equivalent
+    of T1562.001 where attackers neutralize host-based security controls before conducting
+    malicious activity.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_systemctl:
+        Image|endswith: '/systemctl'
+        CommandLine|contains:
+            - 'stop'
+            - 'disable'
+    selection_services:
+        CommandLine|contains:
+            - 'apparmor'
+            - 'auditd'
+            - 'firewalld'
+            - 'iptables'
+            - 'nftables'
+            - 'falcon-sensor'
+            - 'cbagentd'
+            - 'qualys'
+            - 'ossec'
+            - 'wazuh'
+            - 'elastic-agent'
+            - 'mdatp'
+    condition: selection_systemctl and selection_services
+falsepositives:
+    - System administrators performing planned maintenance
+    - Automated deployment pipelines during provisioning
+    - Kernel upgrades that temporarily stop auditd
+---
+
+# Rule 9: SELinux Enforcement Disabled
+title: SELinux Enforcement Disabled via setenforce
+id: ecd2514c-0009-4251-a6f4-eb3aa834d401
+status: stable
+level: high
+description: |
+    Detects the use of setenforce 0 to set SELinux to permissive mode, which effectively
+    disables SELinux mandatory access control enforcement. Attackers use this to bypass
+    file access and process execution restrictions imposed by SELinux policies.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        Image|endswith: '/setenforce'
+        CommandLine|contains: '0'
+    condition: selection
+falsepositives:
+    - System administrators troubleshooting SELinux denials during application deployment
+    - Automated testing environments that require permissive mode
+---
+
+# Rule 10: Linux Security Configuration Weakened via sysctl
+title: Linux Kernel Security Parameters Weakened via sysctl
+id: ecd2514c-0010-4251-a6f4-eb3aa834d401
+status: stable
+level: high
+description: |
+    Detects modification of kernel security parameters via sysctl that weaken system
+    defenses. This includes disabling ASLR, relaxing ptrace restrictions, enabling
+    IP forwarding for pivoting, and disabling kernel module signature verification.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        Image|endswith: '/sysctl'
+    selection_params:
+        CommandLine|contains:
+            - 'kernel.randomize_va_space=0'
+            - 'kernel.yama.ptrace_scope=0'
+            - 'kernel.modules_disabled=0'
+            - 'net.ipv4.ip_forward=1'
+            - 'kernel.kptr_restrict=0'
+            - 'kernel.dmesg_restrict=0'
+            - 'kernel.perf_event_paranoid=-1'
+    condition: selection and selection_params
+falsepositives:
+    - Network configuration changes enabling IP forwarding for routing
+    - Development environments requiring ptrace access for debuggers
+---
+
+# Rule 11: macOS Gatekeeper Disabled
+title: macOS Gatekeeper Security Disabled via spctl
+id: ecd2514c-0011-4251-a6f4-eb3aa834d401
+status: stable
+level: high
+description: |
+    Detects use of spctl to disable macOS Gatekeeper, which prevents execution of unsigned
+    or unnotarized applications. Disabling Gatekeeper allows malware to execute without
+    the standard macOS security checks.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: macos
+detection:
+    selection:
+        Image|endswith: '/spctl'
+        CommandLine|contains:
+            - '--master-disable'
+            - '--global-disable'
+    condition: selection
+falsepositives:
+    - Developers temporarily disabling Gatekeeper for unsigned development builds
+    - IT administrators deploying custom enterprise software
+---
+
+# Rule 12: macOS Security Agent or Service Unloaded
+title: macOS Security Agent Unloaded via launchctl
+id: ecd2514c-0012-4251-a6f4-eb3aa834d401
+status: stable
+level: high
+description: |
+    Detects the use of launchctl to unload or disable macOS security agents including
+    XProtect, MRT (Malware Removal Tool), and third-party endpoint protection agents.
+    Attackers unload these services to prevent detection of subsequent malicious activity.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: macos
+detection:
+    selection_launchctl:
+        Image|endswith: '/launchctl'
+        CommandLine|contains:
+            - 'unload'
+            - 'disable'
+    selection_agents:
+        CommandLine|contains:
+            - 'com.apple.XProtect'
+            - 'com.apple.MRT'
+            - 'com.apple.security'
+            - 'com.crowdstrike'
+            - 'com.carbonblack'
+            - 'com.microsoft.wdav'
+            - 'com.sentinelone'
+            - 'com.tanium'
+    condition: selection_launchctl and selection_agents
+falsepositives:
+    - IT administrators unloading agents during planned upgrades or migrations
+    - Endpoint agent self-update processes that reload their own services
+---
+
+# Rule 13: macOS System Integrity Protection Status Check or Disable
+title: macOS SIP Disable Attempt via csrutil
+id: ecd2514c-0013-4251-a6f4-eb3aa834d401
+status: stable
+level: critical
+description: |
+    Detects the use of csrutil to disable System Integrity Protection (SIP) on macOS.
+    SIP prevents modification of protected system files and directories. Disabling SIP
+    requires booting into Recovery Mode, but the attempt itself is noteworthy and may
+    indicate reconnaissance or a compromised recovery environment.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: macos
+detection:
+    selection:
+        Image|endswith: '/csrutil'
+        CommandLine|contains: 'disable'
+    condition: selection
+falsepositives:
+    - Legitimate use in Recovery Mode for kernel extension development (rare in production)
+---
+
+# Rule 14: Cross-Platform Endpoint Agent Process Termination
+title: Endpoint Protection Agent Process Terminated
+id: ecd2514c-0014-4251-a6f4-eb3aa834d401
+status: stable
+level: high
+description: |
+    Detects attempts to forcefully terminate endpoint protection agent processes using
+    kill, taskkill, or pkill. Attackers target security agent processes to disable
+    real-time monitoring and allow subsequent malicious activity to go undetected.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_kill:
+        Image|endswith:
+            - '/kill'
+            - '/pkill'
+            - '/killall'
+    selection_targets:
+        CommandLine|contains:
+            - 'falcon-sensor'
+            - 'cbagentd'
+            - 'cbdaemon'
+            - 'ossec'
+            - 'wazuh'
+            - 'clamd'
+            - 'freshclam'
+            - 'mdatp_audisp_plugin'
+            - 'elastic-agent'
+            - 'filebeat'
+            - 'auditbeat'
+    condition: selection_kill and selection_targets
+falsepositives:
+    - Endpoint agent upgrade processes that restart their own services
+    - System shutdown scripts that gracefully stop agents

@@ -1,0 +1,531 @@
+# ============================================================================
+# DEFENSE GUIDANCE: Sigma Detection Rules
+# ============================================================================
+# Test ID: e5577355-f8e4-4e52-b1b2-f7d1c8b864f1
+# Test Name: SilentButDeadly WFP EDR Network Isolation
+# MITRE ATT&CK: T1562.001 - Impair Defenses: Disable or Modify Tools
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules detect the underlying WFP-based EDR isolation technique,
+# NOT the F0RT1KA testing framework. They will catch real-world attackers
+# using similar WFP manipulation tools with their own custom binaries.
+#
+# ============================================================================
+
+---
+title: WFP Filter Addition Targeting EDR/AV Processes
+id: e5577355-sigma-001
+status: experimental
+description: |
+    Detects Windows Filtering Platform filter creation events (Event ID 5441)
+    that reference known EDR or antivirus process names in the filter conditions.
+    Attackers use tools like SilentButDeadly and EDRSilencer to create WFP
+    filters that block security software cloud communications without terminating
+    the processes.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://github.com/loosehose/SilentButDeadly
+    - https://docs.microsoft.com/en-us/windows/win32/fwp/windows-filtering-platform-start-page
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_event:
+        EventID: 5441
+    selection_edr_targets:
+        EventData|contains:
+            - 'SentinelAgent'
+            - 'SentinelServiceHost'
+            - 'CSFalconService'
+            - 'CSFalconContainer'
+            - 'MsMpEng'
+            - 'MpCmdRun'
+            - 'MsSense'
+            - 'RepMgr'
+            - 'RepWAC'
+            - 'CylanceSvc'
+            - 'ccSvcHst'
+            - 'McShield'
+            - 'PccNTMon'
+            - 'SavService'
+            - 'avp.exe'
+            - 'ekrn.exe'
+            - 'CortexXDR'
+            - 'xagt.exe'
+            - 'elastic-endpoint'
+            - 'elastic-agent'
+    condition: selection_event and selection_edr_targets
+falsepositives:
+    - VPN software creating filters that incidentally reference security process paths
+    - EDR self-protection mechanisms creating WFP filters
+    - Legitimate security configuration management tools
+level: high
+
+---
+title: WFP Blocked Outbound Connection from EDR/AV Process
+id: e5577355-sigma-002
+status: experimental
+description: |
+    Detects WFP blocking outbound network connections from known EDR or antivirus
+    processes (Event IDs 5157, 5152). When an attacker uses WFP to isolate EDR
+    agents from their cloud infrastructure, these blocked connection events are
+    generated. Multiple blocked connections from security processes within a
+    short timeframe strongly indicate an active EDR isolation attack.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://detection.fyi/sigmahq/sigma/windows/builtin/security/object_access/win_security_wfp_endpoint_agent_blocked/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_event:
+        EventID:
+            - 5157
+            - 5152
+    selection_direction:
+        EventData|contains: 'Outbound'
+    selection_edr_process:
+        Application|endswith:
+            - '\SentinelAgent.exe'
+            - '\SentinelServiceHost.exe'
+            - '\CSFalconService.exe'
+            - '\CSFalconContainer.exe'
+            - '\MsMpEng.exe'
+            - '\MpCmdRun.exe'
+            - '\MsSense.exe'
+            - '\RepMgr.exe'
+            - '\RepWAC.exe'
+            - '\RepUtils.exe'
+            - '\CylanceSvc.exe'
+            - '\CylanceUI.exe'
+            - '\ccSvcHst.exe'
+            - '\Rtvscan.exe'
+            - '\McShield.exe'
+            - '\McAfeeFramework.exe'
+            - '\PccNTMon.exe'
+            - '\TMBMSRV.exe'
+            - '\SavService.exe'
+            - '\SAVAdminService.exe'
+            - '\avp.exe'
+            - '\kavtray.exe'
+            - '\ekrn.exe'
+            - '\egui.exe'
+            - '\CortexXDR.exe'
+            - '\cyserver.exe'
+            - '\xagt.exe'
+            - '\FireEyeAgent.exe'
+            - '\elastic-endpoint.exe'
+            - '\elastic-agent.exe'
+    condition: selection_event and selection_direction and selection_edr_process
+falsepositives:
+    - Temporary network outages generating blocked connection events
+    - Misconfigured firewall policies blocking security software
+    - EDR maintenance windows
+level: critical
+
+---
+title: Firewall Rule Created to Block EDR/AV Network Access via Netsh
+id: e5577355-sigma-003
+status: experimental
+description: |
+    Detects creation of Windows Firewall rules using netsh.exe that block
+    outbound network traffic for known EDR and antivirus processes. This is an
+    alternative technique to WFP filter manipulation that achieves similar EDR
+    network isolation through the Windows Firewall management interface.
+references:
+    - https://attack.mitre.org/techniques/T1562/004/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.004
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_netsh:
+        Image|endswith: '\netsh.exe'
+        CommandLine|contains: 'advfirewall'
+    selection_block:
+        CommandLine|contains:
+            - 'action=block'
+            - 'action=Block'
+            - 'action=BLOCK'
+    selection_edr_target:
+        CommandLine|contains:
+            - 'SentinelAgent'
+            - 'CSFalcon'
+            - 'MsMpEng'
+            - 'MpCmdRun'
+            - 'MsSense'
+            - 'RepMgr'
+            - 'CylanceSvc'
+            - 'ccSvcHst'
+            - 'McShield'
+            - 'PccNTMon'
+            - 'SavService'
+            - 'avp.exe'
+            - 'ekrn.exe'
+            - 'CortexXDR'
+            - 'xagt.exe'
+            - 'elastic-endpoint'
+    condition: selection_netsh and selection_block and selection_edr_target
+falsepositives:
+    - IT administrators managing firewall rules via scripts
+    - Group Policy-driven firewall configuration changes
+level: high
+
+---
+title: Firewall Rule Created to Block EDR/AV Network Access via PowerShell
+id: e5577355-sigma-004
+status: experimental
+description: |
+    Detects creation of Windows Firewall rules using PowerShell cmdlets
+    (New-NetFirewallRule, Set-NetFirewallRule) that block outbound network
+    traffic for known EDR and antivirus processes. PowerShell-based firewall
+    manipulation is commonly used in post-exploitation frameworks.
+references:
+    - https://attack.mitre.org/techniques/T1562/004/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.004
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_powershell:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_cmdlet:
+        CommandLine|contains:
+            - 'New-NetFirewallRule'
+            - 'Set-NetFirewallRule'
+    selection_block:
+        CommandLine|contains:
+            - '-Action Block'
+            - '-Action block'
+    selection_edr_target:
+        CommandLine|contains:
+            - 'SentinelAgent'
+            - 'CSFalcon'
+            - 'MsMpEng'
+            - 'MpCmdRun'
+            - 'RepMgr'
+            - 'CylanceSvc'
+            - 'ccSvcHst'
+            - 'McShield'
+            - 'PccNTMon'
+            - 'SavService'
+            - 'avp.exe'
+            - 'ekrn.exe'
+            - 'CortexXDR'
+            - 'xagt.exe'
+            - 'elastic-endpoint'
+    condition: selection_powershell and selection_cmdlet and selection_block and selection_edr_target
+falsepositives:
+    - IT administrators managing firewall rules via PowerShell
+    - Automated security policy enforcement scripts
+level: high
+
+---
+title: Suspicious Process Loading WFP Client Library
+id: e5577355-sigma-005
+status: experimental
+description: |
+    Detects non-standard processes loading fwpuclnt.dll, the Windows Filtering
+    Platform client library. Legitimate use of this DLL is limited to system
+    services (svchost.exe, lsass.exe), firewall management tools (netsh.exe),
+    and installed security products. An untrusted process loading this library
+    may indicate preparation for WFP filter manipulation.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://docs.microsoft.com/en-us/windows/win32/fwp/windows-filtering-platform-start-page
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: image_load
+    product: windows
+detection:
+    selection_dll:
+        ImageLoaded|endswith: '\fwpuclnt.dll'
+    filter_trusted_system:
+        Image|endswith:
+            - '\svchost.exe'
+            - '\lsass.exe'
+            - '\services.exe'
+            - '\mmc.exe'
+            - '\netsh.exe'
+            - '\WmiPrvSE.exe'
+    filter_trusted_defender:
+        Image|startswith:
+            - 'C:\Program Files\Windows Defender\'
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+    filter_trusted_edr:
+        Image|contains:
+            - '\SentinelOne\'
+            - '\CrowdStrike\'
+            - '\Carbon Black\'
+            - '\Symantec\'
+            - '\ESET\'
+            - '\Sophos\'
+            - '\Kaspersky\'
+    condition: selection_dll and not (filter_trusted_system or filter_trusted_defender or filter_trusted_edr)
+falsepositives:
+    - Third-party VPN clients that use WFP for traffic management
+    - Network monitoring or packet capture tools
+    - Authorized security assessment tools
+level: medium
+
+---
+title: Windows Defender Configuration Tampering via Registry
+id: e5577355-sigma-006
+status: experimental
+description: |
+    Detects unauthorized modifications to Windows Defender registry keys
+    including Real-Time Protection, Cloud Protection (SpyNet), Exclusions,
+    and Attack Surface Reduction rules. Attackers commonly disable or weaken
+    Defender configuration before executing payloads or as a complement to
+    WFP-based EDR network isolation attacks.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection_defender_keys:
+        TargetObject|contains:
+            - '\Windows Defender\Real-Time Protection\DisableRealtimeMonitoring'
+            - '\Windows Defender\Real-Time Protection\DisableBehaviorMonitoring'
+            - '\Windows Defender\Real-Time Protection\DisableOnAccessProtection'
+            - '\Windows Defender\Real-Time Protection\DisableScanOnRealtimeEnable'
+            - '\Windows Defender\Real-Time Protection\DisableIOAVProtection'
+            - '\Windows Defender\SpyNet\SpyNetReporting'
+            - '\Windows Defender\SpyNet\SubmitSamplesConsent'
+            - '\Windows Defender\Features\TamperProtection'
+    selection_disable_value:
+        Details:
+            - 'DWORD (0x00000001)'  # Disabling protection features
+            - 'DWORD (0x00000000)'  # Disabling cloud features
+    filter_trusted:
+        Image|endswith:
+            - '\MsMpEng.exe'
+            - '\svchost.exe'
+            - '\gpupdate.exe'
+        Image|startswith:
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+    condition: selection_defender_keys and not filter_trusted
+falsepositives:
+    - Group Policy updates modifying Defender settings
+    - SCCM/Intune policy enforcement
+    - Authorized IT administration scripts
+level: high
+
+---
+title: Defender Exclusion Path or Extension Added
+id: e5577355-sigma-007
+status: experimental
+description: |
+    Detects additions to Windows Defender exclusion paths, extensions, or
+    processes via registry modification. Attackers add exclusions to prevent
+    Defender from scanning their tools and payloads, often as a precursor
+    to deploying WFP-based EDR isolation tools or other malware.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection_exclusion_keys:
+        TargetObject|contains:
+            - '\Windows Defender\Exclusions\Paths\'
+            - '\Windows Defender\Exclusions\Extensions\'
+            - '\Windows Defender\Exclusions\Processes\'
+    filter_trusted:
+        Image|endswith:
+            - '\MsMpEng.exe'
+            - '\svchost.exe'
+            - '\gpupdate.exe'
+    condition: selection_exclusion_keys and not filter_trusted
+falsepositives:
+    - Legitimate software installations adding compatibility exclusions
+    - IT administrators configuring Defender via registry
+    - Group Policy updates
+level: high
+
+---
+title: Known WFP EDR Isolation Tool Execution
+id: e5577355-sigma-008
+status: experimental
+description: |
+    Detects execution of known WFP-based EDR isolation tools by their file
+    names, command-line arguments, or behavioral patterns. This includes tools
+    such as SilentButDeadly, EDRSilencer, EDRBlocker, and similar variants.
+    These tools use the Windows Filtering Platform to block security software
+    cloud communications.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://github.com/loosehose/SilentButDeadly
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_tool_name:
+        Image|contains:
+            - 'SilentButDeadly'
+            - 'silentbutdeadly'
+            - 'silent-but-deadly'
+            - 'EDRSilencer'
+            - 'edrsilencer'
+            - 'edr-silencer'
+            - 'EDRBlocker'
+            - 'edrblocker'
+            - 'NetworkBlind'
+            - 'BlindSide'
+    selection_cmdline:
+        CommandLine|contains:
+            - '--block-edr'
+            - '--isolate-av'
+            - '--silence-edr'
+            - '--block-endpoint'
+            - 'silentbutdeadly'
+            - 'edrsilencer'
+    condition: selection_tool_name or selection_cmdline
+falsepositives:
+    - Legitimate security testing with prior authorization
+level: critical
+
+---
+title: Enumeration of Multiple EDR/AV Processes via Tasklist or WMIC
+id: e5577355-sigma-009
+status: experimental
+description: |
+    Detects the use of tasklist.exe or wmic.exe to query for multiple known
+    EDR/AV processes. This reconnaissance step commonly precedes WFP-based
+    EDR network isolation or process termination attacks. A single command
+    querying for multiple security product process names is suspicious.
+references:
+    - https://attack.mitre.org/techniques/T1518/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.discovery
+    - attack.t1518.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_tool:
+        Image|endswith:
+            - '\tasklist.exe'
+            - '\wmic.exe'
+    selection_multi_edr:
+        CommandLine|contains|all:
+            - 'Sentinel'
+            - 'CSFalcon'
+    selection_multi_edr_alt1:
+        CommandLine|contains|all:
+            - 'MsMpEng'
+            - 'CSFalcon'
+    selection_multi_edr_alt2:
+        CommandLine|contains|all:
+            - 'Sentinel'
+            - 'MsMpEng'
+    selection_multi_edr_alt3:
+        CommandLine|contains|all:
+            - 'CortexXDR'
+            - 'elastic-endpoint'
+    condition: selection_tool and (selection_multi_edr or selection_multi_edr_alt1 or selection_multi_edr_alt2 or selection_multi_edr_alt3)
+falsepositives:
+    - IT asset inventory scripts querying running processes
+    - System monitoring tools checking service health
+level: medium
+
+---
+title: Service Stop or Disable Targeting Security Software
+id: e5577355-sigma-010
+status: experimental
+description: |
+    Detects attempts to stop or disable security-related Windows services
+    using sc.exe or net.exe. This technique may be used as an alternative or
+    complement to WFP-based EDR network isolation, directly disrupting the
+    security agent service rather than its network connectivity.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_sc:
+        Image|endswith:
+            - '\sc.exe'
+            - '\net.exe'
+            - '\net1.exe'
+    selection_action:
+        CommandLine|contains:
+            - 'stop'
+            - 'disable'
+            - 'config'
+    selection_service:
+        CommandLine|contains:
+            - 'SentinelAgent'
+            - 'SentinelMonitor'
+            - 'CSFalconService'
+            - 'WinDefend'
+            - 'WdNisSvc'
+            - 'MpsSvc'
+            - 'BFE'
+            - 'CbDefense'
+            - 'CylanceSvc'
+            - 'Symantec'
+            - 'McAfeeFramework'
+            - 'TrendMicro'
+            - 'SAVService'
+            - 'AVP'
+            - 'ekrn'
+            - 'CortexXDR'
+            - 'xagt'
+            - 'elastic-endpoint'
+    condition: selection_sc and selection_action and selection_service
+falsepositives:
+    - Legitimate service maintenance by IT administrators
+    - Authorized security software updates or migrations
+level: high

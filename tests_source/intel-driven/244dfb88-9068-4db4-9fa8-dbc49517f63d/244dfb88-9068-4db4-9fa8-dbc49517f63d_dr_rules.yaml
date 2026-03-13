@@ -1,0 +1,282 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 244dfb88-9068-4db4-9fa8-dbc49517f63d
+# Test Name: DPRK BlueNoroff Financial Sector Attack Chain
+# MITRE ATT&CK: T1553.001, T1543.004, T1059.002, T1555.001, T1056.002,
+#               T1071.001, T1573.002, T1071.004, T1041, T1567.002, T1560.001
+# Threat Actor: BlueNoroff/Lazarus (DPRK)
+# Target Platform: macOS
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying macOS attack techniques used by
+# BlueNoroff/Lazarus, NOT the F0RT1KA testing framework. They will catch
+# real-world attackers using the same persistence, credential theft, C2,
+# and exfiltration techniques with their own custom tooling.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 244dfb88-9068-4db4-9fa8-dbc49517f63d_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: LaunchAgent Plist Creation Masquerading as Apple
+  # Purpose: Detect plist files with com.apple.* labels by non-Apple processes
+  # Confidence: HIGH
+  # Technique: T1543.004
+  # ==========================================================================
+  bluenoroff-launchagent-masquerade:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "/Library/LaunchAgents/"
+            - op: contains
+              path: event/FILE_PATH
+              value: "/Library/LaunchDaemons/"
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".plist"
+        - op: contains
+          path: event/FILE_PATH
+          value: "com.apple."
+        # Exclude legitimate Apple processes
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/System/Library/"
+          not: true
+
+    respond:
+      - action: report
+        name: LaunchAgent Masquerading as Apple Service
+        metadata:
+          severity: critical
+          mitre_attack: T1543.004
+          confidence: high
+          description: A plist file with a com.apple.* label was created in LaunchAgents or LaunchDaemons by a non-Apple process, matching BlueNoroff/RustBucket persistence pattern
+          investigation: Examine the plist contents for RunAtLoad, KeepAlive, ProgramArguments pointing to suspicious paths. Check for hidden directories in /Users/Shared/
+
+      - action: task
+        command: history_dump
+        investigation: BlueNoroff-LaunchAgent-Persistence
+
+
+  # ==========================================================================
+  # RULE 2: .zshenv Modification (Hidden Risk Persistence)
+  # Purpose: Detect .zshenv file creation/modification for persistence
+  # Confidence: HIGH
+  # Technique: T1543.004
+  # ==========================================================================
+  bluenoroff-zshenv-persistence:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "/.zshenv"
+        - op: matches
+          path: event/FILE_PATH
+          re: /Users/[^/]+/\.zshenv$
+        - op: matches
+          path: event/COMMAND_LINE
+          re: (/bin/zsh|vim|nano|code|brew|git)
+          not: true
+
+    respond:
+      - action: report
+        name: Shell Profile Modified for Persistence (.zshenv)
+        metadata:
+          severity: high
+          mitre_attack: T1543.004
+          confidence: high
+          description: The .zshenv file was modified by a non-editor process. This matches the BlueNoroff Hidden Risk campaign that bypasses macOS Ventura Login Items notification.
+          investigation: Read the .zshenv file contents, check for curl/wget piped to bash, exported C2 URLs, or background beacon functions
+
+      - action: task
+        command: history_dump
+        investigation: HiddenRisk-zshenv
+
+
+  # ==========================================================================
+  # RULE 3: osascript Fake Password Dialog
+  # Purpose: Detect osascript with hidden answer credential phishing
+  # Confidence: HIGH
+  # Technique: T1059.002, T1056.002
+  # ==========================================================================
+  macos-osascript-credential-phishing:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: /osascript
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "display dialog"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "hidden answer"
+
+    respond:
+      - action: report
+        name: osascript Credential Phishing Dialog Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1059.002,T1056.002
+          confidence: high
+          description: osascript was executed with display dialog and hidden answer parameters, indicating a fake password prompt used by AMOS, Banshee, and BlueNoroff stealers
+          investigation: Examine the parent process, check for subsequent dscl -authonly calls, look for credential staging files
+
+
+  # ==========================================================================
+  # RULE 4: Keychain Credential Extraction
+  # Purpose: Detect security CLI used for Keychain dumping
+  # Confidence: HIGH
+  # Technique: T1555.001
+  # ==========================================================================
+  macos-keychain-credential-dump:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: /security
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "dump-keychain"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "find-generic-password"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "find-internet-password"
+
+    respond:
+      - action: report
+        name: macOS Keychain Credential Extraction Detected
+        metadata:
+          severity: high
+          mitre_attack: T1555.001
+          confidence: high
+          description: The security CLI was used to extract credentials from the macOS Keychain, a common technique in AMOS, Banshee, and BlueNoroff stealers
+          investigation: Check for Chrome Safe Storage key extraction, subsequent browser credential decryption, and data staging
+
+
+  # ==========================================================================
+  # RULE 5: DNS Query to DPRK C2 Infrastructure
+  # Purpose: Detect DNS lookups to linkpc.net and related domains
+  # Confidence: CRITICAL
+  # Technique: T1071.001, T1071.004
+  # ==========================================================================
+  bluenoroff-c2-dns-lookup:
+    detect:
+      target: edr
+      event: DNS_REQUEST
+      op: or
+      rules:
+        - op: ends with
+          path: event/DOMAIN
+          value: ".linkpc.net"
+        - op: ends with
+          path: event/DOMAIN
+          value: ".dnx.capital"
+        - op: ends with
+          path: event/DOMAIN
+          value: ".swissborg.blog"
+        - op: ends with
+          path: event/DOMAIN
+          value: ".on-offx.com"
+
+    respond:
+      - action: report
+        name: DNS Query to DPRK BlueNoroff C2 Infrastructure
+        metadata:
+          severity: critical
+          mitre_attack: T1071.001,T1071.004
+          confidence: critical
+          description: A DNS query was made to a domain associated with DPRK BlueNoroff/KANDYKORN C2 infrastructure. linkpc.net is a dynamic DNS provider heavily abused by Lazarus Group.
+          investigation: Immediately isolate the host, examine process tree, check for LaunchAgent persistence, credential staging files, and exfiltration artifacts
+
+      - action: task
+        command: history_dump
+        investigation: BlueNoroff-C2-DNS
+
+
+  # ==========================================================================
+  # RULE 6: Gatekeeper Bypass via xattr Quarantine Removal
+  # Purpose: Detect removal of com.apple.quarantine attribute
+  # Confidence: HIGH
+  # Technique: T1553.001
+  # ==========================================================================
+  macos-gatekeeper-bypass-xattr:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: /xattr
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "com.apple.quarantine"
+
+    respond:
+      - action: report
+        name: Gatekeeper Bypass via Quarantine Attribute Removal
+        metadata:
+          severity: high
+          mitre_attack: T1553.001
+          confidence: high
+          description: The com.apple.quarantine extended attribute was removed using xattr, bypassing macOS Gatekeeper verification
+          investigation: Identify the target file, check if downloaded via curl (no quarantine), examine file for malicious content
+
+
+  # ==========================================================================
+  # RULE 7: Outbound Connection on Port 8888 (Sliver mTLS)
+  # Purpose: Detect non-standard port C2 connections
+  # Confidence: MEDIUM
+  # Technique: T1573.002
+  # ==========================================================================
+  sliver-mtls-port-8888:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        - op: is
+          path: event/NETWORK_ACTIVITY/DESTINATION/PORT
+          value: 8888
+        - op: matches
+          path: event/FILE_PATH
+          re: (/Google Chrome|/Safari|/Firefox|/java|/node)
+          not: true
+
+    respond:
+      - action: report
+        name: Outbound Connection on Sliver mTLS Default Port 8888
+        metadata:
+          severity: high
+          mitre_attack: T1573.002
+          confidence: medium
+          description: A non-browser process established an outbound connection on port 8888, the default Sliver C2 mTLS port used by BlueNoroff
+          investigation: Identify the connecting process, check for Sliver implant indicators, examine TLS certificate

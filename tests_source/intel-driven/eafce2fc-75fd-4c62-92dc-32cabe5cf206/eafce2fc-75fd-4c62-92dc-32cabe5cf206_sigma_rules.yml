@@ -1,0 +1,557 @@
+# ============================================================
+# Sigma Rules: Tailscale Remote Access and Data Exfiltration
+# Test ID: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+# MITRE ATT&CK: T1105, T1219, T1543.003, T1021.004, T1041
+# Generated: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================
+#
+# These rules detect the underlying attack TECHNIQUES, not the
+# F0RT1KA testing framework. They will catch any adversary using
+# these same techniques with any tooling.
+# ============================================================
+
+---
+title: Ingress Tool Transfer - Remote Access Software MSI Download
+id: eafce2fc-sigma-001
+status: stable
+description: >
+  Detects HTTP/HTTPS connections to known remote access software distribution
+  servers (Tailscale, AnyDesk, TeamViewer, etc.) from non-browser processes,
+  indicating potential ingress tool transfer for C2 establishment.
+references:
+  - https://attack.mitre.org/techniques/T1105/
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-025a
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command_and_control
+  - attack.t1105
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection_destination:
+    DestinationHostname|endswith:
+      - '.tailscale.com'
+      - '.anydesk.com'
+      - '.teamviewer.com'
+      - '.screenconnect.com'
+      - '.splashtop.com'
+      - '.rustdesk.com'
+  selection_port:
+    DestinationPort: 443
+  filter_browsers:
+    Image|endswith:
+      - '\chrome.exe'
+      - '\firefox.exe'
+      - '\msedge.exe'
+      - '\iexplore.exe'
+      - '\brave.exe'
+      - '\opera.exe'
+      - '\safari'
+  condition: selection_destination and selection_port and not filter_browsers
+falsepositives:
+  - Legitimate IT tools downloading approved remote access software
+  - Software update mechanisms for authorized remote access tools
+level: high
+
+---
+title: Remote Access Software - Silent MSI Installation via msiexec
+id: eafce2fc-sigma-002
+status: stable
+description: >
+  Detects silent or quiet installation of MSI packages associated with remote
+  access software. Adversaries use msiexec with quiet flags to install remote
+  access tools without user interaction, enabling covert C2 channel establishment.
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://attack.mitre.org/techniques/T1218.007/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command_and_control
+  - attack.t1219
+  - attack.defense_evasion
+  - attack.t1218.007
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_msiexec:
+    Image|endswith: '\msiexec.exe'
+    CommandLine|contains:
+      - '/quiet'
+      - '/qn'
+      - '/passive'
+      - '-quiet'
+  selection_rat_package:
+    CommandLine|contains:
+      - 'tailscale'
+      - 'anydesk'
+      - 'teamviewer'
+      - 'screenconnect'
+      - 'splashtop'
+      - 'rustdesk'
+      - 'meshagent'
+      - 'meshcentral'
+  condition: selection_msiexec and selection_rat_package
+falsepositives:
+  - IT deployment scripts installing approved remote access tools
+  - MDM solutions (Intune, SCCM) deploying remote support software
+level: critical
+
+---
+title: OpenSSH Server Installation on Windows
+id: eafce2fc-sigma-003
+status: stable
+description: >
+  Detects installation of OpenSSH Server on Windows systems via Windows Capability,
+  portable zip extraction, or install-sshd.ps1 script execution. Adversaries install
+  SSH servers on Windows for persistent remote access that blends with legitimate
+  administrative traffic and bypasses application-layer inspection.
+references:
+  - https://attack.mitre.org/techniques/T1543/003/
+  - https://attack.mitre.org/techniques/T1021/004/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.persistence
+  - attack.t1543.003
+  - attack.lateral_movement
+  - attack.t1021.004
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_capability:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains|all:
+      - 'Add-WindowsCapability'
+      - 'OpenSSH'
+  selection_install_script:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains: 'install-sshd.ps1'
+  selection_sc_create:
+    Image|endswith: '\sc.exe'
+    CommandLine|contains|all:
+      - 'create'
+      - 'sshd'
+  selection_zip_extract:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains|all:
+      - 'Expand-Archive'
+      - 'OpenSSH'
+  condition: selection_capability or selection_install_script or selection_sc_create or selection_zip_extract
+falsepositives:
+  - IT administrators enabling OpenSSH for authorized remote management
+  - Server provisioning automation during initial setup
+level: high
+
+---
+title: Firewall Rule Creation for SSH Port 22
+id: eafce2fc-sigma-004
+status: stable
+description: >
+  Detects creation of Windows firewall rules allowing inbound TCP connections on
+  port 22 (SSH). Adversaries create firewall exceptions to enable inbound remote
+  access through newly installed or existing SSH servers.
+references:
+  - https://attack.mitre.org/techniques/T1562/004/
+  - https://attack.mitre.org/techniques/T1543/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense_evasion
+  - attack.t1562.004
+  - attack.persistence
+  - attack.t1543.003
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_powershell:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains|all:
+      - 'New-NetFirewallRule'
+      - '22'
+  selection_netsh:
+    Image|endswith: '\netsh.exe'
+    CommandLine|contains:
+      - 'localport=22'
+      - 'ssh'
+  condition: selection_powershell or selection_netsh
+falsepositives:
+  - System administrators configuring SSH access during maintenance
+  - Infrastructure provisioning tools opening SSH port
+level: medium
+
+---
+title: Tailscale CLI Authentication with Pre-Shared Auth Key
+id: eafce2fc-sigma-005
+status: stable
+description: >
+  Detects Tailscale CLI invocation with an authentication key (--authkey),
+  indicating programmatic enrollment of a host into a Tailscale mesh network.
+  Adversaries use pre-generated auth keys to silently join compromised hosts
+  to attacker-controlled tailnets for encrypted C2 communication.
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-025a
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\tailscale.exe'
+      - '/tailscale'
+    CommandLine|contains|all:
+      - 'up'
+      - '--authkey'
+  condition: selection
+falsepositives:
+  - Authorized Tailscale deployments using automation scripts
+  - DevOps provisioning joining hosts to corporate tailnet
+level: critical
+
+---
+title: Tailscale Network Connections to Coordination Infrastructure
+id: eafce2fc-sigma-006
+status: stable
+description: >
+  Detects DNS queries or network connections to Tailscale coordination servers,
+  DERP relay infrastructure, or login services. These connections indicate
+  Tailscale mesh VPN activity which may be used for covert C2 channels.
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://attack.mitre.org/techniques/T1572/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command_and_control
+  - attack.t1219
+  - attack.t1572
+logsource:
+  category: dns_query
+  product: windows
+detection:
+  selection:
+    QueryName|endswith:
+      - '.tailscale.com'
+      - '.ts.net'
+    QueryName|contains:
+      - 'controlplane'
+      - 'login'
+      - 'derp'
+      - 'log'
+  filter_browsers:
+    Image|endswith:
+      - '\chrome.exe'
+      - '\firefox.exe'
+      - '\msedge.exe'
+  condition: selection and not filter_browsers
+falsepositives:
+  - Authorized Tailscale installations on the host
+  - IT staff browsing Tailscale documentation
+level: high
+
+---
+title: SSH Daemon Spawning Shell Processes on Windows
+id: eafce2fc-sigma-007
+status: stable
+description: >
+  Detects the SSH daemon (sshd.exe) spawning command shell or PowerShell processes
+  on Windows, indicating remote command execution through SSH. On Windows hosts
+  where SSH is typically not a standard service, this is a strong indicator of
+  unauthorized lateral movement or remote access.
+references:
+  - https://attack.mitre.org/techniques/T1021/004/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.lateral_movement
+  - attack.t1021.004
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    ParentImage|endswith:
+      - '\sshd.exe'
+    Image|endswith:
+      - '\cmd.exe'
+      - '\powershell.exe'
+      - '\pwsh.exe'
+      - '\bash.exe'
+  condition: selection
+falsepositives:
+  - Authorized SSH sessions for remote system administration
+  - CI/CD systems executing commands over SSH
+level: high
+
+---
+title: SSH Inbound Connection on Windows
+id: eafce2fc-sigma-008
+status: stable
+description: >
+  Detects inbound TCP connections on port 22 to the SSH daemon on Windows hosts.
+  In environments where SSH is not a standard management protocol for Windows,
+  this may indicate adversary-installed SSH servers for remote access.
+references:
+  - https://attack.mitre.org/techniques/T1021/004/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.lateral_movement
+  - attack.t1021.004
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    DestinationPort: 22
+    Image|endswith:
+      - '\sshd.exe'
+    Initiated: 'false'
+  condition: selection
+falsepositives:
+  - Authorized SSH management connections
+  - Automated configuration management tools (Ansible) connecting via SSH
+level: medium
+
+---
+title: Sensitive File Staging - Mass Creation of Credential and PII Files
+id: eafce2fc-sigma-009
+status: stable
+description: >
+  Detects creation of multiple files with names indicating sensitive content
+  (passwords, credentials, API keys, private keys, customer data, financial
+  records, employee records). Adversaries collect and stage sensitive data
+  before archiving and exfiltrating it over established C2 channels.
+references:
+  - https://attack.mitre.org/techniques/T1041/
+  - https://attack.mitre.org/techniques/T1005/
+  - https://attack.mitre.org/techniques/T1039/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.collection
+  - attack.t1005
+  - attack.exfiltration
+  - attack.t1041
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|contains:
+      - 'password'
+      - 'credential'
+      - 'api_key'
+      - 'api-key'
+      - 'apikey'
+      - 'secret'
+      - 'private_key'
+      - 'privatekey'
+      - 'ssh_key'
+      - 'customer_data'
+      - 'financial'
+      - 'employee_record'
+      - 'ssn'
+      - 'credit_card'
+  filter_system:
+    Image|endswith:
+      - '\explorer.exe'
+      - '\svchost.exe'
+  condition: selection and not filter_system
+falsepositives:
+  - Password managers saving vault files
+  - Backup software archiving sensitive directories
+  - Security scanning tools creating test files
+level: high
+
+---
+title: Archive Creation for Data Exfiltration
+id: eafce2fc-sigma-010
+status: stable
+description: >
+  Detects creation of archive files (ZIP, 7z, RAR) with names suggesting
+  exfiltration intent (exfil, extract, dump, stolen, loot) or archives
+  created in unusual locations. Adversaries compress collected data before
+  exfiltrating it to reduce transfer size and avoid content inspection.
+references:
+  - https://attack.mitre.org/techniques/T1560/001/
+  - https://attack.mitre.org/techniques/T1041/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.collection
+  - attack.t1560.001
+  - attack.exfiltration
+  - attack.t1041
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_suspicious_name:
+    TargetFilename|contains:
+      - 'exfil'
+      - 'stolen'
+      - 'loot'
+      - 'dump'
+      - 'extract'
+    TargetFilename|endswith:
+      - '.zip'
+      - '.7z'
+      - '.rar'
+      - '.tar'
+      - '.tar.gz'
+  condition: selection_suspicious_name
+falsepositives:
+  - Data migration scripts with descriptive archive names
+  - Database dump utilities creating scheduled backups
+level: high
+
+---
+title: Windows Service Startup Type Changed to Automatic
+id: eafce2fc-sigma-011
+status: stable
+description: >
+  Detects modification of Windows service startup type to automatic using sc.exe
+  config or PowerShell Set-Service. Adversaries change service configuration
+  to ensure persistence, particularly for remote access services (SSH, VPN agents).
+references:
+  - https://attack.mitre.org/techniques/T1543/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.persistence
+  - attack.t1543.003
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_sc:
+    Image|endswith: '\sc.exe'
+    CommandLine|contains|all:
+      - 'config'
+      - 'start='
+      - 'auto'
+  selection_powershell:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains|all:
+      - 'Set-Service'
+      - 'Automatic'
+  filter_parent:
+    ParentImage|endswith:
+      - '\services.exe'
+      - '\svchost.exe'
+  condition: (selection_sc or selection_powershell) and not filter_parent
+falsepositives:
+  - IT administrators configuring services during maintenance
+  - Software installers setting up service auto-start
+level: medium
+
+---
+title: WireGuard VPN Protocol Traffic on Non-Standard Ports
+id: eafce2fc-sigma-012
+status: stable
+description: >
+  Detects UDP connections on ports commonly used by WireGuard-based VPN tools
+  (41641 for Tailscale, 51820 for standard WireGuard) and STUN (3478).
+  Adversaries leverage WireGuard-based mesh VPN tools to establish encrypted
+  tunnels that bypass network-layer content inspection.
+references:
+  - https://attack.mitre.org/techniques/T1572/
+  - https://attack.mitre.org/techniques/T1219/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command_and_control
+  - attack.t1572
+  - attack.t1219
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    DestinationPort:
+      - 41641
+      - 51820
+  filter_known_vpn:
+    Image|endswith:
+      - '\wireguard.exe'
+      - '\openvpn.exe'
+  condition: selection and not filter_known_vpn
+falsepositives:
+  - Authorized WireGuard or Tailscale VPN installations
+  - Peer-to-peer applications using similar port ranges
+level: medium
+
+---
+title: Multi-Stage Killchain - Tool Transfer Followed by Service Installation and Data Staging
+id: eafce2fc-sigma-013
+status: stable
+description: >
+  Correlates multiple indicators of a sophisticated multi-stage attack:
+  remote access tool download/installation, SSH service deployment, and
+  data staging with archive creation. This high-fidelity rule fires only
+  when multiple killchain stages are observed on the same host.
+  NOTE: This rule requires a Sigma backend that supports temporal correlation
+  or must be implemented as a correlation rule in the target SIEM.
+references:
+  - https://attack.mitre.org/techniques/T1105/
+  - https://attack.mitre.org/techniques/T1219/
+  - https://attack.mitre.org/techniques/T1543/003/
+  - https://attack.mitre.org/techniques/T1041/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command_and_control
+  - attack.t1105
+  - attack.t1219
+  - attack.persistence
+  - attack.t1543.003
+  - attack.exfiltration
+  - attack.t1041
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  stage1_msi_install:
+    Image|endswith: '\msiexec.exe'
+    CommandLine|contains:
+      - '/quiet'
+      - '/qn'
+  stage2_ssh_install:
+    CommandLine|contains:
+      - 'Add-WindowsCapability'
+      - 'install-sshd.ps1'
+      - 'OpenSSH'
+  stage3_tailscale:
+    Image|endswith:
+      - '\tailscale.exe'
+    CommandLine|contains: 'up'
+  condition: stage1_msi_install or stage2_ssh_install or stage3_tailscale
+  # NOTE: Implement as SIEM correlation rule with timeframe=1h and threshold=2
+  # to detect multiple stages on the same host within a one-hour window.
+  # Individual hits should be correlated by hostname/host.id.
+falsepositives:
+  - Very unlikely when all stages correlate on the same host within a short timeframe
+level: critical

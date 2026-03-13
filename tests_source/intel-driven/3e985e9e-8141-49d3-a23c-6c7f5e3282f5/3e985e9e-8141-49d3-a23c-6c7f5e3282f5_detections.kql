@@ -1,61 +1,114 @@
-// Behavioral Detection Queries for AMOS/Banshee macOS Infostealer Credential Harvesting
+// ============================================================
+// Behavioral Detection Queries for AMOS/Banshee macOS Infostealer
 // Test ID: 3e985e9e-8141-49d3-a23c-6c7f5e3282f5
 // MITRE ATT&CK: T1059.002, T1555.001, T1056.002, T1005, T1560.001, T1041, T1027
-// FOCUS: Malicious macOS infostealer behaviors only (excludes test setup/staging)
+// Platform: macOS
+// FOCUS: Technique-level behavioral detection (no test-framework artifacts)
+// ============================================================
 
-//
-// QUERY 1: osascript Credential Phishing Detection (T1059.002, T1056.002)
-// Purpose: Detect fake password dialogs used by AMOS/Banshee/Cuckoo
-//
+// ============================================================
+// QUERY 1: osascript Credential Phishing Detection
+// MITRE ATT&CK: T1059.002, T1056.002
+// Confidence: HIGH
+// False Positives: Legitimate AppleScript system dialogs (rare with hidden answer)
+// Threshold: Any single occurrence warrants investigation
+// ============================================================
+// Purpose: Detect fake password dialogs used by AMOS/Banshee/Cuckoo stealers.
+// The combination of "display dialog" with "hidden answer" in osascript
+// is the hallmark of credential phishing on macOS.
+// ============================================================
+
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName =~ "osascript"
-| where ProcessCommandLine has_any ("display dialog", "with hidden answer", "default answer")
-| where ProcessCommandLine has_any ("password", "Password", "credential", "Credential", "System Preferences", "macOS wants")
+| where ProcessCommandLine has_any ("display dialog", "display alert")
+| where ProcessCommandLine has "hidden answer"
+| where ProcessCommandLine has_any (
+    "password", "Password", "credential", "Credential",
+    "System Preferences", "macOS wants", "unlock", "verify",
+    "authenticate", "sign in", "log in"
+)
 | project TimeGenerated, DeviceName, AccountName, FileName,
     ProcessCommandLine, InitiatingProcessFileName,
-    InitiatingProcessCommandLine
-| extend ThreatScore = 95,
+    InitiatingProcessCommandLine, ProcessId
+| extend
+    Severity = "Critical",
+    ThreatType = "Credential Phishing",
+    MitreAttack = "T1059.002, T1056.002",
     Detection = "macOS Infostealer - Credential Phishing via osascript",
-    MitreTechnique = "T1059.002, T1056.002"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
-// QUERY 2: dscl Credential Validation Detection (T1059.002)
-// Purpose: Detect password validation using dscl -authonly (shared by all major macOS stealers)
-//
+// ============================================================
+// QUERY 2: dscl Credential Validation Detection
+// MITRE ATT&CK: T1059.002
+// Confidence: HIGH
+// False Positives: Legitimate system authentication (extremely rare in user context)
+// Threshold: Any occurrence outside system processes is suspicious
+// ============================================================
+// Purpose: Detect password validation using dscl -authonly, the universal
+// validation step shared by AMOS, Banshee, and Cuckoo stealers.
+// ============================================================
+
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName =~ "dscl"
 | where ProcessCommandLine has "-authonly"
+| where InitiatingProcessFileName !in~ ("loginwindow", "SecurityAgent", "authorizationhost")
 | project TimeGenerated, DeviceName, AccountName, FileName,
-    ProcessCommandLine, InitiatingProcessFileName
-| extend ThreatScore = 90,
+    ProcessCommandLine, InitiatingProcessFileName,
+    InitiatingProcessCommandLine
+| extend
+    Severity = "Critical",
+    ThreatType = "Credential Validation",
+    MitreAttack = "T1059.002",
     Detection = "macOS Infostealer - Credential Validation via dscl -authonly",
-    MitreTechnique = "T1059.002"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
-// QUERY 3: Keychain Access and Credential Dumping Detection (T1555.001)
-// Purpose: Detect Chainbreaker-style keychain credential extraction
-//
+// ============================================================
+// QUERY 3: Keychain Access and Credential Dumping Detection
+// MITRE ATT&CK: T1555.001
+// Confidence: HIGH
+// False Positives: security command used by system; Chainbreaker is always suspicious
+// Threshold: Multiple keychain access commands within 5 minutes
+// ============================================================
+// Purpose: Detect Chainbreaker-style keychain credential extraction,
+// including security list-keychains, find-generic-password,
+// and Chrome Safe Storage key extraction.
+// ============================================================
+
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where (
-    (FileName =~ "security" and ProcessCommandLine has_any ("list-keychains", "find-generic-password", "dump-keychain", "find-internet-password"))
+    (FileName =~ "security" and ProcessCommandLine has_any (
+        "list-keychains", "find-generic-password", "dump-keychain",
+        "find-internet-password", "export", "find-certificate"
+    ))
     or
     (FileName =~ "chainbreaker" or ProcessCommandLine has "chainbreaker")
     or
-    (ProcessCommandLine has "Chrome Safe Storage" and ProcessCommandLine has "security")
+    (ProcessCommandLine has "Chrome Safe Storage" and FileName =~ "security")
 )
+| where InitiatingProcessFileName !in~ ("Safari", "Google Chrome", "Brave Browser", "SecurityAgent")
 | project TimeGenerated, DeviceName, AccountName, FileName,
     ProcessCommandLine, InitiatingProcessFileName
-| extend ThreatScore = 90,
+| extend
+    Severity = "Critical",
+    ThreatType = "Credential Dumping",
+    MitreAttack = "T1555.001",
     Detection = "macOS Infostealer - Keychain Credential Extraction",
-    MitreTechnique = "T1555.001"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
-// QUERY 4: Browser Credential Database Access Detection (T1005)
-// Purpose: Detect access to browser credential stores across multiple browsers
-//
+// ============================================================
+// QUERY 4: Browser Credential Database Access Detection
+// MITRE ATT&CK: T1005
+// Confidence: HIGH (when 3+ browsers accessed)
+// False Positives: Browser sync engines, backup tools
+// Threshold: Access to 3+ different browser credential stores
+// ============================================================
+// Purpose: Detect bulk access to browser credential stores across
+// multiple browsers, a pattern unique to infostealer malware.
+// ============================================================
+
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType in ("FileRead", "FileAccessed", "FileModified")
@@ -71,116 +124,208 @@ DeviceFileEvents
     "Application Support/Chromium/Default/Login Data",
     "Application Support/Arc/User Data/Default/Login Data"
 )
-| summarize BrowsersAccessed=dcount(FolderPath),
-    AccessedFiles=make_set(FileName),
-    FirstAccess=min(TimeGenerated),
-    LastAccess=max(TimeGenerated)
+| summarize BrowsersAccessed = dcount(FolderPath),
+    AccessedFiles = make_set(FileName),
+    FirstAccess = min(TimeGenerated),
+    LastAccess = max(TimeGenerated)
     by DeviceName, AccountName, InitiatingProcessFileName
-| where BrowsersAccessed > 2  // Accessing 3+ browser credential stores is suspicious
-| extend ThreatScore = 85,
+| where BrowsersAccessed > 2
+| extend
+    Severity = "Critical",
+    ThreatType = "Credential Theft",
+    MitreAttack = "T1005",
     Detection = "macOS Infostealer - Multi-Browser Credential Database Access",
-    MitreTechnique = "T1005"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
-// QUERY 5: Cryptocurrency Wallet Enumeration Detection (T1005)
-// Purpose: Detect enumeration of crypto wallet extension directories
-//
+// ============================================================
+// QUERY 5: Cryptocurrency Wallet Enumeration Detection
+// MITRE ATT&CK: T1005
+// Confidence: HIGH
+// False Positives: Cryptocurrency wallet management tools (very few access multiple wallets)
+// Threshold: Access to 2+ distinct wallet storage locations
+// ============================================================
+// Purpose: Detect enumeration of cryptocurrency wallet extension
+// directories and application data targeted by AMOS/Banshee.
+// ============================================================
+
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType in ("FileRead", "FileAccessed", "DirectoryEnumerated")
 | where FolderPath has_any (
     "nkbihfbeogaeaoehlefnkodbefgpgknn",   // MetaMask
     "hnfanknocfeofbddgcijnmhnfnkdnaad",   // Coinbase Wallet
-    "bfnaelmomeimhlpmgjnjophhpkkoljpa",    // Phantom
+    "bfnaelmomeimhlpmgjnjophhpkkoljpa",    // Phantom (Solana)
     "egjidjbpglichdcondbcbdnbeeppgdph",    // Trust Wallet
     "Exodus/exodus.wallet",
     "atomic/Local Storage/leveldb",
-    ".electrum/wallets"
+    ".electrum/wallets",
+    "Bitwarden/data.json"
 )
-| summarize WalletsAccessed=dcount(FolderPath),
-    WalletPaths=make_set(FolderPath),
-    FirstAccess=min(TimeGenerated),
-    LastAccess=max(TimeGenerated)
+| summarize WalletsAccessed = dcount(FolderPath),
+    WalletPaths = make_set(FolderPath),
+    FirstAccess = min(TimeGenerated),
+    LastAccess = max(TimeGenerated)
     by DeviceName, AccountName, InitiatingProcessFileName
-| where WalletsAccessed > 1  // Accessing 2+ wallet locations is suspicious
-| extend ThreatScore = 90,
+| where WalletsAccessed > 1
+| extend
+    Severity = "Critical",
+    ThreatType = "Cryptocurrency Theft",
+    MitreAttack = "T1005",
     Detection = "macOS Infostealer - Cryptocurrency Wallet Enumeration",
-    MitreTechnique = "T1005"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
+// ============================================================
 // QUERY 6: TCC Database Manipulation Detection
+// MITRE ATT&CK: T1059.002
+// Confidence: HIGH
+// False Positives: IT admin running tccutil for troubleshooting
+// Threshold: Any occurrence warrants investigation
+// ============================================================
 // Purpose: Detect tccutil reset commands used by Cuckoo Stealer
-//
+// to clear consent decisions and force re-prompting.
+// ============================================================
+
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName =~ "tccutil"
 | where ProcessCommandLine has "reset"
 | project TimeGenerated, DeviceName, AccountName, FileName,
-    ProcessCommandLine, InitiatingProcessFileName
-| extend ThreatScore = 80,
+    ProcessCommandLine, InitiatingProcessFileName,
+    InitiatingProcessCommandLine
+| extend
+    Severity = "High",
+    ThreatType = "Permission Manipulation",
+    MitreAttack = "T1059.002",
     Detection = "macOS Infostealer - TCC Database Reset (Cuckoo Pattern)",
-    MitreTechnique = "T1059.002"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
-// QUERY 7: Apple Notes Database Access Detection (T1005)
+// ============================================================
+// QUERY 7: Apple Notes Database Access Detection
+// MITRE ATT&CK: T1005
+// Confidence: MEDIUM
+// False Positives: Notes.app, Spotlight indexing, backup tools
+// Threshold: Non-Apple process accessing NoteStore.sqlite
+// ============================================================
 // Purpose: Detect access to NoteStore.sqlite targeted by AMOS
-//
+// for harvesting passwords and sensitive data stored in Apple Notes.
+// ============================================================
+
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType in ("FileRead", "FileAccessed")
 | where FileName =~ "NoteStore.sqlite" or FolderPath has "group.com.apple.notes"
+| where InitiatingProcessFileName !in~ ("Notes", "mds", "mds_stores", "mdworker", "Spotlight", "backupd")
 | project TimeGenerated, DeviceName, AccountName, FileName,
     FolderPath, InitiatingProcessFileName
-| extend ThreatScore = 70,
+| extend
+    Severity = "High",
+    ThreatType = "Data Theft",
+    MitreAttack = "T1005",
     Detection = "macOS Infostealer - Apple Notes Database Access",
-    MitreTechnique = "T1005"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
-// QUERY 8: Data Staging and Archive Creation Detection (T1560.001)
-// Purpose: Detect creation of exfiltration archives (out.zip pattern)
-//
+// ============================================================
+// QUERY 8: Data Staging and Archive Creation Detection
+// MITRE ATT&CK: T1560.001
+// Confidence: HIGH
+// False Positives: Legitimate backup/archive tools creating large ZIPs
+// Threshold: Archive creation > 1MB in temp/user directories
+// ============================================================
+// Purpose: Detect creation of exfiltration staging archives (out.zip pattern)
+// used by AMOS to bundle stolen data before exfiltration.
+// ============================================================
+
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
-| where FileName in~ ("out.zip", "output.zip", "data.zip", "loot.zip", "steal.zip")
+| where FileName in~ ("out.zip", "output.zip", "data.zip", "loot.zip", "steal.zip", "dump.zip")
     or (FileName endswith ".zip" and FolderPath has_any ("/tmp/", "/var/tmp/", "/Users/"))
 | where FileSizeBytes > 1048576  // > 1MB
+| where InitiatingProcessFileName !in~ ("Finder", "Archive Utility", "zip", "tar", "ditto")
 | project TimeGenerated, DeviceName, AccountName, FileName,
     FolderPath, FileSizeBytes, InitiatingProcessFileName
-| extend ThreatScore = 85,
+| extend
+    Severity = "Critical",
+    ThreatType = "Data Staging",
+    MitreAttack = "T1560.001",
     Detection = "macOS Infostealer - Exfiltration Archive Creation",
-    MitreTechnique = "T1560.001"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
-// QUERY 9: HTTP POST Exfiltration with Stealer Metadata (T1041)
-// Purpose: Detect exfiltration via HTTP POST containing hwid/wid/user fields
-//
+// ============================================================
+// QUERY 9: HTTP POST Exfiltration with Stealer Metadata
+// MITRE ATT&CK: T1041
+// Confidence: HIGH
+// False Positives: Legitimate form submissions (low risk with metadata correlation)
+// Threshold: Any non-browser process making HTTP POST with stealer fields
+// ============================================================
+// Purpose: Detect exfiltration via HTTP POST containing hwid/wid/user fields,
+// the C2 protocol used by AMOS and Banshee stealers.
+// ============================================================
+
 DeviceNetworkEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "ConnectionSuccess"
 | where RemotePort in (80, 443, 8080)
-| where InitiatingProcessFileName !in~ ("chrome.exe", "firefox.exe", "safari", "msedge.exe", "brave.exe")
+| where InitiatingProcessFileName !in~ (
+    "Safari", "Google Chrome", "firefox", "Brave Browser",
+    "Microsoft Edge", "Opera", "Arc", "curl", "wget"
+)
 | join kind=inner (
     DeviceProcessEvents
     | where TimeGenerated > ago(1h)
     | where ProcessCommandLine has_any ("hwid", "wid", "sendlog", "multipart/form-data")
-    | project DeviceName, InitiatingProcessFileName=FileName, CmdLine=ProcessCommandLine
+    | project DeviceName, InitiatingProcessFileName = FileName, CmdLine = ProcessCommandLine
 ) on DeviceName, InitiatingProcessFileName
-| extend ThreatScore = 95,
+| extend
+    Severity = "Critical",
+    ThreatType = "Data Exfiltration",
+    MitreAttack = "T1041",
     Detection = "macOS Infostealer - HTTP POST Exfiltration with Stealer Metadata",
-    MitreTechnique = "T1041"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
-// QUERY 10: Combined Behavioral Detection - Full Infostealer Chain
-// Purpose: Correlate multiple stealer indicators for high-confidence detection
-//
+// ============================================================
+// QUERY 10: Hidden Directory with Credential Cache (Cuckoo Pattern)
+// MITRE ATT&CK: T1059.002
+// Confidence: HIGH
+// False Positives: Extremely rare -- .local-UUID pattern with pw.dat is highly specific
+// Threshold: Any single occurrence
+// ============================================================
+// Purpose: Detect .local-UUID directories with pw.dat files used
+// by Cuckoo Stealer to cache phished credentials.
+// ============================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where (FolderPath matches regex @"\.local-[0-9a-f]{8}-" and FileName =~ "pw.dat")
+    or (FileName =~ "pw.dat" and FolderPath has ".local-")
+| project TimeGenerated, DeviceName, AccountName, FileName,
+    FolderPath, InitiatingProcessFileName
+| extend
+    Severity = "Critical",
+    ThreatType = "Credential Caching",
+    MitreAttack = "T1059.002",
+    Detection = "macOS Infostealer - Cuckoo Credential Cache (pw.dat in hidden directory)",
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
+
+// ============================================================
+// QUERY 11: Combined Behavioral Detection - Full Infostealer Chain
+// MITRE ATT&CK: T1059.002, T1555.001, T1005
+// Confidence: CRITICAL
+// False Positives: None expected -- multi-signal correlation
+// Threshold: Correlation of osascript + keychain + browser access on same host
+// ============================================================
+// Purpose: Correlate multiple stealer indicators for high-confidence
+// detection of the full AMOS/Banshee infostealer attack chain.
+// ============================================================
+
 let OsascriptPhishing = DeviceProcessEvents
 | where TimeGenerated > ago(2h)
 | where FileName =~ "osascript" and ProcessCommandLine has "hidden answer"
 | distinct DeviceName, AccountName;
 let KeychainAccess = DeviceProcessEvents
 | where TimeGenerated > ago(2h)
-| where FileName =~ "security" and ProcessCommandLine has_any ("list-keychains", "find-generic-password")
+| where FileName =~ "security" and ProcessCommandLine has_any ("list-keychains", "find-generic-password", "dump-keychain")
 | distinct DeviceName, AccountName;
 let BrowserAccess = DeviceFileEvents
 | where TimeGenerated > ago(2h)
@@ -189,21 +334,68 @@ let BrowserAccess = DeviceFileEvents
 OsascriptPhishing
 | join kind=inner (KeychainAccess) on DeviceName, AccountName
 | join kind=inner (BrowserAccess) on DeviceName, AccountName
-| extend ThreatScore = 99,
+| extend
+    Severity = "Critical",
+    ThreatType = "Infostealer Full Chain",
+    MitreAttack = "T1059.002, T1555.001, T1005",
     Detection = "CRITICAL: macOS Infostealer Full Attack Chain Detected (osascript + Keychain + Browser)",
-    MitreTechnique = "T1059.002, T1555.001, T1005"
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
 
-//
-// QUERY 11: Hidden Directory with Credential Cache (Cuckoo Pattern)
-// Purpose: Detect .local-UUID directories with pw.dat files
-//
+// ============================================================
+// QUERY 12: dscl User Enumeration Detection
+// MITRE ATT&CK: T1059.002, T1087.001
+// Confidence: MEDIUM
+// False Positives: System administration scripts, directory services troubleshooting
+// Threshold: dscl list commands from non-system processes
+// ============================================================
+// Purpose: Detect dscl reconnaissance used by stealers to enumerate
+// local user accounts for credential targeting.
+// ============================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "dscl"
+| where ProcessCommandLine has_any ("-list /Users", "list /Users", "-read /Users")
+| where InitiatingProcessFileName !in~ ("loginwindow", "SecurityAgent", "opendirectoryd", "DirectoryService")
+| project TimeGenerated, DeviceName, AccountName, FileName,
+    ProcessCommandLine, InitiatingProcessFileName
+| extend
+    Severity = "Medium",
+    ThreatType = "Account Enumeration",
+    MitreAttack = "T1059.002, T1087.001",
+    Detection = "macOS Infostealer - Local User Enumeration via dscl",
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"
+
+// ============================================================
+// QUERY 13: Keychain File Direct Access Detection
+// MITRE ATT&CK: T1555.001
+// Confidence: HIGH
+// False Positives: Backup tools, keychain repair utilities
+// Threshold: Non-system process reading keychain-db files directly
+// ============================================================
+// Purpose: Detect direct file reads of keychain database files,
+// which bypasses the security command and indicates Chainbreaker
+// or similar direct-parsing tools.
+// ============================================================
+
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
-| where ActionType == "FileCreated"
-| where (FolderPath matches regex @"\.local-[0-9a-f]{8}-" and FileName =~ "pw.dat")
-    or (FileName =~ "pw.dat" and FolderPath has ".local-")
-| project TimeGenerated, DeviceName, AccountName, FileName,
-    FolderPath, InitiatingProcessFileName
-| extend ThreatScore = 90,
-    Detection = "macOS Infostealer - Cuckoo Credential Cache (pw.dat in hidden directory)",
-    MitreTechnique = "T1059.002"
+| where ActionType in ("FileRead", "FileAccessed")
+| where FolderPath has_any (
+    "Library/Keychains/login.keychain-db",
+    "Library/Keychains/System.keychain",
+    "Library/Keychains/iCloud.keychain"
+)
+| where InitiatingProcessFileName !in~ (
+    "securityd", "SecurityAgent", "loginwindow", "keychain-circle-notification",
+    "Safari", "Google Chrome", "Brave Browser", "Microsoft Edge",
+    "SystemUIServer", "Keychain Access", "secd"
+)
+| project TimeGenerated, DeviceName, AccountName,
+    FolderPath, InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "Critical",
+    ThreatType = "Credential Dumping",
+    MitreAttack = "T1555.001",
+    Detection = "macOS Infostealer - Direct Keychain Database File Access",
+    TestID = "3e985e9e-8141-49d3-a23c-6c7f5e3282f5"

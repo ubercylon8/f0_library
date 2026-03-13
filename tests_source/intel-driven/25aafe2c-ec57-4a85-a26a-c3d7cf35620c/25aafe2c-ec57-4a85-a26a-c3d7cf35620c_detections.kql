@@ -1,106 +1,288 @@
+// ============================================================
 // Behavioral Detection Queries for ESXi Hypervisor Ransomware Kill Chain
 // Test ID: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
 // MITRE ATT&CK: T1046, T1018, T1021.004, T1068, T1489, T1529, T1048, T1567.002, T1486
-// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+// Platform: Linux / ESXi
+// FOCUS: Technique behaviors only -- no test framework artifacts
+// Generated: 2026-03-13
+// ============================================================
 
-//
+
+// ============================================================
 // QUERY 1: ESXi Management Command Execution
-// Purpose: Detect vim-cmd, esxcli, vmdumper execution patterns
-//
+// Purpose: Detect vim-cmd, esxcli, vmdumper execution on ESXi hosts
+// Confidence: High
+// MITRE ATT&CK: T1046, T1018, T1489, T1529
+// False Positives: Legitimate ESXi administration by authorized VMware admins
+// Threshold: >2 management commands within 1 hour from same account
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
-| where FileName in~ ("vim-cmd", "esxcli", "vmdumper", "vim-cmd.exe", "esxcli.exe")
-    or ProcessCommandLine has_any ("vmsvc/getallvms", "vmsvc/snapshot.removeall",
-        "vm process kill", "vmsvc/power.off", "hostsvc/enable_ssh",
-        "vmdumper -l")
-| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
-    InitiatingProcessFileName
-| summarize CommandCount=count(),
-    Commands=make_set(ProcessCommandLine),
-    FirstCommand=min(TimeGenerated),
-    LastCommand=max(TimeGenerated)
+| where FileName in~ ("vim-cmd", "esxcli", "vmdumper")
+    or ProcessCommandLine has_any (
+        "vmsvc/getallvms", "vmsvc/snapshot.removeall",
+        "vm process kill", "vmsvc/power.off",
+        "hostsvc/enable_ssh", "hostsvc/disable_ssh",
+        "vmdumper -l", "vm process list"
+    )
+| project TimeGenerated, DeviceName, AccountName, FileName,
+    ProcessCommandLine, InitiatingProcessFileName, FolderPath
+| summarize
+    CommandCount = count(),
+    Commands = make_set(ProcessCommandLine),
+    UniqueCommands = dcount(ProcessCommandLine),
+    FirstCommand = min(TimeGenerated),
+    LastCommand = max(TimeGenerated)
     by DeviceName, AccountName
 | where CommandCount > 2
-| extend ThreatScore = 95,
-    Detection = "ESXi Management Command Execution - Possible Hypervisor Attack"
+| extend
+    Severity = "Critical",
+    ThreatType = "Hypervisor Management Abuse",
+    MitreAttack = "T1046,T1489",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstCommand, DeviceName, AccountName,
+    CommandCount, UniqueCommands, Commands, Severity, ThreatType, MitreAttack
 
-//
-// QUERY 2: Mass VM Termination Pattern
-// Purpose: Detect rapid VM kill sequences (esxcli vm process kill)
-//
+
+// ============================================================
+// QUERY 2: Mass VM Termination Pattern (LockBit 9x Retry)
+// Purpose: Detect rapid VM kill sequences via esxcli vm process kill
+// Confidence: High
+// MITRE ATT&CK: T1489, T1529
+// False Positives: Planned maintenance windows with bulk VM migration
+// Threshold: >3 kill/power-off commands within 5-minute window
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where ProcessCommandLine has "vm process kill"
     or ProcessCommandLine has "vmsvc/power.off"
     or ProcessCommandLine has "vmsvc/snapshot.removeall"
-| summarize KillCount=count(),
-    Techniques=make_set(tostring(split(ProcessCommandLine, " ")[3])),
-    FirstKill=min(TimeGenerated),
-    LastKill=max(TimeGenerated)
+| summarize
+    KillCount = count(),
+    Operations = make_set(
+        case(
+            ProcessCommandLine has "kill", "vm_kill",
+            ProcessCommandLine has "power.off", "power_off",
+            ProcessCommandLine has "snapshot.removeall", "snapshot_delete",
+            "other"
+        )
+    ),
+    FirstKill = min(TimeGenerated),
+    LastKill = max(TimeGenerated)
     by DeviceName, AccountName, bin(TimeGenerated, 5m)
 | where KillCount > 3
-| extend OperationRate = KillCount / datetime_diff('second', LastKill, FirstKill)
-| extend ThreatScore = 99,
-    Detection = "Mass VM Termination - ESXi Ransomware Kill Sequence"
+| extend OperationRate = iff(
+    datetime_diff('second', LastKill, FirstKill) > 0,
+    toreal(KillCount) / datetime_diff('second', LastKill, FirstKill),
+    toreal(KillCount)
+  )
+| extend
+    Severity = "Critical",
+    ThreatType = "Mass VM Termination - ESXi Ransomware Kill Sequence",
+    MitreAttack = "T1489,T1529",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstKill, DeviceName, AccountName,
+    KillCount, Operations, OperationRate, Severity, ThreatType, MitreAttack
 
-//
-// QUERY 3: SSH Key Harvesting and Lateral Movement
-// Purpose: Detect SSH key file access patterns (SSH-Snake behavior)
-//
+
+// ============================================================
+// QUERY 3: SSH Key Harvesting (SSH-Snake Lateral Movement)
+// Purpose: Detect bulk SSH key file access patterns indicating credential harvesting
+// Confidence: High
+// MITRE ATT&CK: T1021.004
+// False Positives: Ansible/automation tools reading SSH keys, SSH key rotation scripts
+// Threshold: >3 distinct SSH key files accessed by same process
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
-| where ActionType == "FileRead" or ActionType == "FileAccessed"
-| where FolderPath has_any (".ssh/id_rsa", ".ssh/id_ed25519", ".ssh/id_ecdsa",
+| where ActionType in ("FileRead", "FileAccessed", "FileOpened")
+| where FolderPath has_any (
+    ".ssh/id_rsa", ".ssh/id_ed25519", ".ssh/id_ecdsa",
     ".ssh/authorized_keys", ".ssh/known_hosts", ".ssh/config",
-    "ssh_host_rsa_key", "ssh_host_ed25519_key")
-| summarize KeyAccess=count(),
-    KeyFiles=make_set(FileName),
-    FirstAccess=min(TimeGenerated),
-    LastAccess=max(TimeGenerated)
+    "ssh_host_rsa_key", "ssh_host_ed25519_key", "ssh_host_ecdsa_key"
+  )
+| summarize
+    KeyAccessCount = count(),
+    KeyFiles = make_set(FileName),
+    KeyPaths = make_set(FolderPath),
+    FirstAccess = min(TimeGenerated),
+    LastAccess = max(TimeGenerated)
     by DeviceName, InitiatingProcessFileName, AccountName
-| where KeyAccess > 3
-| extend ThreatScore = 85,
-    Detection = "SSH Key Harvesting - Possible SSH-Snake Lateral Movement"
+| where KeyAccessCount > 3
+| extend
+    Severity = "High",
+    ThreatType = "SSH Key Harvesting - Possible SSH-Snake Lateral Movement",
+    MitreAttack = "T1021.004",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstAccess, DeviceName, AccountName,
+    InitiatingProcessFileName, KeyAccessCount, KeyFiles, Severity,
+    ThreatType, MitreAttack
 
-//
-// QUERY 4: Rclone Activity Detection (Including Renamed Binary)
-// Purpose: Detect Rclone execution patterns even with renamed binaries
-//
-let RcloneIndicators = DeviceProcessEvents
+
+// ============================================================
+// QUERY 4: SSH-Snake Worm Behavior Detection
+// Purpose: Detect SSH-Snake self-propagating worm patterns
+// Confidence: High
+// MITRE ATT&CK: T1021.004
+// False Positives: Automated SSH management tools (Ansible, Puppet)
+// Threshold: SSH connections to >2 hosts combined with key file reads
+// ============================================================
+let SSHKeyReads = DeviceFileEvents
 | where TimeGenerated > ago(1h)
-| where ProcessCommandLine has_any ("rclone", "--transfers", "--checkers",
-    "mega:", "s3:", "sftp:", "--s3-chunk-size", "sync /", "copy /")
-    or ProcessCommandLine has_any ("rclone.conf", "--config");
+| where FolderPath has_any (".ssh/id_rsa", ".ssh/id_ed25519",
+    ".ssh/authorized_keys", ".ssh/known_hosts", ".ssh/config")
+| distinct DeviceName, InitiatingProcessFileName, AccountName;
+let SSHConnections = DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemotePort == 22
+| where ActionType == "ConnectionSuccess"
+| summarize
+    TargetHosts = dcount(RemoteIP),
+    RemoteIPs = make_set(RemoteIP)
+    by DeviceName, InitiatingProcessFileName, AccountName
+| where TargetHosts > 2;
+SSHKeyReads
+| join kind=inner (SSHConnections) on DeviceName, AccountName
+| extend
+    Severity = "Critical",
+    ThreatType = "SSH-Snake Worm - SSH Key Chain Lateral Movement",
+    MitreAttack = "T1021.004",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project DeviceName, AccountName, InitiatingProcessFileName,
+    TargetHosts, RemoteIPs, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// QUERY 5: CVE-2024-37085 - ESXi Authentication Bypass via AD Group
+// Purpose: Detect creation of "ESX Admins" AD group (automatic ESXi admin rights)
+// Confidence: Critical
+// MITRE ATT&CK: T1068
+// False Positives: Legitimate AD administrator creating ESXi management groups
+// Threshold: Any creation of group matching "ESX Admins" pattern
+// ============================================================
+SecurityEvent
+| where TimeGenerated > ago(24h)
+| where EventID in (4727, 4731, 4754, 4764)  // Security/distribution group creation/modification
+| where TargetGroupName has_any ("ESX Admins", "ESXAdmins", "esxadmins", "ESX_Admins")
+| project TimeGenerated, Computer, Account, TargetGroupName, EventID,
+    SubjectUserName, SubjectDomainName
+| extend
+    Severity = "Critical",
+    ThreatType = "CVE-2024-37085 - ESXi Authentication Bypass via AD Group Creation",
+    MitreAttack = "T1068",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated, DeviceName = Computer, Account,
+    TargetGroupName, EventID, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// QUERY 6: CVE-2024-1086 - Linux Kernel nf_tables Exploitation
+// Purpose: Detect nftables manipulation patterns associated with kernel exploit
+// Confidence: Medium
+// MITRE ATT&CK: T1068
+// False Positives: Legitimate firewall rule management by system administrators
+// Threshold: nft commands creating chains with unusual verdicts
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("nft", "nftables")
+    or ProcessCommandLine has_any (
+        "nft add chain", "nft add rule", "nft delete",
+        "nf_tables", "nft list", "nft flush"
+    )
+| summarize
+    CommandCount = count(),
+    Commands = make_set(ProcessCommandLine),
+    FirstCommand = min(TimeGenerated),
+    LastCommand = max(TimeGenerated)
+    by DeviceName, AccountName, InitiatingProcessFileName
+| where CommandCount > 3
+| extend
+    Severity = "High",
+    ThreatType = "nftables Manipulation - Possible CVE-2024-1086 Exploitation",
+    MitreAttack = "T1068",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstCommand, DeviceName, AccountName,
+    CommandCount, Commands, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// QUERY 7: Rclone Exfiltration Activity (Including Renamed Binary)
+// Purpose: Detect Rclone execution patterns even when binary is renamed
+// Confidence: High
+// MITRE ATT&CK: T1048, T1567.002
+// False Positives: Legitimate Rclone usage for backup operations
+// Threshold: Any Rclone execution with cloud storage targets
+// ============================================================
+let RcloneProcesses = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any (
+    "rclone", "--transfers", "--checkers",
+    "mega:", "s3:", "sftp:", "--s3-chunk-size",
+    "rclone.conf", "--config rclone"
+  )
+  or (ProcessCommandLine has "sync" and ProcessCommandLine has_any ("mega:", "s3:", "sftp:"))
+  or (ProcessCommandLine has "copy" and ProcessCommandLine has_any ("mega:", "s3:", "sftp:"))
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine,
+    AccountName, InitiatingProcessFileName, FolderPath;
 let RcloneConfigCreation = DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where FileName == "rclone.conf"
     or FolderPath has ".config/rclone"
 | project TimeGenerated, DeviceName, FileName, FolderPath, AccountName;
-RcloneIndicators
+RcloneProcesses
 | union RcloneConfigCreation
-| summarize EventCount=count(),
-    Indicators=make_set(coalesce(ProcessCommandLine, FileName))
+| summarize
+    EventCount = count(),
+    Indicators = make_set(coalesce(ProcessCommandLine, FileName)),
+    FirstEvent = min(TimeGenerated),
+    LastEvent = max(TimeGenerated)
     by DeviceName, AccountName
 | where EventCount > 0
-| extend ThreatScore = 90,
-    Detection = "Rclone Exfiltration Tool Activity"
+| extend
+    Severity = "High",
+    ThreatType = "Rclone Exfiltration Tool Activity",
+    MitreAttack = "T1048,T1567.002",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstEvent, DeviceName, AccountName,
+    EventCount, Indicators, Severity, ThreatType, MitreAttack
 
-//
-// QUERY 5: CVE-2024-37085 ESXi Authentication Bypass
-// Purpose: Detect creation of "ESX Admins" AD group
-//
-SecurityEvent
-| where TimeGenerated > ago(24h)
-| where EventID in (4727, 4731, 4754)  // Group creation events
-| where TargetGroupName has_any ("ESX Admins", "ESXAdmins", "esxadmins")
-| project TimeGenerated, Computer, Account, TargetGroupName, EventID
-| extend ThreatScore = 99,
-    Detection = "CVE-2024-37085 - ESX Admins Group Creation (ESXi Auth Bypass)"
 
-//
-// QUERY 6: Ransomware File Encryption Patterns
-// Purpose: Detect mass file rename with ransomware extensions
-//
+// ============================================================
+// QUERY 8: Binary Rename Evasion (Rclone Masquerading)
+// Purpose: Detect legitimate system binary names executing data transfer commands
+// Confidence: High
+// MITRE ATT&CK: T1036.005, T1048
+// False Positives: None expected -- system processes do not execute cloud sync commands
+// Threshold: Any match
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("svchost", "csrss", "taskhost", "svhost", "lsass",
+    "svchost.exe", "csrss.exe", "taskhost.exe", "svhost.exe", "lsass.exe")
+| where ProcessCommandLine has_any (
+    "sync", "copy", "--transfers", "--checkers",
+    "mega:", "s3:", "sftp:", "rclone", "--config"
+  )
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine,
+    AccountName, InitiatingProcessFileName, FolderPath
+| extend
+    Severity = "Critical",
+    ThreatType = "Binary Rename Evasion - System Process Name with Data Transfer Commands",
+    MitreAttack = "T1036.005,T1048",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine,
+    AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// QUERY 9: Ransomware File Encryption Patterns (.ransomhub Extension)
+// Purpose: Detect mass file rename with known ransomware extensions
+// Confidence: High
+// MITRE ATT&CK: T1486
+// False Positives: None expected for ransomware extensions
+// Threshold: >10 file renames within 5-minute window
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileRenamed"
@@ -109,93 +291,265 @@ DeviceFileEvents
     or FileName endswith ".lockbit"
     or FileName endswith ".blackbasta"
     or FileName endswith ".encrypted"
-| summarize RenameCount=count(),
-    Extensions=make_set(tostring(split(FileName, ".")[-1])),
-    OriginalExtensions=make_set(tostring(split(PreviousFileName, ".")[-1])),
-    FirstRename=min(TimeGenerated),
-    LastRename=max(TimeGenerated)
+    or FileName endswith ".enc"
+| summarize
+    RenameCount = count(),
+    Extensions = make_set(tostring(split(FileName, ".")[-1])),
+    OriginalExtensions = make_set(tostring(split(PreviousFileName, ".")[-1])),
+    AffectedDirs = dcount(FolderPath),
+    FirstRename = min(TimeGenerated),
+    LastRename = max(TimeGenerated)
     by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 5m)
 | where RenameCount > 10
-| extend ThreatScore = 99,
-    Detection = "Ransomware Encryption - Mass File Rename with Ransomware Extension"
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware Encryption - Mass File Rename with Ransomware Extension",
+    MitreAttack = "T1486",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstRename, DeviceName, AccountName,
+    RenameCount, Extensions, OriginalExtensions, AffectedDirs,
+    Severity, ThreatType, MitreAttack
 
-//
-// QUERY 7: Ransom Note Deployment Detection
+
+// ============================================================
+// QUERY 10: VMDK/VMX File Encryption Targeting
+// Purpose: Detect mass modification or rename of virtual machine disk files
+// Confidence: Critical
+// MITRE ATT&CK: T1486
+// False Positives: VM migration, storage vMotion operations
+// Threshold: >5 VMDK/VMX file operations within 5-minute window
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileRenamed", "FileModified", "FileDeleted")
+| where FileName endswith ".vmdk" or FileName endswith ".vmx"
+    or FileName endswith ".vmsn" or FileName endswith ".nvram"
+    or FileName endswith ".vmsd" or FileName endswith ".vswp"
+    or PreviousFileName endswith ".vmdk" or PreviousFileName endswith ".vmx"
+| where FolderPath has "/vmfs/volumes/" or FolderPath has "datastore"
+| summarize
+    FileOpCount = count(),
+    FileTypes = make_set(tostring(split(FileName, ".")[-1])),
+    AffectedVMs = dcount(FolderPath),
+    FirstOp = min(TimeGenerated),
+    LastOp = max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 5m)
+| where FileOpCount > 5
+| extend
+    Severity = "Critical",
+    ThreatType = "VM Disk File Manipulation - ESXi Ransomware Encryption",
+    MitreAttack = "T1486",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstOp, DeviceName, AccountName,
+    FileOpCount, FileTypes, AffectedVMs, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// QUERY 11: Ransom Note Deployment Detection
 // Purpose: Detect creation of ransom note files across multiple directories
-//
+// Confidence: High
+// MITRE ATT&CK: T1486
+// False Positives: Legitimate README.txt creation (rare across multiple dirs)
+// Threshold: >3 ransom-note-patterned files created by same process
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
-| where FileName in~ ("README.txt", "HOW_TO_DECRYPT.txt", "RECOVER_YOUR_FILES.txt",
-    "DECRYPT_INSTRUCTIONS.txt", "ransom_note.txt")
-| summarize NoteCount=count(),
-    Locations=make_set(FolderPath),
-    NoteNames=make_set(FileName)
+| where FileName in~ ("README.txt", "HOW_TO_DECRYPT.txt",
+    "RECOVER_YOUR_FILES.txt", "DECRYPT_INSTRUCTIONS.txt",
+    "ransom_note.txt", "!README!.txt", "RESTORE_FILES.txt")
+| summarize
+    NoteCount = count(),
+    Locations = make_set(FolderPath),
+    NoteNames = make_set(FileName),
+    FirstNote = min(TimeGenerated),
+    LastNote = max(TimeGenerated)
     by DeviceName, InitiatingProcessFileName, AccountName
 | where NoteCount > 3
-| extend ThreatScore = 95,
-    Detection = "Ransom Note Deployment - Multiple Ransom Notes Created"
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransom Note Deployment - Multiple Notes Across Directories",
+    MitreAttack = "T1486",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstNote, DeviceName, AccountName,
+    NoteCount, Locations, NoteNames, Severity, ThreatType, MitreAttack
 
-//
-// QUERY 8: Binary Rename Evasion (Rclone as svchost/csrss)
-// Purpose: Detect legitimate tool names executing with suspicious command lines
-//
+
+// ============================================================
+// QUERY 12: ESXi Service Disruption (Recovery Prevention)
+// Purpose: Detect stopping of critical ESXi services to prevent recovery
+// Confidence: High
+// MITRE ATT&CK: T1489
+// False Positives: Planned ESXi maintenance with service restarts
+// Threshold: >2 critical service stop commands within 10 minutes
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
-| where FileName in~ ("svchost.exe", "csrss.exe", "taskhost.exe", "svhost.exe", "lsass.exe")
-| where ProcessCommandLine has_any ("sync", "copy", "--transfers", "--checkers",
-    "mega:", "s3:", "sftp:", "rclone", "--config")
-| project TimeGenerated, DeviceName, FileName, ProcessCommandLine, AccountName,
-    InitiatingProcessFileName, FolderPath
-| extend ThreatScore = 95,
-    Detection = "Binary Rename Evasion - System Process Name with Data Transfer Commands"
+| where ProcessCommandLine has_any (
+    "/etc/init.d/vmware-vpxd stop",
+    "/etc/init.d/hostd stop",
+    "/etc/init.d/vmware-fdm stop",
+    "/etc/init.d/vmware-sps stop",
+    "/etc/init.d/vsandevicemonitord stop",
+    "/etc/init.d/vmware-vsan-syncd stop",
+    "/etc/init.d/rhttpproxy stop",
+    "/etc/init.d/sfcbd-watchdog stop"
+  )
+  or (ProcessCommandLine has "service" and ProcessCommandLine has "stop"
+      and ProcessCommandLine has_any ("hostd", "vpxd", "fdm", "vsan"))
+| summarize
+    StopCount = count(),
+    StoppedServices = make_set(ProcessCommandLine),
+    FirstStop = min(TimeGenerated),
+    LastStop = max(TimeGenerated)
+    by DeviceName, AccountName
+| where StopCount > 2
+| extend
+    Severity = "Critical",
+    ThreatType = "ESXi Service Disruption - Recovery Prevention",
+    MitreAttack = "T1489",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstStop, DeviceName, AccountName,
+    StopCount, StoppedServices, Severity, ThreatType, MitreAttack
 
-//
-// QUERY 9: Combined ESXi Hypervisor Attack Detection
-// Purpose: Correlate multiple indicators for high-confidence ESXi ransomware detection
-//
-let ESXiCommands = DeviceProcessEvents
+
+// ============================================================
+// QUERY 13: ESXi SSH Service Enable (Persistence/Access)
+// Purpose: Detect enabling SSH service on ESXi hosts
+// Confidence: High
+// MITRE ATT&CK: T1021.004
+// False Positives: Admin enabling SSH for troubleshooting (should be temporary)
+// Threshold: Any SSH enable command
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where ProcessCommandLine has "hostsvc/enable_ssh"
+    or ProcessCommandLine has "hostsvc/start_ssh"
+    or (ProcessCommandLine has "esxcli" and ProcessCommandLine has "sshServer"
+        and ProcessCommandLine has "set -e true")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    InitiatingProcessFileName
+| extend
+    Severity = "High",
+    ThreatType = "ESXi SSH Service Enabled - Possible Persistent Access",
+    MitreAttack = "T1021.004",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// QUERY 14: Large Outbound Data Transfers (Cloud Exfiltration)
+// Purpose: Detect large data transfers to cloud storage providers
+// Confidence: Medium
+// MITRE ATT&CK: T1048, T1567.002
+// False Positives: Legitimate cloud backup operations, large file syncs
+// Threshold: >100MB transferred to cloud storage endpoints
+// ============================================================
+DeviceNetworkEvents
 | where TimeGenerated > ago(1h)
+| where RemoteUrl has_any (
+    "mega.nz", "mega.co.nz", "g.api.mega.co.nz",
+    "s3.amazonaws.com", "s3-", ".s3.",
+    "storage.googleapis.com", "blob.core.windows.net",
+    "backblazeb2.com", "wasabisys.com"
+  )
+| summarize
+    TotalBytesSent = sum(SentBytes),
+    ConnectionCount = count(),
+    Destinations = make_set(RemoteUrl),
+    FirstConnection = min(TimeGenerated),
+    LastConnection = max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, AccountName
+| where TotalBytesSent > 104857600  // >100MB
+| extend
+    TotalGB = round(toreal(TotalBytesSent) / 1073741824, 2),
+    Severity = case(
+        TotalBytesSent > 10737418240, "Critical",  // >10GB
+        TotalBytesSent > 1073741824, "High",        // >1GB
+        "Medium"
+    ),
+    ThreatType = "Large Outbound Transfer to Cloud Storage - Possible Exfiltration",
+    MitreAttack = "T1048,T1567.002",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated = FirstConnection, DeviceName, AccountName,
+    InitiatingProcessFileName, TotalGB, ConnectionCount, Destinations,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// QUERY 15: Free-Space Wiping (Anti-Forensics)
+// Purpose: Detect dd-based free-space wiping to prevent data recovery
+// Confidence: High
+// MITRE ATT&CK: T1485, T1561.001
+// False Positives: Legitimate disk sanitization during decommissioning
+// Threshold: Any dd command writing from /dev/zero to datastore paths
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName == "dd"
+| where ProcessCommandLine has "if=/dev/zero"
+    or ProcessCommandLine has "if=/dev/urandom"
+| where ProcessCommandLine has_any ("/vmfs/volumes/", "datastore", ".fswipe")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    InitiatingProcessFileName
+| extend
+    Severity = "Critical",
+    ThreatType = "Free-Space Wiping on Datastore - Anti-Forensics",
+    MitreAttack = "T1485,T1561.001",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// QUERY 16: Correlated Multi-Stage ESXi Ransomware Attack
+// Purpose: Correlate indicators across all 5 stages for high-confidence detection
+// Confidence: Critical
+// MITRE ATT&CK: T1046,T1021.004,T1489,T1048,T1486
+// False Positives: None expected when multiple stages correlate
+// Threshold: Evidence of 2+ attack stages from same device/account
+// ============================================================
+let ESXiRecon = DeviceProcessEvents
+| where TimeGenerated > ago(4h)
 | where ProcessCommandLine has_any ("vim-cmd", "esxcli", "vmdumper",
-    "vmsvc/getallvms", "vm process kill", "snapshot.removeall")
+    "vmsvc/getallvms", "vm process list")
 | distinct DeviceName, AccountName;
-let SSHActivity = DeviceProcessEvents
-| where TimeGenerated > ago(1h)
-| where ProcessCommandLine has_any ("ssh", "id_rsa", "authorized_keys")
-    or FileName has_any ("ssh-snake", "ssh_snake")
+let SSHLateral = DeviceFileEvents
+| where TimeGenerated > ago(4h)
+| where FolderPath has_any (".ssh/id_rsa", ".ssh/authorized_keys",
+    ".ssh/known_hosts", ".ssh/id_ed25519")
+| distinct DeviceName;
+let VMKill = DeviceProcessEvents
+| where TimeGenerated > ago(4h)
+| where ProcessCommandLine has_any ("vm process kill", "vmsvc/power.off",
+    "snapshot.removeall")
 | distinct DeviceName, AccountName;
 let DataExfil = DeviceProcessEvents
-| where TimeGenerated > ago(1h)
+| where TimeGenerated > ago(4h)
 | where ProcessCommandLine has_any ("rclone", "mega:", "s3:", "--transfers")
 | distinct DeviceName, AccountName;
 let Encryption = DeviceFileEvents
-| where TimeGenerated > ago(1h)
+| where TimeGenerated > ago(4h)
 | where ActionType == "FileRenamed"
-| where FileName endswith_any (".ransomhub", ".akira", ".lockbit", ".encrypted")
-| summarize FileCount=count() by DeviceName
-| where FileCount > 5
+| where FileName endswith ".ransomhub" or FileName endswith ".akira"
+    or FileName endswith ".lockbit" or FileName endswith ".encrypted"
+| summarize RenameCount = count() by DeviceName
+| where RenameCount > 5
 | distinct DeviceName;
-ESXiCommands
-| join kind=inner (SSHActivity) on DeviceName, AccountName
+ESXiRecon
+| join kind=inner (VMKill) on DeviceName, AccountName
 | join kind=leftouter (DataExfil) on DeviceName, AccountName
+| extend HasSSHLateral = DeviceName in (SSHLateral)
 | extend HasEncryption = DeviceName in (Encryption)
-| extend ThreatScore = 99,
-    Detection = "CRITICAL: Multi-Stage ESXi Hypervisor Ransomware Attack In Progress"
-
-//
-// QUERY 10: Large Outbound Data Transfers (Exfiltration)
-// Purpose: Detect large data transfers to cloud storage providers
-//
-DeviceNetworkEvents
-| where TimeGenerated > ago(1h)
-| where RemoteUrl has_any ("mega.nz", "mega.co.nz", "s3.amazonaws.com",
-    "storage.googleapis.com", "blob.core.windows.net")
-| summarize TotalBytesSent=sum(SentBytes),
-    ConnectionCount=count(),
-    Destinations=make_set(RemoteUrl),
-    FirstConnection=min(TimeGenerated),
-    LastConnection=max(TimeGenerated)
-    by DeviceName, InitiatingProcessFileName, AccountName
-| where TotalBytesSent > 104857600  // More than 100MB
-| extend ThreatScore = 85,
-    Detection = "Large Outbound Transfer to Cloud Storage - Possible Exfiltration"
+| extend StagesDetected = 2
+    + iff(isnotempty(AccountName2), 1, 0)
+    + iff(HasSSHLateral, 1, 0)
+    + iff(HasEncryption, 1, 0)
+| extend
+    Severity = "Critical",
+    ThreatType = "CRITICAL: Multi-Stage ESXi Hypervisor Ransomware Attack In Progress",
+    MitreAttack = "T1046,T1021.004,T1489,T1048,T1486",
+    TestID = "25aafe2c-ec57-4a85-a26a-c3d7cf35620c"
+| project DeviceName, AccountName, StagesDetected,
+    HasSSHLateral, HasEncryption, Severity, ThreatType, MitreAttack

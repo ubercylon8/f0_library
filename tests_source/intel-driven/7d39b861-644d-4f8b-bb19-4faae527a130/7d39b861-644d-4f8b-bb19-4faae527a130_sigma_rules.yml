@@ -1,0 +1,706 @@
+# ============================================================================
+# Sigma Detection Rules
+# ============================================================================
+# Test ID: 7d39b861-644d-4f8b-bb19-4faae527a130
+# Test Name: Agrius Multi-Wiper Deployment Against Banking Infrastructure
+# MITRE ATT&CK: T1505.003, T1543.003, T1562.001, T1485, T1070.001
+# Threat Actor: Agrius / Pink Sandstorm / Agonizing Serpens / BlackShadow
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules detect the underlying attack TECHNIQUES, NOT the F0RT1KA
+# testing framework. They will catch real-world attackers using the same
+# webshell deployment, service persistence, EDR tampering, wiper deployment,
+# and anti-forensics techniques with any tooling.
+#
+# Rule Index:
+#   1. ASPXSpy Webshell File Creation (T1505.003)
+#   2. ASPX File Creation Outside IIS Directories (T1505.003)
+#   3. Suspicious Windows Service Creation with Non-Standard Binary Path (T1543.003)
+#   4. Kernel Driver Service Installation via sc.exe (T1562.001)
+#   5. EDR/AV Service Tampering via sc.exe (T1562.001)
+#   6. GMER Anti-Rootkit Driver Deployment (T1562.001)
+#   7. Driver File Dropped Outside System32\drivers (T1562.001)
+#   8. Mass File Overwrite or Deletion - Wiper Behavior (T1485)
+#   9. Windows Event Log Clearing via wevtutil (T1070.001)
+#  10. Self-Deleting Batch Script with Ping Delay (T1070.001)
+#  11. Correlated Destructive Attack Chain (Multi-TTP)
+#  12. EDR Service Enumeration via sc.exe query (T1562.001)
+#
+# ============================================================================
+
+---
+title: ASPXSpy Webshell File Creation
+id: 7d39b861-s01-aspxspy-webshell
+status: experimental
+description: |
+    Detects the creation of files with names matching known ASPXSpy webshell
+    variants deployed by Agrius (Pink Sandstorm). Agrius uses filenames such as
+    aspxspy.aspx, error5.aspx, and contact.aspx to establish initial footholds
+    on IIS web servers. This rule matches regardless of deployment directory.
+references:
+    - https://attack.mitre.org/techniques/T1505/003/
+    - https://attack.mitre.org/groups/G1030/
+    - https://www.sentinelone.com/labs/agonizing-serpens-apt-targeting-israeli-tech-higher-ed/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.t1505.003
+    - agrius
+    - pink_sandstorm
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_known_names:
+        TargetFilename|endswith:
+            - '\aspxspy.aspx'
+            - '\error5.aspx'
+            - '\contact.aspx'
+            - '\shell.aspx'
+            - '\cmd.aspx'
+            - '\webshell.aspx'
+            - '\tunnel.aspx'
+            - '\upload.aspx'
+            - '\eval.aspx'
+            - '\connect.aspx'
+            - '\proxy.aspx'
+    condition: selection_known_names
+falsepositives:
+    - Legitimate ASP.NET application deployments using these common filenames
+    - CMS or web framework scaffolding tools
+level: high
+fields:
+    - TargetFilename
+    - Image
+    - User
+
+---
+title: ASPX File Creation Outside Standard IIS Directories
+id: 7d39b861-s02-aspx-non-iis
+status: experimental
+description: |
+    Detects .aspx or .ashx file creation in directories that are not standard
+    IIS web application paths. Threat actors including Agrius deploy webshells
+    to staging directories before moving them to web-accessible locations, or
+    target non-standard web roots.
+references:
+    - https://attack.mitre.org/techniques/T1505/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.t1505.003
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '.aspx'
+            - '.ashx'
+            - '.asmx'
+    filter_iis_paths:
+        TargetFilename|contains:
+            - '\inetpub\'
+            - '\wwwroot\'
+            - '\Program Files\Microsoft\Exchange Server\'
+            - '\Program Files\Common Files\Microsoft Shared\Web Server Extensions\'
+    filter_legitimate_processes:
+        Image|endswith:
+            - '\w3wp.exe'
+            - '\msdeploy.exe'
+            - '\devenv.exe'
+            - '\code.exe'
+            - '\msbuild.exe'
+            - '\dotnet.exe'
+            - '\iisexpress.exe'
+    condition: selection and not filter_iis_paths and not filter_legitimate_processes
+falsepositives:
+    - Development environments creating .aspx files outside IIS
+    - Application deployment tools using staging directories
+level: high
+fields:
+    - TargetFilename
+    - Image
+    - User
+
+---
+title: Suspicious Windows Service Creation with Non-Standard Binary Path
+id: 7d39b861-s03-service-creation
+status: experimental
+description: |
+    Detects Windows service creation via sc.exe where the binary path points to
+    a non-standard location. Agrius creates persistent services (e.g., IPsec
+    Helper) with binaries in user-writable directories. Any service pointing to
+    AppData, Temp, ProgramData, or user profile directories is suspicious.
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+    - https://attack.mitre.org/groups/G1030/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.t1543.003
+    - agrius
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\sc.exe'
+        CommandLine|contains: 'create'
+        CommandLine|contains:
+            - 'binPath'
+            - 'binpath'
+    filter_standard_paths:
+        CommandLine|contains:
+            - 'C:\Program Files\'
+            - 'C:\Program Files (x86)\'
+            - 'C:\Windows\System32\'
+            - 'C:\Windows\SysWOW64\'
+    suspicious_paths:
+        CommandLine|contains:
+            - '\Users\'
+            - '\AppData\'
+            - '\Temp\'
+            - '\ProgramData\'
+            - '\Downloads\'
+            - '\Desktop\'
+            - '\Public\'
+    condition: selection and (not filter_standard_paths or suspicious_paths)
+falsepositives:
+    - Legitimate software installers using sc.exe with ProgramData paths
+    - IT administration scripts deploying services
+level: high
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+
+---
+title: Kernel Driver Service Installation via sc.exe
+id: 7d39b861-s04-kernel-driver-service
+status: experimental
+description: |
+    Detects creation of kernel-type services via sc.exe, a technique used in
+    BYOVD (Bring Your Own Vulnerable Driver) attacks. Agrius loads GMER64.sys
+    via kernel service creation to gain kernel-level access for EDR bypass.
+    Legitimate kernel driver installations are typically performed by the
+    system installer, not directly via sc.exe.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://www.loldrivers.io/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - byovd
+    - agrius
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\sc.exe'
+        CommandLine|contains|all:
+            - 'create'
+            - 'kernel'
+    filter_legitimate:
+        ParentImage|endswith:
+            - '\services.exe'
+            - '\msiexec.exe'
+            - '\DrvInst.exe'
+            - '\TiWorker.exe'
+            - '\TrustedInstaller.exe'
+    condition: selection and not filter_legitimate
+falsepositives:
+    - Legitimate driver installation by hardware vendors
+    - IT administration deploying signed drivers
+level: critical
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+
+---
+title: EDR and AV Service Tampering via sc.exe
+id: 7d39b861-s05-edr-service-tampering
+status: experimental
+description: |
+    Detects attempts to disable, stop, or delete security product services
+    using sc.exe. Agrius targets services from 11+ EDR/AV vendors including
+    Microsoft Defender, CrowdStrike, SentinelOne, Cortex XDR, Carbon Black,
+    Sophos, ESET, Trend Micro, Elastic, Cylance, and Symantec. This technique
+    is a hallmark of destructive APT campaigns.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/groups/G1030/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - agrius
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_sc:
+        Image|endswith: '\sc.exe'
+    selection_action:
+        CommandLine|contains:
+            - 'config'
+            - 'stop'
+            - 'delete'
+    selection_edr_services:
+        CommandLine|contains:
+            # Microsoft Defender
+            - 'Sense'
+            - 'WinDefend'
+            - 'MsSense'
+            - 'MpDefenderCoreService'
+            # CrowdStrike
+            - 'CSFalconService'
+            # SentinelOne
+            - 'SentinelAgent'
+            - 'SentinelStaticEngine'
+            # Palo Alto Cortex XDR
+            - 'CortexXDR'
+            - 'cyserver'
+            # Carbon Black
+            - 'CbDefense'
+            - 'CbDefenseWSC'
+            # Sophos
+            - 'SAVService'
+            - 'Sophos Endpoint Defense'
+            # ESET
+            - 'ekrn'
+            - 'EsetService'
+            # Trend Micro
+            - 'Ntrtscan'
+            - 'ds_agent'
+            # Elastic
+            - 'elastic-endpoint'
+            # Cylance
+            - 'CylanceSvc'
+            # Symantec / Broadcom
+            - 'SepMasterService'
+            - 'ccSvcHst'
+    condition: selection_sc and selection_action and selection_edr_services
+falsepositives:
+    - Legitimate IT maintenance during change windows (should be rare)
+    - EDR product upgrades that temporarily stop services
+level: critical
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+
+---
+title: GMER Anti-Rootkit Driver Deployment
+id: 7d39b861-s06-gmer-driver
+status: experimental
+description: |
+    Detects the deployment of GMER64.sys or GMER.sys driver files. GMER is a
+    legitimate anti-rootkit tool that has been abused by Agrius and other threat
+    actors to disable EDR at the kernel level via BYOVD attacks. Finding GMER
+    driver files outside of an authorized IT scan warrants immediate investigation.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://www.loldrivers.io/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - byovd
+    - agrius
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '\GMER64.sys'
+            - '\GMER.sys'
+            - '\gmer64.sys'
+            - '\gmer.sys'
+    condition: selection
+falsepositives:
+    - IT administrators running GMER for legitimate rootkit scanning
+level: critical
+fields:
+    - TargetFilename
+    - Image
+    - User
+
+---
+title: Driver File Dropped Outside System32 Drivers Directory
+id: 7d39b861-s07-driver-staging
+status: experimental
+description: |
+    Detects .sys kernel driver files being created outside the standard
+    Windows driver directories (System32\drivers, DriverStore, WinSxS).
+    Attackers stage vulnerable drivers in user-writable directories before
+    loading them as kernel services for BYOVD attacks.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://www.loldrivers.io/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - byovd
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '.sys'
+    filter_standard_paths:
+        TargetFilename|contains:
+            - '\Windows\System32\drivers\'
+            - '\Windows\System32\DriverStore\'
+            - '\Windows\SysWOW64\drivers\'
+            - '\Windows\WinSxS\'
+            - '\Windows\SoftwareDistribution\'
+    filter_legitimate_processes:
+        Image|endswith:
+            - '\svchost.exe'
+            - '\DrvInst.exe'
+            - '\msiexec.exe'
+            - '\TiWorker.exe'
+            - '\TrustedInstaller.exe'
+    condition: selection and not filter_standard_paths and not filter_legitimate_processes
+falsepositives:
+    - Legitimate driver installations by hardware vendors
+    - Windows Update or DISM operations
+    - Third-party security tool driver deployment
+level: high
+fields:
+    - TargetFilename
+    - Image
+    - User
+
+---
+title: Mass File Overwrite or Deletion Indicating Wiper Activity
+id: 7d39b861-s08-wiper-mass-ops
+status: experimental
+description: |
+    Detects rapid bulk file modification and deletion patterns consistent with
+    wiper malware such as Agrius MultiLayer, PartialWasher, and BFG Agonizer.
+    Legitimate bulk file operations (backup, disk cleanup) typically use known
+    system tools, whereas wiper activity originates from unknown processes.
+    This rule triggers on Windows Security Event ID 4663 (file access) when
+    a single process modifies or deletes more than 20 files in a short window.
+references:
+    - https://attack.mitre.org/techniques/T1485/
+    - https://attack.mitre.org/groups/G1030/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1485
+    - wiper
+    - agrius
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_modify:
+        EventType:
+            - 'FileModified'
+            - 'FileDeleted'
+    filter_known_tools:
+        Image|endswith:
+            - '\robocopy.exe'
+            - '\cleanmgr.exe'
+            - '\defrag.exe'
+            - '\vssadmin.exe'
+            - '\sdelete.exe'
+            - '\explorer.exe'
+    condition: selection_modify and not filter_known_tools
+    # Note: Sigma alone cannot aggregate counts -- use a SIEM correlation layer
+    # to threshold at >20 events per process per 2-minute window.
+falsepositives:
+    - Disk cleanup utilities
+    - Backup software performing file-level operations
+    - Large batch file copy/move operations
+    - Database maintenance operations
+level: critical
+fields:
+    - TargetFilename
+    - Image
+    - User
+
+---
+title: Windows Event Log Clearing via wevtutil
+id: 7d39b861-s09-eventlog-clearing
+status: experimental
+description: |
+    Detects use of wevtutil.exe to clear Windows Event Log channels. Agrius
+    clears Application, Security, System, and PowerShell logs as part of
+    anti-forensics. Event log clearing is a critical indicator of an active
+    attack attempting to cover its tracks.
+references:
+    - https://attack.mitre.org/techniques/T1070/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1070.001
+    - agrius
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\wevtutil.exe'
+        CommandLine|contains: ' cl '
+    condition: selection
+falsepositives:
+    - Scheduled log maintenance by IT operations (should be change-managed)
+    - Automated log rotation scripts (rare in Windows environments)
+level: critical
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+
+---
+title: Windows Event Log Cleared - Security Event
+id: 7d39b861-s09b-eventlog-cleared-event
+status: experimental
+description: |
+    Detects Windows Security Event ID 1102 (Audit log was cleared) which is
+    generated when the Security event log is cleared by any method. This is a
+    built-in Windows detection that fires regardless of the clearing tool used.
+references:
+    - https://attack.mitre.org/techniques/T1070/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1070.001
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 1102
+    condition: selection
+falsepositives:
+    - Legitimate IT operations clearing logs during maintenance windows
+level: critical
+fields:
+    - SubjectUserName
+    - SubjectDomainName
+    - SubjectLogonId
+
+---
+title: Self-Deleting Batch Script with Ping Delay
+id: 7d39b861-s10-self-delete-batch
+status: experimental
+description: |
+    Detects execution of batch scripts that use the ping-based delay and
+    self-deletion pattern characteristic of Agrius anti-forensics. The
+    pattern involves cmd.exe executing a .bat file with names like
+    remover.bat, cleaner.bat, or deleter.bat, often containing
+    "ping 127.0.0.1 -n" for delay and "del %~f0" for self-deletion.
+references:
+    - https://attack.mitre.org/techniques/T1070/001/
+    - https://attack.mitre.org/groups/G1030/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1070.001
+    - agrius
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_cmd:
+        Image|endswith: '\cmd.exe'
+        CommandLine|contains: '.bat'
+    selection_suspicious_names:
+        CommandLine|contains:
+            - 'remover.bat'
+            - 'cleaner.bat'
+            - 'deleter.bat'
+            - 'wiper.bat'
+            - 'remove.bat'
+            - 'cleanup.bat'
+    selection_self_delete_pattern:
+        CommandLine|contains:
+            - 'del /f "%~f0"'
+            - 'del "%~f0"'
+            - 'del %~f0'
+    selection_ping_delay:
+        CommandLine|contains:
+            - 'ping 127.0.0.1'
+            - 'ping localhost'
+    condition: selection_cmd and (selection_suspicious_names or (selection_self_delete_pattern and selection_ping_delay))
+falsepositives:
+    - Legacy installer cleanup scripts (rare)
+    - Automated deployment scripts using ping for delay
+level: high
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+
+---
+title: Correlated Destructive Attack Chain - Service Tampering and Log Clearing
+id: 7d39b861-s11-attack-chain-correlation
+status: experimental
+description: |
+    Correlates multiple indicators of a destructive attack chain on a single
+    host: EDR service tampering via sc.exe combined with event log clearing
+    via wevtutil.exe within a short time window. This combination is highly
+    indicative of an active destructive campaign such as Agrius wiper
+    operations. Requires SIEM-level temporal correlation.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1070/001/
+    - https://attack.mitre.org/groups/G1030/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.impact
+    - attack.t1562.001
+    - attack.t1070.001
+    - agrius
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_edr_tampering:
+        Image|endswith: '\sc.exe'
+        CommandLine|contains:
+            - 'stop'
+            - 'config'
+            - 'delete'
+        CommandLine|contains:
+            - 'WinDefend'
+            - 'Sense'
+            - 'CSFalconService'
+            - 'SentinelAgent'
+            - 'CbDefense'
+            - 'CylanceSvc'
+            - 'CortexXDR'
+            - 'ekrn'
+            - 'SepMasterService'
+            - 'elastic-endpoint'
+    selection_log_clearing:
+        Image|endswith: '\wevtutil.exe'
+        CommandLine|contains: ' cl '
+    condition: selection_edr_tampering or selection_log_clearing
+    # Note: For full correlation, use SIEM-level rules to detect BOTH
+    # selection_edr_tampering AND selection_log_clearing on the same host
+    # within a 30-minute window. The Sigma correlation syntax is:
+    # type: event_count | count() > 0 | timespan: 30m | group-by: ComputerName
+falsepositives:
+    - Extremely unlikely outside of security testing or active attack
+level: critical
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+
+---
+title: EDR Service Enumeration via sc.exe query
+id: 7d39b861-s12-edr-enumeration
+status: experimental
+description: |
+    Detects rapid enumeration of EDR/AV service status using sc.exe query
+    commands targeting multiple security vendor services. Agrius queries
+    service status before attempting to disable services, providing a
+    pre-attack reconnaissance indicator. Multiple queries to different EDR
+    services from the same process is highly suspicious.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1007/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.discovery
+    - attack.t1007
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\sc.exe'
+        CommandLine|contains: 'query'
+    selection_edr_names:
+        CommandLine|contains:
+            - 'WinDefend'
+            - 'Sense'
+            - 'CSFalconService'
+            - 'SentinelAgent'
+            - 'CbDefense'
+            - 'CylanceSvc'
+            - 'CortexXDR'
+            - 'ekrn'
+            - 'SepMasterService'
+            - 'elastic-endpoint'
+            - 'SAVService'
+            - 'Ntrtscan'
+    condition: selection and selection_edr_names
+falsepositives:
+    - IT monitoring scripts checking security service health
+    - RMM tools performing EDR health checks
+level: medium
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+
+---
+title: Windows Service Created with Auto-Start - Event ID 7045
+id: 7d39b861-s13-service-install-event
+status: experimental
+description: |
+    Detects new Windows services installed with automatic start type as logged
+    by System Event ID 7045. Agrius creates the IPsec Helper service with
+    auto-start for persistence. Services with binary paths outside standard
+    program directories are particularly suspicious.
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.t1543.003
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        EventID: 7045
+        StartType: 'auto start'
+    filter_known_services:
+        ServiceFileName|contains:
+            - 'C:\Windows\System32\'
+            - 'C:\Program Files\'
+            - 'C:\Program Files (x86)\'
+    condition: selection and not filter_known_services
+falsepositives:
+    - Legitimate software installation creating auto-start services
+    - Windows Update installing new services
+level: high
+fields:
+    - ServiceName
+    - ServiceFileName
+    - ServiceType
+    - AccountName

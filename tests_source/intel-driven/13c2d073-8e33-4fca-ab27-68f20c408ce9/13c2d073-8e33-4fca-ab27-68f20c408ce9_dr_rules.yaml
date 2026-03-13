@@ -1,0 +1,470 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 13c2d073-8e33-4fca-ab27-68f20c408ce9
+# Test Name: APT33 Tickler Backdoor DLL Sideloading
+# MITRE ATT&CK: T1566.001, T1574.002, T1547.001, T1053.005, T1036, T1071.001
+# Threat Actor: APT33 (Elfin / Peach Sandstorm / Refined Kitten)
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying APT33 Tickler attack techniques,
+# NOT the F0RT1KA testing framework. They will catch real-world attackers
+# using DLL sideloading, registry persistence, scheduled tasks, binary
+# masquerading, and HTTP C2 on non-standard ports with their own tooling.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 13c2d073-8e33-4fca-ab27-68f20c408ce9_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: DLL Side-Loading - VC++ Runtime from Non-Standard Path
+  # Purpose: Detect msvcp140.dll or vcruntime140.dll loaded from directories
+  #          outside Program Files or Windows system folders. This is the
+  #          core DLL sideloading pattern used by APT33 Tickler.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1574.002
+  # ==========================================================================
+  dll-sideloading-vcruntime-nonstandard-path:
+    detect:
+      target: edr
+      event: MODULE_LOAD
+      op: and
+      rules:
+        # DLL being loaded is a VC++ runtime
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\msvcp140.dll"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\vcruntime140.dll"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\msvcp140d.dll"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\vcruntime140d.dll"
+        # NOT loaded from legitimate standard paths
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Windows\\"
+          not: true
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Program Files\\"
+          not: true
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Program Files (x86)\\"
+          not: true
+        # Loading process is NOT from legitimate paths either
+        - op: starts with
+          path: routing/parent/FILE_PATH
+          value: "C:\\Program Files\\"
+          not: true
+        - op: starts with
+          path: routing/parent/FILE_PATH
+          value: "C:\\Program Files (x86)\\"
+          not: true
+        - op: starts with
+          path: routing/parent/FILE_PATH
+          value: "C:\\Windows\\System32\\"
+          not: true
+
+    respond:
+      - action: report
+        name: DLL Sideloading - VC++ Runtime from Non-Standard Path
+        metadata:
+          severity: high
+          mitre_attack: T1574.002
+          confidence: high
+          description: VC++ runtime DLL loaded from non-standard directory - possible DLL sideloading attack
+          investigation: Examine the loading process origin, check for renamed Microsoft binaries, inspect DLL file hash against known good versions
+
+      - action: task
+        command: history_dump
+        investigation: DLL-Sideloading-VCRuntime
+
+
+  # ==========================================================================
+  # RULE 2: Renamed Microsoft Binary Executing from User Directory
+  # Purpose: Detect binaries with SharePoint/Microsoft naming conventions
+  #          executing from user-writable paths outside Program Files.
+  #          APT33 renames notepad.exe to Microsoft.SharePoint.NativeMessaging.exe.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1036, T1574.002
+  # ==========================================================================
+  renamed-microsoft-binary-from-user-path:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Binary has Microsoft/SharePoint naming pattern
+        - op: or
+          rules:
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)Microsoft\.SharePoint
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)\\SharePoint\.exe$
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)\\NativeMessaging\.exe$
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)Microsoft\.SharePoint\.NativeMessaging\.exe$
+        # NOT executing from legitimate Microsoft installation paths
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Program Files\\"
+          not: true
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Program Files (x86)\\"
+          not: true
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Windows\\"
+          not: true
+
+    respond:
+      - action: report
+        name: Renamed Microsoft Binary Executing from Non-Standard Path
+        metadata:
+          severity: critical
+          mitre_attack: T1036
+          confidence: high
+          description: Binary masquerading as Microsoft SharePoint component executing from user-writable directory - APT33 Tickler indicator
+          investigation: Check binary hash against known Microsoft binaries, inspect version info for OriginalFilename mismatch, look for DLL sideloading artifacts in same directory
+
+      - action: task
+        command: history_dump
+        investigation: APT33-Tickler-Masquerading
+
+
+  # ==========================================================================
+  # RULE 3: Registry Run Key Persistence to Non-Standard Path
+  # Purpose: Detect registry Run key additions that point to executables
+  #          in non-standard paths (outside Program Files / Windows).
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1547.001
+  # ==========================================================================
+  registry-run-key-nonstandard-path:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        # Run or RunOnce registry key modification
+        - op: or
+          rules:
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "\\CurrentVersion\\Run"
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "\\CurrentVersion\\RunOnce"
+        # Value data references an executable
+        - op: matches
+          path: event/VALUE_DATA
+          re: (?i)\.(exe|bat|cmd|ps1|vbs|js)
+        # Value data does NOT point to standard installation paths
+        - op: contains
+          path: event/VALUE_DATA
+          value: "Program Files"
+          not: true
+        - op: contains
+          path: event/VALUE_DATA
+          value: "\\Windows\\"
+          not: true
+        # Exclude standard process making the change
+        - op: ends with
+          path: routing/parent/FILE_PATH
+          value: "\\msiexec.exe"
+          not: true
+
+    respond:
+      - action: report
+        name: Registry Run Key Persistence to Non-Standard Path
+        metadata:
+          severity: high
+          mitre_attack: T1547.001
+          confidence: high
+          description: Registry Run key added referencing executable outside standard installation directories
+          investigation: Check the referenced executable path and hash, determine if the parent process is expected to modify autorun entries
+
+
+  # ==========================================================================
+  # RULE 4: SharePoint-Themed Registry Run Key Persistence
+  # Purpose: Detect Run key additions using SharePoint-related naming.
+  #          This is the specific persistence pattern used by APT33 Tickler.
+  # Confidence: CRITICAL
+  # MITRE ATT&CK: T1547.001, T1036
+  # ==========================================================================
+  sharepoint-themed-registry-persistence:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        # Run registry key
+        - op: contains
+          path: event/REGISTRY_KEY
+          value: "\\CurrentVersion\\Run"
+        # SharePoint-themed value name or data
+        - op: or
+          rules:
+            - op: matches
+              path: event/VALUE_NAME
+              re: (?i)SharePoint
+            - op: contains
+              path: event/VALUE_DATA
+              value: "SharePoint.exe"
+            - op: contains
+              path: event/VALUE_DATA
+              value: "NativeMessaging"
+            - op: contains
+              path: event/VALUE_DATA
+              value: "Microsoft.SharePoint"
+        # Not from standard Microsoft paths
+        - op: contains
+          path: event/VALUE_DATA
+          value: "Program Files"
+          not: true
+
+    respond:
+      - action: report
+        name: APT33 Tickler SharePoint Registry Persistence
+        metadata:
+          severity: critical
+          mitre_attack: T1547.001
+          confidence: high
+          description: SharePoint-themed Run key persistence in non-standard path detected - high-confidence APT33 Tickler indicator
+          investigation: Immediately examine the referenced binary, check for DLL sideloading artifacts, review scheduled tasks for dual persistence
+
+      - action: task
+        command: history_dump
+        investigation: APT33-Tickler-Registry-Persistence
+
+
+  # ==========================================================================
+  # RULE 5: Scheduled Task Creation with SharePoint Theme
+  # Purpose: Detect schtasks.exe creating tasks that reference SharePoint
+  #          or NativeMessaging binaries. APT33 uses MicrosoftSharePointSync
+  #          as the scheduled task name for redundant persistence.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1053.005
+  # ==========================================================================
+  scheduled-task-sharepoint-persistence:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # schtasks.exe process
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\schtasks.exe"
+        # Creating a task
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/Create"
+        # SharePoint-themed references in command line
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "SharePoint"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "NativeMessaging"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "MicrosoftSharePointSync"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "SPSync"
+
+    respond:
+      - action: report
+        name: Scheduled Task with SharePoint Theme Created
+        metadata:
+          severity: high
+          mitre_attack: T1053.005
+          confidence: high
+          description: Scheduled task created referencing SharePoint-themed binary - APT33 persistence pattern
+          investigation: Query task details, check referenced binary path and hash, correlate with registry Run key modifications
+
+      - action: task
+        command: history_dump
+        investigation: APT33-Tickler-ScheduledTask
+
+
+  # ==========================================================================
+  # RULE 6: Elevated Scheduled Task with ONLOGON Trigger
+  # Purpose: Broader detection for scheduled tasks with ONLOGON/ONSTART
+  #          triggers and HIGHEST run level pointing to non-standard paths.
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1053.005
+  # ==========================================================================
+  elevated-scheduled-task-logon-trigger:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\schtasks.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/Create"
+        # Logon or startup trigger
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "ONLOGON"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "ONSTART"
+        # Elevated execution
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "HIGHEST"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "SYSTEM"
+        # Referencing non-standard path
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "Program Files"
+          not: true
+
+    respond:
+      - action: report
+        name: Elevated Scheduled Task with Logon Trigger
+        metadata:
+          severity: medium
+          mitre_attack: T1053.005
+          confidence: medium
+          description: Elevated scheduled task with logon trigger referencing non-standard executable path
+
+
+  # ==========================================================================
+  # RULE 7: HTTP Traffic on Non-Standard Ports 808/880
+  # Purpose: Detect outbound TCP connections on ports 808 and 880, which
+  #          are documented APT33 Tickler C2 communication ports.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1071.001
+  # ==========================================================================
+  http-c2-nonstandard-port-808-880:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        # Destination port is 808 or 880
+        - op: or
+          rules:
+            - op: is
+              path: event/DESTINATION_PORT
+              value: 808
+            - op: is
+              path: event/DESTINATION_PORT
+              value: 880
+        # Not initiated by expected system services
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\svchost.exe"
+          not: true
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\services.exe"
+          not: true
+
+    respond:
+      - action: report
+        name: HTTP C2 on Non-Standard Ports 808/880
+        metadata:
+          severity: high
+          mitre_attack: T1071.001
+          confidence: high
+          description: Outbound connection on TCP port 808 or 880 detected - APT33 Tickler C2 communication ports
+          investigation: Check process binary origin, examine HTTP headers for SharePoint User-Agent, review network traffic for base64-encoded payloads
+
+      - action: task
+        command: history_dump
+        investigation: APT33-Tickler-C2
+
+
+  # ==========================================================================
+  # RULE 8: Double Extension Archive File Creation
+  # Purpose: Detect creation of archive files with double extensions
+  #          (e.g., .pdf.zip, .doc.rar) used in spearphishing delivery.
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1566.001
+  # ==========================================================================
+  double-extension-archive-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # File has a double extension ending in archive format
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)\.(pdf|doc|docx|xls|xlsx|ppt|pptx|rtf)\.(zip|rar|7z|tar|gz)$
+        # Created in user-accessible directory
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Users\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Desktop\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Documents\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+
+    respond:
+      - action: report
+        name: Double Extension Archive Created - Spearphishing Indicator
+        metadata:
+          severity: medium
+          mitre_attack: T1566.001
+          confidence: medium
+          description: Archive file with double extension masquerading as document detected - possible spearphishing payload delivery
+          investigation: Examine archive contents for executables or DLLs, check for subsequent extraction events and binary execution
+
+
+# ============================================================================
+# OUTPUTS CONFIGURATION
+# ============================================================================
+# Route detections to SIEM for correlation with other security telemetry.
+
+outputs:
+  apt33-tickler-detections:
+    module: syslog
+    for: detections
+    host: siem.example.com
+    port: 514

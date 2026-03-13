@@ -43,9 +43,15 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
 	"golang.org/x/sys/windows"
+)
+
+const (
+	TEST_UUID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+	TEST_NAME = "MDE Process Injection and API Authentication Bypass"
 )
 
 //go:embed mde_process_watchdog.exe
@@ -134,7 +140,7 @@ func test() {
 		LogPhaseError(1, fmt.Sprintf("Dropper initialization failed: %v", err))
 		LogPhaseEnd(1, "failed", "Dropper initialization failed")
 		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		os.Exit(Endpoint.UnexpectedTestError)
 	}
 
 	// Create target directory
@@ -148,7 +154,7 @@ func test() {
 		LogPhaseError(1, "Administrator privileges required but not present")
 		LogPhaseEnd(1, "failed", "Missing administrator privileges")
 		SaveLog(Endpoint.UnexpectedTestError, "Administrator privileges required")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		os.Exit(Endpoint.UnexpectedTestError)
 	}
 	Endpoint.Say("  [+] Running with Administrator privileges")
 	LogMessage("INFO", "Privilege Check", "Administrator privileges confirmed")
@@ -173,7 +179,7 @@ func test() {
 		LogPhaseError(2, "MsSense.exe process not found - MDE not installed")
 		LogPhaseEnd(2, "failed", "MsSense.exe not found")
 		SaveLog(Endpoint.UnexpectedTestError, "MDE not installed - MsSense.exe not running")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		os.Exit(Endpoint.UnexpectedTestError)
 	}
 
 	Endpoint.Say("  [+] Found MsSense.exe (PID %d)", processReport.MsSenseProcess.PID)
@@ -458,18 +464,49 @@ func test() {
 	// Save final results
 	LogPhaseEnd(11, "completed", finalReason)
 	SaveLog(finalExitCode, finalReason)
-	Endpoint.Stop(finalExitCode)
+	os.Exit(finalExitCode)
 }
 
 func main() {
 	Endpoint.Say("Starting test at: %s", time.Now().Format("2006-01-02T15:04:05"))
-	Endpoint.Say("Test: MDE Process Injection and API Authentication Bypass")
-	Endpoint.Say("UUID: fec68e9b-af59-40c1-abbd-98ec98428444")
+	Endpoint.Say("Test: %s", TEST_NAME)
+	Endpoint.Say("UUID: %s", TEST_UUID)
 	Endpoint.Say("Score: 9.7/10 - Production-accurate attack chain")
 	Endpoint.Say("")
 
-	// Initialize logger
-	InitLogger("fec68e9b-af59-40c1-abbd-98ec98428444", "MDE Process Injection and API Authentication Bypass")
+	// Schema v2.0: Build metadata from header
+	metadata := TestMetadata{
+		Version:    "1.0.0",
+		Category:   "defense_evasion",
+		Severity:   "high",
+		Techniques: []string{"T1055", "T1055.001", "T1562.001", "T1014", "T1557", "T1071.001", "T1140"},
+		Tactics:    []string{"defense-evasion", "credential-access", "command-and-control"},
+		Score:      9.7,
+		Tags:       []string{"mde-bypass", "process-injection", "memory-patching", "api-interception", "watchdog"},
+	}
+
+	// Schema v2.0: Resolve organization and build execution context
+	orgInfo := ResolveOrganization("")
+	executionContext := ExecutionContext{
+		ExecutionID:    uuid.New().String(),
+		Organization:   orgInfo.UUID,
+		Environment:    "lab",
+		DeploymentType: "manual",
+	}
+
+	// Initialize logger with Schema v2.0 signature
+	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
+
+	// Defer panic recovery for main goroutine
+	defer func() {
+		if r := recover(); r != nil {
+			if globalLog != nil {
+				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered in main: %v", r))
+				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+			}
+			os.Exit(Endpoint.UnexpectedTestError)
+		}
+	}()
 
 	// Extract embedded components
 	Endpoint.Say("Single-binary deployment - extracting embedded components...")
@@ -477,7 +514,7 @@ func main() {
 		Endpoint.Say("FATAL: Failed to extract components: %v", err)
 		LogMessage("ERROR", "Component Extraction", fmt.Sprintf("Failed: %v", err))
 		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Component extraction failed: %v", err))
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		os.Exit(Endpoint.UnexpectedTestError)
 	}
 	Endpoint.Say("")
 
@@ -499,6 +536,6 @@ func main() {
 			LogMessage("ERROR", "Test Timeout", fmt.Sprintf("Exceeded timeout of %v", timeout))
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("Test exceeded timeout of %v", timeout))
 		}
-		Endpoint.Stop(Endpoint.TimeoutExceeded)
+		os.Exit(Endpoint.TimeoutExceeded)
 	}
 }

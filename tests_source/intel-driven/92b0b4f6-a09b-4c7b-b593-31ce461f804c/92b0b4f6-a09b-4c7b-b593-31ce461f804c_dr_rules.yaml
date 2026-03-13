@@ -1,0 +1,344 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 92b0b4f6-a09b-4c7b-b593-31ce461f804c
+# Test Name: APT42 TAMECAT Fileless Backdoor with Browser Credential Theft
+# MITRE ATT&CK: T1204.002, T1059.001, T1547.001, T1037.001, T1555.003, T1102
+# Threat Actor: APT42 (Magic Hound / Educated Manticore)
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying APT42 attack techniques,
+# NOT the F0RT1KA testing framework. They will catch real-world attackers
+# using the same TAMECAT TTPs with their own custom tooling.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 92b0b4f6-a09b-4c7b-b593-31ce461f804c_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: Conhost Headless PowerShell Execution Chain (T1059.001)
+  # Purpose: Detect TAMECAT execution pattern - conhost --headless spawning
+  #          PowerShell with encoded commands
+  # Confidence: CRITICAL
+  # ==========================================================================
+  apt42-conhost-headless-powershell:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "--headless"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "powershell"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "pwsh"
+        - op: ends with
+          path: event/FILE_PATH
+          value: '\conhost.exe'
+
+    respond:
+      - action: report
+        name: APT42 TAMECAT - Conhost Headless PowerShell Execution
+        metadata:
+          severity: critical
+          mitre_attack: T1059.001
+          confidence: critical
+          description: Conhost.exe launched with --headless flag spawning PowerShell - TAMECAT execution pattern
+          investigation: Examine child PowerShell process for encoded commands, check for beacon files and persistence
+
+      - action: task
+        command: history_dump
+        investigation: APT42-TAMECAT-Conhost-Chain
+
+
+  # ==========================================================================
+  # RULE 2: PowerShell Encoded Command from Script Interpreter (T1059.001)
+  # Purpose: Detect PowerShell -EncodedCommand spawned by script interpreters
+  # Confidence: HIGH
+  # ==========================================================================
+  apt42-encoded-powershell-from-script:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\powershell.exe'
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\pwsh.exe'
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-EncodedCommand"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-enc "
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-ec "
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PARENT_FILE_PATH
+              value: '\cscript.exe'
+            - op: ends with
+              path: event/PARENT_FILE_PATH
+              value: '\wscript.exe'
+            - op: ends with
+              path: event/PARENT_FILE_PATH
+              value: '\mshta.exe'
+            - op: ends with
+              path: event/PARENT_FILE_PATH
+              value: '\conhost.exe'
+
+    respond:
+      - action: report
+        name: APT42 TAMECAT - Encoded PowerShell from Script Interpreter
+        metadata:
+          severity: high
+          mitre_attack: T1059.001
+          confidence: high
+          description: PowerShell with encoded command spawned by script interpreter - TAMECAT fileless pattern
+          investigation: Decode the base64 payload, check for AMSI bypass attempts and C2 beacons
+
+
+  # ==========================================================================
+  # RULE 3: UserInitMprLogonScript Persistence (T1037.001)
+  # Purpose: Detect modification of the rare UserInitMprLogonScript registry value
+  # Confidence: CRITICAL
+  # ==========================================================================
+  apt42-userinitmprlogonscript-persistence:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        - op: contains
+          path: event/REGISTRY_KEY
+          value: '\Environment'
+        - op: is
+          path: event/VALUE_NAME
+          value: "UserInitMprLogonScript"
+
+    respond:
+      - action: report
+        name: APT42 TAMECAT - UserInitMprLogonScript Persistence
+        metadata:
+          severity: critical
+          mitre_attack: T1037.001
+          confidence: critical
+          description: UserInitMprLogonScript registry modification detected - rare APT42 persistence technique
+          investigation: Examine the script path in the value data, check for companion Run key persistence
+
+      - action: task
+        command: history_dump
+        investigation: APT42-LogonScript-Persistence
+
+
+  # ==========================================================================
+  # RULE 4: Registry Run Key with Script Interpreter Target (T1547.001)
+  # Purpose: Detect Run key values pointing to script interpreters
+  # Confidence: HIGH
+  # ==========================================================================
+  apt42-run-key-script-persistence:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        - op: contains
+          path: event/REGISTRY_KEY
+          value: 'CurrentVersion\Run'
+        - op: or
+          rules:
+            - op: contains
+              path: event/VALUE_DATA
+              value: "cscript"
+            - op: contains
+              path: event/VALUE_DATA
+              value: "wscript"
+            - op: contains
+              path: event/VALUE_DATA
+              value: "mshta"
+            - op: contains
+              path: event/VALUE_DATA
+              value: ".vbs"
+            - op: contains
+              path: event/VALUE_DATA
+              value: ".vbe"
+
+    respond:
+      - action: report
+        name: APT42 TAMECAT - Script-Based Registry Run Key Persistence
+        metadata:
+          severity: high
+          mitre_attack: T1547.001
+          confidence: high
+          description: Registry Run key targeting script interpreter detected - APT42 persistence pattern
+          investigation: Examine the script file referenced in the Run key value, check creation time and content
+
+
+  # ==========================================================================
+  # RULE 5: Browser Credential Database Access (T1555.003)
+  # Purpose: Detect non-browser processes accessing Chrome/Edge Login Data
+  # Confidence: HIGH
+  # ==========================================================================
+  apt42-browser-credential-access:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: 'Login Data'
+            - op: contains
+              path: event/FILE_PATH
+              value: 'Cookies'
+            - op: contains
+              path: event/FILE_PATH
+              value: 'Web Data'
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: '\Chrome\'
+            - op: contains
+              path: event/FILE_PATH
+              value: '\Edge\'
+            - op: contains
+              path: event/FILE_PATH
+              value: '\Brave-Browser\'
+        # Exclude browser processes themselves
+        - op: ends with
+          path: event/PROCESS_FILE_PATH
+          value: '\chrome.exe'
+          not: true
+        - op: ends with
+          path: event/PROCESS_FILE_PATH
+          value: '\msedge.exe'
+          not: true
+        - op: ends with
+          path: event/PROCESS_FILE_PATH
+          value: '\brave.exe'
+          not: true
+
+    respond:
+      - action: report
+        name: APT42 TAMECAT - Browser Credential Database Access
+        metadata:
+          severity: critical
+          mitre_attack: T1555.003
+          confidence: high
+          description: Non-browser process accessed browser credential database - credential theft indicator
+          investigation: Identify the accessing process, check for DPAPI decryption activity
+
+      - action: task
+        command: history_dump
+        investigation: APT42-Browser-Credential-Theft
+
+
+  # ==========================================================================
+  # RULE 6: Telegram API C2 Communication (T1102)
+  # Purpose: Detect non-Telegram processes connecting to api.telegram.org
+  # Confidence: HIGH
+  # ==========================================================================
+  apt42-telegram-c2-communication:
+    detect:
+      target: edr
+      event: DNS_REQUEST
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/DOMAIN
+              value: "api.telegram.org"
+            - op: contains
+              path: event/DOMAIN
+              value: "telegram.org"
+        # Exclude official Telegram client
+        - op: ends with
+          path: event/PROCESS_FILE_PATH
+          value: '\Telegram.exe'
+          not: true
+        - op: ends with
+          path: event/PROCESS_FILE_PATH
+          value: '\TelegramDesktop.exe'
+          not: true
+
+    respond:
+      - action: report
+        name: APT42 TAMECAT - Telegram API C2 Communication
+        metadata:
+          severity: critical
+          mitre_attack: T1102
+          confidence: high
+          description: Non-Telegram process connecting to Telegram API - APT42 C2 exfiltration pattern
+          investigation: Examine process tree, check for POST requests with base64 data payloads
+
+      - action: task
+        command: history_dump
+        investigation: APT42-Telegram-C2
+
+
+  # ==========================================================================
+  # RULE 7: VBScript WMI AV Enumeration (T1059.005)
+  # Purpose: Detect cscript/wscript executing VBScript files
+  # Confidence: MEDIUM
+  # ==========================================================================
+  apt42-vbscript-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\cscript.exe'
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\wscript.exe'
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".vbs"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".vbe"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".wsf"
+
+    respond:
+      - action: report
+        name: APT42 TAMECAT - VBScript Execution Detected
+        metadata:
+          severity: medium
+          mitre_attack: T1059.005
+          confidence: medium
+          description: VBScript execution via cscript/wscript - check for WMI AV enumeration patterns
+          investigation: Examine script content for WMI SecurityCenter2 queries and system enumeration

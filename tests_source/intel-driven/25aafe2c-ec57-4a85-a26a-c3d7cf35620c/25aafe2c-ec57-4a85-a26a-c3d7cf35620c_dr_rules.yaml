@@ -1,0 +1,535 @@
+# ============================================================
+# ESXi Hypervisor Ransomware Kill Chain - LimaCharlie D&R Rules
+# Test ID: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+# MITRE ATT&CK: T1046, T1021.004, T1068, T1489, T1529, T1048, T1567.002, T1486
+# Platform: Linux / ESXi
+# Generated: 2026-03-13
+# ============================================================
+#
+# FILE FORMAT: For use with `limacharlie dr add` or `config push`
+#
+# Deployment:
+#   limacharlie dr add 25aafe2c-ec57-4a85-a26a-c3d7cf35620c_dr_rules.yaml
+#
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: ESXi Management Command Execution
+  # ============================================================
+  # Confidence: High
+  # Description: Detects vim-cmd, esxcli, vmdumper process creation
+  # False Positives: Legitimate ESXi administration
+  # ============================================================
+  esxi-management-command-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: /vim-cmd
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: /esxcli
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: /vmdumper
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "vmsvc/getallvms"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "vm process list"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: ESXi Management Command Execution
+        metadata:
+          severity: high
+          mitre_attack: T1046,T1489
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: ESXi management command detected - possible hypervisor reconnaissance or attack
+
+
+  # ============================================================
+  # Rule 2: Mass VM Kill Pattern (esxcli vm process kill)
+  # ============================================================
+  # Confidence: Critical
+  # Description: Detects VM force-kill commands used by ESXi ransomware
+  # False Positives: Emergency VM shutdown during maintenance
+  # ============================================================
+  esxi-vm-force-kill:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "vm process kill"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "--type=force --world-id"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: ESXi VM Force Kill Command
+        metadata:
+          severity: critical
+          mitre_attack: T1489,T1529
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: ESXi VM force kill command detected - ransomware VM termination pattern
+
+
+  # ============================================================
+  # Rule 3: VM Snapshot Deletion
+  # ============================================================
+  # Confidence: High
+  # Description: Detects mass snapshot removal preventing VM recovery
+  # False Positives: Legitimate snapshot cleanup operations
+  # ============================================================
+  esxi-snapshot-deletion:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: contains
+      path: event/COMMAND_LINE
+      value: "snapshot.removeall"
+      case sensitive: false
+
+    respond:
+      - action: report
+        name: ESXi VM Snapshot Deletion
+        metadata:
+          severity: critical
+          mitre_attack: T1489
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: VM snapshot removal detected - ransomware recovery prevention pattern
+
+
+  # ============================================================
+  # Rule 4: SSH Key File Access (Lateral Movement)
+  # ============================================================
+  # Confidence: High
+  # Description: Detects access to SSH private keys and credential files
+  # False Positives: SSH key rotation, Ansible, Puppet
+  # ============================================================
+  ssh-key-file-access:
+    detect:
+      target: edr
+      event: FILE_GET_REP
+      op: or
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: ".ssh/id_rsa"
+          case sensitive: true
+        - op: contains
+          path: event/FILE_PATH
+          value: ".ssh/id_ed25519"
+          case sensitive: true
+        - op: contains
+          path: event/FILE_PATH
+          value: ".ssh/id_ecdsa"
+          case sensitive: true
+        - op: contains
+          path: event/FILE_PATH
+          value: ".ssh/authorized_keys"
+          case sensitive: true
+        - op: contains
+          path: event/FILE_PATH
+          value: "ssh_host_rsa_key"
+          case sensitive: true
+        - op: contains
+          path: event/FILE_PATH
+          value: "ssh_host_ed25519_key"
+          case sensitive: true
+
+    respond:
+      - action: report
+        name: SSH Key File Access Detected
+        metadata:
+          severity: high
+          mitre_attack: T1021.004
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: SSH private key or credential file accessed - possible lateral movement
+
+
+  # ============================================================
+  # Rule 5: ESXi SSH Service Enable
+  # ============================================================
+  # Confidence: High
+  # Description: Detects enabling SSH on ESXi hosts (LockBit pattern)
+  # False Positives: Admin enabling SSH for troubleshooting
+  # ============================================================
+  esxi-ssh-enable:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "hostsvc/enable_ssh"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "hostsvc/start_ssh"
+          case sensitive: false
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "esxcli"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "sshServer"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: ESXi SSH Service Enabled
+        metadata:
+          severity: high
+          mitre_attack: T1021.004
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: SSH service enabled on ESXi host - LockBit lateral movement pattern
+
+
+  # ============================================================
+  # Rule 6: Rclone Configuration File Creation
+  # ============================================================
+  # Confidence: High
+  # Description: Detects creation of Rclone config files for data exfiltration
+  # False Positives: Legitimate Rclone installation for backups
+  # ============================================================
+  rclone-config-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: rclone.conf
+          case sensitive: false
+        - op: contains
+          path: event/FILE_PATH
+          value: ".config/rclone"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: Rclone Configuration File Created
+        metadata:
+          severity: high
+          mitre_attack: T1048,T1567.002
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: Rclone configuration file created - possible data exfiltration setup
+
+
+  # ============================================================
+  # Rule 7: Rclone Cloud Sync Execution
+  # ============================================================
+  # Confidence: High
+  # Description: Detects Rclone sync/copy commands to cloud storage
+  # False Positives: Legitimate Rclone backup operations
+  # ============================================================
+  rclone-cloud-sync:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "rclone"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--transfers"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "mega:"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "s3:"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "sftp:"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "sync"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "copy"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Rclone Cloud Sync Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1048,T1567.002
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: Rclone data transfer to cloud storage detected - ransomware exfiltration pattern
+
+
+  # ============================================================
+  # Rule 8: Binary Rename Evasion (System Name Masquerade)
+  # ============================================================
+  # Confidence: High
+  # Description: Detects renamed binaries using system process names
+  # False Positives: None expected on Linux
+  # ============================================================
+  binary-rename-evasion:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: /svchost.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: /csrss.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: /svhost.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: /lsass.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: /taskhost.exe
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "sync"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "copy"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--transfers"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Binary Rename Evasion - Windows Process Name on Linux
+        metadata:
+          severity: critical
+          mitre_attack: T1036.005,T1048
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: Windows system process name executing on Linux with data transfer commands - Rclone masquerading
+
+
+  # ============================================================
+  # Rule 9: Mass File Rename with Ransomware Extension
+  # ============================================================
+  # Confidence: Critical
+  # Description: Detects file rename to known ransomware extensions
+  # False Positives: None expected
+  # ============================================================
+  ransomware-file-rename:
+    detect:
+      target: edr
+      event: FILE_MODIFIED
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: .ransomhub
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: .akira
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: .lockbit
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: .blackbasta
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: Ransomware File Extension Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1486
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: File renamed with known ransomware extension - active encryption detected
+
+
+  # ============================================================
+  # Rule 10: Ransom Note File Creation
+  # ============================================================
+  # Confidence: High
+  # Description: Detects creation of ransom note files
+  # False Positives: Legitimate README.txt (single creation is benign)
+  # ============================================================
+  ransom-note-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: /README.txt
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: /HOW_TO_DECRYPT.txt
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: /RECOVER_YOUR_FILES.txt
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: /vmfs/volumes/
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: datastore
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Ransom Note Created in Datastore Directory
+        metadata:
+          severity: critical
+          mitre_attack: T1486
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: Ransom note file created in VMware datastore directory
+
+
+  # ============================================================
+  # Rule 11: ESXi Critical Service Stop
+  # ============================================================
+  # Confidence: High
+  # Description: Detects stopping of critical ESXi services
+  # False Positives: Planned maintenance service restarts
+  # ============================================================
+  esxi-critical-service-stop:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/etc/init.d/hostd stop"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/etc/init.d/vmware-vpxd stop"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/etc/init.d/vmware-fdm stop"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/etc/init.d/vmware-sps stop"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/etc/init.d/vsandevicemonitord stop"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: ESXi Critical Service Stopped
+        metadata:
+          severity: critical
+          mitre_attack: T1489
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: Critical ESXi service stopped - recovery prevention pattern
+
+
+  # ============================================================
+  # Rule 12: Free-Space Wipe (Anti-Forensics)
+  # ============================================================
+  # Confidence: High
+  # Description: Detects dd command used to wipe free space on datastores
+  # False Positives: Legitimate disk sanitization
+  # ============================================================
+  free-space-wipe-datastore:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: /dd
+          case sensitive: true
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "if=/dev/zero"
+              case sensitive: true
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "if=/dev/urandom"
+              case sensitive: true
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/vmfs/volumes/"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".fswipe"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Free-Space Wipe on Datastore
+        metadata:
+          severity: critical
+          mitre_attack: T1485,T1561.001
+          test_id: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+          description: Free-space wipe detected on datastore - anti-forensics to prevent recovery

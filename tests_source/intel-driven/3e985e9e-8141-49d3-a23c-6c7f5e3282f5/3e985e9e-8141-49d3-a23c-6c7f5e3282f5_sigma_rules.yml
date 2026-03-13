@@ -1,0 +1,601 @@
+# ============================================================
+# AMOS/Banshee macOS Infostealer Credential Harvesting - Sigma Rules
+# Test ID: 3e985e9e-8141-49d3-a23c-6c7f5e3282f5
+# MITRE ATT&CK: T1059.002, T1555.001, T1056.002, T1005, T1560.001, T1041, T1027
+# Threat Actor: AMOS (Atomic Stealer) / Banshee Stealer / Cuckoo Stealer
+# Generated: 2026-03-13
+# ============================================================
+# FOCUS: Technique-level attack behaviors only.
+# Detections target the underlying macOS infostealer patterns,
+# NOT test framework artifacts.
+# ============================================================
+---
+title: macOS osascript Credential Phishing Dialog
+id: 3e985e9e-sigma-001
+status: stable
+description: |
+  Detects osascript execution with credential phishing parameters: "display dialog"
+  combined with "hidden answer" and password-related keywords. This is the primary
+  credential capture technique used by AMOS, Banshee, and Cuckoo macOS stealers.
+  The combination of a system dialog requesting a password with hidden input is
+  the hallmark of macOS credential phishing and is extremely rare in legitimate use.
+references:
+  - https://attack.mitre.org/techniques/T1059/002/
+  - https://attack.mitre.org/techniques/T1056/002/
+  - https://redcanary.com/threat-detection-report/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.credential-access
+  - attack.t1059.002
+  - attack.t1056.002
+  - amos
+  - banshee
+  - cuckoo
+  - macos
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection_process:
+    Image|endswith: '/osascript'
+  selection_dialog:
+    CommandLine|contains:
+      - 'display dialog'
+      - 'display alert'
+  selection_hidden:
+    CommandLine|contains: 'hidden answer'
+  selection_password:
+    CommandLine|contains:
+      - 'password'
+      - 'Password'
+      - 'credential'
+      - 'System Preferences'
+      - 'macOS wants'
+      - 'unlock'
+      - 'authenticate'
+      - 'sign in'
+  condition: selection_process and selection_dialog and selection_hidden and selection_password
+falsepositives:
+  - Legitimate system administration AppleScripts requesting authentication (very rare with hidden answer)
+level: critical
+
+---
+title: macOS dscl Credential Validation via authonly
+id: 3e985e9e-sigma-002
+status: stable
+description: |
+  Detects the use of dscl (Directory Service command line) with the -authonly flag
+  to validate credentials. This is the universal password validation step shared by
+  AMOS, Banshee, and Cuckoo stealers after phishing the user's password via
+  osascript. Legitimate use of dscl -authonly from user-context processes is
+  extremely rare and warrants immediate investigation.
+references:
+  - https://attack.mitre.org/techniques/T1059/002/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.t1059.002
+  - amos
+  - banshee
+  - cuckoo
+  - macos
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection:
+    Image|endswith: '/dscl'
+    CommandLine|contains: '-authonly'
+  filter_legitimate:
+    ParentImage|endswith:
+      - '/loginwindow'
+      - '/SecurityAgent'
+      - '/authorizationhost'
+  condition: selection and not filter_legitimate
+falsepositives:
+  - System authentication processes (filtered above)
+  - Custom PAM modules or login managers
+level: critical
+
+---
+title: macOS Keychain Credential Extraction Commands
+id: 3e985e9e-sigma-003
+status: stable
+description: |
+  Detects execution of macOS security commands associated with keychain credential
+  extraction, including list-keychains, find-generic-password, dump-keychain, and
+  Chrome Safe Storage key retrieval. Also detects Chainbreaker tool execution.
+  These commands are used by AMOS/Banshee to extract credentials from the macOS
+  Keychain after obtaining the user's password.
+references:
+  - https://attack.mitre.org/techniques/T1555/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.credential-access
+  - attack.t1555.001
+  - amos
+  - banshee
+  - macos
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection_security:
+    Image|endswith: '/security'
+    CommandLine|contains:
+      - 'list-keychains'
+      - 'find-generic-password'
+      - 'dump-keychain'
+      - 'find-internet-password'
+      - 'find-certificate'
+  selection_chainbreaker:
+    CommandLine|contains: 'chainbreaker'
+  selection_chrome_safe:
+    Image|endswith: '/security'
+    CommandLine|contains: 'Chrome Safe Storage'
+  filter_legitimate:
+    ParentImage|endswith:
+      - '/Safari'
+      - '/Google Chrome'
+      - '/Brave Browser'
+      - '/SecurityAgent'
+  condition: (selection_security or selection_chainbreaker or selection_chrome_safe) and not filter_legitimate
+falsepositives:
+  - Legitimate browser processes accessing their own keychain entries (filtered)
+  - IT administration scripts querying keychain certificates
+level: critical
+
+---
+title: macOS Multi-Browser Credential Database File Access
+id: 3e985e9e-sigma-004
+status: stable
+description: |
+  Detects file access to browser credential databases across multiple browsers
+  on macOS. AMOS/Banshee stealers target Login Data, Cookies, and key databases
+  across Chrome, Firefox, Safari, Brave, Edge, Opera, Vivaldi, Chromium, and Arc.
+  A single non-browser process accessing credential stores from multiple browsers
+  in rapid succession is a strong indicator of infostealer activity.
+references:
+  - https://attack.mitre.org/techniques/T1005/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.collection
+  - attack.t1005
+  - amos
+  - banshee
+  - macos
+logsource:
+  category: file_access
+  product: macos
+detection:
+  selection:
+    TargetFilename|contains:
+      - 'Application Support/Google/Chrome/Default/Login Data'
+      - 'Application Support/Google/Chrome/Default/Cookies'
+      - 'Application Support/Firefox/Profiles'
+      - 'Safari/Cookies/Cookies.binarycookies'
+      - 'Application Support/BraveSoftware/Brave-Browser/Default/Login Data'
+      - 'Application Support/Microsoft Edge/Default/Login Data'
+      - 'Application Support/com.operasoftware.Opera/Login Data'
+      - 'Application Support/Vivaldi/Default/Login Data'
+      - 'Application Support/Chromium/Default/Login Data'
+      - 'Application Support/Arc/User Data/Default/Login Data'
+  filter_browsers:
+    Image|endswith:
+      - '/Google Chrome'
+      - '/Google Chrome Helper'
+      - '/firefox'
+      - '/Safari'
+      - '/Brave Browser'
+      - '/Microsoft Edge'
+      - '/Opera'
+      - '/Vivaldi'
+      - '/Chromium'
+      - '/Arc'
+      - '/mds'
+      - '/mds_stores'
+      - '/mdworker'
+  condition: selection and not filter_browsers
+falsepositives:
+  - Browser sync engines and update processes
+  - Backup utilities (Time Machine, third-party)
+  - Spotlight indexing (filtered via mds)
+level: high
+
+---
+title: macOS Cryptocurrency Wallet Extension Directory Enumeration
+id: 3e985e9e-sigma-005
+status: stable
+description: |
+  Detects file access to cryptocurrency wallet browser extension directories
+  and application data stores. AMOS/Banshee stealers target MetaMask, Coinbase
+  Wallet, Phantom, Trust Wallet, Exodus, Atomic Wallet, Electrum, and Bitwarden.
+  Access to multiple wallet storage locations from a non-browser process is a
+  strong indicator of cryptocurrency-targeting infostealer activity.
+references:
+  - https://attack.mitre.org/techniques/T1005/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.collection
+  - attack.t1005
+  - amos
+  - banshee
+  - macos
+logsource:
+  category: file_access
+  product: macos
+detection:
+  selection:
+    TargetFilename|contains:
+      - 'nkbihfbeogaeaoehlefnkodbefgpgknn'    # MetaMask
+      - 'hnfanknocfeofbddgcijnmhnfnkdnaad'    # Coinbase Wallet
+      - 'bfnaelmomeimhlpmgjnjophhpkkoljpa'     # Phantom (Solana)
+      - 'egjidjbpglichdcondbcbdnbeeppgdph'     # Trust Wallet
+      - 'Exodus/exodus.wallet'
+      - 'atomic/Local Storage/leveldb'
+      - '.electrum/wallets'
+      - 'Bitwarden/data.json'
+  filter_browsers:
+    Image|endswith:
+      - '/Google Chrome'
+      - '/Google Chrome Helper'
+      - '/Brave Browser'
+      - '/firefox'
+  condition: selection and not filter_browsers
+falsepositives:
+  - Wallet application self-access (e.g., Exodus reading its own data)
+  - Browser extensions accessing their own storage directories
+level: high
+
+---
+title: macOS TCC Database Reset via tccutil
+id: 3e985e9e-sigma-006
+status: stable
+description: |
+  Detects execution of tccutil with the reset command, used by Cuckoo Stealer
+  to clear Transparency, Consent, and Control (TCC) database entries. This
+  forces macOS to re-prompt the user for permissions, allowing the stealer
+  to re-request Automation access. Any non-system invocation of tccutil reset
+  is suspicious.
+references:
+  - https://attack.mitre.org/techniques/T1059/002/
+  - https://www.kandji.io/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.defense-evasion
+  - attack.t1059.002
+  - cuckoo
+  - macos
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection:
+    Image|endswith: '/tccutil'
+    CommandLine|contains: 'reset'
+  condition: selection
+falsepositives:
+  - IT administrators troubleshooting TCC permission issues
+  - MDM tools resetting application permissions
+level: high
+
+---
+title: macOS Apple Notes Database Access by Non-Apple Process
+id: 3e985e9e-sigma-007
+status: stable
+description: |
+  Detects access to the Apple Notes database (NoteStore.sqlite) by processes
+  other than Notes.app and Spotlight indexing. AMOS stealer targets Apple Notes
+  to harvest passwords and sensitive data users store in notes. Non-Apple
+  processes accessing this database should be investigated.
+references:
+  - https://attack.mitre.org/techniques/T1005/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.collection
+  - attack.t1005
+  - amos
+  - macos
+logsource:
+  category: file_access
+  product: macos
+detection:
+  selection:
+    TargetFilename|contains:
+      - 'NoteStore.sqlite'
+      - 'group.com.apple.notes'
+  filter_legitimate:
+    Image|endswith:
+      - '/Notes'
+      - '/mds'
+      - '/mds_stores'
+      - '/mdworker'
+      - '/Spotlight'
+      - '/backupd'
+      - '/cloudd'
+  condition: selection and not filter_legitimate
+falsepositives:
+  - Third-party backup utilities accessing Notes data
+  - Note export/migration tools
+level: high
+
+---
+title: macOS Exfiltration Archive Creation (out.zip Pattern)
+id: 3e985e9e-sigma-008
+status: stable
+description: |
+  Detects creation of archive files with names characteristic of infostealer
+  data staging (out.zip, output.zip, data.zip, loot.zip, dump.zip). AMOS
+  creates "out.zip" containing all stolen credentials, cookies, wallet data,
+  and notes before exfiltrating via HTTP POST. Large archive creation in
+  user or temp directories by non-standard tools warrants investigation.
+references:
+  - https://attack.mitre.org/techniques/T1560/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.collection
+  - attack.t1560.001
+  - amos
+  - banshee
+  - macos
+logsource:
+  category: file_event
+  product: macos
+detection:
+  selection_names:
+    TargetFilename|endswith:
+      - '/out.zip'
+      - '/output.zip'
+      - '/data.zip'
+      - '/loot.zip'
+      - '/steal.zip'
+      - '/dump.zip'
+  selection_temp_zip:
+    TargetFilename|endswith: '.zip'
+    TargetFilename|contains:
+      - '/tmp/'
+      - '/var/tmp/'
+      - '/Users/'
+  filter_legitimate:
+    Image|endswith:
+      - '/Finder'
+      - '/Archive Utility'
+      - '/zip'
+      - '/tar'
+      - '/ditto'
+  condition: (selection_names or selection_temp_zip) and not filter_legitimate
+falsepositives:
+  - Development tools creating ZIP archives in temp directories
+  - User-initiated archive creation
+level: high
+
+---
+title: macOS HTTP POST Exfiltration with Stealer Metadata Fields
+id: 3e985e9e-sigma-009
+status: stable
+description: |
+  Detects non-browser processes making HTTP connections with command line
+  arguments containing AMOS/Banshee stealer C2 protocol identifiers: hwid
+  (hardware ID), wid (worker ID), sendlog, or multipart/form-data. These
+  fields are characteristic of the AMOS MaaS exfiltration protocol.
+references:
+  - https://attack.mitre.org/techniques/T1041/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.exfiltration
+  - attack.t1041
+  - amos
+  - banshee
+  - macos
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection:
+    CommandLine|contains:
+      - 'hwid'
+      - 'sendlog'
+  selection_multipart:
+    CommandLine|contains|all:
+      - 'multipart/form-data'
+      - 'wid'
+  filter_browsers:
+    Image|endswith:
+      - '/Safari'
+      - '/Google Chrome'
+      - '/firefox'
+      - '/Brave Browser'
+      - '/Microsoft Edge'
+      - '/Opera'
+      - '/Arc'
+  condition: (selection or selection_multipart) and not filter_browsers
+falsepositives:
+  - Legitimate tools using hwid or wid parameters in non-malicious contexts
+  - Custom upload scripts using multipart/form-data
+level: critical
+
+---
+title: macOS Cuckoo Stealer Hidden Directory Credential Cache
+id: 3e985e9e-sigma-010
+status: stable
+description: |
+  Detects creation of hidden directories matching the .local-UUID pattern
+  with pw.dat credential cache files inside. This is the specific credential
+  storage pattern used by Cuckoo Stealer after phishing the user's password
+  via osascript dialog. The .local-UUID/pw.dat combination is highly specific
+  and has virtually no legitimate use.
+references:
+  - https://attack.mitre.org/techniques/T1059/002/
+  - https://www.kandji.io/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.credential-access
+  - attack.t1059.002
+  - cuckoo
+  - macos
+logsource:
+  category: file_event
+  product: macos
+detection:
+  selection_pwdat:
+    TargetFilename|endswith: '/pw.dat'
+    TargetFilename|contains: '.local-'
+  selection_credentials_cache:
+    TargetFilename|endswith: '/.credentials_cache'
+  condition: selection_pwdat or selection_credentials_cache
+falsepositives:
+  - None expected - this pattern is highly specific to Cuckoo Stealer
+level: critical
+
+---
+title: macOS Keychain Database Direct File Read
+id: 3e985e9e-sigma-011
+status: stable
+description: |
+  Detects direct file read access to macOS Keychain database files
+  (login.keychain-db, System.keychain, iCloud.keychain) by non-system
+  processes. This indicates use of Chainbreaker or similar tools that
+  parse keychain databases directly rather than through the security
+  command, bypassing access control prompts.
+references:
+  - https://attack.mitre.org/techniques/T1555/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.credential-access
+  - attack.t1555.001
+  - amos
+  - banshee
+  - macos
+logsource:
+  category: file_access
+  product: macos
+detection:
+  selection:
+    TargetFilename|contains:
+      - 'Library/Keychains/login.keychain-db'
+      - 'Library/Keychains/System.keychain'
+      - 'Library/Keychains/iCloud.keychain'
+  filter_system:
+    Image|endswith:
+      - '/securityd'
+      - '/SecurityAgent'
+      - '/loginwindow'
+      - '/keychain-circle-notification'
+      - '/Safari'
+      - '/Google Chrome'
+      - '/Brave Browser'
+      - '/Microsoft Edge'
+      - '/SystemUIServer'
+      - '/Keychain Access'
+      - '/secd'
+  condition: selection and not filter_system
+falsepositives:
+  - Keychain repair utilities
+  - Third-party backup tools reading keychain files
+level: critical
+
+---
+title: macOS dscl Local User Account Enumeration
+id: 3e985e9e-sigma-012
+status: stable
+description: |
+  Detects dscl commands used to enumerate local user accounts, a
+  reconnaissance step performed by macOS stealers to identify target
+  accounts for credential harvesting. Commands like "dscl . -list /Users"
+  are used by AMOS/Banshee before presenting credential phishing dialogs.
+references:
+  - https://attack.mitre.org/techniques/T1059/002/
+  - https://attack.mitre.org/techniques/T1087/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.discovery
+  - attack.t1087.001
+  - attack.execution
+  - attack.t1059.002
+  - macos
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection:
+    Image|endswith: '/dscl'
+    CommandLine|contains:
+      - '-list /Users'
+      - 'list /Users'
+      - '-read /Users'
+  filter_system:
+    ParentImage|endswith:
+      - '/loginwindow'
+      - '/SecurityAgent'
+      - '/opendirectoryd'
+      - '/DirectoryService'
+  condition: selection and not filter_system
+falsepositives:
+  - System administration scripts
+  - Directory services troubleshooting
+level: medium
+
+---
+title: macOS Infostealer Full Kill Chain Correlation
+id: 3e985e9e-sigma-013
+status: stable
+description: |
+  Correlation rule detecting the complete AMOS/Banshee infostealer kill chain
+  on a single host: osascript credential phishing, followed by keychain access,
+  followed by browser credential database access. The co-occurrence of these
+  three behaviors within a short time window on the same endpoint is a
+  near-certain indicator of active infostealer compromise.
+references:
+  - https://attack.mitre.org/techniques/T1059/002/
+  - https://attack.mitre.org/techniques/T1555/001/
+  - https://attack.mitre.org/techniques/T1005/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.credential-access
+  - attack.collection
+  - attack.t1059.002
+  - attack.t1555.001
+  - attack.t1005
+  - amos
+  - banshee
+  - cuckoo
+  - macos
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  # This is a conceptual correlation rule. SIEM-specific implementation
+  # required for temporal correlation across multiple event types.
+  osascript_phishing:
+    Image|endswith: '/osascript'
+    CommandLine|contains: 'hidden answer'
+  keychain_access:
+    Image|endswith: '/security'
+    CommandLine|contains:
+      - 'list-keychains'
+      - 'find-generic-password'
+      - 'dump-keychain'
+  # Note: Full implementation requires temporal correlation
+  # across these two event types within a 30-minute window
+  condition: osascript_phishing or keychain_access
+  # Deploy as two separate rules feeding a correlation engine
+falsepositives:
+  - None expected when all three indicators correlate on same host
+level: critical

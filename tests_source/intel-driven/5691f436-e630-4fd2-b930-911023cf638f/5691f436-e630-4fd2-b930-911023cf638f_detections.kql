@@ -1,124 +1,351 @@
-// Behavioral Detection Queries for APT34 Exchange Server Weaponization
+// ============================================================
+// APT34 Exchange Server Weaponization with Email-Based C2
+// Behavioral Detection Queries (KQL - Microsoft Sentinel / Defender)
 // Test ID: 5691f436-e630-4fd2-b930-911023cf638f
 // MITRE ATT&CK: T1505.003, T1071.003, T1556.002, T1048.003
 // Threat Actor: APT34 / OilRig / Hazel Sandstorm
-// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+// Generated: 2026-03-13
+// ============================================================
+// FOCUS: Technique behaviors only - no test framework artifacts
+// ============================================================
 
-//
-// QUERY 1: IIS Backdoor Module Detection (T1505.003)
-// Purpose: Detect deployment of suspicious DLL files mimicking IIS native modules
-//
+
+// ============================================================
+// QUERY 1: IIS Native Module DLL Deployment (T1505.003)
+// Confidence: High
+// Purpose: Detect deployment of suspicious DLLs to IIS module directories
+//          or DLLs with names matching known APT34 IIS backdoor patterns
+// False Positives: Legitimate IIS module installations by administrators,
+//                  software deployments that install IIS modules
+// Threshold: Any single event warrants investigation
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
 | where FileName endswith ".dll"
-| where FileName in~("CacheHttp.dll", "HttpProxy.dll", "IISModule.dll", "WebCache.dll")
-    or FolderPath has_any ("inetsrv", "IIS", "w3svc")
+| where (
+    // Known APT34 IIS backdoor DLL names
+    FileName in~ ("CacheHttp.dll", "HttpProxy.dll", "IISModule.dll", "WebCache.dll", "HttpCacher.dll")
+    // Or DLL dropped into IIS directories
+    or FolderPath has_any ("inetsrv", "\\IIS\\", "w3svc", "inetpub")
+    // Or DLL with IIS/web-related names in unusual locations
+    or (FileName has_any ("Cache", "Http", "Proxy", "WebModule") and FileName endswith ".dll"
+        and FolderPath !has "Windows\\System32\\inetsrv")
+)
 | project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
-    InitiatingProcessFileName, InitiatingProcessCommandLine, FileSizeBytes
-| extend ThreatScore = 85
-| extend Detection = "Suspicious IIS Module DLL Deployment (APT34 CacheHttp pattern)"
+    FileSizeBytes, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    InitiatingProcessAccountName
+| extend
+    Severity = "High",
+    ThreatType = "IIS Backdoor Deployment",
+    MitreAttack = "T1505.003",
+    Detection = "Suspicious IIS Module DLL Deployment (APT34 CacheHttp Pattern)"
 
-//
-// QUERY 2: LSA Password Filter DLL Registration (T1556.002)
-// Purpose: Detect modification of LSA Notification Packages registry for credential interception
-//
+
+// ============================================================
+// QUERY 2: IIS Module Registration via appcmd.exe (T1505.003)
+// Confidence: High
+// Purpose: Detect use of appcmd.exe to install native IIS modules,
+//          a technique used by APT34 to register CacheHttp.dll
+// False Positives: Legitimate IIS administration, software deployment
+//                  automation that registers IIS modules
+// Threshold: Any module installation outside change windows
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "appcmd.exe"
+| where ProcessCommandLine has "install" and ProcessCommandLine has "module"
+| project TimeGenerated, DeviceName, AccountName, FileName,
+    ProcessCommandLine, InitiatingProcessFileName,
+    InitiatingProcessCommandLine, InitiatingProcessAccountName
+| extend
+    Severity = "High",
+    ThreatType = "IIS Module Installation via LOLBin",
+    MitreAttack = "T1505.003",
+    Detection = "IIS Module Registration via appcmd.exe (LOLBin Abuse)"
+
+
+// ============================================================
+// QUERY 3: LSA Password Filter DLL Registration (T1556.002)
+// Confidence: Critical
+// Purpose: Detect modification of LSA Notification Packages registry value,
+//          which enables password filter DLLs to intercept cleartext credentials
+// False Positives: Legitimate password filter installations (rare),
+//                  enterprise password policy enforcement tools
+// Threshold: Any modification is suspicious - legitimate changes are extremely rare
+// ============================================================
 DeviceRegistryEvents
 | where TimeGenerated > ago(1h)
 | where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
-| where RegistryKey has_all ("SYSTEM", "Control", "Lsa")
+| where RegistryKey has_all ("SYSTEM", "CurrentControlSet", "Control", "Lsa")
 | where RegistryValueName =~ "Notification Packages"
 | project TimeGenerated, DeviceName, AccountName, RegistryKey,
     RegistryValueName, RegistryValueData, RegistryValueType,
-    InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend ThreatScore = 95
-| extend Detection = "LSA Password Filter DLL Registration (T1556.002 - Credential Interception)"
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    InitiatingProcessAccountName
+| extend
+    Severity = "Critical",
+    ThreatType = "Credential Interception via Password Filter",
+    MitreAttack = "T1556.002",
+    Detection = "LSA Password Filter DLL Registration (Credential Interception)"
 
-//
-// QUERY 3: Email-Based C2 Pattern Detection (T1071.003)
-// Purpose: Detect email files with @@ subject markers (PowerExchange C2 pattern)
-//
+
+// ============================================================
+// QUERY 4: Password Filter DLL File Creation (T1556.002)
+// Confidence: Medium
+// Purpose: Detect creation of DLLs that implement password filter interfaces
+//          (InitializeChangeNotify, PasswordChangeNotify, PasswordFilter)
+// False Positives: Legitimate password filter DLL deployments,
+//                  enterprise password policy software
+// Threshold: Correlate with registry modification for high confidence
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
-| where FileName endswith ".eml" or FileName endswith ".msg"
-| where FolderPath has_any ("c2", "powerexchange", "staging")
-| summarize EmailCount=count(),
-    FirstFile=min(TimeGenerated),
-    LastFile=max(TimeGenerated),
-    FileNames=make_set(FileName)
-    by DeviceName, AccountName, FolderPath
-| where EmailCount > 3
-| extend ThreatScore = 75
-| extend Detection = "Suspicious Email File Generation (Possible Email-Based C2 Setup)"
-
-//
-// QUERY 4: Data Staging and Compression for Exfiltration (T1048.003)
-// Purpose: Detect data staging, compression, and email attachment generation
-//
-DeviceFileEvents
-| where TimeGenerated > ago(1h)
-| where ActionType == "FileCreated"
-| where FileName endswith_any (".zip", ".7z", ".rar", ".dat")
-| where FolderPath has_any ("staging", "exfil", "stealhook")
-    or FileName has_any ("payload", "exfiltrat", "report_part")
+| where FileName endswith ".dll"
+| where FileName has_any ("credfilter", "passfilt", "pwdfilter", "password_filter",
+    "PasswordFilter", "credential", "authfilter")
+    or FolderPath has_all ("Windows", "System32") and FileName !in~ (
+        "rassfm.dll", "scecli.dll", "FVENOTIFY.dll", "kdcsvc.dll"
+    )
 | project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
-    FileSizeBytes, InitiatingProcessFileName
-| extend ThreatScore = 80
-| extend Detection = "Data Staging for Exfiltration (STEALHOOK Pattern)"
+    FileSizeBytes, InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "Medium",
+    ThreatType = "Password Filter DLL Deployment",
+    MitreAttack = "T1556.002",
+    Detection = "Suspicious Password Filter DLL File Creation"
 
-//
-// QUERY 5: PowerShell Script Deployment to Suspicious Locations
-// Purpose: Detect PowerShell backdoor scripts deployed for C2 operations
-//
+
+// ============================================================
+// QUERY 5: Email-Based C2 Communication Pattern (T1071.003)
+// Confidence: High
+// Purpose: Detect Exchange Web Services (EWS) access patterns consistent
+//          with email-based C2 channels (PowerExchange behavior)
+// False Positives: Legitimate EWS-based applications, migration tools,
+//                  monitoring solutions that access mailboxes
+// Threshold: Service accounts accessing EWS with automated patterns
+// ============================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemoteUrl has_any ("/ews/exchange.asmx", "/EWS/Exchange.asmx", "/owa/auth/")
+| where InitiatingProcessFileName !in~ ("w3wp.exe", "MSExchangeServiceHost.exe",
+    "Microsoft.Exchange.ServiceHost.exe", "outlook.exe", "OUTLOOK.EXE")
+| project TimeGenerated, DeviceName, AccountName, RemoteUrl, RemoteIP, RemotePort,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "High",
+    ThreatType = "Email-Based C2 Channel",
+    MitreAttack = "T1071.003",
+    Detection = "Suspicious EWS Access Pattern (Email-Based C2)"
+
+
+// ============================================================
+// QUERY 6: PowerShell Backdoor Script Deployment for Exchange C2 (T1071.003)
+// Confidence: High
+// Purpose: Detect PowerShell scripts deployed for email-based C2 operations,
+//          including scripts that monitor mailboxes or interact with EWS
+// False Positives: Legitimate Exchange management scripts,
+//                  authorized monitoring solutions
+// Threshold: Any script with Exchange C2 indicators
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
 | where FileName endswith ".ps1"
-| where FileName has_any ("Exchange", "PowerExchange", "C2", "backdoor", "shell")
-    or FolderPath has_any ("c2", "powerexchange", "backdoor")
+| where FileName has_any ("Exchange", "PowerExchange", "Mailbox", "EWS")
+    or FolderPath has_any ("exchange", "ews", "mailbox")
 | project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
     FileSizeBytes, InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend ThreatScore = 85
-| extend Detection = "Suspicious PowerShell Script Deployment (Exchange C2 Pattern)"
+| extend
+    Severity = "High",
+    ThreatType = "Exchange C2 Script Deployment",
+    MitreAttack = "T1071.003",
+    Detection = "Suspicious PowerShell Script Targeting Exchange Infrastructure"
 
-//
-// QUERY 6: Combined APT34 Behavioral Detection
-// Purpose: Correlate multiple APT34 indicators for high-confidence alerts
-//
-let DLLDrops = DeviceFileEvents
-| where TimeGenerated > ago(2h)
-| where ActionType == "FileCreated"
-| where FileName endswith ".dll"
-| distinct DeviceName, AccountName;
-let RegistryMods = DeviceRegistryEvents
-| where TimeGenerated > ago(2h)
-| where RegistryKey has_all ("SYSTEM", "Control", "Lsa")
-| distinct DeviceName, AccountName;
-let DataStaging = DeviceFileEvents
-| where TimeGenerated > ago(2h)
-| where ActionType == "FileCreated"
-| where FileName endswith_any (".zip", ".eml")
-| summarize FileCount=count() by DeviceName, AccountName
-| where FileCount > 5
-| distinct DeviceName, AccountName;
-DLLDrops
-| join kind=inner (RegistryMods) on DeviceName, AccountName
-| join kind=inner (DataStaging) on DeviceName, AccountName
-| extend ThreatScore = 98
-| extend Detection = "APT34 Exchange Weaponization - Multi-Technique Correlation (DLL + LSA + Exfil)"
-| project DeviceName, AccountName, ThreatScore, Detection
 
-//
-// QUERY 7: Credential File Staging Detection
-// Purpose: Detect creation of files containing credential-like data
-//
+// ============================================================
+// QUERY 7: PowerShell EWS API Interaction (T1071.003)
+// Confidence: Medium
+// Purpose: Detect PowerShell processes making EWS API calls, which may
+//          indicate email-based C2 like APT34's PowerExchange
+// False Positives: Legitimate Exchange administration scripts,
+//                  automated mailbox monitoring
+// Threshold: PowerShell invoking EWS outside of expected admin tasks
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("powershell.exe", "pwsh.exe")
+| where ProcessCommandLine has_any (
+    "New-WebServiceProxy", "Exchange.asmx", "ExchangeService",
+    "EWS", "Get-MailboxMessage", "Search-Mailbox",
+    "MailboxSearch", "FindItems", "Subject -match"
+)
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    InitiatingProcessAccountName
+| extend
+    Severity = "Medium",
+    ThreatType = "Exchange API Abuse via PowerShell",
+    MitreAttack = "T1071.003",
+    Detection = "PowerShell EWS API Interaction (Possible Email C2)"
+
+
+// ============================================================
+// QUERY 8: Data Staging and Compression for Exfiltration (T1048.003)
+// Confidence: Medium
+// Purpose: Detect data staging, archival, and compression patterns
+//          consistent with pre-exfiltration preparation
+// False Positives: Legitimate backup operations, scheduled archiving tasks,
+//                  software builds
+// Threshold: Compression activity on sensitive file types or in staging dirs
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
-| where FileName has_any ("credential", "password", "cred_dump", "captured_cred", "hash")
-| where FileName endswith_any (".log", ".txt", ".csv", ".dat")
+| where FileName endswith_any (".zip", ".7z", ".rar", ".gz", ".tar")
+| where (
+    // Archive created with exfiltration-related naming
+    FileName has_any ("payload", "exfil", "stealhook", "report_part", "dump", "harvest")
+    // Or archive created alongside sensitive file types
+    or FolderPath has_any ("staging", "exfil", "temp", "collect")
+)
 | project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
-    FileSizeBytes, InitiatingProcessFileName
-| extend ThreatScore = 90
-| extend Detection = "Credential Data File Staging (Password Filter Output Pattern)"
+    FileSizeBytes, InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "Medium",
+    ThreatType = "Data Staging for Exfiltration",
+    MitreAttack = "T1048.003",
+    Detection = "Data Compression and Staging (Pre-Exfiltration Activity)"
+
+
+// ============================================================
+// QUERY 9: Outbound SMTP Traffic from Non-Mail Servers (T1048.003)
+// Confidence: High
+// Purpose: Detect outbound SMTP connections (ports 25, 587, 465) from
+//          hosts that are not designated mail servers
+// False Positives: Hosts running legitimate mail relay or notification services
+// Threshold: Any SMTP connection from non-mail infrastructure
+// ============================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemotePort in (25, 587, 465)
+| where ActionType in ("ConnectionSuccess", "ConnectionAttempt")
+// Exclude known mail servers
+| where DeviceName !has_any ("mail", "exchange", "smtp", "mx")
+| project TimeGenerated, DeviceName, AccountName, RemoteIP, RemotePort,
+    RemoteUrl, InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "High",
+    ThreatType = "Exfiltration via Email Protocol",
+    MitreAttack = "T1048.003",
+    Detection = "Outbound SMTP Traffic from Non-Mail Server (STEALHOOK Pattern)"
+
+
+// ============================================================
+// QUERY 10: Bulk Email Generation from Service Accounts (T1048.003)
+// Confidence: High
+// Purpose: Detect rapid email generation with sequential patterns,
+//          consistent with STEALHOOK multi-part exfiltration
+// False Positives: Legitimate bulk email operations, marketing campaigns
+// Threshold: 5+ emails in 30 minutes with sequential subjects
+// ============================================================
+EmailEvents
+| where TimeGenerated > ago(1h)
+| where SenderFromAddress has "svc-" or SenderFromAddress has "service"
+| where Subject has_any ("Part", "Report", "Monthly")
+| summarize
+    EmailCount = count(),
+    UniqueRecipients = dcount(RecipientEmailAddress),
+    Subjects = make_set(Subject),
+    FirstEmail = min(TimeGenerated),
+    LastEmail = max(TimeGenerated)
+    by SenderFromAddress, RecipientEmailAddress
+| where EmailCount >= 3
+| where datetime_diff('minute', LastEmail, FirstEmail) < 30
+| extend
+    Severity = "High",
+    ThreatType = "Email-Based Data Exfiltration",
+    MitreAttack = "T1048.003",
+    Detection = "Bulk Sequential Email Generation (STEALHOOK Exfiltration Pattern)"
+
+
+// ============================================================
+// QUERY 11: Email with @@ Subject Markers - PowerExchange C2 (T1071.003)
+// Confidence: Critical
+// Purpose: Detect emails with @@ in the subject line, which is the
+//          distinctive C2 command marker used by APT34's PowerExchange
+// False Positives: Very rare - @@ in email subjects is uncommon
+// Threshold: Any single email with @@ subject pattern
+// ============================================================
+EmailEvents
+| where TimeGenerated > ago(24h)
+| where Subject matches regex @"@@[A-Za-z0-9+/=]+"
+| project TimeGenerated, SenderFromAddress, RecipientEmailAddress, Subject,
+    SenderIPv4, NetworkMessageId
+| extend
+    Severity = "Critical",
+    ThreatType = "APT34 PowerExchange C2 Command",
+    MitreAttack = "T1071.003",
+    Detection = "Email with @@ Subject Marker (PowerExchange C2 Indicator)"
+
+
+// ============================================================
+// QUERY 12: Credential File Staging (T1556.002 + T1048.003)
+// Confidence: High
+// Purpose: Detect creation of files containing credential dumps or
+//          password harvest data, indicating credential theft output
+// False Positives: Security tools that generate test credential reports
+// Threshold: Any credential-related file creation
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName has_any ("credential", "password", "cred_dump", "captured_cred",
+    "hash_dump", "ntds", "sam_dump", "lsass_dump", "secretsdump")
+| where FileName endswith_any (".log", ".txt", ".csv", ".dat", ".dmp")
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    FileSizeBytes, InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "High",
+    ThreatType = "Credential Data Staging",
+    MitreAttack = "T1556.002",
+    Detection = "Credential Data File Creation (Password Filter Output)"
+
+
+// ============================================================
+// QUERY 13: Combined APT34 Exchange Weaponization - Multi-Technique Correlation
+// Confidence: Critical
+// Purpose: Correlate multiple APT34 indicators across the full kill chain
+//          for high-confidence composite detection
+// False Positives: Extremely rare - requires 3 independent indicators
+// Threshold: Match of 3+ indicators on same host within 2 hours
+// ============================================================
+let IISBackdoor = DeviceFileEvents
+| where TimeGenerated > ago(2h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".dll"
+| where FileName in~ ("CacheHttp.dll", "HttpProxy.dll", "IISModule.dll", "WebCache.dll")
+    or FolderPath has "inetsrv"
+| distinct DeviceName, AccountName;
+let LSAModification = DeviceRegistryEvents
+| where TimeGenerated > ago(2h)
+| where RegistryKey has_all ("SYSTEM", "CurrentControlSet", "Control", "Lsa")
+| where RegistryValueName =~ "Notification Packages"
+| distinct DeviceName, AccountName;
+let DataExfil = DeviceFileEvents
+| where TimeGenerated > ago(2h)
+| where ActionType == "FileCreated"
+| where FileName endswith_any (".zip", ".eml")
+| summarize FileCount = count() by DeviceName, AccountName
+| where FileCount > 5
+| distinct DeviceName, AccountName;
+IISBackdoor
+| join kind=inner (LSAModification) on DeviceName, AccountName
+| join kind=inner (DataExfil) on DeviceName, AccountName
+| extend
+    Severity = "Critical",
+    ThreatType = "APT34 Exchange Weaponization Kill Chain",
+    MitreAttack = "T1505.003, T1556.002, T1048.003",
+    Detection = "APT34 Multi-Technique Correlation (IIS Backdoor + LSA Modification + Data Exfiltration)"
+| project DeviceName, AccountName, Severity, ThreatType, MitreAttack, Detection

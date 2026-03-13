@@ -1,0 +1,543 @@
+# ============================================================================
+# DEFENSE GUIDANCE: Sigma Detection Rules
+# ============================================================================
+# Test ID: 244dfb88-9068-4db4-9fa8-dbc49517f63d
+# Test Name: DPRK BlueNoroff Financial Sector Attack Chain
+# MITRE ATT&CK: T1553.001, T1543.004, T1059.002, T1555.001, T1056.002,
+#               T1071.001, T1573.002, T1071.004, T1041, T1567.002, T1560.001
+# Threat Actor: BlueNoroff/Lazarus (DPRK)
+# Target Platform: macOS
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules detect macOS persistence, credential theft, C2, and
+# exfiltration techniques used by BlueNoroff/Lazarus, NOT the F0RT1KA
+# testing framework. They will catch real-world attackers using identical
+# techniques with custom tooling.
+#
+# DEPLOYMENT:
+#   sigma convert -t splunk -p sysmon 244dfb88_sigma_rules.yml
+#   sigma convert -t elasticsearch-eql 244dfb88_sigma_rules.yml
+#
+# ============================================================================
+
+# --------------------------------------------------------------------------
+# RULE 1: Suspicious LaunchAgent Plist Masquerading as Apple Service
+# --------------------------------------------------------------------------
+title: Suspicious LaunchAgent Plist Masquerading as Apple Service
+id: 244dfb88-sigma-001
+status: stable
+description: >
+  Detects creation of LaunchAgent or LaunchDaemon plist files with labels
+  masquerading as Apple services (com.apple.*) by non-Apple processes.
+  RustBucket and BeaverTail campaigns use com.apple.systemupdate and
+  com.avatar.update.wake labels for persistence on macOS endpoints.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1543/004/
+  - https://www.jamf.com/blog/bluenoroff-apt-targets-macos-rustbucket-malware/
+tags:
+  - attack.persistence
+  - attack.t1543.004
+logsource:
+  category: file_event
+  product: macos
+detection:
+  selection_path:
+    TargetFilename|contains:
+      - '/Library/LaunchAgents/'
+      - '/Library/LaunchDaemons/'
+  selection_ext:
+    TargetFilename|endswith: '.plist'
+  filter_legitimate:
+    Image|contains:
+      - '/usr/libexec/installd'
+      - '/usr/sbin/softwareupdated'
+      - '/Library/Application Support/JAMF/'
+      - '/System/Library/'
+  condition: selection_path and selection_ext and not filter_legitimate
+falsepositives:
+  - Legitimate MDM tools (Jamf, Mosyle)
+  - macOS software updates
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 2: Known BlueNoroff LaunchAgent Labels
+# --------------------------------------------------------------------------
+title: Known BlueNoroff Campaign LaunchAgent Label Detection
+id: 244dfb88-sigma-002
+status: stable
+description: >
+  Detects creation of plist files matching specific labels used by documented
+  DPRK BlueNoroff campaigns: com.apple.systemupdate (RustBucket),
+  com.avatar.update.wake (BeaverTail/InvisibleFerret), and
+  com.apple.security.updateagent (root LaunchDaemon persistence).
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://www.jamf.com/blog/bluenoroff-apt-targets-macos-rustbucket-malware/
+  - https://unit42.paloaltonetworks.com/north-korean-threat-actors-luring-tech-job-seekers-as-fake-recruiters/
+tags:
+  - attack.persistence
+  - attack.t1543.004
+logsource:
+  category: file_event
+  product: macos
+detection:
+  selection:
+    TargetFilename|endswith:
+      - 'com.apple.systemupdate.plist'
+      - 'com.avatar.update.wake.plist'
+      - 'com.apple.security.updateagent.plist'
+      - 'com.apple.Safari.helper.plist'
+      - 'com.google.keystone.plist'
+  condition: selection
+falsepositives:
+  - Extremely unlikely -- these are campaign-specific indicators
+level: critical
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 3: Shell Configuration File Modification (.zshenv)
+# --------------------------------------------------------------------------
+title: Shell Configuration File Modification for Persistence (.zshenv)
+id: 244dfb88-sigma-003
+status: stable
+description: >
+  Detects modification of ~/.zshenv files by non-shell/non-editor processes.
+  The BlueNoroff Hidden Risk campaign (November 2024, SentinelLabs) abuses
+  .zshenv for persistence because it executes for every Zsh session and
+  critically does NOT trigger macOS Ventura Login Items notification.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://www.sentinelone.com/labs/bluenoroff-hidden-risk/
+  - https://attack.mitre.org/techniques/T1543/004/
+tags:
+  - attack.persistence
+  - attack.t1543.004
+logsource:
+  category: file_event
+  product: macos
+detection:
+  selection:
+    TargetFilename|endswith: '/.zshenv'
+  filter_editors:
+    Image|endswith:
+      - '/zsh'
+      - '/bash'
+      - '/vim'
+      - '/nano'
+      - '/code'
+      - '/brew'
+      - '/git'
+  condition: selection and not filter_editors
+falsepositives:
+  - Developer tool installations (oh-my-zsh, homebrew)
+  - Manual shell configuration changes
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 4: osascript Fake Password Dialog
+# --------------------------------------------------------------------------
+title: osascript Credential Phishing via Fake System Dialog
+id: 244dfb88-sigma-004
+status: stable
+description: >
+  Detects execution of osascript with display dialog and hidden answer
+  parameters used to create fake macOS system password prompts. This
+  technique is shared by AMOS Stealer, Banshee Stealer, and BlueNoroff
+  macOS campaigns for credential phishing (T1056.002).
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1059/002/
+  - https://attack.mitre.org/techniques/T1056/002/
+tags:
+  - attack.credential_access
+  - attack.execution
+  - attack.t1059.002
+  - attack.t1056.002
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection_process:
+    Image|endswith: '/osascript'
+  selection_dialog:
+    CommandLine|contains|all:
+      - 'display dialog'
+      - 'hidden answer'
+  filter_system:
+    ParentImage|contains:
+      - '/System/Library/CoreServices/Finder.app'
+      - '/System/Library/PreferencePanes/'
+      - '/usr/libexec/SecurityAgent'
+  condition: selection_process and selection_dialog and not filter_system
+falsepositives:
+  - Legitimate applications using osascript for authenticated operations
+level: critical
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 5: macOS Keychain Credential Extraction
+# --------------------------------------------------------------------------
+title: macOS Keychain Credential Dumping via security CLI
+id: 244dfb88-sigma-005
+status: stable
+description: >
+  Detects use of the macOS security command-line tool with credential
+  extraction flags (-g, -w, -d) targeting Keychain databases. This
+  technique is used by AMOS, Banshee, and BlueNoroff campaigns to
+  extract passwords and Chrome Safe Storage keys for browser decryption.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1555/001/
+tags:
+  - attack.credential_access
+  - attack.t1555.001
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection_process:
+    Image|endswith: '/security'
+  selection_commands:
+    CommandLine|contains:
+      - 'dump-keychain'
+      - 'find-generic-password'
+      - 'find-internet-password'
+      - 'list-keychains'
+  selection_flags:
+    CommandLine|contains:
+      - ' -g'
+      - ' -w'
+      - ' -d'
+      - ' -ga'
+  condition: selection_process and selection_commands and selection_flags
+falsepositives:
+  - Administrative scripts for credential management
+  - CI/CD pipelines accessing Keychain
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 6: dscl Credential Validation
+# --------------------------------------------------------------------------
+title: Local Credential Validation via dscl -authonly
+id: 244dfb88-sigma-006
+status: stable
+description: >
+  Detects use of dscl -authonly to validate captured credentials against
+  the local directory service. AMOS, Banshee, and Cuckoo stealers validate
+  phished passwords before proceeding with Keychain extraction.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1059/002/
+tags:
+  - attack.credential_access
+  - attack.t1059.002
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection:
+    Image|endswith: '/dscl'
+    CommandLine|contains: '-authonly'
+  filter_system:
+    ParentImage|contains:
+      - '/usr/libexec/opendirectoryd'
+      - '/System/Library/PrivateFrameworks/'
+  condition: selection and not filter_system
+falsepositives:
+  - Legitimate MDM authentication checks
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 7: DNS Query to DPRK C2 Infrastructure
+# --------------------------------------------------------------------------
+title: DNS Query to DPRK BlueNoroff C2 Infrastructure
+id: 244dfb88-sigma-007
+status: stable
+description: >
+  Detects DNS queries to domains associated with BlueNoroff/KANDYKORN
+  campaigns, including linkpc.net dynamic DNS service and known C2
+  infrastructure domains such as dnx.capital and swissborg.blog.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://www.elastic.co/security-labs/elastic-catches-dprk-passing-out-kandykorn
+  - https://attack.mitre.org/techniques/T1071/004/
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+  - attack.t1071.004
+logsource:
+  category: dns_query
+  product: macos
+detection:
+  selection:
+    QueryName|endswith:
+      - '.linkpc.net'
+      - '.dnx.capital'
+      - '.swissborg.blog'
+      - '.on-offx.com'
+      - '.tokenview.xyz'
+  condition: selection
+falsepositives:
+  - Extremely unlikely in enterprise environments
+level: critical
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 8: Gatekeeper Bypass via Quarantine Attribute Removal
+# --------------------------------------------------------------------------
+title: Gatekeeper Bypass via Quarantine Attribute Removal (xattr)
+id: 244dfb88-sigma-008
+status: stable
+description: >
+  Detects removal of the com.apple.quarantine extended attribute using
+  xattr -d or xattr -c, which bypasses macOS Gatekeeper verification.
+  RustBucket and other DPRK payloads delivered via curl use this to
+  avoid Gatekeeper inspection.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1553/001/
+tags:
+  - attack.defense_evasion
+  - attack.t1553.001
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection_process:
+    Image|endswith: '/xattr'
+  selection_quarantine:
+    CommandLine|contains: 'com.apple.quarantine'
+  selection_action:
+    CommandLine|contains:
+      - ' -d '
+      - ' -c '
+      - '--delete'
+      - '--clear'
+  condition: selection_process and selection_quarantine and selection_action
+falsepositives:
+  - Developers clearing quarantine on known-safe downloads
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 9: Outbound mTLS on Non-Standard Port 8888
+# --------------------------------------------------------------------------
+title: Outbound TLS Connection on Port 8888 (Sliver C2 Default)
+id: 244dfb88-sigma-009
+status: stable
+description: >
+  Detects outbound network connections to port 8888, which is the default
+  Sliver C2 framework mTLS port used by BlueNoroff campaigns. Non-browser
+  processes connecting outbound on this port warrant investigation.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1573/002/
+tags:
+  - attack.command_and_control
+  - attack.t1573.002
+logsource:
+  category: network_connection
+  product: macos
+detection:
+  selection:
+    DestinationPort: 8888
+    Initiated: 'true'
+  filter_browsers:
+    Image|endswith:
+      - '/Google Chrome'
+      - '/Safari'
+      - '/Firefox'
+      - '/Microsoft Edge'
+      - '/java'
+      - '/node'
+  condition: selection and not filter_browsers
+falsepositives:
+  - Development web servers on port 8888
+  - Some web applications using this port
+level: medium
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 10: Crypto Wallet Data Access by Non-Browser Process
+# --------------------------------------------------------------------------
+title: Cryptocurrency Wallet Extension Data Access by Non-Browser
+id: 244dfb88-sigma-010
+status: stable
+description: >
+  Detects file access to cryptocurrency wallet browser extension data
+  directories (MetaMask, Coinbase Wallet, Exodus) by non-browser processes.
+  BlueNoroff specifically targets blockchain engineers and cryptocurrency
+  wallets as their primary financial theft objective.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1555/001/
+tags:
+  - attack.credential_access
+  - attack.collection
+  - attack.t1555.001
+  - attack.t1005
+logsource:
+  category: file_event
+  product: macos
+detection:
+  selection:
+    TargetFilename|contains:
+      - 'nkbihfbeogaeaoehlefnkodbefgpgknn'
+      - 'hnfanknocfeofbddgcijnmhnfnkdnaad'
+      - 'bfnaelmomeimhlpmgjnjophhpkkoljpa'
+      - 'Exodus/exodus.wallet'
+      - 'Exodus/seed.seco'
+  filter_browsers:
+    Image|contains:
+      - 'Google Chrome'
+      - 'Chromium'
+      - 'Microsoft Edge'
+      - 'Brave Browser'
+      - 'Exodus.app'
+  condition: selection and not filter_browsers
+falsepositives:
+  - Backup utilities backing up browser profile directories
+level: critical
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 11: TCC Protection Reset via tccutil
+# --------------------------------------------------------------------------
+title: TCC Protection Reset via tccutil
+id: 244dfb88-sigma-011
+status: stable
+description: >
+  Detects use of tccutil reset to remove TCC (Transparency, Consent, and
+  Control) protection decisions on macOS. Malware uses this to bypass
+  access controls for AppleEvents, Full Disk Access, or Accessibility.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1553/001/
+tags:
+  - attack.defense_evasion
+  - attack.t1553.001
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection:
+    Image|endswith: '/tccutil'
+    CommandLine|contains: 'reset'
+  condition: selection
+falsepositives:
+  - IT admin scripts resetting TCC during MDM provisioning
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 12: Archive Creation with Credential Staging Content
+# --------------------------------------------------------------------------
+title: Suspicious Archive Creation in Staging Directory (Exfiltration)
+id: 244dfb88-sigma-012
+status: stable
+description: >
+  Detects creation of zip archives named out.zip or similar in staging/temp
+  directories, matching AMOS stealer and macOS.NotLockBit exfiltration
+  patterns. These archives typically contain harvested credentials and
+  wallet data prepared for exfiltration.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1560/001/
+  - https://attack.mitre.org/techniques/T1041/
+tags:
+  - attack.exfiltration
+  - attack.collection
+  - attack.t1560.001
+  - attack.t1041
+logsource:
+  category: file_event
+  product: macos
+detection:
+  selection_name:
+    TargetFilename|endswith:
+      - '/out.zip'
+      - '/system_report.zip'
+      - '/data.zip'
+      - '/export.zip'
+  selection_path:
+    TargetFilename|contains:
+      - '/staging/'
+      - '/exfil/'
+      - '/upload/'
+      - '/temp/'
+  condition: selection_name or selection_path
+falsepositives:
+  - Legitimate backup operations
+  - Software build processes
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 13: Google Drive API Upload from Non-Browser Process
+# --------------------------------------------------------------------------
+title: Google Drive Upload from Non-Browser Process (TodoSwift Pattern)
+id: 244dfb88-sigma-013
+status: stable
+description: >
+  Detects network connections to Google Drive API endpoints from non-browser
+  processes, a pattern used by the TodoSwift campaign for payload staging
+  and data exfiltration via cloud storage.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1567/002/
+tags:
+  - attack.exfiltration
+  - attack.t1567.002
+logsource:
+  category: network_connection
+  product: macos
+detection:
+  selection:
+    DestinationHostname|contains:
+      - 'googleapis.com'
+      - 'drive.google.com'
+  filter_browsers:
+    Image|contains:
+      - 'Google Chrome'
+      - 'Safari'
+      - 'Firefox'
+      - 'Google Drive'
+      - 'Backup and Sync'
+  condition: selection and not filter_browsers
+falsepositives:
+  - Google Drive desktop sync applications
+  - Cloud backup utilities
+level: medium

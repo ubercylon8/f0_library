@@ -1,0 +1,694 @@
+# ============================================================================
+# DEFENSE GUIDANCE: Sigma Detection Rules
+# ============================================================================
+# Test ID: 09efee46-f098-4948-8e35-dded024cd1e7
+# Test Name: Sliver C2 Client Detection
+# MITRE ATT&CK: T1219 - Remote Access Software
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules detect Sliver C2 framework and similar remote access
+# tools, NOT the F0RT1KA testing framework. They will catch real-world
+# attackers deploying Sliver or similar C2 frameworks on any platform.
+#
+# DEPLOYMENT:
+#   Use sigmac or sigma-cli to convert to your SIEM backend:
+#     sigma convert -t splunk -p sysmon 09efee46_sigma_rules.yml
+#     sigma convert -t elasticsearch-eql 09efee46_sigma_rules.yml
+#     sigma convert -t microsoft365defender 09efee46_sigma_rules.yml
+#
+# ============================================================================
+
+# --------------------------------------------------------------------------
+# RULE 1: Sliver C2 Client Binary Execution
+# --------------------------------------------------------------------------
+title: Sliver C2 Client Binary Execution
+id: 09efee46-sigma-001
+status: stable
+description: >
+  Detects execution of Sliver C2 framework client or implant binaries
+  based on known file naming patterns. Sliver is an open-source cross-platform
+  adversary emulation framework that is increasingly adopted by threat actors
+  as an alternative to Cobalt Strike.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://github.com/BishopFox/sliver
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_name:
+    Image|endswith:
+      - '\sliver_client.exe'
+      - '\sliver.exe'
+      - '\sliver-client.exe'
+      - '\sliver_implant.exe'
+      - '\sliver-implant.exe'
+      - '\sliver_beacon.exe'
+      - '\sliver-beacon.exe'
+  selection_cmdline:
+    CommandLine|contains:
+      - '--mtls'
+      - '--wg'
+      - '--dns'
+      - '--beacon'
+      - '--named-pipe'
+  condition: selection_name or selection_cmdline
+falsepositives:
+  - Authorized red team or penetration testing engagements using Sliver
+level: critical
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 2: Sliver C2 Client Execution (Linux/macOS)
+# --------------------------------------------------------------------------
+title: Sliver C2 Client Binary Execution (Linux/macOS)
+id: 09efee46-sigma-002
+status: stable
+description: >
+  Detects execution of Sliver C2 framework client or implant binaries on
+  Linux and macOS systems. Sliver is cross-platform (written in Go) and can
+  generate implants for all major operating systems.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://github.com/BishopFox/sliver
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_name:
+    Image|endswith:
+      - '/sliver_client'
+      - '/sliver'
+      - '/sliver-client'
+      - '/sliver_implant'
+      - '/sliver-implant'
+      - '/sliver_beacon'
+      - '/sliver-beacon'
+  selection_cmdline:
+    CommandLine|contains:
+      - '--mtls'
+      - '--wg'
+      - '--dns'
+      - '--beacon'
+      - '--named-pipe'
+  condition: selection_name or selection_cmdline
+falsepositives:
+  - Authorized red team or penetration testing engagements
+level: critical
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 3: C2 Framework Binary Dropped in User-Writable Directory (Windows)
+# --------------------------------------------------------------------------
+title: C2 Framework Binary Created in User-Writable Directory
+id: 09efee46-sigma-003
+status: stable
+description: >
+  Detects creation of executable files with C2 framework naming conventions
+  in user-writable directories. Attackers commonly stage C2 implants in Temp,
+  AppData, Downloads, Public, or ProgramData before execution.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_path:
+    TargetFilename|contains:
+      - '\Temp\'
+      - '\AppData\'
+      - '\Downloads\'
+      - '\Public\'
+      - '\ProgramData\'
+  selection_name:
+    TargetFilename|contains:
+      - 'sliver'
+      - 'beacon'
+      - 'implant'
+      - 'payload'
+      - 'cobalt'
+      - 'covenant'
+      - 'havoc'
+      - 'mythic'
+      - 'brute_ratel'
+      - 'bruteratel'
+  selection_ext:
+    TargetFilename|endswith:
+      - '.exe'
+      - '.dll'
+      - '.bin'
+  condition: selection_path and selection_name and selection_ext
+falsepositives:
+  - Authorized security testing tools
+  - Legitimate software with matching naming patterns
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 4: C2 Framework Binary Dropped in User-Writable Directory (Linux)
+# --------------------------------------------------------------------------
+title: C2 Framework Binary Created in User-Writable Directory (Linux)
+id: 09efee46-sigma-004
+status: stable
+description: >
+  Detects creation of executable files with C2 framework naming conventions
+  in common Linux staging directories used by attackers (/tmp, /var/tmp,
+  /dev/shm, user home hidden directories).
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: file_event
+  product: linux
+detection:
+  selection_path:
+    TargetFilename|startswith:
+      - '/tmp/'
+      - '/var/tmp/'
+      - '/dev/shm/'
+  selection_name:
+    TargetFilename|contains:
+      - 'sliver'
+      - 'beacon'
+      - 'implant'
+      - 'payload'
+      - 'cobalt'
+      - 'covenant'
+      - 'havoc'
+      - 'mythic'
+  condition: selection_path and selection_name
+falsepositives:
+  - Authorized security testing
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 5: Sliver-Specific Transport Protocol Arguments
+# --------------------------------------------------------------------------
+title: Sliver C2 Transport Protocol Arguments
+id: 09efee46-sigma-005
+status: stable
+description: >
+  Detects processes launched with Sliver-specific transport protocol
+  arguments combined with operator/implant configuration flags. These
+  argument combinations are highly specific to Sliver and rarely appear
+  in legitimate software.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://github.com/BishopFox/sliver
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_transport:
+    CommandLine|contains:
+      - '--mtls'
+      - '--named-pipe'
+  selection_generate:
+    CommandLine|contains:
+      - 'generate'
+      - '--skip-symbols'
+      - '--disable-sgn'
+  selection_beacon_config:
+    CommandLine|contains|all:
+      - '--beacon'
+      - '--jitter'
+  selection_operator:
+    CommandLine|contains|all:
+      - '--operator'
+      - '--lhost'
+  condition: selection_transport or selection_generate or selection_beacon_config or selection_operator
+falsepositives:
+  - Very low -- these argument combinations are specific to Sliver
+level: critical
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 6: Known C2 Framework Process Names
+# --------------------------------------------------------------------------
+title: Known C2 Framework Process Execution
+id: 09efee46-sigma-006
+status: stable
+description: >
+  Detects execution of processes with names matching known C2 frameworks.
+  This is a broad detection rule covering multiple C2 frameworks including
+  Sliver, Cobalt Strike, Covenant, Metasploit, Empire, Havoc, Mythic,
+  and Brute Ratel.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\sliver.exe'
+      - '\sliver_client.exe'
+      - '\sliver-client.exe'
+      - '\covenant.exe'
+      - '\havoc.exe'
+      - '\mythic.exe'
+      - '\bruteratel.exe'
+      - '\brute_ratel.exe'
+      - '\meterpreter.exe'
+  condition: selection
+falsepositives:
+  - Authorized red team operations
+  - Security product evaluations
+level: critical
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 7: Suspicious Binary Execution from Temp Directory
+# --------------------------------------------------------------------------
+title: Suspicious Binary Execution from Temporary Directory
+id: 09efee46-sigma-007
+status: stable
+description: >
+  Detects execution of binaries from system temporary directories that
+  match patterns associated with C2 tools. Attackers commonly drop C2
+  implants into temp directories for execution since these paths are
+  writable without elevated privileges.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+  - attack.defense_evasion
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_path:
+    Image|contains:
+      - '\Temp\'
+      - '\AppData\Local\Temp\'
+      - '\Downloads\'
+      - '\Public\'
+  selection_name:
+    Image|endswith:
+      - 'client.exe'
+      - 'agent.exe'
+      - 'beacon.exe'
+      - 'implant.exe'
+      - 'payload.exe'
+  filter_legitimate:
+    Image|contains:
+      - '\chrome_installer'
+      - '\Teams'
+      - '\OneDrive'
+      - '\Dropbox'
+  condition: selection_path and selection_name and not filter_legitimate
+falsepositives:
+  - Legitimate software installers using generic names
+  - Developer build outputs in temp directories
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 8: DNS Tunneling - Long Subdomain Queries
+# --------------------------------------------------------------------------
+title: DNS Tunneling Indicators - Unusually Long Subdomain Labels
+id: 09efee46-sigma-008
+status: stable
+description: >
+  Detects DNS queries with unusually long subdomain labels (32+ characters
+  of alphanumeric data), which is a hallmark of DNS tunneling. Sliver C2
+  supports DNS tunneling via the --dns transport mode, encoding C2 traffic
+  within DNS TXT, CNAME, or MX queries.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://github.com/BishopFox/sliver
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: dns_query
+  product: windows
+detection:
+  selection:
+    QueryName|re: '^[a-zA-Z0-9]{32,}\.'
+  filter_system:
+    Image|endswith:
+      - '\svchost.exe'
+      - '\MsMpEng.exe'
+  condition: selection and not filter_system
+falsepositives:
+  - CDN requests with hashed subdomains
+  - DKIM/DMARC verification queries
+  - Some SaaS platforms using long DNS labels
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 9: DNS Tunneling - Long Subdomain Queries (Linux)
+# --------------------------------------------------------------------------
+title: DNS Tunneling Indicators - Unusually Long Subdomain Labels (Linux)
+id: 09efee46-sigma-009
+status: stable
+description: >
+  Detects DNS queries with unusually long subdomain labels on Linux systems,
+  indicative of DNS tunneling used by C2 frameworks including Sliver.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: dns_query
+  product: linux
+detection:
+  selection:
+    QueryName|re: '^[a-zA-Z0-9]{32,}\.'
+  filter_system:
+    Image|endswith:
+      - '/systemd-resolved'
+      - '/NetworkManager'
+  condition: selection and not filter_system
+falsepositives:
+  - CDN requests with hashed subdomains
+  - DKIM/DMARC verification queries
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 10: Process Injection API Calls from Non-System Binary
+# --------------------------------------------------------------------------
+title: Process Injection API Calls from Non-System Binary
+id: 09efee46-sigma-010
+status: stable
+description: >
+  Detects usage of Windows process injection API calls by binaries located
+  outside standard system directories. Sliver implants use process injection
+  for migration (MigrateProcess), execute-assembly, and DLL injection
+  modules.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://attack.mitre.org/techniques/T1055/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+  - attack.defense_evasion
+  - attack.t1055
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    CallTrace|contains:
+      - 'VirtualAllocEx'
+      - 'WriteProcessMemory'
+      - 'CreateRemoteThread'
+      - 'NtCreateThreadEx'
+      - 'RtlCreateUserThread'
+      - 'QueueUserAPC'
+  filter_system:
+    SourceImage|startswith:
+      - 'C:\Windows\'
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+  filter_security:
+    SourceImage|contains:
+      - '\MsMpEng.exe'
+      - '\SentinelAgent.exe'
+      - '\CrowdStrike\'
+  condition: selection and not filter_system and not filter_security
+falsepositives:
+  - Application compatibility layers
+  - Game anti-cheat engines
+  - Some legitimate applications using DLL injection
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 11: Go Binary with C2 Network Library Imports
+# --------------------------------------------------------------------------
+title: Go-Compiled Binary with C2 Characteristics in Image Path
+id: 09efee46-sigma-011
+status: stable
+description: >
+  Detects execution of Go-compiled binaries from non-standard locations
+  that exhibit C2 tool characteristics. Sliver and many modern C2 frameworks
+  are written in Go. This rule looks for Go binaries executing from
+  suspicious paths with C2-related naming patterns.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_path:
+    Image|contains:
+      - '\Temp\'
+      - '\AppData\'
+      - '\Downloads\'
+      - '\Public\'
+      - '\ProgramData\'
+  selection_cmdline_help:
+    CommandLine|contains:
+      - '--help'
+      - '-h'
+      - 'version'
+  filter_signed:
+    Signed: 'true'
+  filter_legitimate:
+    Image|contains:
+      - '\Go\'
+      - '\golang\'
+      - '\terraform'
+      - '\kubectl'
+      - '\docker'
+      - '\git'
+  condition: selection_path and selection_cmdline_help and not filter_signed and not filter_legitimate
+falsepositives:
+  - Legitimate unsigned Go applications run from user directories
+  - DevOps and infrastructure tools
+level: medium
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 12: Outbound Connection on Common C2 Ports from Temp Directory
+# --------------------------------------------------------------------------
+title: Outbound Network Connection on C2 Ports from Temporary Directory
+id: 09efee46-sigma-012
+status: stable
+description: >
+  Detects outbound network connections on ports commonly used by C2
+  frameworks (8888/mTLS, 31337, 4444, 8443) initiated by processes
+  executing from temporary or user-writable directories.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection_path:
+    Image|contains:
+      - '\Temp\'
+      - '\AppData\'
+      - '\Downloads\'
+      - '\Public\'
+  selection_port:
+    DestinationPort:
+      - 8888
+      - 31337
+      - 4444
+      - 5555
+      - 9999
+      - 8443
+  selection_direction:
+    Initiated: 'true'
+  filter_loopback:
+    DestinationIp|startswith:
+      - '127.'
+      - '::1'
+  condition: selection_path and selection_port and selection_direction and not filter_loopback
+falsepositives:
+  - Development servers using non-standard ports
+  - VPN or proxy tools
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 13: Outbound Connection on Common C2 Ports (Linux)
+# --------------------------------------------------------------------------
+title: Outbound Network Connection on C2 Ports from Temp Directory (Linux)
+id: 09efee46-sigma-013
+status: stable
+description: >
+  Detects outbound network connections on C2-associated ports from
+  temporary or world-writable directories on Linux systems.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+logsource:
+  category: network_connection
+  product: linux
+detection:
+  selection_path:
+    Image|startswith:
+      - '/tmp/'
+      - '/var/tmp/'
+      - '/dev/shm/'
+  selection_port:
+    DestinationPort:
+      - 8888
+      - 31337
+      - 4444
+      - 5555
+      - 9999
+      - 8443
+  filter_loopback:
+    DestinationIp: '127.0.0.1'
+  condition: selection_path and selection_port and not filter_loopback
+falsepositives:
+  - Development tools running from temp
+level: high
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 14: File Execution via memfd_create (Linux Anti-Forensics)
+# --------------------------------------------------------------------------
+title: File Execution via memfd_create - Fileless C2 Implant
+id: 09efee46-sigma-014
+status: stable
+description: >
+  Detects execution of binaries via memfd_create, which creates anonymous
+  files in memory without touching disk. This technique is used by advanced
+  C2 frameworks including Sliver to achieve fileless execution on Linux,
+  evading file-based detection.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://attack.mitre.org/techniques/T1620/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+  - attack.defense_evasion
+  - attack.t1620
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection:
+    Image|contains: '/memfd:'
+  condition: selection
+falsepositives:
+  - Some container runtimes (runc)
+  - JIT compilers
+level: critical
+
+---
+
+# --------------------------------------------------------------------------
+# RULE 15: Suspicious Cron Job or Systemd Service for Persistence
+# --------------------------------------------------------------------------
+title: Suspicious Cron or Systemd Persistence for C2 Implant
+id: 09efee46-sigma-015
+status: stable
+description: >
+  Detects creation of cron jobs or systemd service units that reference
+  binaries in temporary or hidden directories, which may indicate C2
+  implant persistence on Linux systems. Sliver supports automated
+  persistence via cron and systemd.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+  - https://attack.mitre.org/techniques/T1219/
+  - https://attack.mitre.org/techniques/T1053.003/
+tags:
+  - attack.command_and_control
+  - attack.t1219
+  - attack.persistence
+  - attack.t1053.003
+logsource:
+  category: file_event
+  product: linux
+detection:
+  selection_cron:
+    TargetFilename|startswith:
+      - '/etc/cron.d/'
+      - '/var/spool/cron/'
+      - '/etc/cron.daily/'
+      - '/etc/cron.hourly/'
+  selection_systemd:
+    TargetFilename|startswith:
+      - '/etc/systemd/system/'
+      - '/usr/lib/systemd/system/'
+  selection_content_indicators:
+    TargetFilename|endswith:
+      - '.service'
+      - '.timer'
+  condition: selection_cron or (selection_systemd and selection_content_indicators)
+falsepositives:
+  - Legitimate system administration
+  - Package manager post-install scripts
+level: medium

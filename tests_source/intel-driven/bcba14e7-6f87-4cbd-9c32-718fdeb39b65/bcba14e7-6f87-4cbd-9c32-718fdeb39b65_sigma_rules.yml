@@ -1,0 +1,540 @@
+# ============================================================
+# EDRSilencer Detection - Sigma Rules
+# Test ID: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+# MITRE ATT&CK: T1562.001 - Impair Defenses: Disable or Modify Tools
+# Generated: 2026-03-13
+# ============================================================
+#
+# These Sigma rules detect EDRSilencer and similar EDR tampering tools
+# that use Windows Filtering Platform (WFP) APIs to block security
+# product communications.
+#
+# Usage:
+#   sigmac -t <backend> bcba14e7-6f87-4cbd-9c32-718fdeb39b65_sigma_rules.yml
+#   sigma convert -t <backend> bcba14e7-6f87-4cbd-9c32-718fdeb39b65_sigma_rules.yml
+#
+# ============================================================
+
+# --- Rule 1: Known EDR Silencing Tool Execution ---
+
+title: Known EDR Silencing Tool Execution
+id: bcba14e7-sig-0001-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects execution of known EDR silencing and tampering tools that disable
+    endpoint security by manipulating Windows Filtering Platform filters or
+    directly targeting security processes. These tools prevent EDR solutions
+    from communicating with their cloud backends.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://github.com/netero1010/EDRSilencer
+    - https://www.mdsec.co.uk/2023/09/nighthawk-0-2-6-three-wise-monkeys/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_name:
+        Image|endswith:
+            - '\EDRSilencer.exe'
+            - '\FireBlock.exe'
+            - '\EDR-Freeze.exe'
+            - '\Backstab.exe'
+            - '\EDRSandBlast.exe'
+    selection_originalfilename:
+        OriginalFileName:
+            - 'EDRSilencer.exe'
+            - 'FireBlock.exe'
+            - 'EDR-Freeze.exe'
+            - 'Backstab.exe'
+            - 'EDRSandBlast.exe'
+    condition: 1 of selection_*
+falsepositives:
+    - None expected - these are known offensive security tools
+level: critical
+
+---
+
+# --- Rule 2: EDRSilencer BlockEDR Command Execution ---
+
+title: EDRSilencer BlockEDR Command Execution
+id: bcba14e7-sig-0002-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects execution of EDRSilencer with the 'blockedr' parameter, which
+    instructs the tool to enumerate all running EDR processes and create WFP
+    filters blocking their outbound IPv4 and IPv6 network communications.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://github.com/netero1010/EDRSilencer
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_blockedr:
+        CommandLine|contains: 'blockedr'
+    selection_unblockall:
+        CommandLine|contains: 'unblockall'
+    condition: 1 of selection_*
+falsepositives:
+    - Authorized red team or penetration testing exercises
+level: critical
+
+---
+
+# --- Rule 3: WFP Library Load from Suspicious Directory ---
+
+title: WFP Library Load from Suspicious User-Writable Directory
+id: bcba14e7-sig-0003-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects loading of the Windows Filtering Platform user-mode API library
+    (fwpuclnt.dll) by a process located in a user-writable directory. Legitimate
+    WFP consumers are typically system services or installed software. A process
+    from Temp, Downloads, or Public directories loading this library strongly
+    suggests an EDR silencing or network manipulation tool.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://docs.microsoft.com/en-us/windows/win32/fwp/windows-filtering-platform-start-page
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    category: image_load
+    product: windows
+detection:
+    selection_dll:
+        ImageLoaded|endswith: '\fwpuclnt.dll'
+    selection_suspicious_path:
+        Image|contains:
+            - '\AppData\Local\Temp\'
+            - '\Users\Public\'
+            - '\Downloads\'
+            - '\ProgramData\'
+            - '\Windows\Temp\'
+    filter_legitimate:
+        Image|startswith:
+            - 'C:\Windows\System32\'
+            - 'C:\Windows\SysWOW64\'
+            - 'C:\Program Files\'
+            - 'C:\Program Files (x86)\'
+    condition: selection_dll and selection_suspicious_path and not filter_legitimate
+falsepositives:
+    - VPN clients or firewall tools running from non-standard locations
+    - Portable network diagnostic utilities
+level: high
+
+---
+
+# --- Rule 4: WFP Filter Modification by Non-System Process ---
+
+title: WFP Filter Added or Modified by Non-System Process
+id: bcba14e7-sig-0004-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects Windows Filtering Platform filter addition (Event ID 5441),
+    deletion (Event ID 5444), or modification (Event ID 5446) initiated by
+    a non-system process. WFP filter changes are normally made by svchost.exe
+    hosting the Base Filtering Engine. Non-system processes modifying WFP
+    filters may indicate EDR silencing activity.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-5441
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_events:
+        EventID:
+            - 5441
+            - 5444
+            - 5446
+    filter_system:
+        ProcessId:
+            - '0'
+            - '4'
+    filter_svchost:
+        ProcessName|endswith:
+            - '\svchost.exe'
+            - '\services.exe'
+            - '\lsass.exe'
+    condition: selection_events and not filter_system and not filter_svchost
+falsepositives:
+    - VPN software creating split-tunnel WFP filters
+    - Third-party firewall products managing their own WFP filters
+    - Windows updates modifying network filter configuration
+level: high
+
+---
+
+# --- Rule 5: Process Enumerating Multiple EDR Products ---
+
+title: Process Referencing Multiple EDR Vendor Process Names
+id: bcba14e7-sig-0005-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects process creation where the command line references process names
+    belonging to multiple distinct EDR vendors. Legitimate software rarely
+    references competing security products. Tools like EDRSilencer embed
+    a comprehensive list of EDR process names for enumeration and targeting.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1518/001/
+    - https://github.com/netero1010/EDRSilencer
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - attack.discovery
+    - attack.t1518.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_defender:
+        CommandLine|contains:
+            - 'MsMpEng'
+            - 'MsSense'
+            - 'MpDefenderCoreService'
+    selection_crowdstrike:
+        CommandLine|contains:
+            - 'CSFalconService'
+            - 'CSFalconContainer'
+    selection_sentinelone:
+        CommandLine|contains:
+            - 'SentinelAgent'
+            - 'SentinelServiceHost'
+    selection_cylance:
+        CommandLine|contains: 'CylanceSvc'
+    selection_carbonblack:
+        CommandLine|contains:
+            - 'CarbonBlack'
+            - 'cbdefense'
+    selection_paloalto:
+        CommandLine|contains:
+            - 'Traps.exe'
+            - 'CortexXDR'
+            - 'cyserver'
+    selection_elastic:
+        CommandLine|contains:
+            - 'elastic-agent'
+            - 'elastic-endpoint'
+    selection_trellix:
+        CommandLine|contains:
+            - 'mfetp'
+            - 'mfemactl'
+    selection_trendmicro:
+        CommandLine|contains:
+            - 'TmListen'
+            - 'TmCCSF'
+            - 'TMBMSRV'
+    condition: 2 of selection_*
+falsepositives:
+    - Security posture assessment tools that check for installed security products
+    - IT asset inventory software
+level: high
+
+---
+
+# --- Rule 6: Netsh WFP Filter Manipulation ---
+
+title: Netsh WFP Filter Manipulation Commands
+id: bcba14e7-sig-0006-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects use of netsh.exe to examine, add, or delete Windows Filtering
+    Platform filters. While netsh WFP commands are used for legitimate
+    troubleshooting, they can also be used to manipulate filters that block
+    EDR communications or to inspect existing WFP state during reconnaissance.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://docs.microsoft.com/en-us/windows/win32/fwp/windows-filtering-platform-start-page
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_netsh:
+        Image|endswith: '\netsh.exe'
+        CommandLine|contains: 'wfp'
+    selection_action:
+        CommandLine|contains:
+            - 'show filters'
+            - 'show state'
+            - 'delete'
+            - 'set options'
+    condition: selection_netsh and selection_action
+falsepositives:
+    - Network administrators troubleshooting WFP filter issues
+    - Automated network diagnostics scripts
+level: medium
+
+---
+
+# --- Rule 7: EDR-Targeting Executable Staged in User-Writable Directory ---
+
+title: EDR-Targeting Executable Created in User-Writable Directory
+id: bcba14e7-sig-0007-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects creation of executable files with names matching known EDR
+    silencing or tampering tools in user-writable directories. Adversaries
+    stage attack tools in Temp, Downloads, or Public directories before
+    execution.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://github.com/netero1010/EDRSilencer
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_path:
+        TargetFilename|contains:
+            - '\AppData\Local\Temp\'
+            - '\Users\Public\'
+            - '\Downloads\'
+            - '\ProgramData\'
+            - '\Windows\Temp\'
+    selection_name:
+        TargetFilename|contains:
+            - 'silencer'
+            - 'edrblock'
+            - 'fireblock'
+            - 'edr-freeze'
+            - 'backstab'
+            - 'edrsandblast'
+            - 'edrkill'
+    selection_extension:
+        TargetFilename|endswith:
+            - '.exe'
+            - '.dll'
+    condition: selection_path and selection_name and selection_extension
+falsepositives:
+    - Security researchers downloading tools for analysis in sandboxed environments
+level: high
+
+---
+
+# --- Rule 8: Security Process Outbound Connection Blocked ---
+
+title: Security Process Outbound Connection Blocked by WFP
+id: bcba14e7-sig-0008-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects WFP packet drop events (Event ID 5152) or blocked connection
+    events (Event ID 5157) targeting known EDR and security product processes.
+    When WFP filters are used to block EDR communications, these events
+    will appear in the Windows Security log if filtering platform auditing
+    is enabled.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-5152
+    - https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-5157
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_events:
+        EventID:
+            - 5152
+            - 5157
+    selection_direction:
+        Direction: '%%14593'  # Outbound
+    selection_edr_process:
+        Application|endswith:
+            - '\MsMpEng.exe'
+            - '\MsSense.exe'
+            - '\SenseCE.exe'
+            - '\SenseIR.exe'
+            - '\SenseNdr.exe'
+            - '\MpDefenderCoreService.exe'
+            - '\NisSrv.exe'
+            - '\CSFalconService.exe'
+            - '\SentinelAgent.exe'
+            - '\SentinelServiceHost.exe'
+            - '\CylanceSvc.exe'
+            - '\cb.exe'
+            - '\CarbonBlack.exe'
+            - '\elastic-agent.exe'
+            - '\elastic-endpoint.exe'
+            - '\TmListen.exe'
+            - '\TmCCSF.exe'
+            - '\mfetp.exe'
+            - '\FortiEDR.exe'
+    condition: selection_events and selection_direction and selection_edr_process
+falsepositives:
+    - Firewall policy changes blocking EDR traffic temporarily during maintenance
+    - Network segmentation changes affecting EDR cloud endpoints
+level: critical
+
+---
+
+# --- Rule 9: Process Attempting to Stop or Disable EDR Services ---
+
+title: Process Attempting to Stop or Disable EDR Services
+id: bcba14e7-sig-0009-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects processes using sc.exe, net.exe, or taskkill.exe to stop,
+    disable, or terminate known EDR services and processes. This is a
+    complementary technique to WFP-based EDR silencing, where adversaries
+    directly attempt to terminate security processes.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_tools:
+        Image|endswith:
+            - '\sc.exe'
+            - '\net.exe'
+            - '\net1.exe'
+            - '\taskkill.exe'
+    selection_actions_sc:
+        CommandLine|contains:
+            - 'stop'
+            - 'disable'
+            - 'delete'
+    selection_actions_taskkill:
+        CommandLine|contains:
+            - '/f'
+            - '/im'
+    selection_edr_targets:
+        CommandLine|contains:
+            - 'WinDefend'
+            - 'Sense'
+            - 'MsSense'
+            - 'MpDefenderCoreService'
+            - 'CSFalconService'
+            - 'SentinelAgent'
+            - 'CylanceSvc'
+            - 'CarbonBlack'
+            - 'cbdefense'
+            - 'TmListen'
+            - 'mfetp'
+            - 'FortiEDR'
+    filter_legitimate:
+        ParentImage|endswith:
+            - '\services.exe'
+            - '\TrustedInstaller.exe'
+            - '\msiexec.exe'
+    condition: selection_tools and (selection_actions_sc or selection_actions_taskkill) and selection_edr_targets and not filter_legitimate
+falsepositives:
+    - EDR software updates that restart their own services
+    - IT administrators performing authorized maintenance
+level: high
+
+---
+
+# --- Rule 10: Suspicious Process Accessing EDR Process Handles ---
+
+title: Suspicious Process Accessing EDR Process Memory or Handles
+id: bcba14e7-sig-0010-4cbd-9c32-718fdeb39b65
+related:
+    - id: bcba14e7-6f87-4cbd-9c32-718fdeb39b65
+      type: derived
+status: stable
+description: |
+    Detects a process from a user-writable directory attempting to access
+    EDR process handles. EDRSilencer's custom FwpmGetAppIdFromFileName0
+    implementation was specifically designed to avoid CreateFileW calls on
+    EDR processes, but other variants may still attempt direct handle access
+    for process enumeration or manipulation.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://github.com/netero1010/EDRSilencer
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    category: process_access
+    product: windows
+detection:
+    selection_source_path:
+        SourceImage|contains:
+            - '\AppData\Local\Temp\'
+            - '\Users\Public\'
+            - '\Downloads\'
+            - '\ProgramData\'
+            - '\Windows\Temp\'
+    selection_target:
+        TargetImage|endswith:
+            - '\MsMpEng.exe'
+            - '\MsSense.exe'
+            - '\SenseCE.exe'
+            - '\MpDefenderCoreService.exe'
+            - '\CSFalconService.exe'
+            - '\SentinelAgent.exe'
+            - '\CylanceSvc.exe'
+            - '\CarbonBlack.exe'
+    condition: selection_source_path and selection_target
+falsepositives:
+    - Security assessment tools running from temporary directories
+    - Process monitoring utilities
+level: high

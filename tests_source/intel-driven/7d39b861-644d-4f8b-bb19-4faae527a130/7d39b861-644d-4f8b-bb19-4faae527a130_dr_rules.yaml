@@ -1,0 +1,412 @@
+# ============================================================
+# Agrius Multi-Wiper Deployment - LimaCharlie D&R Rules
+# Test ID: 7d39b861-644d-4f8b-bb19-4faae527a130
+# MITRE ATT&CK: T1505.003, T1543.003, T1562.001, T1485, T1070.001
+# Threat Actor: Agrius / Pink Sandstorm / Agonizing Serpens
+# Author: F0RT1KA Defense Guidance Builder
+# Version: 1.0.0
+# Date: 2026-03-13
+# ============================================================
+#
+# This file contains LimaCharlie Detection & Response rules
+# in FILE FORMAT (for `limacharlie dr add` or `config push`).
+#
+# Deployment:
+#   limacharlie dr add --rule-file 7d39b861-644d-4f8b-bb19-4faae527a130_dr_rules.yaml
+#
+# IMPORTANT: All detections target TECHNIQUE BEHAVIORS, not
+# F0RT1KA test framework artifacts.
+#
+# Rule Index:
+#   1. agrius-webshell-aspx-creation - ASPX file creation in non-IIS paths
+#   2. agrius-service-creation-suspicious - sc.exe creating services with unusual binPaths
+#   3. agrius-kernel-driver-load - Kernel-type service creation via sc.exe
+#   4. agrius-edr-service-tampering - sc.exe config/stop on EDR services
+#   5. agrius-gmer-driver-deployment - GMER64.sys file creation
+#   6. agrius-mass-file-destruction - Rapid bulk file modification/deletion
+#   7. agrius-event-log-clearing - wevtutil.exe clearing event logs
+#   8. agrius-self-delete-batch - Self-deleting batch scripts with ping delay
+#   9. agrius-attack-chain-correlation - Multi-indicator correlation
+#
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: ASPXSpy Webshell File Creation
+  # ============================================================
+  # Detection: .aspx file creation outside standard IIS directories
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1505.003
+  # ============================================================
+  agrius-webshell-aspx-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: .aspx
+          case sensitive: false
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: contains
+                  path: event/FILE_PATH
+                  value: inetpub
+                  case sensitive: false
+                - op: contains
+                  path: event/FILE_PATH
+                  value: wwwroot
+                  case sensitive: false
+                - op: contains
+                  path: event/FILE_PATH
+                  value: Program Files
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Agrius Webshell Deployment - ASPX File in Non-IIS Directory (T1505.003)
+      - action: add tag
+        tag: agrius-webshell-t1505.003
+        ttl: 86400
+
+  # ============================================================
+  # Rule 2: Suspicious Windows Service Creation
+  # ============================================================
+  # Detection: sc.exe create with non-standard binPath
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1543.003
+  # ============================================================
+  agrius-service-creation-suspicious:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: sc.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: create
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: binPath
+          case sensitive: false
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "C:\\Program Files"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "C:\\Windows\\System32"
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Suspicious Service Creation - Non-Standard Binary Path (T1543.003)
+      - action: add tag
+        tag: agrius-persistence-t1543.003
+        ttl: 86400
+
+  # ============================================================
+  # Rule 3: Kernel Driver Service Installation
+  # ============================================================
+  # Detection: sc.exe creating kernel-type service (BYOVD)
+  # Confidence: CRITICAL
+  # MITRE ATT&CK: T1562.001
+  # ============================================================
+  agrius-kernel-driver-load:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: sc.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: create
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: kernel
+          case sensitive: false
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: services.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: msiexec.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: DrvInst.exe
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Kernel Driver Service Installation - Potential BYOVD Attack (T1562.001)
+      - action: add tag
+        tag: agrius-byovd-t1562.001
+        ttl: 86400
+
+  # ============================================================
+  # Rule 4: EDR/AV Service Tampering
+  # ============================================================
+  # Detection: sc.exe config/stop/delete on known EDR services
+  # Confidence: CRITICAL
+  # MITRE ATT&CK: T1562.001
+  # ============================================================
+  agrius-edr-service-tampering:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: sc.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: config
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: stop
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: delete
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: WinDefend
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: Sense
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: CSFalconService
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: SentinelAgent
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: CylanceSvc
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: CbDefense
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: CortexXDR
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ekrn
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: SepMasterService
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: elastic-endpoint
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: SAVService
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: Ntrtscan
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR/AV Service Tampering via sc.exe (T1562.001) - CRITICAL
+      - action: add tag
+        tag: agrius-edr-tamper-t1562.001
+        ttl: 86400
+
+  # ============================================================
+  # Rule 5: GMER64.sys Driver File Deployment
+  # ============================================================
+  # Detection: GMER64.sys file creation (BYOVD indicator)
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1562.001
+  # ============================================================
+  agrius-gmer-driver-deployment:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: GMER64.sys
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: GMER.sys
+              case sensitive: false
+        - op: not
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: System32\drivers
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: GMER Driver File Deployment - Potential BYOVD EDR Bypass (T1562.001)
+      - action: add tag
+        tag: agrius-gmer-t1562.001
+        ttl: 86400
+
+  # ============================================================
+  # Rule 6: Event Log Clearing via wevtutil
+  # ============================================================
+  # Detection: wevtutil.exe cl (clear log) invocation
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1070.001
+  # ============================================================
+  agrius-event-log-clearing:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: wevtutil.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: " cl "
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: Windows Event Log Clearing via wevtutil (T1070.001)
+      - action: add tag
+        tag: agrius-antiforensics-t1070.001
+        ttl: 86400
+
+  # ============================================================
+  # Rule 7: Self-Deleting Batch Script Execution
+  # ============================================================
+  # Detection: cmd.exe executing batch files with self-deletion
+  #            and ping delay patterns
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1070.001
+  # ============================================================
+  agrius-self-delete-batch:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: cmd.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: .bat
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: remover.bat
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: cleaner.bat
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: wiper.bat
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: deleter.bat
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Self-Deleting Batch Script Execution - Anti-Forensics (T1070.001)
+      - action: add tag
+        tag: agrius-self-delete-t1070.001
+        ttl: 86400
+
+  # ============================================================
+  # Rule 8: .sys File Dropped Outside System32\drivers
+  # ============================================================
+  # Detection: Kernel driver file creation in non-standard path
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1562.001
+  # ============================================================
+  agrius-driver-staging:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: .sys
+          case sensitive: false
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: contains
+                  path: event/FILE_PATH
+                  value: System32\drivers
+                  case sensitive: false
+                - op: contains
+                  path: event/FILE_PATH
+                  value: DriverStore
+                  case sensitive: false
+                - op: contains
+                  path: event/FILE_PATH
+                  value: WinSxS
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Kernel Driver Staged Outside System32 - Potential BYOVD (T1562.001)
+      - action: add tag
+        tag: agrius-driver-staging-t1562.001
+        ttl: 86400

@@ -1,0 +1,424 @@
+# ============================================================
+# APT34 Exchange Server Weaponization - Sigma Detection Rules
+# Test ID: 5691f436-e630-4fd2-b930-911023cf638f
+# MITRE ATT&CK: T1505.003, T1071.003, T1556.002, T1048.003
+# Threat Actor: APT34 / OilRig / Hazel Sandstorm
+# Generated: 2026-03-13
+# Sigma Specification: 2.0
+# ============================================================
+# FOCUS: Technique behaviors only - no test framework artifacts
+# ============================================================
+
+# ============================================================
+# Rule 1: IIS Backdoor DLL Deployment (T1505.003)
+# ============================================================
+title: APT34 IIS Backdoor Module DLL Deployment
+id: 5691f436-sigma-001
+status: experimental
+description: |
+    Detects creation of DLL files matching known APT34 IIS backdoor patterns
+    (CacheHttp.dll, HttpProxy.dll) or DLL creation in IIS module directories.
+    APT34 deploys passive IIS backdoors that intercept HTTP requests for C2.
+references:
+    - https://attack.mitre.org/techniques/T1505/003/
+    - https://attack.mitre.org/groups/G0049/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.t1505.003
+    - detection.emerging_threats
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_names:
+        TargetFilename|endswith:
+            - '\CacheHttp.dll'
+            - '\HttpProxy.dll'
+            - '\IISModule.dll'
+            - '\WebCache.dll'
+            - '\HttpCacher.dll'
+    selection_paths:
+        TargetFilename|contains:
+            - '\inetsrv\'
+            - '\IIS\'
+            - '\w3svc\'
+    filter_legitimate:
+        Image|endswith:
+            - '\msiexec.exe'
+            - '\TiWorker.exe'
+            - '\TrustedInstaller.exe'
+    condition: (selection_names or selection_paths) and not filter_legitimate
+falsepositives:
+    - Legitimate IIS module deployments by administrators
+    - Software installations that register IIS modules
+level: high
+
+---
+
+# ============================================================
+# Rule 2: IIS Module Registration via appcmd.exe LOLBin (T1505.003)
+# ============================================================
+title: IIS Module Installation via appcmd.exe
+id: 5691f436-sigma-002
+status: experimental
+description: |
+    Detects use of appcmd.exe to install IIS native modules. APT34 uses
+    appcmd.exe as a LOLBin to register CacheHttp.dll as a native IIS
+    HTTP module for passive backdoor functionality.
+references:
+    - https://attack.mitre.org/techniques/T1505/003/
+    - https://attack.mitre.org/groups/G0049/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.t1505.003
+    - attack.execution
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\appcmd.exe'
+        CommandLine|contains|all:
+            - 'install'
+            - 'module'
+    condition: selection
+falsepositives:
+    - Legitimate IIS administration during maintenance windows
+    - Automated deployment pipelines that manage IIS modules
+level: high
+
+---
+
+# ============================================================
+# Rule 3: LSA Password Filter DLL Registration (T1556.002)
+# ============================================================
+title: LSA Notification Packages Registry Modification - Password Filter
+id: 5691f436-sigma-003
+status: experimental
+description: |
+    Detects modification of HKLM\SYSTEM\CurrentControlSet\Control\Lsa
+    Notification Packages registry value. This technique allows attackers
+    to register a password filter DLL that receives cleartext passwords
+    during every password change event on the system. APT34 uses this
+    for persistent credential interception.
+references:
+    - https://attack.mitre.org/techniques/T1556/002/
+    - https://attack.mitre.org/groups/G0049/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.credential_access
+    - attack.persistence
+    - attack.t1556.002
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection:
+        TargetObject|contains: '\SYSTEM\CurrentControlSet\Control\Lsa'
+        TargetObject|endswith: '\Notification Packages'
+    filter_system:
+        Image|endswith:
+            - '\lsass.exe'
+            - '\services.exe'
+    condition: selection and not filter_system
+falsepositives:
+    - Legitimate password filter software installation (very rare)
+    - Enterprise password policy enforcement tools
+level: critical
+
+---
+
+# ============================================================
+# Rule 4: LSA Notification Packages Modified - Sysmon Registry Event
+# ============================================================
+title: LSA Notification Packages Modification via Sysmon
+id: 5691f436-sigma-004
+status: experimental
+description: |
+    Sysmon-specific detection for LSA Notification Packages modification.
+    Uses Sysmon Event ID 13 (RegistryEvent - Value Set) to detect changes
+    to the password filter DLL registration.
+references:
+    - https://attack.mitre.org/techniques/T1556/002/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.credential_access
+    - attack.t1556.002
+logsource:
+    product: windows
+    service: sysmon
+detection:
+    selection:
+        EventID: 13
+        TargetObject|contains|all:
+            - 'SYSTEM'
+            - 'Control\Lsa'
+            - 'Notification Packages'
+    condition: selection
+falsepositives:
+    - Legitimate password filter installations
+level: critical
+
+---
+
+# ============================================================
+# Rule 5: PowerShell Exchange Web Services Interaction (T1071.003)
+# ============================================================
+title: PowerShell Exchange Web Services API Interaction
+id: 5691f436-sigma-005
+status: experimental
+description: |
+    Detects PowerShell processes interacting with Exchange Web Services (EWS)
+    API, which may indicate email-based C2 like APT34's PowerExchange.
+    PowerExchange monitors mailboxes for emails with @@ subject markers
+    as C2 command delivery.
+references:
+    - https://attack.mitre.org/techniques/T1071/003/
+    - https://attack.mitre.org/groups/G0049/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command_and_control
+    - attack.t1071.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_process:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_ews:
+        CommandLine|contains:
+            - 'Exchange.asmx'
+            - 'New-WebServiceProxy'
+            - 'ExchangeService'
+            - 'Get-MailboxMessage'
+            - 'Search-Mailbox'
+            - 'FindItems'
+    condition: selection_process and selection_ews
+falsepositives:
+    - Legitimate Exchange administration scripts
+    - Authorized mailbox monitoring solutions
+level: high
+
+---
+
+# ============================================================
+# Rule 6: PowerShell Script with Exchange C2 Indicators (T1071.003)
+# ============================================================
+title: PowerShell Exchange C2 Script Creation
+id: 5691f436-sigma-006
+status: experimental
+description: |
+    Detects creation of PowerShell scripts with Exchange/EWS interaction
+    patterns, potentially indicating deployment of email-based C2 backdoors.
+references:
+    - https://attack.mitre.org/techniques/T1071/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command_and_control
+    - attack.t1071.003
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '.ps1'
+        TargetFilename|contains:
+            - 'PowerExchange'
+            - 'Exchange'
+            - 'EWS'
+            - 'Mailbox'
+    filter_legitimate:
+        TargetFilename|contains:
+            - '\ExchangeSetup'
+            - '\Microsoft\Exchange'
+            - '\Program Files\Microsoft'
+    condition: selection and not filter_legitimate
+falsepositives:
+    - Legitimate Exchange management scripts in non-standard locations
+level: high
+
+---
+
+# ============================================================
+# Rule 7: Outbound SMTP Connection from Non-Mail Process (T1048.003)
+# ============================================================
+title: Outbound SMTP Connection from Non-Mail Server Process
+id: 5691f436-sigma-007
+status: experimental
+description: |
+    Detects outbound SMTP connections (ports 25, 587, 465) from processes
+    that are not designated mail transport agents. APT34's STEALHOOK tool
+    exfiltrates data by sending emails with binary attachments via Exchange
+    transport or direct SMTP.
+references:
+    - https://attack.mitre.org/techniques/T1048/003/
+    - https://attack.mitre.org/groups/G0049/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.exfiltration
+    - attack.t1048.003
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    selection:
+        DestinationPort:
+            - 25
+            - 587
+            - 465
+        Initiated: 'true'
+    filter_mail:
+        Image|endswith:
+            - '\EdgeTransport.exe'
+            - '\MSExchangeTransport.exe'
+            - '\outlook.exe'
+            - '\thunderbird.exe'
+    condition: selection and not filter_mail
+falsepositives:
+    - Legitimate SMTP notification services
+    - Application-level email sending libraries
+level: high
+
+---
+
+# ============================================================
+# Rule 8: Data Archive Creation in Staging Directory (T1048.003)
+# ============================================================
+title: Archive File Creation in Staging Directory
+id: 5691f436-sigma-008
+status: experimental
+description: |
+    Detects creation of archive files (ZIP, 7z, RAR) in directories
+    with staging or exfiltration naming patterns. APT34's STEALHOOK
+    compresses stolen data before exfiltration via email.
+references:
+    - https://attack.mitre.org/techniques/T1048/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.exfiltration
+    - attack.collection
+    - attack.t1048.003
+    - attack.t1560.001
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_archive:
+        TargetFilename|endswith:
+            - '.zip'
+            - '.7z'
+            - '.rar'
+    selection_path:
+        TargetFilename|contains:
+            - 'staging'
+            - 'exfil'
+            - 'stealhook'
+            - 'payload'
+            - 'collect'
+    condition: selection_archive and selection_path
+falsepositives:
+    - Legitimate backup operations with staging directories
+level: medium
+
+---
+
+# ============================================================
+# Rule 9: Credential Dump File Creation (T1556.002)
+# ============================================================
+title: Credential Dump File Creation
+id: 5691f436-sigma-009
+status: experimental
+description: |
+    Detects creation of files with credential dump naming conventions,
+    potentially indicating output from password filter DLLs or other
+    credential harvesting tools.
+references:
+    - https://attack.mitre.org/techniques/T1556/002/
+    - https://attack.mitre.org/techniques/T1003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.credential_access
+    - attack.t1556.002
+    - attack.t1003
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_names:
+        TargetFilename|contains:
+            - 'captured_credential'
+            - 'cred_dump'
+            - 'hash_dump'
+            - 'secretsdump'
+            - 'password_dump'
+            - 'ntds_dump'
+            - 'sam_dump'
+            - 'lsass_dump'
+    selection_extensions:
+        TargetFilename|endswith:
+            - '.log'
+            - '.txt'
+            - '.csv'
+            - '.dat'
+            - '.dmp'
+    condition: selection_names and selection_extensions
+falsepositives:
+    - Security assessment tools generating reports
+level: high
+
+---
+
+# ============================================================
+# Rule 10: DLL Creation with Password Filter Export Names (T1556.002)
+# ============================================================
+title: DLL with Password Filter Interface Exports
+id: 5691f436-sigma-010
+status: experimental
+description: |
+    Detects loading or creation of DLLs that implement the Windows
+    password filter interface (InitializeChangeNotify, PasswordChangeNotify,
+    PasswordFilter). These are the required exports for LSA password filters.
+references:
+    - https://attack.mitre.org/techniques/T1556/002/
+    - https://docs.microsoft.com/en-us/windows/win32/secmgmt/password-filter-programming-considerations
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.credential_access
+    - attack.t1556.002
+logsource:
+    product: windows
+    service: sysmon
+detection:
+    selection:
+        EventID: 7  # Image loaded
+        ImageLoaded|endswith: '.dll'
+    filter_legitimate:
+        ImageLoaded|contains:
+            - '\rassfm.dll'
+            - '\scecli.dll'
+            - '\FVENOTIFY.dll'
+            - '\kdcsvc.dll'
+            - '\Windows\System32\'
+    filter_signed:
+        Signed: 'true'
+        SignatureStatus: 'Valid'
+        Signature|contains: 'Microsoft'
+    condition: selection and not (filter_legitimate or filter_signed)
+falsepositives:
+    - Third-party password filter products
+    - Enterprise password policy enforcement software
+level: medium

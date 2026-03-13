@@ -1,0 +1,592 @@
+// ============================================================================
+// DEFENSE GUIDANCE: KQL Detection Queries
+// ============================================================================
+// Test ID: 244dfb88-9068-4db4-9fa8-dbc49517f63d
+// Test Name: DPRK BlueNoroff Financial Sector Attack Chain
+// MITRE ATT&CK: T1553.001, T1543.004, T1059.002, T1555.001, T1056.002,
+//               T1071.001, T1573.002, T1071.004, T1041, T1567.002, T1560.001
+// Threat Actor: BlueNoroff/Lazarus (DPRK)
+// Target Platform: macOS
+// Created: 2026-03-13
+// Author: F0RT1KA Defense Guidance Builder
+// ============================================================================
+//
+// TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+// These detections target the underlying macOS attack techniques used by
+// BlueNoroff/Lazarus, NOT the F0RT1KA testing framework. They will catch
+// real-world attackers using the same persistence, credential theft, C2,
+// and exfiltration techniques with their own custom tooling.
+//
+// ============================================================================
+
+
+// ============================================================================
+// QUERY 1: Suspicious LaunchAgent Plist Creation Masquerading as Apple
+// Purpose: Detect LaunchAgent plist files using com.apple.* labels created
+//          by non-Apple processes (RustBucket, BeaverTail persistence)
+// Confidence: HIGH
+// MITRE ATT&CK: T1543.004
+// False Positives: Legitimate Apple software updates, MDM tools
+// Threshold: Any single creation event warrants investigation
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileModified")
+| where FolderPath has "Library/LaunchAgents" or FolderPath has "Library/LaunchDaemons"
+| where FileName endswith ".plist"
+| where InitiatingProcessFileName !in (
+    "Installer", "softwareupdated", "installd",
+    "mdmclient", "xpcproxy", "launchd", "jamf",
+    "com.apple.installer", "PackageKit"
+)
+| extend
+    PlistLabel = extract(@"<string>(com\.[a-zA-Z0-9._-]+)</string>", 1, FileContent),
+    IsMasquerading = iff(FileName startswith "com.apple." and
+        InitiatingProcessFileName !in ("softwareupdated", "Installer", "installd"), true, false)
+| extend
+    Severity = iff(IsMasquerading, "Critical", "High"),
+    ThreatType = "Persistence - Suspicious LaunchAgent/LaunchDaemon",
+    MitreAttack = "T1543.004",
+    ThreatActor = "BlueNoroff/Lazarus",
+    Confidence = iff(IsMasquerading, "High", "Medium")
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    IsMasquerading, Severity, ThreatType, MitreAttack, ThreatActor, Confidence
+
+
+// ============================================================================
+// QUERY 2: Known BlueNoroff LaunchAgent Label Detection
+// Purpose: Detect specific plist labels used in documented DPRK campaigns
+// Confidence: HIGH
+// MITRE ATT&CK: T1543.004
+// False Positives: Very low -- these labels are campaign-specific
+// Threshold: Single match is a high-confidence indicator
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType in ("FileCreated", "FileModified")
+| where FolderPath has "Library/LaunchAgents" or FolderPath has "Library/LaunchDaemons"
+| where FileName in~ (
+    "com.apple.systemupdate.plist",           // RustBucket
+    "com.avatar.update.wake.plist",           // BeaverTail/InvisibleFerret
+    "com.apple.security.updateagent.plist",   // BlueNoroff LaunchDaemon
+    "com.apple.Safari.helper.plist",          // KANDYKORN variant
+    "com.google.keystone.plist"               // DPRK masquerade variant
+)
+| extend
+    Severity = "Critical",
+    ThreatType = "Persistence - Known BlueNoroff Campaign Indicator",
+    MitreAttack = "T1543.004",
+    ThreatActor = "BlueNoroff/Lazarus (DPRK)",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, ThreatActor, Confidence
+
+
+// ============================================================================
+// QUERY 3: .zshenv Modification for Persistence (Hidden Risk Campaign)
+// Purpose: Detect modifications to ~/.zshenv which bypasses macOS Ventura
+//          Login Items notification -- a technique documented in the
+//          Hidden Risk campaign (SentinelLabs Nov 2024)
+// Confidence: HIGH
+// MITRE ATT&CK: T1543.004, T1546.004
+// False Positives: Developer tools (oh-my-zsh), package managers (homebrew)
+// Threshold: Any modification warrants investigation; filter by process
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileModified")
+| where FileName == ".zshenv"
+| where FolderPath matches regex @"/Users/[^/]+/\.zshenv$"
+    or FolderPath matches regex @"/home/[^/]+/\.zshenv$"
+    or FolderPath matches regex @"/root/\.zshenv$"
+| where InitiatingProcessFileName !in (
+    "zsh", "bash", "vim", "nano", "code",
+    "brew", "git", "Terminal", "iTerm2"
+)
+| extend
+    Severity = "High",
+    ThreatType = "Persistence - Shell Profile Modification (.zshenv)",
+    MitreAttack = "T1543.004",
+    ThreatActor = "BlueNoroff Hidden Risk Campaign",
+    Confidence = "High",
+    Note = "zshenv bypasses macOS Ventura Login Items notification"
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, ThreatActor, Confidence, Note
+
+
+// ============================================================================
+// QUERY 4: osascript Fake Password Dialog (Credential Phishing)
+// Purpose: Detect osascript execution with password dialog patterns used
+//          by AMOS, Banshee, and BlueNoroff macOS stealers
+// Confidence: HIGH
+// MITRE ATT&CK: T1059.002, T1056.002
+// False Positives: Legitimate scripts using osascript for user prompts
+// Threshold: Correlate with process parent -- non-user-initiated is suspicious
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName == "osascript" or ProcessCommandLine has "osascript"
+| where ProcessCommandLine has_any (
+    "display dialog",
+    "with hidden answer",
+    "System Preferences",
+    "System Settings",
+    "needs your password",
+    "password to update",
+    "password to continue",
+    "default answer"
+)
+| where InitiatingProcessFileName !in (
+    "Finder", "System Preferences", "System Settings",
+    "SecurityAgent", "authorizationhost"
+)
+| extend
+    HasHiddenAnswer = ProcessCommandLine has "hidden answer",
+    HasPasswordPrompt = ProcessCommandLine has_any ("password", "contraseña", "mot de passe"),
+    Severity = "Critical",
+    ThreatType = "Credential Access - Fake Password Dialog via osascript",
+    MitreAttack = "T1059.002, T1056.002",
+    ThreatActor = "BlueNoroff/AMOS/Banshee",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    HasHiddenAnswer, HasPasswordPrompt,
+    Severity, ThreatType, MitreAttack, ThreatActor, Confidence
+
+
+// ============================================================================
+// QUERY 5: macOS Keychain Access via security CLI Tool
+// Purpose: Detect use of the security command-line tool for credential
+//          dumping, a common technique in macOS stealers
+// Confidence: MEDIUM
+// MITRE ATT&CK: T1555.001
+// False Positives: Legitimate admin scripts, developer tooling, CI/CD
+// Threshold: 3+ keychain operations within 5 minutes from same process
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName == "security"
+| where ProcessCommandLine has_any (
+    "dump-keychain",
+    "find-generic-password",
+    "find-internet-password",
+    "list-keychains",
+    "find-certificate",
+    "export -t identities"
+)
+| where ProcessCommandLine has_any ("-g", "-w", "-d", "-a", "-ga")
+| summarize
+    CommandCount = count(),
+    Commands = make_set(ProcessCommandLine),
+    FirstEvent = min(TimeGenerated),
+    LastEvent = max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, AccountName
+| where CommandCount >= 2
+| extend
+    Severity = "High",
+    ThreatType = "Credential Access - Keychain Enumeration/Dump",
+    MitreAttack = "T1555.001",
+    Confidence = iff(CommandCount >= 3, "High", "Medium")
+| project TimeGenerated = FirstEvent, DeviceName, AccountName,
+    InitiatingProcessFileName, CommandCount, Commands,
+    Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 6: dscl Credential Validation Attempt
+// Purpose: Detect dscl -authonly used to validate stolen credentials
+// Confidence: HIGH
+// MITRE ATT&CK: T1059.002
+// False Positives: Legitimate MDM or admin authentication checks
+// Threshold: Single event from non-admin context is suspicious
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName == "dscl" or ProcessCommandLine has "dscl"
+| where ProcessCommandLine has "-authonly"
+| where InitiatingProcessFileName !in (
+    "loginwindow", "SecurityAgent", "authorizationhost",
+    "screensaver", "mdmclient", "opendirectoryd"
+)
+| extend
+    Severity = "High",
+    ThreatType = "Credential Access - Local Credential Validation",
+    MitreAttack = "T1059.002",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    AccountName, Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 7: Crypto Wallet Data Access (Browser Extension Storage)
+// Purpose: Detect access to cryptocurrency wallet browser extension data
+//          directories -- a primary BlueNoroff financial theft objective
+// Confidence: MEDIUM
+// MITRE ATT&CK: T1555.001, T1005
+// False Positives: Chrome/browser process accessing its own extension data
+// Threshold: Access from non-browser process is critical
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileRead", "FileAccessed", "FileModified", "FileCopied")
+| where FolderPath has_any (
+    // MetaMask
+    "nkbihfbeogaeaoehlefnkodbefgpgknn",
+    // Coinbase Wallet
+    "hnfanknocfeofbddgcijnmhnfnkdnaad",
+    // Phantom
+    "bfnaelmomeimhlpmgjnjophhpkkoljpa",
+    // Exodus (desktop app data)
+    "Exodus/exodus.wallet",
+    "Exodus/seed.seco",
+    // Trust Wallet
+    "ogbmhcifflpejjoeoifjacgmillcmhfl"
+)
+| where InitiatingProcessFileName !in (
+    "Google Chrome", "Google Chrome Helper",
+    "Chromium", "Microsoft Edge",
+    "Brave Browser", "Arc", "Vivaldi"
+)
+| extend
+    WalletType = case(
+        FolderPath has "nkbihfbeogaeaoehlefnkodbefgpgknn", "MetaMask",
+        FolderPath has "hnfanknocfeofbddgcijnmhnfnkdnaad", "Coinbase Wallet",
+        FolderPath has "Exodus", "Exodus",
+        FolderPath has "bfnaelmomeimhlpmgjnjophhpkkoljpa", "Phantom",
+        "Unknown Wallet"
+    ),
+    Severity = "Critical",
+    ThreatType = "Credential Access - Crypto Wallet Data Theft",
+    MitreAttack = "T1555.001",
+    ThreatActor = "BlueNoroff/Lazarus",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, FolderPath, FileName, WalletType,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, ThreatActor, Confidence
+
+
+// ============================================================================
+// QUERY 8: DNS Queries to Known DPRK C2 Infrastructure
+// Purpose: Detect DNS lookups to linkpc.net and other dynamic DNS services
+//          used by BlueNoroff/KANDYKORN campaigns for C2
+// Confidence: HIGH
+// MITRE ATT&CK: T1071.001, T1071.004
+// False Positives: Low -- linkpc.net is a dynamic DNS provider heavily
+//                  abused by DPRK actors
+// Threshold: Single query warrants investigation
+// ============================================================================
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(24h)
+| where ActionType == "DnsQueryResponse" or ActionType == "ConnectionSuccess"
+| where RemoteUrl has_any (
+    "linkpc.net",            // KANDYKORN/BlueNoroff C2 infrastructure
+    "dnx.capital",           // RustBucket payload delivery
+    "swissborg.blog",        // KANDYKORN C2
+    "on-offx.com",           // BlueNoroff delivery infrastructure
+    "tokenview.xyz"          // TodoSwift staging
+)
+| extend
+    C2Domain = extract(@"([a-zA-Z0-9.-]+\.(linkpc\.net|dnx\.capital|swissborg\.blog|on-offx\.com|tokenview\.xyz))", 1, RemoteUrl),
+    Severity = "Critical",
+    ThreatType = "Command and Control - DPRK Campaign Infrastructure",
+    MitreAttack = "T1071.001, T1071.004",
+    ThreatActor = "BlueNoroff/Lazarus (DPRK)",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, RemoteUrl, C2Domain, RemoteIP, RemotePort,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, ThreatActor, Confidence
+
+
+// ============================================================================
+// QUERY 9: mTLS Connection on Non-Standard Port (Sliver C2 Beacon)
+// Purpose: Detect outbound mTLS/TLS connections on port 8888 which is
+//          the default Sliver C2 mTLS port used by BlueNoroff
+// Confidence: MEDIUM
+// MITRE ATT&CK: T1573.002, T1071.001
+// False Positives: Development servers, some web applications use 8888
+// Threshold: Correlate with process -- non-browser on port 8888 is suspicious
+// ============================================================================
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "ConnectionSuccess"
+| where RemotePort == 8888
+| where InitiatingProcessFileName !in (
+    "Google Chrome", "Safari", "Firefox",
+    "Microsoft Edge", "curl", "wget",
+    "java", "node", "python3"
+)
+| extend
+    Severity = "High",
+    ThreatType = "Command and Control - mTLS on Non-Standard Port",
+    MitreAttack = "T1573.002",
+    Confidence = "Medium",
+    Note = "Port 8888 is default Sliver mTLS port used by BlueNoroff"
+| project TimeGenerated, DeviceName, RemoteIP, RemotePort, RemoteUrl,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, Confidence, Note
+
+
+// ============================================================================
+// QUERY 10: DNS Tunneling Pattern Detection
+// Purpose: Detect DNS queries with unusually long subdomain labels which
+//          indicate DNS tunneling for data exfiltration or C2
+// Confidence: MEDIUM
+// MITRE ATT&CK: T1071.004
+// False Positives: CDN services, some anti-spam DNS lookups
+// Threshold: 10+ long-label queries within 5 minutes
+// ============================================================================
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "DnsQueryResponse"
+| extend
+    QueryLength = strlen(RemoteUrl),
+    SubdomainDepth = countof(RemoteUrl, "."),
+    LongestLabel = max_of(
+        strlen(extract(@"^([^.]+)\.", 1, RemoteUrl)),
+        strlen(extract(@"\.([^.]+)\.", 1, RemoteUrl))
+    )
+| where LongestLabel > 30 or (QueryLength > 60 and SubdomainDepth > 3)
+| summarize
+    QueryCount = count(),
+    DistinctDomains = dcount(RemoteUrl),
+    SampleQueries = make_set(RemoteUrl, 10),
+    FirstEvent = min(TimeGenerated),
+    LastEvent = max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName
+| where QueryCount >= 5
+| extend
+    Severity = "High",
+    ThreatType = "Command and Control - DNS Tunneling Pattern",
+    MitreAttack = "T1071.004",
+    Confidence = iff(QueryCount >= 10, "High", "Medium")
+| project TimeGenerated = FirstEvent, DeviceName, InitiatingProcessFileName,
+    QueryCount, DistinctDomains, SampleQueries,
+    Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 11: Google Drive API Upload from Non-Browser Process
+// Purpose: Detect uploads to Google Drive from non-browser processes,
+//          a pattern used by TodoSwift for payload staging and exfiltration
+// Confidence: MEDIUM
+// MITRE ATT&CK: T1567.002
+// False Positives: Google Drive desktop sync client, backup utilities
+// Threshold: Single upload from unexpected process warrants investigation
+// ============================================================================
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "ConnectionSuccess"
+| where RemoteUrl has_any (
+    "googleapis.com/upload/drive",
+    "drive.google.com/uc?export=download",
+    "www.googleapis.com/drive",
+    "content.googleapis.com"
+)
+| where InitiatingProcessFileName !in (
+    "Google Chrome", "Safari", "Firefox",
+    "Google Drive", "Backup and Sync", "GoogleDriveFS",
+    "Microsoft Edge", "Brave Browser"
+)
+| extend
+    Severity = "High",
+    ThreatType = "Exfiltration - Cloud Storage Upload (Google Drive)",
+    MitreAttack = "T1567.002",
+    ThreatActor = "BlueNoroff TodoSwift",
+    Confidence = "Medium"
+| project TimeGenerated, DeviceName, RemoteUrl, RemoteIP,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, ThreatActor, Confidence
+
+
+// ============================================================================
+// QUERY 12: Archive Creation Followed by Network Upload (Exfil Pattern)
+// Purpose: Detect zip/tar archive creation in staging directories followed
+//          by network connections -- a data exfiltration pattern
+// Confidence: HIGH
+// MITRE ATT&CK: T1560.001, T1041
+// False Positives: Legitimate backup operations, software builds
+// Threshold: Archive creation + network within 5 minutes from same process
+// ============================================================================
+
+let ArchiveCreation = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith_cs ".zip" or FileName endswith_cs ".tar.gz"
+    or FileName endswith_cs ".7z" or FileName endswith_cs ".rar"
+| where FileName in~ ("out.zip", "system_report.zip", "data.zip", "export.zip")
+    or FolderPath has_any ("staging", "exfil", "upload", "temp")
+| project ArchiveTime = TimeGenerated, DeviceName, ArchivePath = FolderPath,
+    ArchiveName = FileName, InitiatingProcessFileName, FileSize;
+let NetworkUploads = DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "ConnectionSuccess"
+| where RemotePort in (443, 80, 8080, 8888)
+| project NetworkTime = TimeGenerated, DeviceName,
+    UploadProcess = InitiatingProcessFileName,
+    RemoteIP, RemoteUrl, RemotePort;
+ArchiveCreation
+| join kind=inner (NetworkUploads) on DeviceName
+| where NetworkTime between (ArchiveTime .. ArchiveTime + 5m)
+| where InitiatingProcessFileName == UploadProcess
+| extend
+    Severity = "Critical",
+    ThreatType = "Exfiltration - Archive Creation Followed by Network Upload",
+    MitreAttack = "T1560.001, T1041",
+    Confidence = "High"
+| project TimeGenerated = ArchiveTime, DeviceName, ArchiveName, ArchivePath,
+    FileSize, RemoteIP, RemoteUrl, RemotePort, InitiatingProcessFileName,
+    Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 13: AWS S3 Upload from Non-AWS Process
+// Purpose: Detect AWS S3 API calls from unexpected processes, targeting
+//          the macOS.NotLockBit exfiltration pattern with hardcoded creds
+// Confidence: HIGH
+// MITRE ATT&CK: T1567.002
+// False Positives: AWS CLI, SDKs in development environments
+// Threshold: Any S3 upload from non-development process is suspicious
+// ============================================================================
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "ConnectionSuccess"
+| where RemoteUrl has_any (
+    "s3.amazonaws.com",
+    "s3-us-east-1.amazonaws.com",
+    "s3.us-east-1.amazonaws.com",
+    ".s3.amazonaws.com"
+)
+| where InitiatingProcessFileName !in (
+    "aws", "aws-cli", "python3", "python",
+    "node", "java", "ruby", "go",
+    "Backup and Sync", "GoogleDriveFS",
+    "com.apple.backupd"
+)
+| extend
+    Severity = "Critical",
+    ThreatType = "Exfiltration - AWS S3 Upload from Unexpected Process",
+    MitreAttack = "T1567.002",
+    Confidence = "High",
+    Note = "macOS.NotLockBit uses hardcoded AWS credentials for exfiltration"
+| project TimeGenerated, DeviceName, RemoteUrl, RemoteIP,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, Confidence, Note
+
+
+// ============================================================================
+// QUERY 14: Quarantine Attribute Removal (Gatekeeper Bypass)
+// Purpose: Detect use of xattr to remove com.apple.quarantine attribute,
+//          enabling execution of downloaded files without Gatekeeper check
+// Confidence: HIGH
+// MITRE ATT&CK: T1553.001
+// False Positives: Developers clearing quarantine on known-safe downloads
+// Threshold: xattr -d com.apple.quarantine on executable files is critical
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName == "xattr" or ProcessCommandLine has "xattr"
+| where ProcessCommandLine has "com.apple.quarantine"
+| where ProcessCommandLine has_any ("-d", "-c", "--delete", "--clear")
+| extend
+    TargetPath = extract(@"-[dc]\s+com\.apple\.quarantine\s+(.+)$", 1, ProcessCommandLine),
+    Severity = "High",
+    ThreatType = "Defense Evasion - Gatekeeper Bypass via Quarantine Removal",
+    MitreAttack = "T1553.001",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, ProcessCommandLine, TargetPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    AccountName, Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 15: TCC Manipulation via tccutil
+// Purpose: Detect tccutil reset commands that remove TCC protections,
+//          allowing malware to access protected resources
+// Confidence: HIGH
+// MITRE ATT&CK: T1553.001
+// False Positives: IT admin scripts, MDM configuration resets
+// Threshold: Any tccutil reset from non-admin context
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName == "tccutil" or ProcessCommandLine has "tccutil"
+| where ProcessCommandLine has "reset"
+| where ProcessCommandLine has_any (
+    "AppleEvents",
+    "SystemPolicyAllFiles",
+    "Accessibility",
+    "ScreenCapture",
+    "Camera",
+    "Microphone",
+    "AddressBook"
+)
+| extend
+    ResetTarget = extract(@"reset\s+(\S+)", 1, ProcessCommandLine),
+    Severity = "High",
+    ThreatType = "Defense Evasion - TCC Protection Reset",
+    MitreAttack = "T1553.001",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, ProcessCommandLine, ResetTarget,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    AccountName, Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 16: Behavioral Correlation - BlueNoroff Multi-Stage Attack Chain
+// Purpose: High-confidence composite detection combining persistence,
+//          credential theft, and C2 indicators within a time window
+// Confidence: CRITICAL
+// MITRE ATT&CK: T1543.004, T1059.002, T1071.001
+// False Positives: Extremely low -- requires 3+ distinct attack indicators
+// Threshold: 3+ indicators within 30 minutes on same device
+// ============================================================================
+
+let PersistenceEvents = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileModified")
+| where (FolderPath has "Library/LaunchAgents" and FileName endswith ".plist")
+    or FileName == ".zshenv"
+| summarize PersistenceCount = count() by DeviceName, bin(TimeGenerated, 30m);
+let CredentialEvents = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where (FileName == "osascript" and ProcessCommandLine has "display dialog")
+    or (FileName == "security" and ProcessCommandLine has_any ("dump-keychain", "find-generic-password"))
+    or (FileName == "dscl" and ProcessCommandLine has "-authonly")
+| summarize CredentialCount = count() by DeviceName, bin(TimeGenerated, 30m);
+let C2Events = DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemoteUrl has_any ("linkpc.net", "dnx.capital", "swissborg.blog")
+    or (RemotePort == 8888 and ActionType == "ConnectionSuccess")
+| summarize C2Count = count() by DeviceName, bin(TimeGenerated, 30m);
+PersistenceEvents
+| join kind=inner (CredentialEvents) on DeviceName, TimeGenerated
+| join kind=inner (C2Events) on DeviceName, TimeGenerated
+| where PersistenceCount > 0 and CredentialCount > 0 and C2Count > 0
+| extend
+    TotalIndicators = PersistenceCount + CredentialCount + C2Count,
+    Severity = "Critical",
+    ThreatType = "Multi-Stage Attack - BlueNoroff Killchain Detected",
+    MitreAttack = "T1543.004, T1059.002, T1071.001",
+    ThreatActor = "BlueNoroff/Lazarus (DPRK)",
+    Confidence = "Critical"
+| project TimeGenerated, DeviceName,
+    PersistenceCount, CredentialCount, C2Count, TotalIndicators,
+    Severity, ThreatType, MitreAttack, ThreatActor, Confidence

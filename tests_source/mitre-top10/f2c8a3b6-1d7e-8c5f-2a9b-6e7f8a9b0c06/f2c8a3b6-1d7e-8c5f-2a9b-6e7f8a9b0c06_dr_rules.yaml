@@ -1,0 +1,381 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06
+# Test Name: LOLBIN Download Detection
+# MITRE ATT&CK: T1105 - Ingress Tool Transfer, T1059.001 - PowerShell
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect LOLBIN download technique behaviors (certutil,
+# bitsadmin, PowerShell download cradles, curl), NOT the F0RT1KA testing
+# framework. They will catch real-world attackers using these same native
+# Windows binaries for ingress tool transfer regardless of orchestration.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: Certutil URL Cache Download
+  # Purpose: Detect certutil.exe used with -urlcache flag to download files
+  #          from the internet. This is one of the most abused LOLBINs.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1105
+  # ==========================================================================
+  lolbin-certutil-urlcache-download:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # certutil.exe process
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\certutil.exe"
+        # URL cache download flags
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-urlcache"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/urlcache"
+        # Contains a URL
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "http://"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "https://"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "ftp://"
+
+    respond:
+      - action: report
+        name: LOLBIN - Certutil URL Cache Download
+        metadata:
+          severity: high
+          mitre_attack: T1105
+          confidence: high
+          description: certutil.exe used to download file via URL cache - common ingress tool transfer technique
+          investigation: Examine downloaded file, check parent process, review destination URL reputation
+
+      - action: task
+        command: history_dump
+        investigation: LOLBIN-Certutil-Download
+
+
+  # ==========================================================================
+  # RULE 2: Certutil Encode/Decode Operation
+  # Purpose: Detect certutil.exe encode/decode operations which are used
+  #          to bypass content inspection or decode downloaded payloads.
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1105
+  # ==========================================================================
+  lolbin-certutil-encode-decode:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\certutil.exe"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-encode"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/encode"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-decode"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/decode"
+
+    respond:
+      - action: report
+        name: LOLBIN - Certutil Encode/Decode Operation
+        metadata:
+          severity: medium
+          mitre_attack: T1105
+          confidence: medium
+          description: certutil.exe used for encode/decode operations - possible payload obfuscation or data staging
+          investigation: Examine source and destination files, check for recently downloaded content
+
+
+  # ==========================================================================
+  # RULE 3: BITSAdmin Transfer Download
+  # Purpose: Detect bitsadmin.exe with /transfer command used to download
+  #          files from external URLs. Excludes known SCCM/WSUS parents.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1105
+  # ==========================================================================
+  lolbin-bitsadmin-transfer-download:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\bitsadmin.exe"
+        # Transfer or job creation commands
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/transfer"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/addfile"
+        # Contains external URL
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "http://"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "https://"
+        # Exclude known legitimate SCCM/WSUS parent processes
+        - op: ends with
+          path: routing/parent/FILE_PATH
+          value: "\\ccmexec.exe"
+          not: true
+        - op: ends with
+          path: routing/parent/FILE_PATH
+          value: "\\svchost.exe"
+          not: true
+
+    respond:
+      - action: report
+        name: LOLBIN - BITSAdmin Transfer Download
+        metadata:
+          severity: high
+          mitre_attack: T1105
+          confidence: high
+          description: bitsadmin.exe used to download file via BITS transfer - common tool transfer technique
+          investigation: Examine download URL, check destination file, review parent process chain
+
+      - action: task
+        command: history_dump
+        investigation: LOLBIN-BITSAdmin-Download
+
+
+  # ==========================================================================
+  # RULE 4: PowerShell Download Cradle
+  # Purpose: Detect PowerShell executing with download-related cmdlets
+  #          (Invoke-WebRequest, WebClient.DownloadFile, Start-BitsTransfer).
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1059.001
+  # ==========================================================================
+  lolbin-powershell-download-cradle:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # PowerShell process
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\powershell.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\pwsh.exe"
+        # Download method in command line
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Invoke-WebRequest"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "WebClient"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DownloadFile"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DownloadString"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DownloadData"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Start-BitsTransfer"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Invoke-RestMethod"
+        # Contains a URL
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "http://"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "https://"
+
+    respond:
+      - action: report
+        name: LOLBIN - PowerShell Download Cradle
+        metadata:
+          severity: high
+          mitre_attack: T1059.001
+          confidence: high
+          description: PowerShell download cradle detected - common technique for ingress tool transfer and malware staging
+          investigation: Examine download URL, check output file path, review PowerShell execution policy and parent process
+
+
+  # ==========================================================================
+  # RULE 5: Network Connection from LOLBIN Process
+  # Purpose: Detect outbound network connections from LOLBIN executables
+  #          that should not typically make internet connections.
+  # Confidence: MEDIUM-HIGH
+  # MITRE ATT&CK: T1105
+  # ==========================================================================
+  lolbin-outbound-network-connection:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        # Connection from known download LOLBINs
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\certutil.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\bitsadmin.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\mshta.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\regsvr32.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\rundll32.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\cmstp.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\esentutl.exe"
+        # Destination is external (not loopback or private)
+        - op: is
+          path: event/DESTINATION_ADDRESS
+          value: "127.0.0.1"
+          not: true
+        - op: starts with
+          path: event/DESTINATION_ADDRESS
+          value: "10."
+          not: true
+        - op: starts with
+          path: event/DESTINATION_ADDRESS
+          value: "192.168."
+          not: true
+
+    respond:
+      - action: report
+        name: LOLBIN Outbound Network Connection
+        metadata:
+          severity: high
+          mitre_attack: T1105
+          confidence: medium
+          description: Known LOLBIN process making outbound network connection - possible ingress tool transfer
+          investigation: Examine destination IP/domain, review process command line, check for file download activity
+
+      - action: task
+        command: history_dump
+        investigation: LOLBIN-Network-Activity
+
+
+  # ==========================================================================
+  # RULE 6: File Created by LOLBIN Download Process
+  # Purpose: Detect file creation events initiated by LOLBIN processes,
+  #          indicating payload delivery to disk.
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1105
+  # ==========================================================================
+  lolbin-file-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # Created by a known download LOLBIN
+        - op: or
+          rules:
+            - op: ends with
+              path: routing/parent/FILE_PATH
+              value: "\\certutil.exe"
+            - op: ends with
+              path: routing/parent/FILE_PATH
+              value: "\\bitsadmin.exe"
+            - op: ends with
+              path: routing/parent/FILE_PATH
+              value: "\\curl.exe"
+        # Not in Windows Update or Defender paths
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\SoftwareDistribution\\"
+          not: true
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\WindowsUpdate\\"
+          not: true
+        # File has executable or suspicious extension
+        - op: or
+          rules:
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)\.(exe|dll|scr|bat|cmd|ps1|vbs|js|hta|msi)$
+            # Also detect files in non-standard locations regardless of extension
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\"
+
+    respond:
+      - action: report
+        name: File Created by LOLBIN Download Process
+        metadata:
+          severity: medium
+          mitre_attack: T1105
+          confidence: medium
+          description: LOLBIN process created a file on disk - possible payload delivery
+          investigation: Examine created file type and content, check if file is subsequently executed
+
+
+# ============================================================================
+# OUTPUTS CONFIGURATION
+# ============================================================================
+
+outputs:
+  lolbin-download-detections:
+    module: syslog
+    for: detections
+    host: siem.example.com
+    port: 514

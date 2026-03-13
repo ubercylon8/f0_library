@@ -1,0 +1,367 @@
+# ============================================================================
+# DEFENSE GUIDANCE: Sigma Detection Rules
+# ============================================================================
+# Test ID: f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06
+# Test Name: LOLBIN Download Detection
+# MITRE ATT&CK: T1105 - Ingress Tool Transfer, T1059.001 - PowerShell
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules detect the underlying LOLBIN download techniques,
+# NOT the F0RT1KA testing framework. They are portable across any SIEM
+# that supports Sigma rule conversion (Splunk, Sentinel, Elastic, QRadar).
+#
+# ============================================================================
+
+---
+title: Certutil URL Cache Download
+id: f2c8a3b6-sigma-001
+status: stable
+description: |
+    Detects certutil.exe being abused to download files from the internet using
+    the -urlcache flag. This is one of the most common LOLBIN download techniques
+    observed in real-world attacks, from commodity malware droppers to APT campaigns.
+    Certutil is a legitimate Microsoft-signed binary used for certificate management,
+    making it ideal for bypassing application whitelisting controls.
+references:
+    - https://attack.mitre.org/techniques/T1105/
+    - https://lolbas-project.github.io/lolbas/Binaries/Certutil/
+    - https://www.sentinelone.com/blog/malware-living-off-land-with-certutil/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command_and_control
+    - attack.t1105
+    - lolbin.certutil
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_binary:
+        Image|endswith: '\certutil.exe'
+    selection_urlcache:
+        CommandLine|contains:
+            - '-urlcache'
+            - '/urlcache'
+    selection_force:
+        CommandLine|contains:
+            - '-f '
+            - '/f '
+            - '-split'
+            - '/split'
+    selection_url:
+        CommandLine|contains:
+            - 'http://'
+            - 'https://'
+            - 'ftp://'
+    condition: selection_binary and selection_urlcache and selection_force and selection_url
+falsepositives:
+    - PKI administrators using certutil for legitimate certificate operations
+    - Automated certificate enrollment via ADCS
+level: high
+
+---
+title: BITSAdmin Transfer Download
+id: f2c8a3b6-sigma-002
+status: stable
+description: |
+    Detects bitsadmin.exe used with /transfer, /create, or /addfile commands to
+    download files from external URLs. BITS is a legitimate Windows service for
+    background file transfers, but bitsadmin abuse is a well-known LOLBIN download
+    technique that blends with normal Windows Update traffic patterns.
+references:
+    - https://attack.mitre.org/techniques/T1105/
+    - https://lolbas-project.github.io/lolbas/Binaries/Bitsadmin/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command_and_control
+    - attack.t1105
+    - attack.defense_evasion
+    - attack.persistence
+    - lolbin.bitsadmin
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_binary:
+        Image|endswith: '\bitsadmin.exe'
+    selection_transfer:
+        CommandLine|contains:
+            - '/transfer'
+            - '/create'
+            - '/addfile'
+    selection_url:
+        CommandLine|contains:
+            - 'http://'
+            - 'https://'
+    filter_parent_svchost:
+        ParentImage|endswith: '\svchost.exe'
+    filter_parent_ccm:
+        ParentImage|endswith: '\CcmExec.exe'
+    filter_url_microsoft:
+        CommandLine|contains:
+            - 'windowsupdate.com'
+            - 'microsoft.com'
+            - 'msftconnecttest.com'
+    condition: selection_binary and selection_transfer and selection_url and not (filter_parent_svchost or filter_parent_ccm or filter_url_microsoft)
+falsepositives:
+    - SCCM/Intune software distribution
+    - Custom enterprise BITS-based update mechanisms
+level: high
+
+---
+title: PowerShell Download Cradle Execution
+id: f2c8a3b6-sigma-003
+status: stable
+description: |
+    Detects PowerShell executing download cradle patterns including Invoke-WebRequest,
+    System.Net.WebClient.DownloadFile/DownloadString, Invoke-RestMethod, and
+    Start-BitsTransfer. These are the most prevalent PowerShell-based file download
+    techniques used by threat actors across all sophistication levels.
+references:
+    - https://attack.mitre.org/techniques/T1059/001/
+    - https://attack.mitre.org/techniques/T1105/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.execution
+    - attack.t1059.001
+    - attack.command_and_control
+    - attack.t1105
+    - lolbin.powershell
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_binary:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_download_method:
+        CommandLine|contains:
+            - 'Invoke-WebRequest'
+            - 'IWR '
+            - 'Invoke-RestMethod'
+            - 'IRM '
+            - 'Net.WebClient'
+            - 'System.Net.WebClient'
+            - 'DownloadFile'
+            - 'DownloadString'
+            - 'DownloadData'
+            - 'Start-BitsTransfer'
+            - 'Net.HttpWebRequest'
+            - 'WebRequest]::Create'
+    selection_url:
+        CommandLine|contains:
+            - 'http://'
+            - 'https://'
+    condition: selection_binary and selection_download_method and selection_url
+falsepositives:
+    - Legitimate admin scripts using Invoke-WebRequest for API interactions
+    - Software deployment scripts
+    - DSC configurations pulling remote resources
+    - Package managers (Chocolatey, NuGet) invoking PowerShell downloads
+level: high
+
+---
+title: Curl.exe Download to Suspicious Location
+id: f2c8a3b6-sigma-004
+status: stable
+description: |
+    Detects Windows native curl.exe (available since Windows 10 1803) being used
+    to download files with -o/--output flags. While curl is a legitimate utility,
+    attackers increasingly use it for payload delivery because it is present on
+    modern Windows systems by default and supports HTTPS without additional configuration.
+references:
+    - https://attack.mitre.org/techniques/T1105/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command_and_control
+    - attack.t1105
+    - lolbin.curl
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_binary:
+        Image|endswith: '\curl.exe'
+    selection_output:
+        CommandLine|contains:
+            - ' -o '
+            - ' --output '
+            - ' -O'
+            - ' --remote-name'
+    selection_url:
+        CommandLine|contains:
+            - 'http://'
+            - 'https://'
+    filter_program_files:
+        ParentImage|startswith:
+            - 'C:\Program Files\'
+            - 'C:\Program Files (x86)\'
+    condition: selection_binary and selection_output and selection_url and not filter_program_files
+falsepositives:
+    - Developer build scripts using curl
+    - CI/CD pipelines
+    - System administrators downloading packages
+level: medium
+
+---
+title: Multiple LOLBIN Download Methods in Short Timeframe
+id: f2c8a3b6-sigma-005
+status: stable
+description: |
+    Detects multiple distinct LOLBIN download binaries executed on the same host
+    within a short time window. Using multiple download methods in rapid succession
+    is a strong behavioral indicator of attacker toolkits systematically testing
+    download vectors or automated attack frameworks orchestrating payload delivery.
+    This pattern has very low false positive rates in production environments.
+references:
+    - https://attack.mitre.org/techniques/T1105/
+    - https://attack.mitre.org/techniques/T1059/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command_and_control
+    - attack.t1105
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_certutil:
+        Image|endswith: '\certutil.exe'
+        CommandLine|contains:
+            - '-urlcache'
+            - '/urlcache'
+    selection_bitsadmin:
+        Image|endswith: '\bitsadmin.exe'
+        CommandLine|contains:
+            - '/transfer'
+            - '/addfile'
+    selection_powershell:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|contains:
+            - 'Invoke-WebRequest'
+            - 'WebClient'
+            - 'DownloadFile'
+            - 'DownloadString'
+    selection_curl:
+        Image|endswith: '\curl.exe'
+        CommandLine|contains:
+            - '-o '
+            - '--output'
+    # Temporal correlation requires SIEM-side aggregation
+    # This rule detects individual components; correlate at SIEM level
+    # using a 10-minute window on the same host for 2+ distinct binaries
+    condition: 1 of selection_*
+    # NOTE: This rule should be used with SIEM-level correlation/aggregation
+    # to group events by host within a 10-minute window and alert when
+    # 2+ distinct selection_* groups are triggered
+falsepositives:
+    - Very low - multiple distinct LOLBIN downloads in rapid succession is rare
+level: critical
+
+---
+title: LOLBIN Process Outbound Network Connection
+id: f2c8a3b6-sigma-006
+status: stable
+description: |
+    Detects outbound network connections initiated by LOLBIN processes that should
+    not normally communicate with external hosts. Certutil, bitsadmin, mshta,
+    regsvr32, and similar LOLBINs making external connections is a strong indicator
+    of abuse for ingress tool transfer or proxy execution attacks.
+references:
+    - https://attack.mitre.org/techniques/T1105/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command_and_control
+    - attack.t1105
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    selection_process:
+        Image|endswith:
+            - '\certutil.exe'
+            - '\bitsadmin.exe'
+            - '\mshta.exe'
+            - '\regsvr32.exe'
+            - '\rundll32.exe'
+            - '\cmstp.exe'
+            - '\esentutl.exe'
+    selection_external:
+        Initiated: 'true'
+    filter_internal:
+        DestinationIp|startswith:
+            - '10.'
+            - '172.16.'
+            - '172.17.'
+            - '172.18.'
+            - '172.19.'
+            - '172.20.'
+            - '172.21.'
+            - '172.22.'
+            - '172.23.'
+            - '172.24.'
+            - '172.25.'
+            - '172.26.'
+            - '172.27.'
+            - '172.28.'
+            - '172.29.'
+            - '172.30.'
+            - '172.31.'
+            - '192.168.'
+            - '127.'
+    condition: selection_process and selection_external and not filter_internal
+falsepositives:
+    - Certutil OCSP/CRL validation
+    - Legitimate BITS transfers managed by enterprise tools
+level: high
+
+---
+title: Certutil Encode or Decode File Operation
+id: f2c8a3b6-sigma-007
+status: stable
+description: |
+    Detects certutil.exe being used to encode or decode files, which is commonly
+    used as a secondary step after LOLBIN downloads. Attackers encode payloads in
+    Base64 to evade content inspection, then decode them on the target using certutil.
+    This technique is also used for data exfiltration by encoding sensitive files.
+references:
+    - https://attack.mitre.org/techniques/T1140/
+    - https://lolbas-project.github.io/lolbas/Binaries/Certutil/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1140
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_binary:
+        Image|endswith: '\certutil.exe'
+    selection_encode:
+        CommandLine|contains:
+            - '-encode'
+            - '/encode'
+            - '-decode'
+            - '/decode'
+    filter_parent:
+        ParentImage|endswith:
+            - '\svchost.exe'
+            - '\services.exe'
+    condition: selection_binary and selection_encode and not filter_parent
+falsepositives:
+    - PKI certificate encoding operations
+    - Automated certificate management scripts
+level: medium

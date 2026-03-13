@@ -1,0 +1,292 @@
+// ============================================================================
+// DEFENSE GUIDANCE: KQL Detection Queries
+// ============================================================================
+// Test ID: f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06
+// Test Name: LOLBIN Download Detection
+// MITRE ATT&CK: T1105 - Ingress Tool Transfer, T1059.001 - PowerShell
+// Created: 2026-03-13
+// Author: F0RT1KA Defense Guidance Builder
+// ============================================================================
+//
+// TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+// These detections target the underlying LOLBIN download techniques,
+// NOT the F0RT1KA testing framework. They will catch real-world attackers
+// using certutil, bitsadmin, PowerShell, and curl to download payloads
+// regardless of what tooling orchestrates the download.
+//
+// ============================================================================
+
+
+// ============================================================================
+// QUERY 1: Certutil URL Cache Download Activity
+// Purpose: Detect certutil.exe used for downloading files from the internet
+// Confidence: HIGH
+// False Positives: Legitimate PKI administrators using certutil for cert ops
+// Threshold: Any single occurrence warrants investigation
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "certutil.exe"
+| where ProcessCommandLine has_any ("-urlcache", "-verifyctl", "-encode", "-decode")
+| where ProcessCommandLine has_any ("http://", "https://", "ftp://")
+| extend
+    DownloadURL = extract(@"(https?://[^\s""']+)", 1, ProcessCommandLine),
+    OutputPath = extract(@"-f\s+([^\s""']+)", 1, ProcessCommandLine)
+| extend
+    Severity = "High",
+    ThreatType = "LOLBIN Download - Certutil URL Cache",
+    MitreAttack = "T1105",
+    Confidence = "High",
+    TestID = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName,
+    FileName, ProcessCommandLine, DownloadURL, OutputPath,
+    AccountName, Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 2: BITSAdmin Transfer Download Activity
+// Purpose: Detect bitsadmin.exe used to download files via BITS jobs
+// Confidence: HIGH
+// False Positives: SCCM/WSUS operations, legitimate software update tools
+// Threshold: Any occurrence from non-SCCM parent process
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "bitsadmin.exe"
+| where ProcessCommandLine has "/transfer"
+| where ProcessCommandLine has_any ("http://", "https://", "ftp://")
+| extend
+    JobName = extract(@"/transfer\s+(\S+)", 1, ProcessCommandLine),
+    DownloadURL = extract(@"(https?://[^\s""']+)", 1, ProcessCommandLine),
+    OutputPath = extract(@"\s([A-Za-z]:\\[^\s""']+)\s*$", 1, ProcessCommandLine)
+| where InitiatingProcessFileName !in~ ("svchost.exe", "ccmexec.exe", "wuauclt.exe")
+| extend
+    Severity = "High",
+    ThreatType = "LOLBIN Download - BITSAdmin Transfer",
+    MitreAttack = "T1105",
+    Confidence = "High",
+    TestID = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName,
+    FileName, ProcessCommandLine, JobName, DownloadURL, OutputPath,
+    AccountName, Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 3: PowerShell Download Cradle Detection
+// Purpose: Detect PowerShell Invoke-WebRequest, WebClient, and other
+//          download methods used to retrieve files from the internet
+// Confidence: HIGH
+// False Positives: Legitimate admin scripts, software deployment tools
+// Threshold: Correlate with parent process and user context
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("powershell.exe", "pwsh.exe")
+| where ProcessCommandLine has_any (
+    "Invoke-WebRequest", "IWR", "wget",
+    "Invoke-RestMethod", "IRM", "curl",
+    "Net.WebClient", "WebClient",
+    "DownloadFile", "DownloadString", "DownloadData",
+    "Start-BitsTransfer",
+    "BitsTransfer",
+    "Net.HttpWebRequest",
+    "[System.Net.WebRequest]"
+)
+| where ProcessCommandLine has_any ("http://", "https://", "ftp://")
+| extend
+    DownloadMethod = case(
+        ProcessCommandLine has "Invoke-WebRequest" or ProcessCommandLine has "IWR", "Invoke-WebRequest",
+        ProcessCommandLine has "Invoke-RestMethod" or ProcessCommandLine has "IRM", "Invoke-RestMethod",
+        ProcessCommandLine has "DownloadFile", "WebClient.DownloadFile",
+        ProcessCommandLine has "DownloadString", "WebClient.DownloadString",
+        ProcessCommandLine has "DownloadData", "WebClient.DownloadData",
+        ProcessCommandLine has "Start-BitsTransfer", "Start-BitsTransfer",
+        "Other"
+    ),
+    DownloadURL = extract(@"(https?://[^\s""']+)", 1, ProcessCommandLine)
+| extend
+    Severity = "High",
+    ThreatType = "LOLBIN Download - PowerShell Download Cradle",
+    MitreAttack = "T1059.001",
+    Confidence = "High",
+    TestID = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName,
+    FileName, ProcessCommandLine, DownloadMethod, DownloadURL,
+    AccountName, Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 4: Curl.exe Download to Suspicious Locations
+// Purpose: Detect Windows native curl.exe downloading files to non-standard
+//          directories outside of typical browser download locations
+// Confidence: MEDIUM
+// False Positives: Developer tooling, CI/CD pipelines, legitimate admin scripts
+// Threshold: Flag downloads to temp dirs, writable dirs, or system paths
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "curl.exe"
+| where ProcessCommandLine has_any ("-o", "--output", "-O", "--remote-name")
+| where ProcessCommandLine has_any ("http://", "https://")
+| extend
+    DownloadURL = extract(@"(https?://[^\s""']+)", 1, ProcessCommandLine),
+    OutputPath = extract(@"(?:-o|--output)\s+([^\s""']+)", 1, ProcessCommandLine)
+| where OutputPath !startswith "C:\\Users\\" or OutputPath has_any ("Temp", "AppData", "Public")
+| extend
+    Severity = "Medium",
+    ThreatType = "LOLBIN Download - Curl to Suspicious Path",
+    MitreAttack = "T1105",
+    Confidence = "Medium",
+    TestID = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName,
+    FileName, ProcessCommandLine, DownloadURL, OutputPath,
+    AccountName, Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 5: Network Connections from LOLBIN Processes
+// Purpose: Detect outbound network connections originating from LOLBINs
+//          that are not expected to make internet connections
+// Confidence: MEDIUM-HIGH
+// False Positives: certutil certificate validation, BITS Windows Update
+// Threshold: External connections from certutil/bitsadmin are always suspicious
+// ============================================================================
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where InitiatingProcessFileName in~ (
+    "certutil.exe", "bitsadmin.exe", "mshta.exe",
+    "regsvr32.exe", "rundll32.exe", "cmstp.exe",
+    "esentutl.exe", "expand.exe", "extrac32.exe",
+    "findstr.exe", "hh.exe", "ieexec.exe",
+    "makecab.exe", "replace.exe", "xwizard.exe"
+)
+| where RemoteIPType == "Public"
+| where ActionType in ("ConnectionSuccess", "ConnectionRequest")
+| extend
+    Severity = "High",
+    ThreatType = "LOLBIN Outbound Network Connection",
+    MitreAttack = "T1105",
+    Confidence = "Medium-High",
+    TestID = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName,
+    InitiatingProcessCommandLine, RemoteIP, RemotePort, RemoteUrl,
+    Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 6: BITS Job Creation for External Downloads
+// Purpose: Detect BITS jobs created for downloading files from external URLs,
+//          a common persistence and download technique
+// Confidence: HIGH
+// False Positives: Windows Update, SCCM/Intune, legitimate BITS consumers
+// Threshold: Exclude known Microsoft update URLs
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "bitsadmin.exe"
+| where ProcessCommandLine has_any ("/create", "/addfile", "/transfer", "/resume")
+| where ProcessCommandLine has_any ("http://", "https://")
+| where ProcessCommandLine !has "windowsupdate.com"
+    and ProcessCommandLine !has "microsoft.com"
+    and ProcessCommandLine !has "msftconnecttest.com"
+| extend
+    BITSAction = case(
+        ProcessCommandLine has "/create", "JobCreated",
+        ProcessCommandLine has "/addfile", "FileAdded",
+        ProcessCommandLine has "/transfer", "TransferStarted",
+        ProcessCommandLine has "/resume", "JobResumed",
+        "Unknown"
+    ),
+    DownloadURL = extract(@"(https?://[^\s""']+)", 1, ProcessCommandLine)
+| extend
+    Severity = "High",
+    ThreatType = "BITS Job External Download",
+    MitreAttack = "T1105",
+    Confidence = "High",
+    TestID = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName,
+    FileName, ProcessCommandLine, BITSAction, DownloadURL,
+    AccountName, Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 7: Files Created by LOLBIN Download Processes
+// Purpose: Detect file creation events where the creating process is a
+//          known LOLBIN used for downloading, indicating payload delivery
+// Confidence: MEDIUM
+// False Positives: Legitimate certutil certificate exports, BITS updates
+// Threshold: Correlate with parent process and file location
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where InitiatingProcessFileName in~ (
+    "certutil.exe", "bitsadmin.exe", "curl.exe",
+    "powershell.exe", "pwsh.exe"
+)
+| where FolderPath !startswith "C:\\Windows\\SoftwareDistribution"
+    and FolderPath !startswith "C:\\Windows\\Temp\\MpCmdRun"
+    and FolderPath !has "WindowsUpdate"
+| extend
+    FileExtension = tostring(split(FileName, ".")[-1]),
+    IsExecutable = FileName has_any (".exe", ".dll", ".scr", ".bat", ".cmd",
+        ".ps1", ".vbs", ".js", ".hta", ".msi", ".msp")
+| extend
+    Severity = iff(IsExecutable, "Critical", "Medium"),
+    ThreatType = "File Created by LOLBIN Download Process",
+    MitreAttack = "T1105",
+    Confidence = "Medium",
+    TestID = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName,
+    InitiatingProcessCommandLine, FileName, FolderPath,
+    FileExtension, IsExecutable, FileSize,
+    Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 8: Behavioral Correlation - Multiple LOLBIN Downloads in Sequence
+// Purpose: HIGH CONFIDENCE - Detect multiple distinct LOLBIN download
+//          binaries used in rapid succession, indicating automated tooling
+//          or attacker enumeration of download methods
+// Confidence: HIGH
+// False Positives: Very low - multiple LOLBINs downloading in sequence is rare
+// Threshold: 2+ distinct LOLBINs downloading within 10 minutes
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("certutil.exe", "bitsadmin.exe", "curl.exe",
+    "powershell.exe", "pwsh.exe")
+| where ProcessCommandLine has_any (
+    "-urlcache", "/transfer", "Invoke-WebRequest", "IWR",
+    "WebClient", "DownloadFile", "DownloadString",
+    "-o ", "--output", "Start-BitsTransfer",
+    "Invoke-RestMethod", "IRM"
+)
+| where ProcessCommandLine has_any ("http://", "https://")
+| summarize
+    DistinctBinaries = dcount(FileName),
+    BinaryList = make_set(FileName),
+    DownloadCount = count(),
+    CommandLines = make_set(ProcessCommandLine),
+    FirstEvent = min(TimeGenerated),
+    LastEvent = max(TimeGenerated)
+    by DeviceName, AccountName, bin(TimeGenerated, 10m)
+| where DistinctBinaries >= 2
+| extend
+    TimeSpan = LastEvent - FirstEvent,
+    Severity = "Critical",
+    ThreatType = "Multiple LOLBIN Downloads in Sequence - Possible Tool Transfer",
+    MitreAttack = "T1105",
+    Confidence = "High",
+    TestID = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
+| project FirstEvent, LastEvent, DeviceName, AccountName,
+    DistinctBinaries, BinaryList, DownloadCount, TimeSpan,
+    Severity, ThreatType, MitreAttack, Confidence

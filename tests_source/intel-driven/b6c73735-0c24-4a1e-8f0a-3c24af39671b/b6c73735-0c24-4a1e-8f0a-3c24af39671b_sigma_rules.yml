@@ -1,0 +1,550 @@
+# ============================================================
+# Sigma Rules: MDE Authentication Bypass Command Interception
+# Test ID: b6c73735-0c24-4a1e-8f0a-3c24af39671b
+# MITRE ATT&CK: T1562.001, T1014, T1090.003, T1140
+# Generated: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================
+# These rules detect the underlying attack techniques, NOT the
+# testing framework. They will trigger on any tool that performs
+# MDE authentication bypass, certificate pinning bypass, or
+# isolation status spoofing behaviors.
+# ============================================================
+
+title: MDE Registry Identifier Extraction by Unauthorized Process
+id: b6c73735-sigma-001
+status: stable
+description: |
+  Detects non-MDE processes accessing the Windows Advanced Threat Protection
+  registry keys to read Machine ID, Tenant ID, Sense ID, or Org ID. Attackers
+  extract these identifiers to craft unauthenticated requests to MDE cloud
+  communication endpoints, enabling command interception and isolation spoofing.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+  - attack.t1012
+logsource:
+  category: registry_access
+  product: windows
+detection:
+  selection_key:
+    TargetObject|contains:
+      - '\SOFTWARE\Microsoft\Windows Advanced Threat Protection'
+      - '\SOFTWARE\Microsoft\Windows Defender Advanced Threat Protection'
+      - '\SOFTWARE\Policies\Microsoft\Windows Advanced Threat Protection'
+  selection_value:
+    TargetObject|endswith:
+      - '\MachineId'
+      - '\SenseId'
+      - '\OrgId'
+      - '\TenantId'
+      - '\OnboardingState'
+  filter_legitimate:
+    Image|endswith:
+      - '\MsSense.exe'
+      - '\SenseIR.exe'
+      - '\MsMpEng.exe'
+      - '\services.exe'
+      - '\svchost.exe'
+      - '\SecurityHealthService.exe'
+  condition: selection_key and selection_value and not filter_legitimate
+falsepositives:
+  - Endpoint management platforms querying MDE onboarding state
+  - IT asset inventory scripts reading machine identifiers
+  - SCCM or Intune configuration management
+level: critical
+
+---
+
+title: Fake MDE Sensor Process Execution from Non-Standard Path
+id: b6c73735-sigma-002
+status: stable
+description: |
+  Detects execution of processes named MsSense.exe, SenseIR.exe, or MsMpEng.exe
+  from locations outside their legitimate installation directories. Adversaries
+  deploy fake MDE sensor binaries to impersonate the legitimate service for
+  command interception or to bypass trust relationships with MDE cloud endpoints.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1036/005/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+  - attack.t1036.005
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\MsSense.exe'
+      - '\SenseIR.exe'
+      - '\MsMpEng.exe'
+  filter_legitimate_paths:
+    Image|contains:
+      - '\Program Files\Windows Defender Advanced Threat Protection\'
+      - '\Program Files\Windows Defender\'
+      - '\ProgramData\Microsoft\Windows Defender\Platform\'
+      - '\Windows\System32\'
+      - '\Program Files\Microsoft Security Client\'
+  condition: selection and not filter_legitimate_paths
+falsepositives:
+  - Very rare - legitimate MDE binaries only run from specific Windows Defender directories
+level: critical
+
+---
+
+title: Certificate Validation Function Memory Manipulation
+id: b6c73735-sigma-003
+status: stable
+description: |
+  Detects processes that call VirtualProtectEx with PAGE_EXECUTE_READWRITE
+  targeting crypt32.dll address space, which is indicative of certificate
+  pinning bypass attacks. Attackers patch CertVerifyCertificateChainPolicy
+  to always return TRUE, disabling certificate validation for MDE cloud
+  communication interception.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1014/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense_evasion
+  - attack.t1014
+  - attack.t1562.001
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection_api:
+    CallTrace|contains:
+      - 'crypt32.dll'
+  selection_access:
+    GrantedAccess|contains:
+      - '0x1F0FFF'
+      - '0x0038'
+  filter_system:
+    SourceImage|endswith:
+      - '\MsSense.exe'
+      - '\MsMpEng.exe'
+      - '\services.exe'
+      - '\lsass.exe'
+  condition: selection_api and selection_access and not filter_system
+falsepositives:
+  - Legitimate debuggers during software development
+  - Security tools performing memory integrity checks
+level: critical
+
+---
+
+title: SeDebugPrivilege Acquisition by Non-Standard Process
+id: b6c73735-sigma-004
+status: stable
+description: |
+  Detects processes enabling SeDebugPrivilege that are not standard debugging
+  tools or system services. This privilege is required for cross-process memory
+  manipulation used in certificate pinning bypass attacks where CRYPT32.dll
+  functions are patched in memory.
+references:
+  - https://attack.mitre.org/techniques/T1134/002/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.privilege_escalation
+  - attack.defense_evasion
+  - attack.t1134.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    EventID: 4703
+    EnabledPrivilegeList|contains: 'SeDebugPrivilege'
+  filter_debuggers:
+    ProcessName|endswith:
+      - '\devenv.exe'
+      - '\windbg.exe'
+      - '\ollydbg.exe'
+      - '\x64dbg.exe'
+      - '\x32dbg.exe'
+      - '\ida.exe'
+      - '\ida64.exe'
+      - '\taskmgr.exe'
+  filter_security:
+    ProcessName|endswith:
+      - '\MsMpEng.exe'
+      - '\MsSense.exe'
+      - '\services.exe'
+      - '\svchost.exe'
+      - '\lsass.exe'
+      - '\csrss.exe'
+  condition: selection and not filter_debuggers and not filter_security
+falsepositives:
+  - Process dump utilities (procdump, task manager)
+  - Some legitimate monitoring tools
+level: high
+
+---
+
+title: DNS Resolution of MDE Cloud Gateway by Non-MDE Process
+id: b6c73735-sigma-005
+status: stable
+description: |
+  Detects DNS queries resolving MDE cloud gateway hostnames
+  (winatp-gw-*.microsoft.com) from processes other than the legitimate
+  MDE sensor service. These endpoints handle EDR commands, Live Response
+  sessions, and device isolation - unauthorized access indicates a potential
+  authentication bypass attack.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1071/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+  - attack.t1090.003
+logsource:
+  category: dns_query
+  product: windows
+detection:
+  selection:
+    QueryName|contains:
+      - 'winatp-gw-eus.microsoft.com'
+      - 'winatp-gw-weu.microsoft.com'
+      - 'winatp-gw-cus.microsoft.com'
+      - 'winatp-gw-neu.microsoft.com'
+  filter_mde_services:
+    Image|endswith:
+      - '\MsSense.exe'
+      - '\SenseIR.exe'
+      - '\MsMpEng.exe'
+  condition: selection and not filter_mde_services
+falsepositives:
+  - MDE connectivity diagnostic tools
+  - Network monitoring tools testing MDE cloud reachability
+level: critical
+
+---
+
+title: PowerShell Script Targeting MDE Cloud Infrastructure
+id: b6c73735-sigma-006
+status: stable
+description: |
+  Detects PowerShell processes with command-line arguments referencing MDE
+  cloud gateway hostnames, EDR command API paths, or Live Response endpoints.
+  Legitimate MDE cloud communications are handled by native service binaries,
+  not PowerShell scripts. This pattern indicates MDE command interception or
+  authentication bypass activity.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1059/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.defense_evasion
+  - attack.t1059.001
+  - attack.t1562.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_ps:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_mde_keywords:
+    CommandLine|contains:
+      - 'winatp-gw'
+      - '/edr/commands/'
+      - '/senseir/v1/'
+      - 'Intercept-MDECommand'
+      - 'CloudLR'
+      - 'Generate-UnauthorizedCloudLRToken'
+      - 'Get-MDEConfigWithoutAuth'
+  condition: selection_ps and selection_mde_keywords
+falsepositives:
+  - Authorized MDE troubleshooting scripts used by Microsoft support
+  - Documented security assessment tools with explicit authorization
+level: critical
+
+---
+
+title: Network Connection to MDE Endpoint from Non-Sensor Process
+id: b6c73735-sigma-007
+status: stable
+description: |
+  Detects network connections to MDE cloud gateway endpoints from processes
+  that are not the legitimate MDE sensor (MsSense.exe) or Live Response
+  service (SenseIR.exe). Any non-MDE process communicating with these
+  endpoints is a strong indicator of authentication bypass exploitation.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1090/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command_and_control
+  - attack.t1090.003
+  - attack.t1071.001
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    DestinationHostname|contains:
+      - 'winatp-gw-eus.microsoft.com'
+      - 'winatp-gw-weu.microsoft.com'
+      - 'winatp-gw-cus.microsoft.com'
+      - 'winatp-gw-neu.microsoft.com'
+    DestinationPort: 443
+  filter_mde:
+    Image|endswith:
+      - '\MsSense.exe'
+      - '\SenseIR.exe'
+      - '\MsMpEng.exe'
+  condition: selection and not filter_mde
+falsepositives:
+  - MDE connectivity checker tools
+level: critical
+
+---
+
+title: Isolation Status Spoofing Artifact Creation
+id: b6c73735-sigma-008
+status: stable
+description: |
+  Detects creation of JSON files containing isolation spoofing indicators.
+  In MDE authentication bypass attacks, adversaries intercept device isolation
+  commands and create files containing spoofed success responses, causing the
+  security portal to display the device as isolated while it remains connected.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+  - attack.impact
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_spoof_files:
+    TargetFilename|endswith:
+      - '\isolation_response.json'
+      - '\spoof_result.json'
+      - '\spoofer_report.json'
+      - '\cloudlr_token.json'
+  selection_content_pattern:
+    TargetFilename|endswith: '.json'
+    TargetFilename|contains:
+      - 'intercepted_commands'
+      - 'mde_identifiers'
+  condition: selection_spoof_files or selection_content_pattern
+falsepositives:
+  - None expected - these file names are inherently tied to MDE exploitation activity
+level: critical
+
+---
+
+title: Unauthorized MDE Configuration Directory Access
+id: b6c73735-sigma-009
+status: stable
+description: |
+  Detects non-MDE processes accessing files within MDE configuration
+  directories. Configuration files contain detection rules, exclusion lists,
+  certificate pins, and monitored process names. Unauthorized access enables
+  attackers to understand and evade security controls.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1005/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.collection
+  - attack.defense_evasion
+  - attack.t1005
+  - attack.t1140
+logsource:
+  category: file_access
+  product: windows
+detection:
+  selection_paths:
+    TargetFilename|contains:
+      - '\ProgramData\Microsoft\Windows Defender Advanced Threat Protection\Config'
+      - '\Program Files\Windows Defender Advanced Threat Protection\'
+  selection_extensions:
+    TargetFilename|endswith:
+      - '.json'
+      - '.xml'
+      - '.config'
+  filter_legitimate:
+    Image|endswith:
+      - '\MsSense.exe'
+      - '\SenseIR.exe'
+      - '\MsMpEng.exe'
+      - '\TrustedInstaller.exe'
+      - '\svchost.exe'
+      - '\services.exe'
+  condition: selection_paths and selection_extensions and not filter_legitimate
+falsepositives:
+  - Authorized security audit tools
+  - Endpoint management platforms performing configuration backups
+level: high
+
+---
+
+title: Suspicious User-Agent String Impersonating MDE Sensor
+id: b6c73735-sigma-010
+status: stable
+description: |
+  Detects HTTP requests using the User-Agent string 'Microsoft-SenseIR/1.0'
+  or similar MDE sensor user-agent patterns from processes that are not the
+  legitimate MDE sensor service. Attackers use this user-agent to impersonate
+  MDE communications when exploiting the authentication bypass vulnerability.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1071/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+  - attack.t1036.005
+logsource:
+  category: proxy
+  product: windows
+detection:
+  selection:
+    c-useragent|contains:
+      - 'Microsoft-SenseIR'
+      - 'Microsoft-MsSense'
+  filter_mde_process:
+    cs-host|endswith: '.microsoft.com'
+    Image|endswith:
+      - '\MsSense.exe'
+      - '\SenseIR.exe'
+  condition: selection and not filter_mde_process
+falsepositives:
+  - None expected - this user-agent string is specific to MDE services
+level: critical
+
+---
+
+title: Crypt32.dll Loading Followed by Memory Protection Change
+id: b6c73735-sigma-011
+status: stable
+description: |
+  Detects a process loading crypt32.dll and then modifying memory protections,
+  which is the behavioral signature of certificate pinning bypass through
+  in-memory patching. The attacker loads the DLL to locate
+  CertVerifyCertificateChainPolicy, then changes page protection to
+  PAGE_EXECUTE_READWRITE to write bypass opcodes (mov eax, 1; ret).
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1014/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense_evasion
+  - attack.t1014
+  - attack.t1562.001
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection:
+    ImageLoaded|endswith: '\crypt32.dll'
+  filter_system:
+    Image|endswith:
+      - '\svchost.exe'
+      - '\lsass.exe'
+      - '\services.exe'
+      - '\csrss.exe'
+      - '\System'
+      - '\MsSense.exe'
+      - '\MsMpEng.exe'
+    Image|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+      - 'C:\Program Files\Windows Defender'
+  filter_common_apps:
+    Image|endswith:
+      - '\chrome.exe'
+      - '\firefox.exe'
+      - '\msedge.exe'
+      - '\iexplore.exe'
+      - '\outlook.exe'
+      - '\Teams.exe'
+  condition: selection and not filter_system and not filter_common_apps
+falsepositives:
+  - Applications that legitimately use certificate validation APIs
+  - Note: This rule has higher false positive rate; use in correlation with other rules
+level: medium
+
+---
+
+title: MDE Authentication Bypass Attack Chain Correlation
+id: b6c73735-sigma-012
+status: stable
+description: |
+  Correlation rule that identifies the complete MDE authentication bypass
+  attack chain. Triggers when multiple indicators are observed from the
+  same host within a short time window: MDE registry access + MDE endpoint
+  network connections + PowerShell command interception. This is the
+  highest-confidence detection for this attack pattern.
+references:
+  - https://www.infoguard.ch/en/blog/microsoft-defender-for-endpoint-authentication-bypass
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.defense_evasion
+  - attack.command_and_control
+  - attack.t1562.001
+  - attack.t1014
+  - attack.t1090.003
+  - attack.t1140
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  # Indicator 1: Process accessing MDE registry keys
+  indicator_registry:
+    CommandLine|contains:
+      - 'Windows Advanced Threat Protection'
+      - 'MachineId'
+      - 'SenseId'
+      - 'OrgId'
+  # Indicator 2: Network communication to MDE endpoints
+  indicator_network:
+    CommandLine|contains:
+      - 'winatp-gw'
+      - '/edr/commands/cnc'
+      - '/senseir/v1/'
+  # Indicator 3: Command interception patterns
+  indicator_interception:
+    CommandLine|contains:
+      - 'Intercept-MDECommand'
+      - 'isolation_spoof'
+      - 'CloudLR'
+      - 'Generate-Unauthorized'
+      - 'Get-MDEConfigWithoutAuth'
+  condition: indicator_registry or indicator_network or indicator_interception
+  # Note: In a SIEM with native correlation, combine these as
+  # temporal correlation within 60 minutes on the same host.
+  # This simplified version triggers on any single indicator
+  # for maximum detection coverage. Tune thresholds in your SIEM.
+falsepositives:
+  - Authorized security assessments with documented approval
+level: critical

@@ -1,0 +1,764 @@
+# ============================================================
+# Perfctl/Symbiote LD_PRELOAD Hijacking - Sigma Detection Rules
+# Test ID: 54a0bd24-d75a-4d89-8dce-c381d932ca97
+# MITRE ATT&CK: T1574.006, T1003.008, T1548.001, T1014, T1059.004
+# Threat Actor: Perfctl / Symbiote / Auto-Color / WolfsBane (Gelsemium)
+# Generated: 2026-03-13
+# Sigma Specification: 2.0
+# ============================================================
+# FOCUS: Technique behaviors only - no test framework artifacts
+# These rules detect real-world LD_PRELOAD hijacking, PAM credential
+# hooking, userland rootkit, SUID abuse, and XOR-encrypted C2 config
+# techniques used by Perfctl, Symbiote, Auto-Color, and WolfsBane.
+# ============================================================
+
+# ============================================================
+# Rule 1: LD_PRELOAD Persistence File Write (T1574.006)
+# ============================================================
+title: LD_PRELOAD Persistence File Modification - /etc/ld.preload or /etc/ld.so.preload
+id: 54a0bd24-sigma-001
+status: experimental
+description: |
+    Detects write operations to /etc/ld.preload or /etc/ld.so.preload, the
+    primary persistence mechanism for LD_PRELOAD-based rootkits. Auto-Color
+    writes a malicious library path to /etc/ld.preload, while WolfsBane
+    (Gelsemium APT) uses /etc/ld.so.preload with a modified BEURK rootkit.
+    Perfctl uses both mechanisms as fallback persistence. These files are
+    almost never legitimately modified on production systems.
+references:
+    - https://attack.mitre.org/techniques/T1574/006/
+    - https://unit42.paloaltonetworks.com/
+    - https://www.welivesecurity.com/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.defense_evasion
+    - attack.t1574.006
+logsource:
+    category: file_create
+    product: linux
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '/etc/ld.preload'
+            - '/etc/ld.so.preload'
+    condition: selection
+falsepositives:
+    - Extremely rare - these files are almost never used in legitimate configurations
+    - Some custom application deployment tooling may write to ld.so.preload temporarily
+level: critical
+
+---
+
+# ============================================================
+# Rule 2: Suspicious Shared Library Creation in System Dirs (T1574.006)
+# ============================================================
+title: Suspicious Shared Library Drop in System Library Directory
+id: 54a0bd24-sigma-002
+status: experimental
+description: |
+    Detects creation of shared library (.so) files in system library
+    directories (/lib/, /usr/lib/, /dev/shm/, /tmp/, etc.) by non-package
+    manager processes. Perfctl drops libgcwrap.so into /lib/x86_64-linux-gnu/,
+    Symbiote deploys its rootkit .so to system paths, and Auto-Color installs
+    malicious libraries referenced by /etc/ld.preload.
+references:
+    - https://attack.mitre.org/techniques/T1574/006/
+    - https://www.aquasec.com/blog/perfctl-malware/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.defense_evasion
+    - attack.t1574.006
+logsource:
+    category: file_create
+    product: linux
+detection:
+    selection:
+        TargetFilename|endswith: '.so'
+        TargetFilename|contains:
+            - '/lib/'
+            - '/usr/lib/'
+            - '/lib64/'
+            - '/usr/lib64/'
+            - '/usr/local/lib/'
+            - '/dev/shm/'
+            - '/var/tmp/'
+            - '/tmp/'
+    filter_package_managers:
+        Image|endswith:
+            - '/dpkg'
+            - '/rpm'
+            - '/apt'
+            - '/apt-get'
+            - '/yum'
+            - '/dnf'
+            - '/zypper'
+            - '/pacman'
+            - '/ldconfig'
+            - '/make'
+            - '/install'
+    condition: selection and not filter_package_managers
+falsepositives:
+    - Software compilations and custom library installations
+    - pip/pip3 installing native Python extensions
+level: high
+
+---
+
+# ============================================================
+# Rule 3: Systemd Service Creation with LD_PRELOAD (T1574.006)
+# ============================================================
+title: Systemd Service Created with LD_PRELOAD Environment Variable
+id: 54a0bd24-sigma-003
+status: experimental
+description: |
+    Detects creation of new systemd service unit files outside of package
+    management. Perfctl creates systemd services with LD_PRELOAD environment
+    variables set to load its malicious shared library on service start.
+    Legitimate systemd services virtually never use LD_PRELOAD directives.
+references:
+    - https://attack.mitre.org/techniques/T1574/006/
+    - https://www.aquasec.com/blog/perfctl-malware/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.t1574.006
+logsource:
+    category: file_create
+    product: linux
+detection:
+    selection:
+        TargetFilename|contains:
+            - '/etc/systemd/system/'
+            - '/lib/systemd/system/'
+            - '/usr/lib/systemd/system/'
+            - '/run/systemd/system/'
+            - '/etc/systemd/user/'
+        TargetFilename|endswith: '.service'
+    filter_package_managers:
+        Image|endswith:
+            - '/dpkg'
+            - '/rpm'
+            - '/apt'
+            - '/apt-get'
+            - '/yum'
+            - '/dnf'
+    condition: selection and not filter_package_managers
+falsepositives:
+    - Legitimate software installation creating custom services
+    - Configuration management tools (Ansible, Puppet, Chef) deploying services
+level: high
+
+---
+
+# ============================================================
+# Rule 4: Shell Profile Modification for Persistence (T1574.006)
+# ============================================================
+title: Shell Profile File Modified - Potential LD_PRELOAD Persistence
+id: 54a0bd24-sigma-004
+status: experimental
+description: |
+    Detects modifications to user shell profile files (.profile, .bashrc,
+    .bash_profile, .zshrc) or system-wide profile directories. Perfctl
+    injects 'export LD_PRELOAD=/path/to/malicious.so' into ~/.profile
+    as a persistence fallback, ensuring the rootkit loads on every user login.
+references:
+    - https://attack.mitre.org/techniques/T1574/006/
+    - https://www.aquasec.com/blog/perfctl-malware/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.t1574.006
+logsource:
+    category: file_change
+    product: linux
+detection:
+    selection_user_profiles:
+        TargetFilename|endswith:
+            - '/.profile'
+            - '/.bashrc'
+            - '/.bash_profile'
+            - '/.bash_login'
+            - '/.zshrc'
+            - '/.zprofile'
+    selection_system_profiles:
+        TargetFilename|contains:
+            - '/etc/profile.d/'
+            - '/etc/profile'
+    filter_package_managers:
+        Image|endswith:
+            - '/dpkg'
+            - '/rpm'
+            - '/apt'
+            - '/yum'
+            - '/dnf'
+    condition: (selection_user_profiles or selection_system_profiles) and not filter_package_managers
+falsepositives:
+    - User customization of shell environment
+    - Dotfile management tools (GNU Stow, chezmoi)
+    - System administrators deploying environment configurations
+level: medium
+
+---
+
+# ============================================================
+# Rule 5: PAM Module Modification or Installation (T1003.008)
+# ============================================================
+title: PAM Module or Configuration Modified Outside Package Management
+id: 54a0bd24-sigma-005
+status: experimental
+description: |
+    Detects creation or modification of PAM configuration files or shared
+    libraries in PAM module directories. Perfctl hooks pam_authenticate
+    via a malicious PAM module to intercept all authentication credentials
+    from sshd, sudo, and login services.
+references:
+    - https://attack.mitre.org/techniques/T1003/008/
+    - https://www.aquasec.com/blog/perfctl-malware/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.credential_access
+    - attack.t1003.008
+logsource:
+    category: file_create
+    product: linux
+detection:
+    selection:
+        TargetFilename|contains:
+            - '/etc/pam.d/'
+            - '/lib/security/'
+            - '/lib/x86_64-linux-gnu/security/'
+            - '/lib64/security/'
+            - '/usr/lib/security/'
+    filter_package_managers:
+        Image|endswith:
+            - '/dpkg'
+            - '/rpm'
+            - '/apt'
+            - '/apt-get'
+            - '/yum'
+            - '/dnf'
+            - '/pam-auth-update'
+    condition: selection and not filter_package_managers
+falsepositives:
+    - PAM configuration during security hardening
+    - LDAP/SSSD integration configuration
+level: high
+
+---
+
+# ============================================================
+# Rule 6: /etc/shadow Access by Non-Standard Process (T1003.008)
+# ============================================================
+title: Suspicious /etc/shadow File Access - Credential Dumping
+id: 54a0bd24-sigma-006
+status: experimental
+description: |
+    Detects access to /etc/shadow by processes that do not normally interact
+    with the shadow password file. Perfctl and other Linux malware read
+    /etc/shadow to harvest password hashes for offline cracking using
+    tools like John the Ripper or hashcat.
+references:
+    - https://attack.mitre.org/techniques/T1003/008/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.credential_access
+    - attack.t1003.008
+logsource:
+    category: file_access
+    product: linux
+detection:
+    selection:
+        TargetFilename: '/etc/shadow'
+    filter_legitimate:
+        Image|endswith:
+            - '/passwd'
+            - '/chpasswd'
+            - '/useradd'
+            - '/usermod'
+            - '/userdel'
+            - '/login'
+            - '/sshd'
+            - '/cron'
+            - '/crond'
+            - '/sudo'
+            - '/su'
+            - '/groupadd'
+            - '/groupmod'
+            - '/nscd'
+            - '/sssd'
+            - '/newusers'
+    condition: selection and not filter_legitimate
+falsepositives:
+    - Security auditing tools (Lynis, OpenSCAP) checking shadow file permissions
+    - Backup scripts copying /etc/shadow
+level: high
+
+---
+
+# ============================================================
+# Rule 7: SUID Binary Enumeration via find (T1548.001)
+# ============================================================
+title: SUID Binary Enumeration via find Command - Privilege Escalation Recon
+id: 54a0bd24-sigma-007
+status: experimental
+description: |
+    Detects execution of find commands searching for SUID or SGID binaries.
+    This is a standard privilege escalation reconnaissance step used by
+    Perfctl and other attackers to discover exploitable SUID binaries
+    listed in GTFOBins for root shell escalation.
+references:
+    - https://attack.mitre.org/techniques/T1548/001/
+    - https://gtfobins.github.io/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.t1548.001
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_binary:
+        Image|endswith: '/find'
+    selection_args:
+        CommandLine|contains:
+            - '-perm -u=s'
+            - '-perm /4000'
+            - '-perm -4000'
+            - '-perm +4000'
+            - '-perm -04000'
+            - '-perm /6000'
+            - '-perm -6000'
+    condition: selection_binary and selection_args
+falsepositives:
+    - Security auditing tools (Lynis, OpenSCAP)
+    - System administrators performing security assessments
+level: high
+
+---
+
+# ============================================================
+# Rule 8: SUID Bit Set on System Interpreter (T1548.001)
+# ============================================================
+title: SUID Bit Set on System Interpreter - Critical Privilege Escalation
+id: 54a0bd24-sigma-008
+status: experimental
+description: |
+    Detects chmod commands setting the SUID bit on interpreters (bash, sh,
+    python, perl, vim, find, nmap, etc.). Setting SUID on an interpreter
+    creates a persistent root shell accessible by any user. Perfctl uses
+    this technique (chmod u+s /bin/bash) after gaining initial root access
+    to maintain persistent privilege escalation.
+references:
+    - https://attack.mitre.org/techniques/T1548/001/
+    - https://gtfobins.github.io/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.persistence
+    - attack.t1548.001
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_chmod:
+        Image|endswith: '/chmod'
+    selection_suid:
+        CommandLine|contains:
+            - 'u+s'
+            - '4755'
+            - '4711'
+            - '4777'
+            - '4775'
+    selection_interpreters:
+        CommandLine|contains:
+            - '/bin/bash'
+            - '/bin/sh'
+            - '/usr/bin/bash'
+            - '/usr/bin/sh'
+            - '/usr/bin/python'
+            - '/usr/bin/python3'
+            - '/usr/bin/perl'
+            - '/usr/bin/vim'
+            - '/usr/bin/find'
+            - '/usr/bin/nmap'
+            - '/usr/bin/env'
+            - '/usr/bin/awk'
+            - '/usr/bin/less'
+            - '/usr/bin/ruby'
+    condition: selection_chmod and selection_suid and selection_interpreters
+falsepositives:
+    - Extremely rare - setting SUID on interpreters is almost never legitimate
+level: critical
+
+---
+
+# ============================================================
+# Rule 9: GTFOBins SUID Exploitation Patterns (T1548.001)
+# ============================================================
+title: GTFOBins SUID Exploitation Command Pattern Detected
+id: 54a0bd24-sigma-009
+status: experimental
+description: |
+    Detects known GTFOBins SUID exploitation command patterns including
+    find -exec shell, vim -c shell escape, bash -p privileged mode,
+    nmap --interactive, and python os.setuid. These patterns indicate
+    active privilege escalation via misconfigured SUID binaries.
+references:
+    - https://attack.mitre.org/techniques/T1548/001/
+    - https://gtfobins.github.io/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.execution
+    - attack.t1548.001
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_find_exec:
+        CommandLine|contains|all:
+            - 'find'
+            - '-exec'
+        CommandLine|contains:
+            - '/bin/sh'
+            - '/bin/bash'
+    selection_vim_escape:
+        CommandLine|contains|all:
+            - 'vim'
+            - '-c'
+        CommandLine|contains:
+            - '!/bin/sh'
+            - ':shell'
+    selection_bash_priv:
+        CommandLine|contains: 'bash -p'
+    selection_nmap_interactive:
+        CommandLine|contains: 'nmap --interactive'
+    selection_python_setuid:
+        CommandLine|contains|all:
+            - 'python'
+            - 'os.setuid'
+    selection_perl_exec:
+        CommandLine|contains|all:
+            - 'perl'
+            - 'exec'
+            - '/bin/sh'
+    condition: 1 of selection_*
+falsepositives:
+    - Some find -exec patterns are used in legitimate file management
+    - Penetration testers during authorized engagements
+level: high
+
+---
+
+# ============================================================
+# Rule 10: Crontab Binary Modification (T1059.004)
+# ============================================================
+title: Crontab Binary Modified or Replaced - Trojanized Crontab
+id: 54a0bd24-sigma-010
+status: experimental
+description: |
+    Detects modification or replacement of the system crontab binary.
+    Perfctl replaces the crontab binary with a trojanized version that
+    filters malicious cron entries from 'crontab -l' output while the
+    entries remain active in the raw spool files (/var/spool/cron/).
+references:
+    - https://attack.mitre.org/techniques/T1059/004/
+    - https://www.aquasec.com/blog/perfctl-malware/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.execution
+    - attack.defense_evasion
+    - attack.t1059.004
+logsource:
+    category: file_change
+    product: linux
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '/usr/bin/crontab'
+            - '/usr/sbin/crontab'
+            - '/bin/crontab'
+            - '/sbin/crontab'
+    filter_package_managers:
+        Image|endswith:
+            - '/dpkg'
+            - '/rpm'
+            - '/apt'
+            - '/apt-get'
+            - '/yum'
+            - '/dnf'
+    condition: selection and not filter_package_managers
+falsepositives:
+    - Package manager updates replacing crontab
+level: critical
+
+---
+
+# ============================================================
+# Rule 11: Multiple Network Enumeration Tools (T1014)
+# ============================================================
+title: Multiple Network Enumeration Tools Executed - Rootkit Verification
+id: 54a0bd24-sigma-011
+status: experimental
+description: |
+    Detects execution of multiple network enumeration tools (ss, netstat,
+    lsof, conntrack) in rapid succession. Attackers and incident responders
+    use this technique to detect userland rootkits by comparing outputs
+    from different tools - if results differ, a rootkit is hiding connections.
+    Auto-Color and Symbiote hide C2 connections from netstat/ss by hooking
+    the underlying libc calls.
+references:
+    - https://attack.mitre.org/techniques/T1014/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1014
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        CommandLine|contains:
+            - 'conntrack -L'
+            - 'conntrack --dump'
+            - 'ss -tunapl'
+            - 'ss -tlnp'
+            - 'ss -anp'
+            - 'netstat -tunapl'
+            - 'netstat -tlnp'
+            - 'netstat -anp'
+            - 'cat /proc/net/tcp'
+            - 'cat /proc/net/tcp6'
+            - 'lsof -i'
+            - 'lsof -nP'
+    condition: selection
+    # Note: threshold-based correlation (3+ tools in 10min) should be applied at SIEM level
+falsepositives:
+    - Security auditors performing rootkit verification
+    - Network troubleshooting by administrators
+    - Incident responders during active investigations
+level: medium
+
+---
+
+# ============================================================
+# Rule 12: Cryptomining Pool Network Connection (T1059.004)
+# ============================================================
+title: Cryptomining Pool Connection - Perfctl Pattern
+id: 54a0bd24-sigma-012
+status: experimental
+description: |
+    Detects network connections or DNS queries to known cryptocurrency
+    mining pool domains. Perfctl deploys XMRig for Monero mining,
+    connecting to supportxmr.com, xmrpool.eu, and other pools.
+    Mining pool connections from servers indicate cryptojacking.
+references:
+    - https://attack.mitre.org/techniques/T1059/004/
+    - https://www.aquasec.com/blog/perfctl-malware/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.execution
+    - attack.t1059.004
+logsource:
+    category: dns_query
+    product: linux
+detection:
+    selection:
+        QueryName|contains:
+            - 'supportxmr.com'
+            - 'xmrpool.eu'
+            - 'pool.minexmr.com'
+            - 'pool.hashvault.pro'
+            - 'mine.c3pool.com'
+            - 'rx.unmineable.com'
+            - 'nanopool.org'
+            - 'f2pool.com'
+            - '2miners.com'
+    condition: selection
+falsepositives:
+    - Legitimate cryptocurrency mining operations (should not exist on servers)
+level: high
+
+---
+
+# ============================================================
+# Rule 13: LD_PRELOAD Environment Variable in Process (T1574.006)
+# ============================================================
+title: Process Started with LD_PRELOAD Environment Variable
+id: 54a0bd24-sigma-013
+status: experimental
+description: |
+    Detects process creation events where the LD_PRELOAD environment
+    variable is set in the command line or environment. While developers
+    may occasionally use LD_PRELOAD for debugging, its presence in
+    production workloads is a strong indicator of library injection.
+    Perfctl sets LD_PRELOAD in systemd services and shell profiles.
+references:
+    - https://attack.mitre.org/techniques/T1574/006/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.defense_evasion
+    - attack.t1574.006
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        CommandLine|contains: 'LD_PRELOAD='
+    filter_legitimate:
+        Image|endswith:
+            - '/ldconfig'
+            - '/ldd'
+    condition: selection and not filter_legitimate
+falsepositives:
+    - Developers using LD_PRELOAD for debugging or interposition
+    - Some containerized applications setting library overrides
+level: high
+
+---
+
+# ============================================================
+# Rule 14: Bulk PAM Authentication Errors (T1003.008)
+# ============================================================
+title: Bulk PAM Authentication Errors - Potential PAM Module Tampering
+id: 54a0bd24-sigma-014
+status: experimental
+description: |
+    Detects a high volume of PAM authentication errors indicating
+    potential PAM module corruption or tampering. A hooked or malicious
+    PAM module may cause authentication anomalies as it intercepts and
+    relays credentials, especially during error conditions.
+references:
+    - https://attack.mitre.org/techniques/T1003/008/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.credential_access
+    - attack.t1003.008
+logsource:
+    product: linux
+    service: auth
+detection:
+    selection:
+        - 'pam_authenticate'
+        - 'pam_unix'
+        - 'unknown module'
+        - 'module is unknown'
+        - 'cannot open'
+    keywords_error:
+        - 'error'
+        - 'failed'
+        - 'corrupted'
+    condition: selection and keywords_error
+    # Note: threshold of 20+ events in 1 hour should be applied at SIEM level
+falsepositives:
+    - LDAP/SSSD connectivity issues causing PAM failures
+    - Misconfigured PAM stack after updates
+    - Brute-force SSH attacks
+level: medium
+
+---
+
+# ============================================================
+# Rule 15: Known Perfctl Watchdog Process Names (T1574.006)
+# ============================================================
+title: Known Perfctl/Cryptominer Watchdog Process Execution
+id: 54a0bd24-sigma-015
+status: experimental
+description: |
+    Detects execution of processes with names associated with the Perfctl
+    malware family, including its watchdog binary (wizlmsh) and the
+    perfctl process name itself. These processes maintain persistence
+    by monitoring and restarting the cryptomining payload.
+references:
+    - https://www.aquasec.com/blog/perfctl-malware/
+    - https://attack.mitre.org/techniques/T1574/006/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.t1574.006
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_process_name:
+        Image|endswith:
+            - '/wizlmsh'
+            - '/perfctl'
+            - '/perfcc'
+    selection_command_line:
+        CommandLine|contains:
+            - 'wizlmsh'
+            - 'perfctl'
+            - '--check-persist'
+            - '--mine'
+    condition: 1 of selection_*
+falsepositives:
+    - None expected - these are known malware process names
+level: critical
+
+---
+
+# ============================================================
+# Rule 16: Correlated LD_PRELOAD Attack Chain (T1574.006 + T1003.008 + T1548.001)
+# ============================================================
+title: LD_PRELOAD Attack Chain - SO Drop + Shadow Access + SUID Enumeration
+id: 54a0bd24-sigma-016
+status: experimental
+description: |
+    Correlation rule for detecting the complete LD_PRELOAD attack chain:
+    suspicious shared library creation combined with /etc/shadow access
+    and SUID binary enumeration on the same host. This combination is
+    a very high-confidence indicator of a Perfctl, Symbiote, Auto-Color,
+    or WolfsBane-style compromise in progress.
+references:
+    - https://attack.mitre.org/techniques/T1574/006/
+    - https://attack.mitre.org/techniques/T1003/008/
+    - https://attack.mitre.org/techniques/T1548/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.persistence
+    - attack.credential_access
+    - attack.privilege_escalation
+    - attack.t1574.006
+    - attack.t1003.008
+    - attack.t1548.001
+# NOTE: This is a correlation rule. Implementation depends on SIEM capabilities.
+# In Splunk: use subsearch/join. In Elastic: use event correlation rules.
+# In Sigma: this serves as documentation of the correlation logic.
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    # Indicator 1: SUID enumeration
+    selection_suid:
+        Image|endswith: '/find'
+        CommandLine|contains:
+            - '-perm -u=s'
+            - '-perm /4000'
+            - '-perm -4000'
+    condition: selection_suid
+    # NOTE: Correlate with file_create events for .so files in /lib/
+    # and file_access events for /etc/shadow within 1-hour window
+falsepositives:
+    - Extremely unlikely when all three indicators occur on the same host
+level: critical

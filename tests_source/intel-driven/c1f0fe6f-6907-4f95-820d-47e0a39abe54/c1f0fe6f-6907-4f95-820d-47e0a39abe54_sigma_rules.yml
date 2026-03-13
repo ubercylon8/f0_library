@@ -1,0 +1,544 @@
+# ============================================================================
+# DEFENSE GUIDANCE: Sigma Detection Rules
+# ============================================================================
+# Test ID: c1f0fe6f-6907-4f95-820d-47e0a39abe54
+# Test Name: TrollDisappearKey AMSI Bypass Detection
+# MITRE ATT&CK: T1562.001 - Impair Defenses: Disable or Modify Tools
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules detect AMSI bypass techniques, registry manipulation,
+# API hooking, and remote assembly loading patterns. They target the
+# underlying attack behaviors, not any specific test framework artifacts.
+#
+# USAGE:
+#   Convert to target SIEM with sigmac or sigma-cli:
+#     sigma convert -t splunk -p sysmon c1f0fe6f_sigma_rules.yml
+#     sigma convert -t elasticsearch -p ecs-windows c1f0fe6f_sigma_rules.yml
+#     sigma convert -t microsoft365defender c1f0fe6f_sigma_rules.yml
+#
+# ============================================================================
+
+title: AMSI Provider Registry Key Tampering
+id: c1f0fe6f-sigma-001
+status: stable
+description: |
+    Detects modification, creation, or deletion of AMSI provider registry keys
+    by non-system processes. TrollDisappearKey hooks RegOpenKeyExW to redirect
+    queries for Software\Microsoft\AMSI\Providers to a path with a trailing
+    space, causing AMSI provider DLLs to fail to load. This rule detects any
+    process tampering with AMSI provider registry keys regardless of tooling.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://github.com/cybersectroll/TrollDisappearKey
+    - https://docs.microsoft.com/en-us/windows/win32/amsi/antimalware-scan-interface-portal
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.t1112
+logsource:
+    product: windows
+    category: registry_set
+detection:
+    selection_target:
+        TargetObject|contains:
+            - '\SOFTWARE\Microsoft\AMSI\Providers'
+            - '\SOFTWARE\Microsoft\AMSI\Providers '
+    filter_system_processes:
+        Image|endswith:
+            - '\svchost.exe'
+            - '\services.exe'
+            - '\TrustedInstaller.exe'
+            - '\MsMpEng.exe'
+            - '\MpCmdRun.exe'
+            - '\msiexec.exe'
+            - '\SetupHost.exe'
+    condition: selection_target and not filter_system_processes
+falsepositives:
+    - Security software installation or updates modifying AMSI provider registration
+    - Windows feature installation via DISM or servicing stack
+level: critical
+
+---
+
+title: AMSI Provider Registry Key Deletion
+id: c1f0fe6f-sigma-002
+status: stable
+description: |
+    Detects deletion of AMSI provider registry keys or values. Deleting AMSI
+    provider entries disables antimalware scanning for .NET Assembly.Load(),
+    PowerShell scripts, and other AMSI-integrated applications. This is a
+    direct defense evasion technique.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://docs.microsoft.com/en-us/windows/win32/amsi/antimalware-scan-interface-portal
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    product: windows
+    category: registry_delete
+detection:
+    selection:
+        TargetObject|contains:
+            - '\SOFTWARE\Microsoft\AMSI\Providers'
+            - '\SOFTWARE\Microsoft\AMSI'
+    condition: selection
+falsepositives:
+    - Security software uninstallation removing its own AMSI provider
+level: critical
+
+---
+
+title: Registry Key with Trailing Space in AMSI Path
+id: c1f0fe6f-sigma-003
+status: stable
+description: |
+    Detects registry operations on AMSI-related paths containing a trailing
+    space character. TrollDisappearKey specifically redirects AMSI provider
+    lookups to 'Software\Microsoft\AMSI\Providers ' (note trailing space).
+    This key does not exist, causing provider DLL loading to silently fail.
+    A trailing space in this registry path has no legitimate purpose.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://github.com/cybersectroll/TrollDisappearKey
+    - https://attack.mitre.org/techniques/T1562/001/
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    product: windows
+    category: registry_event
+detection:
+    selection:
+        TargetObject|endswith:
+            - 'AMSI\Providers '
+            - 'AMSI\Providers  '
+    condition: selection
+falsepositives:
+    - None expected - trailing spaces in AMSI registry paths are not legitimate
+level: critical
+
+---
+
+title: VirtualProtect on KERNELBASE.dll or System DLL - API Hook Installation
+id: c1f0fe6f-sigma-004
+status: stable
+description: |
+    Detects calls to VirtualProtect that change memory protections on system
+    DLLs to PAGE_EXECUTE_READWRITE (0x40). This is a prerequisite for inline
+    API hooking where the attacker overwrites the first bytes of a target
+    function (e.g., RegOpenKeyExW in KERNELBASE.dll) with a trampoline jump.
+    TrollDisappearKey uses this exact pattern: VirtualProtect(targetAddr, 12,
+    0x40, out oldProtect) followed by Marshal.Copy of hook bytes.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://attack.mitre.org/techniques/T1055/
+    - https://attack.mitre.org/techniques/T1562/001/
+tags:
+    - attack.defense-evasion
+    - attack.t1055
+    - attack.t1562.001
+logsource:
+    product: windows
+    category: process_access
+detection:
+    selection_api:
+        CallTrace|contains:
+            - 'KERNELBASE.dll'
+            - 'ntdll.dll'
+    selection_protection:
+        GrantedAccess|contains:
+            - '0x40'
+    filter_system:
+        SourceImage|endswith:
+            - '\MsMpEng.exe'
+            - '\svchost.exe'
+            - '\lsass.exe'
+            - '\csrss.exe'
+            - '\services.exe'
+            - '\smss.exe'
+    condition: selection_api and selection_protection and not filter_system
+falsepositives:
+    - Debugging tools (WinDbg, x64dbg)
+    - Some security products that perform API hooking themselves
+    - Application compatibility layers
+level: high
+
+---
+
+title: Suspicious Process Loading CLR from Non-Standard Path
+id: c1f0fe6f-sigma-005
+status: stable
+description: |
+    Detects processes loading the .NET Common Language Runtime (CLR) DLLs
+    from non-standard executable locations. After AMSI bypass, attackers use
+    Assembly.Load() to execute downloaded .NET assemblies in memory. The CLR
+    being loaded by an unsigned or untrusted process from a user-writable
+    directory is suspicious, as it suggests reflective code loading.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://attack.mitre.org/techniques/T1620/
+    - https://attack.mitre.org/techniques/T1059/
+tags:
+    - attack.defense-evasion
+    - attack.t1620
+    - attack.execution
+    - attack.t1059
+logsource:
+    product: windows
+    category: image_load
+detection:
+    selection_clr:
+        ImageLoaded|endswith:
+            - '\clrjit.dll'
+            - '\clr.dll'
+            - '\coreclr.dll'
+            - '\mscorlib.dll'
+    selection_suspicious_path:
+        Image|contains:
+            - '\Users\'
+            - '\Temp\'
+            - '\AppData\'
+            - '\Downloads\'
+            - '\ProgramData\'
+            - '\Public\'
+    filter_trusted:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+            - '\dotnet.exe'
+            - '\devenv.exe'
+            - '\MSBuild.exe'
+            - '\w3wp.exe'
+            - '\code.exe'
+            - '\csc.exe'
+    condition: selection_clr and selection_suspicious_path and not filter_trusted
+falsepositives:
+    - Legitimate .NET applications installed in user directories
+    - Self-extracting .NET installers
+level: high
+
+---
+
+title: Non-Browser Process Connecting to GitHub for Executable Download
+id: c1f0fe6f-sigma-006
+status: stable
+description: |
+    Detects non-browser processes establishing network connections to GitHub
+    or GitHub raw content domains. TrollDisappearKey downloads Seatbelt.exe
+    from the SharpCollection repository on GitHub using WebClient.DownloadData().
+    Legitimate software downloads from GitHub are typically done via browsers
+    or package managers.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://attack.mitre.org/techniques/T1105/
+    - https://github.com/Flangvik/SharpCollection
+tags:
+    - attack.command-and-control
+    - attack.t1105
+    - attack.defense-evasion
+    - attack.t1620
+logsource:
+    product: windows
+    category: network_connection
+detection:
+    selection_domains:
+        DestinationHostname|endswith:
+            - 'github.com'
+            - 'githubusercontent.com'
+            - 'github.io'
+            - 'githubassets.com'
+    selection_port:
+        DestinationPort:
+            - 443
+            - 80
+    filter_browsers:
+        Image|endswith:
+            - '\chrome.exe'
+            - '\firefox.exe'
+            - '\msedge.exe'
+            - '\iexplore.exe'
+            - '\brave.exe'
+            - '\opera.exe'
+            - '\vivaldi.exe'
+    filter_dev_tools:
+        Image|endswith:
+            - '\git.exe'
+            - '\gh.exe'
+            - '\git-remote-https.exe'
+            - '\nuget.exe'
+            - '\dotnet.exe'
+            - '\Code.exe'
+            - '\devenv.exe'
+            - '\GitHubDesktop.exe'
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    condition: selection_domains and selection_port and not filter_browsers and not filter_dev_tools
+falsepositives:
+    - CI/CD build agents downloading dependencies from GitHub
+    - Custom automation tools that pull from GitHub repositories
+    - Winget or Chocolatey package managers
+level: high
+
+---
+
+title: Seatbelt Security Enumeration Tool Execution
+id: c1f0fe6f-sigma-007
+status: stable
+description: |
+    Detects execution of the GhostPack Seatbelt security enumeration tool.
+    Seatbelt performs host reconnaissance by checking security configurations
+    including AMSI providers, antivirus, AppLocker, credentials, and more.
+    It is commonly used by attackers after gaining initial access or after
+    bypassing AMSI protections to survey the target host.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://github.com/GhostPack/Seatbelt
+    - https://attack.mitre.org/techniques/T1518/001/
+tags:
+    - attack.discovery
+    - attack.t1518.001
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_name:
+        Image|endswith: '\Seatbelt.exe'
+    selection_args:
+        CommandLine|contains:
+            - 'AMSIProviders'
+            - 'AuditPolicyRegistry'
+            - 'CredEnum'
+            - 'InterestingProcesses'
+            - 'TokenPrivileges'
+            - 'WindowsDefender'
+            - 'WindowsFirewall'
+            - '-group=all'
+            - '-group=system'
+            - '-group=user'
+    selection_module_combo:
+        CommandLine|contains|all:
+            - 'AntiVirus'
+            - 'AppLocker'
+    condition: selection_name or selection_args or selection_module_combo
+falsepositives:
+    - Authorized red team or penetration testing activities
+    - Some Seatbelt module names may overlap with legitimate tool arguments (rare)
+level: critical
+
+---
+
+title: Process Command Line Contains WebClient Download with Assembly Load
+id: c1f0fe6f-sigma-008
+status: stable
+description: |
+    Detects command lines or script block logs containing both WebClient
+    download methods and Assembly.Load patterns. This combination indicates
+    download-and-execute of .NET assemblies in memory, which is the payload
+    delivery mechanism used after AMSI bypass. TrollDisappearKey passes a
+    URL to WebClient.DownloadData() and the result to Assembly.Load().
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://attack.mitre.org/techniques/T1105/
+    - https://attack.mitre.org/techniques/T1620/
+tags:
+    - attack.execution
+    - attack.t1059
+    - attack.defense-evasion
+    - attack.t1620
+    - attack.command-and-control
+    - attack.t1105
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_download:
+        CommandLine|contains:
+            - 'WebClient'
+            - 'DownloadData'
+            - 'DownloadString'
+            - 'DownloadFile'
+            - 'Invoke-WebRequest'
+            - 'Net.WebClient'
+    selection_assembly:
+        CommandLine|contains:
+            - 'Assembly.Load'
+            - 'Reflection.Assembly'
+            - 'Assembly::Load'
+            - '[Reflection.Assembly]'
+            - 'AppDomain'
+    condition: selection_download and selection_assembly
+falsepositives:
+    - Legitimate .NET development or deployment scripts
+    - PowerShell-based software deployment tools
+level: critical
+
+---
+
+title: Process with AMSI Provider Registry Path in Command Line Arguments
+id: c1f0fe6f-sigma-009
+status: stable
+description: |
+    Detects processes whose command line contains explicit references to the
+    AMSI provider registry path. TrollDisappearKey accepts the registry key
+    path as a command-line argument. Any tool referencing AMSI\Providers in
+    its arguments is potentially performing AMSI reconnaissance or manipulation.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1518/001/
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.discovery
+    - attack.t1518.001
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection:
+        CommandLine|contains:
+            - 'AMSI\Providers'
+            - 'AMSI\\Providers'
+            - 'Microsoft\AMSI'
+            - 'Microsoft\\AMSI'
+    filter_defender:
+        Image|endswith:
+            - '\MsMpEng.exe'
+            - '\MpCmdRun.exe'
+    condition: selection and not filter_defender
+falsepositives:
+    - Security administrators querying AMSI provider status
+    - Security audit scripts checking AMSI configuration
+level: high
+
+---
+
+title: AMSI Bypass via AmsiScanBuffer or AmsiInitialize Patching
+id: c1f0fe6f-sigma-010
+status: stable
+description: |
+    Detects processes whose command lines or loaded modules reference AMSI
+    internal functions (AmsiScanBuffer, AmsiScanString, AmsiInitialize)
+    combined with memory manipulation APIs. While TrollDisappearKey uses a
+    registry redirection approach, many other AMSI bypass tools directly
+    patch AmsiScanBuffer to return AMSI_RESULT_CLEAN. This rule covers
+    the broader family of AMSI memory patching techniques.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://www.mdsec.co.uk/2018/06/exploring-powershell-amsi-and-logging-evasion/
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_amsi_functions:
+        CommandLine|contains:
+            - 'AmsiScanBuffer'
+            - 'AmsiScanString'
+            - 'AmsiInitialize'
+            - 'amsiInitFailed'
+            - 'AmsiUtils'
+    selection_patching:
+        CommandLine|contains:
+            - 'VirtualProtect'
+            - 'WriteProcessMemory'
+            - 'NtProtectVirtualMemory'
+            - 'Marshal.Copy'
+            - '[Runtime.InteropServices.Marshal]'
+    condition: selection_amsi_functions or (selection_amsi_functions and selection_patching)
+falsepositives:
+    - Security research tools analyzing AMSI internals
+    - AMSI testing utilities from Microsoft
+level: high
+
+---
+
+title: GetProcAddress and GetModuleHandle for Registry API Hooking
+id: c1f0fe6f-sigma-011
+status: stable
+description: |
+    Detects PowerShell or .NET processes resolving function pointers for
+    RegOpenKeyExW from KERNELBASE.dll using GetProcAddress and GetModuleHandle.
+    This is the initial step in TrollDisappearKey's API hooking chain. The
+    tool uses P/Invoke (DllImport) to call GetModuleHandle("KERNELBASE.dll")
+    and GetProcAddress(handle, "RegOpenKeyExW") to locate the target function
+    before installing the inline hook.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://github.com/cybersectroll/TrollDisappearKey
+    - https://attack.mitre.org/techniques/T1055/
+tags:
+    - attack.defense-evasion
+    - attack.t1055
+    - attack.t1562.001
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_resolve:
+        CommandLine|contains|all:
+            - 'GetProcAddress'
+            - 'RegOpenKeyExW'
+    selection_module:
+        CommandLine|contains|all:
+            - 'GetModuleHandle'
+            - 'KERNELBASE'
+    condition: selection_resolve or selection_module
+falsepositives:
+    - Legitimate software development or debugging activities
+    - Security research tools
+level: high
+
+---
+
+title: AMSI Event Log Cleared or Disabled
+id: c1f0fe6f-sigma-012
+status: stable
+description: |
+    Detects clearing or disabling of the Microsoft-Windows-AMSI/Operational
+    event log. Attackers may clear AMSI logs after a successful bypass to
+    remove evidence of their AMSI tampering. This is a defense evasion
+    technique often used in conjunction with AMSI bypass attacks.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1070/001/
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.t1070.001
+logsource:
+    product: windows
+    service: system
+detection:
+    selection_clear:
+        EventID: 104
+        Channel: 'Microsoft-Windows-AMSI/Operational'
+    selection_disable:
+        EventID: 1100
+    condition: selection_clear or selection_disable
+falsepositives:
+    - Routine log maintenance by system administrators
+    - Log rotation policies
+level: high

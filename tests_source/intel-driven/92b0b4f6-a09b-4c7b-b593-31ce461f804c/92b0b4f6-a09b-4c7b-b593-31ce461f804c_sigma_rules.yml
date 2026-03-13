@@ -1,0 +1,445 @@
+# ============================================================
+# APT42 TAMECAT Fileless Backdoor with Browser Credential Theft - Sigma Rules
+# Test ID: 92b0b4f6-a09b-4c7b-b593-31ce461f804c
+# MITRE ATT&CK: T1204.002, T1059.005, T1059.001, T1547.001, T1037.001, T1555.003, T1102
+# Threat Actor: APT42 (Magic Hound / Educated Manticore / UNC788)
+# Generated: 2026-03-13
+# ============================================================
+# FOCUS: Technique-level attack behaviors only.
+# Detections target the underlying attack patterns, NOT test framework artifacts.
+# ============================================================
+---
+title: Malicious LNK File Targeting Script Interpreter
+id: 92b0b4f6-sigma-001
+status: stable
+description: |
+  Detects creation of Windows shortcut (.lnk) files whose target path references
+  script interpreters (cscript.exe, wscript.exe, mshta.exe). APT42 delivers
+  malicious LNK files disguised as documents that invoke VBScript downloaders
+  via cscript.exe. This is a technique-inherent behavior independent of tooling.
+references:
+  - https://attack.mitre.org/techniques/T1204/002/
+  - https://attack.mitre.org/groups/G1024/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.t1204.002
+  - apt42
+  - tamecat
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|endswith: '.lnk'
+  filter_standard:
+    Image|startswith:
+      - 'C:\Windows\explorer.exe'
+      - 'C:\Windows\System32\SearchProtocolHost.exe'
+      - 'C:\Windows\System32\msiexec.exe'
+  condition: selection and not filter_standard
+falsepositives:
+  - Administrative scripts creating shortcuts
+  - Application installers creating desktop shortcuts
+level: medium
+
+---
+title: VBScript WMI Security Product Enumeration
+id: 92b0b4f6-sigma-002
+status: stable
+description: |
+  Detects VBScript execution (cscript.exe/wscript.exe) that performs WMI queries
+  against SecurityCenter2 or Windows Defender namespaces to enumerate installed
+  antivirus products. APT42 TAMECAT uses this for reconnaissance before deploying
+  the fileless backdoor. Any attacker using WMI for AV enumeration triggers this.
+references:
+  - https://attack.mitre.org/techniques/T1059/005/
+  - https://attack.mitre.org/techniques/T1518/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.t1059.005
+  - attack.discovery
+  - attack.t1518.001
+  - apt42
+  - tamecat
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\cscript.exe'
+      - '\wscript.exe'
+  selection_args:
+    CommandLine|contains:
+      - '.vbs'
+      - '.vbe'
+      - '.wsf'
+  condition: selection and selection_args
+falsepositives:
+  - Legitimate IT management VBScript scripts
+  - SCCM/Intune VBScript inventory scripts
+level: medium
+
+---
+title: Conhost Headless Spawning PowerShell - TAMECAT Execution Chain
+id: 92b0b4f6-sigma-003
+status: stable
+description: |
+  Detects conhost.exe launched with the --headless flag spawning powershell.exe.
+  This is the specific execution chain used by APT42 TAMECAT to execute fileless
+  PowerShell backdoors while evading console-based detection. Headless conhost
+  spawning PowerShell is extremely rare in legitimate operations.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/groups/G1024/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.defense-evasion
+  - apt42
+  - tamecat
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\conhost.exe'
+    CommandLine|contains|all:
+      - '--headless'
+  selection_child:
+    CommandLine|contains:
+      - 'powershell'
+      - 'pwsh'
+      - 'cmd.exe'
+  condition: selection and selection_child
+falsepositives:
+  - Very unlikely in normal operations
+  - Possible in some CI/CD automation environments
+level: critical
+
+---
+title: PowerShell Encoded Command from Non-Standard Parent Process
+id: 92b0b4f6-sigma-004
+status: stable
+description: |
+  Detects PowerShell executed with -EncodedCommand flag from suspicious parent
+  processes (conhost, cmd, cscript, wscript, mshta). TAMECAT uses base64-encoded
+  UTF-16LE PowerShell commands for in-memory execution. The combination of
+  encoded commands with script interpreter parents is a high-fidelity indicator.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - apt42
+  - tamecat
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains:
+      - '-EncodedCommand'
+      - '-enc '
+      - '-ec '
+  selection_parent:
+    ParentImage|endswith:
+      - '\conhost.exe'
+      - '\cmd.exe'
+      - '\cscript.exe'
+      - '\wscript.exe'
+      - '\mshta.exe'
+  condition: selection and selection_parent
+falsepositives:
+  - Enterprise automation tools using encoded PowerShell from cmd
+  - Scheduled tasks running encoded PowerShell
+level: high
+
+---
+title: Registry Run Key Persistence with Script Interpreter Target
+id: 92b0b4f6-sigma-005
+status: stable
+description: |
+  Detects creation of registry Run key values whose data references script
+  interpreters (cscript, wscript, mshta, powershell) or script file extensions.
+  APT42 creates a Run key named 'Renovation' pointing to cscript.exe with a
+  VBScript payload. This pattern detects any script-based Run key persistence.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.persistence
+  - attack.t1547.001
+  - apt42
+  - tamecat
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    TargetObject|contains:
+      - '\Software\Microsoft\Windows\CurrentVersion\Run\'
+      - '\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\'
+      - '\Software\Microsoft\Windows\CurrentVersion\RunOnce\'
+  selection_script:
+    Details|contains:
+      - 'cscript'
+      - 'wscript'
+      - 'mshta'
+      - 'powershell'
+      - '.vbs'
+      - '.vbe'
+      - '.js'
+      - '.jse'
+      - '.wsf'
+  condition: selection and selection_script
+falsepositives:
+  - Legitimate software using Run keys for script-based auto-start
+  - Enterprise login scripts configured via Run keys
+level: high
+
+---
+title: UserInitMprLogonScript Registry Modification
+id: 92b0b4f6-sigma-006
+status: stable
+description: |
+  Detects modification of the UserInitMprLogonScript registry value under
+  HKCU\Environment or HKLM\Environment. This is an uncommon persistence mechanism
+  heavily used by Iranian APTs including APT42/Magic Hound. The script runs at
+  every user logon before the desktop loads. Legitimate use is extremely rare.
+references:
+  - https://attack.mitre.org/techniques/T1037/001/
+  - https://attack.mitre.org/groups/G1024/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.persistence
+  - attack.t1037.001
+  - apt42
+  - tamecat
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    TargetObject|endswith: '\Environment\UserInitMprLogonScript'
+  condition: selection
+falsepositives:
+  - Enterprise logon scripts managed via Group Policy (rare)
+  - Legacy application compatibility configurations
+level: critical
+
+---
+title: Browser Credential Database Access by Non-Browser Process
+id: 92b0b4f6-sigma-007
+status: stable
+description: |
+  Detects access to Chrome/Edge/Brave/Opera/Vivaldi Login Data, Cookies, or
+  Web Data SQLite databases by processes that are not the browser itself.
+  APT42 targets browser-stored credentials for financial platforms via
+  direct database file access. Any credential theft tool triggers this.
+references:
+  - https://attack.mitre.org/techniques/T1555/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.credential-access
+  - attack.t1555.003
+  - apt42
+  - tamecat
+logsource:
+  category: file_access
+  product: windows
+detection:
+  selection:
+    TargetFilename|contains:
+      - '\User Data\Default\Login Data'
+      - '\User Data\Default\Cookies'
+      - '\User Data\Default\Web Data'
+      - '\User Data\Default\Local State'
+      - '\User Data\Profile 1\Login Data'
+  filter_browsers:
+    Image|endswith:
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\brave.exe'
+      - '\opera.exe'
+      - '\vivaldi.exe'
+  filter_system:
+    Image|endswith:
+      - '\MsMpEng.exe'
+      - '\MpCopyAccelerator.exe'
+      - '\SearchProtocolHost.exe'
+      - '\OneDrive.exe'
+  condition: selection and not filter_browsers and not filter_system
+falsepositives:
+  - Backup software scanning user profile data
+  - Browser profile migration tools
+level: critical
+
+---
+title: Browser Remote Debugging Port Activation
+id: 92b0b4f6-sigma-008
+status: stable
+description: |
+  Detects Chrome, Edge, or Brave browser launched with the --remote-debugging-port
+  flag. This enables the Chrome DevTools Protocol (CDP) which allows external
+  processes to control the browser and extract credentials, cookies, and session
+  tokens. APT42 uses Edge port 9222 for credential theft.
+references:
+  - https://attack.mitre.org/techniques/T1555/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.credential-access
+  - attack.t1555.003
+  - apt42
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\msedge.exe'
+      - '\chrome.exe'
+      - '\brave.exe'
+    CommandLine|contains: '--remote-debugging-port'
+  condition: selection
+falsepositives:
+  - Software developers using browser debugging
+  - CI/CD test runners (Selenium, Playwright, Puppeteer)
+level: high
+
+---
+title: Telegram API Connection from Non-Telegram Process
+id: 92b0b4f6-sigma-009
+status: stable
+description: |
+  Detects outbound HTTPS connections to api.telegram.org from processes that
+  are not the official Telegram desktop client. APT42 uses the Telegram Bot
+  API as a command-and-control and data exfiltration channel. Any non-Telegram
+  process connecting to the API is highly suspicious on workstations.
+references:
+  - https://attack.mitre.org/techniques/T1102/
+  - https://attack.mitre.org/groups/G1024/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.command-and-control
+  - attack.t1102
+  - apt42
+  - tamecat
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    DestinationHostname|contains:
+      - 'api.telegram.org'
+      - 'telegram.org'
+    Initiated: 'true'
+  filter_telegram:
+    Image|endswith:
+      - '\Telegram.exe'
+      - '\TelegramDesktop.exe'
+      - '\Updater.exe'
+  condition: selection and not filter_telegram
+falsepositives:
+  - Custom Telegram bots running on workstations (should be on servers)
+  - Monitoring/alerting tools using Telegram API for notifications
+level: critical
+
+---
+title: Outbound FTP Connection from Workstation
+id: 92b0b4f6-sigma-010
+status: stable
+description: |
+  Detects outbound connections to TCP port 21 (FTP) from workstation processes.
+  APT42 uses FTP as a secondary exfiltration channel alongside Telegram and HTTPS.
+  FTP from workstations is uncommon in enterprise environments and warrants investigation.
+references:
+  - https://attack.mitre.org/techniques/T1048/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.exfiltration
+  - attack.t1048
+  - apt42
+  - tamecat
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    DestinationPort: 21
+    Initiated: 'true'
+  filter_system:
+    Image|endswith:
+      - '\svchost.exe'
+      - '\FileZilla.exe'
+      - '\winscp.exe'
+      - '\explorer.exe'
+  filter_loopback:
+    DestinationIp:
+      - '127.0.0.1'
+      - '::1'
+  condition: selection and not filter_system and not filter_loopback
+falsepositives:
+  - Developers using FTP clients
+  - Legacy file transfer workflows
+level: high
+
+---
+title: Combined APT42 TAMECAT Kill Chain - Multi-Indicator Correlation
+id: 92b0b4f6-sigma-011
+status: stable
+description: |
+  Temporal correlation of multiple APT42 TAMECAT indicators. This rule represents
+  the concept of correlating VBScript execution, encoded PowerShell, registry
+  persistence (Run key or UserInitMprLogonScript), browser credential access,
+  and Telegram C2 on the same host. Requires SIEM-level correlation of rules
+  92b0b4f6-sigma-003 through 92b0b4f6-sigma-009.
+  Note: Implement as a correlation rule in your SIEM platform.
+references:
+  - https://attack.mitre.org/groups/G1024/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.persistence
+  - attack.t1547.001
+  - attack.t1037.001
+  - attack.credential-access
+  - attack.t1555.003
+  - attack.command-and-control
+  - attack.t1102
+  - apt42
+  - tamecat
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  # Placeholder: Correlate rules sigma-003/004 AND sigma-005/006 AND sigma-009
+  # on same DeviceName within 4-hour window. 3+ distinct indicators = critical.
+  selection_encoded_ps:
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains:
+      - '-EncodedCommand'
+      - '-enc '
+  condition: selection_encoded_ps
+falsepositives:
+  - Extremely low when 3+ indicators correlate on same host
+level: critical

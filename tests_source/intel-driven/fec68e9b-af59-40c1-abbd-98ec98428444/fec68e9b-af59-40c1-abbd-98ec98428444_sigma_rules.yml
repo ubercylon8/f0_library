@@ -1,0 +1,576 @@
+# ============================================================
+# Sigma Rules: MDE Process Injection and API Authentication Bypass
+# Test ID: fec68e9b-af59-40c1-abbd-98ec98428444
+# MITRE ATT&CK: T1055, T1055.001, T1562.001, T1014, T1557, T1071.001, T1140
+# Author: F0RT1KA Defense Guidance Builder
+# Date: 2026-03-13
+#
+# These rules detect the TECHNIQUE BEHAVIORS, not test framework artifacts.
+# Any tool performing these attack techniques will trigger these rules.
+# ============================================================
+
+# ------------------------------------------------------------
+# Rule 1: Privileged Handle Acquisition to EDR Agent Process
+# ------------------------------------------------------------
+title: Privileged Process Handle Acquisition Targeting EDR Agent
+id: fec68e9b-sigma-001
+status: stable
+description: |
+    Detects attempts to acquire process handles with write or thread-creation
+    privileges (PROCESS_VM_WRITE, PROCESS_VM_OPERATION, PROCESS_CREATE_THREAD)
+    targeting EDR agent processes such as MsSense.exe, SenseIR.exe, csfalcon.exe,
+    or CylanceSvc.exe. This is the first step in process injection attacks
+    designed to disable or tamper with endpoint security agents.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+    - https://attack.mitre.org/techniques/T1055/
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.privilege-escalation
+    - attack.t1055
+    - attack.t1562.001
+logsource:
+    category: process_access
+    product: windows
+detection:
+    selection_target:
+        TargetImage|endswith:
+            - '\MsSense.exe'
+            - '\SenseIR.exe'
+            - '\SenseCncProxy.exe'
+            - '\csfalcon.exe'
+            - '\CylanceSvc.exe'
+            - '\cb.exe'
+            - '\xagt.exe'
+    selection_access:
+        GrantedAccess|contains:
+            - '0x0020'  # PROCESS_VM_WRITE
+            - '0x0008'  # PROCESS_VM_OPERATION
+            - '0x0002'  # PROCESS_CREATE_THREAD
+            - '0x001F0FFF'  # PROCESS_ALL_ACCESS
+            - '0x1FFFFF'  # PROCESS_ALL_ACCESS (alternate)
+    filter_legitimate:
+        SourceImage|startswith:
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+            - 'C:\Program Files\CrowdStrike\'
+            - 'C:\Windows\System32\svchost.exe'
+            - 'C:\Windows\System32\lsass.exe'
+    condition: selection_target and selection_access and not filter_legitimate
+falsepositives:
+    - Legitimate security tools performing process inspection
+    - System debugging tools used by administrators in controlled environments
+    - Software compatibility testing frameworks
+level: critical
+
+---
+# ------------------------------------------------------------
+# Rule 2: Memory Write to Security Agent Process
+# ------------------------------------------------------------
+title: WriteProcessMemory Targeting Security Agent Process
+id: fec68e9b-sigma-002
+status: stable
+description: |
+    Detects WriteProcessMemory API calls targeting security agent processes.
+    Attackers use this technique to patch security-critical functions such as
+    CRYPT32!CertVerifyCertificateChainPolicy to bypass certificate validation,
+    or to inject shellcode into the EDR process. This is a critical indicator
+    of an active EDR tampering attack.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+    - https://attack.mitre.org/techniques/T1055/
+    - https://attack.mitre.org/techniques/T1014/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1055
+    - attack.t1014
+logsource:
+    category: process_access
+    product: windows
+detection:
+    selection:
+        TargetImage|endswith:
+            - '\MsSense.exe'
+            - '\SenseIR.exe'
+            - '\csfalcon.exe'
+            - '\CylanceSvc.exe'
+        CallTrace|contains:
+            - 'WriteProcessMemory'
+            - 'NtWriteVirtualMemory'
+    filter_self:
+        SourceImage|startswith:
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+    condition: selection and not filter_self
+falsepositives:
+    - Windows Update patching security binaries (very rare during runtime)
+level: critical
+
+---
+# ------------------------------------------------------------
+# Rule 3: Process Enumeration Targeting EDR Agents
+# ------------------------------------------------------------
+title: Suspicious Enumeration of EDR Agent Processes
+id: fec68e9b-sigma-003
+status: stable
+description: |
+    Detects command-line activity that specifically queries for EDR agent
+    processes such as MsSense.exe or SenseIR.exe. Attackers enumerate security
+    processes to identify targets for injection, tampering, or termination.
+    This is a common reconnaissance step before process injection attacks.
+references:
+    - https://attack.mitre.org/techniques/T1057/
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.discovery
+    - attack.t1057
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_tools:
+        Image|endswith:
+            - '\tasklist.exe'
+            - '\wmic.exe'
+            - '\powershell.exe'
+            - '\pwsh.exe'
+            - '\cmd.exe'
+    selection_target:
+        CommandLine|contains:
+            - 'MsSense'
+            - 'SenseIR'
+            - 'SenseCncProxy'
+            - 'Windows Defender Advanced Threat Protection'
+    filter_mde:
+        ParentImage|startswith:
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+    condition: selection_tools and selection_target and not filter_mde
+falsepositives:
+    - IT administrators checking MDE service health
+    - SCCM or Intune compliance scripts that verify MDE status
+    - Monitoring solutions that verify security agent presence
+level: medium
+
+---
+# ------------------------------------------------------------
+# Rule 4: WinHTTP Proxy Configuration Manipulation
+# ------------------------------------------------------------
+title: WinHTTP Proxy Configuration Change via Netsh
+id: fec68e9b-sigma-004
+status: stable
+description: |
+    Detects netsh.exe commands that modify WinHTTP proxy settings. Attackers
+    configure a local proxy to intercept EDR agent communications, enabling
+    adversary-in-the-middle attacks against MDE cloud connectivity. This can
+    be used to capture authentication tokens, intercept commands, or modify
+    telemetry before it reaches the cloud.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+    - https://attack.mitre.org/techniques/T1557/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.credential-access
+    - attack.t1557
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\netsh.exe'
+        CommandLine|contains|all:
+            - 'winhttp'
+            - 'proxy'
+    filter_gpo:
+        ParentImage|endswith:
+            - '\svchost.exe'
+            - '\gpscript.exe'
+    condition: selection and not filter_gpo
+falsepositives:
+    - IT administrators configuring corporate proxy settings
+    - VPN software that adjusts proxy configuration on connect/disconnect
+    - Group Policy scripts applying proxy settings
+level: high
+
+---
+# ------------------------------------------------------------
+# Rule 5: Non-MDE Process Connecting to MDE Cloud Endpoints
+# ------------------------------------------------------------
+title: Unauthorized Process Connecting to MDE Cloud Gateway
+id: fec68e9b-sigma-005
+status: stable
+description: |
+    Detects network connections to Microsoft Defender for Endpoint cloud
+    gateway endpoints (winatp-gw-*.microsoft.com) from processes other than
+    the legitimate MDE agent components. This indicates potential API abuse,
+    command interception, token theft, or configuration exfiltration attacks.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+    - https://attack.mitre.org/techniques/T1071/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command-and-control
+    - attack.t1071.001
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    selection:
+        DestinationHostname|contains: 'winatp-gw'
+        DestinationHostname|endswith: '.microsoft.com'
+        DestinationPort: 443
+    filter_mde_agent:
+        Image|endswith:
+            - '\MsSense.exe'
+            - '\SenseIR.exe'
+            - '\SenseCncProxy.exe'
+            - '\SenseNdr.exe'
+    filter_mde_path:
+        Image|startswith:
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+    condition: selection and not (filter_mde_agent or filter_mde_path)
+falsepositives:
+    - Microsoft diagnostic tools during MDE troubleshooting
+    - Initial MDE onboarding processes
+level: critical
+
+---
+# ------------------------------------------------------------
+# Rule 6: Module Enumeration in Security Agent Process
+# ------------------------------------------------------------
+title: Module Enumeration of EDR Agent via CreateToolhelp32Snapshot
+id: fec68e9b-sigma-006
+status: stable
+description: |
+    Detects process creation patterns indicative of module enumeration within
+    EDR agent processes. Attackers use CreateToolhelp32Snapshot with
+    TH32CS_SNAPMODULE to list loaded modules (DLLs) in MsSense.exe, searching
+    for targets like CRYPT32.dll for function-level memory patching.
+references:
+    - https://attack.mitre.org/techniques/T1055/001/
+    - https://attack.mitre.org/techniques/T1014/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1055.001
+    - attack.t1014
+logsource:
+    category: process_access
+    product: windows
+detection:
+    selection:
+        TargetImage|endswith:
+            - '\MsSense.exe'
+            - '\SenseIR.exe'
+        GrantedAccess|contains:
+            - '0x0410'  # PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+            - '0x0010'  # PROCESS_VM_READ
+    filter_self:
+        SourceImage|startswith:
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+            - 'C:\Windows\System32\'
+    condition: selection and not filter_self
+falsepositives:
+    - Process monitoring tools that enumerate modules for diagnostics
+    - Application compatibility engines
+level: high
+
+---
+# ------------------------------------------------------------
+# Rule 7: Suspicious Access to MDE Registry Keys
+# ------------------------------------------------------------
+title: Access to MDE Configuration Registry Keys
+id: fec68e9b-sigma-007
+status: stable
+description: |
+    Detects read access to MDE-specific registry keys that store machine
+    identifiers (Machine ID, Tenant ID, Sense ID). Attackers extract these
+    identifiers to craft authenticated-looking API requests for command
+    interception and token generation attacks.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.discovery
+    - attack.t1012
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: registry_access
+    product: windows
+detection:
+    selection:
+        TargetObject|contains:
+            - '\SOFTWARE\Microsoft\Windows Advanced Threat Protection'
+            - '\SOFTWARE\Microsoft\Windows Defender Advanced Threat Protection'
+        TargetObject|endswith:
+            - 'senseId'
+            - 'senseGuid'
+            - 'OrgId'
+    filter_mde:
+        Image|startswith:
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+            - 'C:\Windows\System32\svchost.exe'
+    condition: selection and not filter_mde
+falsepositives:
+    - IT management tools querying MDE onboarding status
+    - Intune compliance checks
+level: high
+
+---
+# ------------------------------------------------------------
+# Rule 8: Certificate Validation Function Patching Indicators
+# ------------------------------------------------------------
+title: Potential CRYPT32 Certificate Validation Function Tampering
+id: fec68e9b-sigma-008
+status: stable
+description: |
+    Detects loading or access patterns indicative of CRYPT32.dll certificate
+    validation function tampering. Attackers target
+    CertVerifyCertificateChainPolicy to bypass certificate pinning in security
+    agents, allowing man-in-the-middle attacks against cloud communications.
+    The patch bytes (33 C0 40 C3) make the function always return TRUE.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+    - https://attack.mitre.org/techniques/T1014/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1014
+    - attack.t1140
+logsource:
+    category: image_load
+    product: windows
+detection:
+    selection_crypt32_load:
+        ImageLoaded|endswith: '\crypt32.dll'
+    selection_suspicious_process:
+        Image|endswith:
+            - '.exe'
+        Image|contains:
+            - '\Temp\'
+            - '\Downloads\'
+            - '\AppData\'
+            - '\ProgramData\'
+    filter_legitimate:
+        Image|startswith:
+            - 'C:\Program Files\'
+            - 'C:\Program Files (x86)\'
+            - 'C:\Windows\'
+    condition: selection_crypt32_load and selection_suspicious_process and not filter_legitimate
+falsepositives:
+    - Legitimate applications loading CRYPT32.dll from non-standard paths
+    - Development and testing tools
+level: medium
+
+---
+# ------------------------------------------------------------
+# Rule 9: Isolation Bypass - Network Activity from Isolated Device
+# ------------------------------------------------------------
+title: Network Activity from Device Marked as Isolated
+id: fec68e9b-sigma-009
+status: stable
+description: |
+    Detects outbound network connections from a device that should be in an
+    isolated state. Attackers spoof isolation command responses to make the
+    device appear isolated in the security portal while maintaining full
+    network connectivity, creating a false sense of containment for SOC teams.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    selection:
+        Initiated: 'true'
+    filter_local:
+        DestinationIp|startswith:
+            - '10.'
+            - '172.16.'
+            - '172.17.'
+            - '172.18.'
+            - '172.19.'
+            - '172.20.'
+            - '172.21.'
+            - '172.22.'
+            - '172.23.'
+            - '172.24.'
+            - '172.25.'
+            - '172.26.'
+            - '172.27.'
+            - '172.28.'
+            - '172.29.'
+            - '172.30.'
+            - '172.31.'
+            - '192.168.'
+            - '127.'
+    filter_mde:
+        Image|endswith:
+            - '\MsSense.exe'
+            - '\SenseIR.exe'
+    condition: selection and not filter_local and not filter_mde
+    # NOTE: This rule requires a secondary enrichment step to check isolation status.
+    # Correlate with MDE device isolation state from Microsoft 365 Defender API.
+    # Only alert when the device is supposed to be isolated but shows external traffic.
+falsepositives:
+    - Normal network traffic when device is not isolated
+    - This rule requires correlation with device isolation status to be effective
+level: medium
+
+---
+# ------------------------------------------------------------
+# Rule 10: Combined Attack Chain - Process Tampering and API Abuse
+# ------------------------------------------------------------
+title: Multi-Phase MDE Attack Chain - Process Tampering and API Exploitation
+id: fec68e9b-sigma-010
+status: stable
+description: |
+    Temporal correlation rule detecting the complete MDE attack chain: EDR
+    process enumeration, followed by privileged handle acquisition or memory
+    access to the EDR agent, followed by network connections to MDE cloud
+    endpoints from an unauthorized process. This sequence represents a
+    combined process injection and API exploitation attack.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+    - https://attack.mitre.org/techniques/T1055/
+    - https://attack.mitre.org/techniques/T1071/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1055
+    - attack.t1562.001
+    - attack.command-and-control
+    - attack.t1071.001
+logsource:
+    category: process_access
+    product: windows
+detection:
+    # Phase 1: Process access to EDR agent
+    phase1_handle:
+        TargetImage|endswith:
+            - '\MsSense.exe'
+            - '\SenseIR.exe'
+        GrantedAccess|contains:
+            - '0x0020'
+            - '0x0008'
+            - '0x001F'
+    # Phase 2: Network connection to MDE cloud (separate log source needed)
+    # NOTE: Sigma does not natively support cross-log-source correlation.
+    # Implement this as a SIEM correlation rule using the individual rules above.
+    # Correlate: fec68e9b-sigma-001 + fec68e9b-sigma-005 within 10 minutes on same host.
+    condition: phase1_handle
+    # This is the trigger condition; full correlation requires SIEM-level logic.
+falsepositives:
+    - Extremely unlikely in legitimate operations - investigate immediately
+level: critical
+
+---
+# ------------------------------------------------------------
+# Rule 11: Sysmon Event - CRYPT32.dll Access in EDR Process Context
+# ------------------------------------------------------------
+title: Sysmon - Suspicious CRYPT32.dll Access in Security Process Memory
+id: fec68e9b-sigma-011
+status: stable
+description: |
+    Detects Sysmon ProcessAccess events where a non-security process reads
+    from or writes to memory regions associated with CRYPT32.dll loaded in
+    EDR agent processes. This is specific to the memory patching technique
+    that modifies CertVerifyCertificateChainPolicy to bypass certificate
+    validation.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+    - https://attack.mitre.org/techniques/T1014/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense-evasion
+    - attack.t1014
+    - attack.t1055
+logsource:
+    product: windows
+    service: sysmon
+    definition: 'Requires Sysmon with ProcessAccess (Event ID 10) logging enabled'
+detection:
+    selection:
+        EventID: 10
+        TargetImage|endswith:
+            - '\MsSense.exe'
+            - '\SenseIR.exe'
+        CallTrace|contains:
+            - 'crypt32.dll'
+            - 'CRYPT32.dll'
+    filter_self:
+        SourceImage|startswith:
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+            - 'C:\Windows\System32\'
+    condition: selection and not filter_self
+falsepositives:
+    - Legitimate diagnostic tools accessing CRYPT32.dll in process context
+level: critical
+
+---
+# ------------------------------------------------------------
+# Rule 12: DNS Query for MDE Cloud Endpoints from Non-MDE Process
+# ------------------------------------------------------------
+title: DNS Resolution of MDE Cloud Gateway by Non-MDE Process
+id: fec68e9b-sigma-012
+status: stable
+description: |
+    Detects DNS queries for MDE cloud gateway hostnames (winatp-gw-*.microsoft.com)
+    from processes other than the legitimate MDE agent. This is an early indicator
+    of an attacker preparing to contact MDE API endpoints for command interception,
+    token generation, or configuration exfiltration.
+references:
+    - https://labs.infoguard.ch/posts/attacking_edr_part5_vulnerabilities_in_defender_for_endpoint_communication/
+    - https://attack.mitre.org/techniques/T1071/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.command-and-control
+    - attack.t1071.001
+logsource:
+    category: dns_query
+    product: windows
+detection:
+    selection:
+        QueryName|contains: 'winatp-gw'
+        QueryName|endswith: '.microsoft.com'
+    filter_mde:
+        Image|endswith:
+            - '\MsSense.exe'
+            - '\SenseIR.exe'
+            - '\SenseCncProxy.exe'
+            - '\SenseNdr.exe'
+    filter_mde_path:
+        Image|startswith:
+            - 'C:\Program Files\Windows Defender Advanced Threat Protection\'
+    filter_system:
+        Image|endswith:
+            - '\svchost.exe'
+    condition: selection and not (filter_mde or filter_mde_path or filter_system)
+falsepositives:
+    - Microsoft diagnostic and onboarding tools
+    - Network monitoring tools performing DNS analysis
+level: high

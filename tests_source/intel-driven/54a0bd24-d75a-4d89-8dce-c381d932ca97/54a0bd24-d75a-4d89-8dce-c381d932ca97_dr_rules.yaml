@@ -1,0 +1,402 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 54a0bd24-d75a-4d89-8dce-c381d932ca97
+# Test Name: Perfctl/Symbiote LD_PRELOAD Hijacking with PAM Credential Harvesting
+# MITRE ATT&CK: T1574.006, T1003.008, T1548.001, T1014, T1059.004
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying Linux attack techniques (LD_PRELOAD
+# hijacking, PAM credential hooking, SUID abuse, userland rootkit),
+# NOT the F0RT1KA testing framework. They will catch real-world attackers
+# using Perfctl, Symbiote, Auto-Color, WolfsBane, or custom tooling.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 54a0bd24-d75a-4d89-8dce-c381d932ca97_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: LD_PRELOAD Persistence File Write
+  # Purpose: Detect file creation/modification of /etc/ld.preload or /etc/ld.so.preload
+  # Confidence: CRITICAL
+  # Technique: T1574.006
+  # ==========================================================================
+  ld-preload-persistence-file-write:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "/etc/ld.preload"
+        - op: ends with
+          path: event/FILE_PATH
+          value: "/etc/ld.so.preload"
+
+    respond:
+      - action: report
+        name: LD_PRELOAD Persistence File Write Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1574.006
+          confidence: critical
+          description: A process wrote to /etc/ld.preload or /etc/ld.so.preload, a technique used by Perfctl, Auto-Color, and WolfsBane rootkits
+          investigation: Examine the initiating process, check for recently created .so files in /lib/ and /usr/lib/, and inspect the file contents
+
+      - action: task
+        command: history_dump
+        investigation: LD-Preload-Persistence
+
+
+  # ==========================================================================
+  # RULE 2: Suspicious Shared Library Creation
+  # Purpose: Detect new .so files in system library directories
+  # Confidence: HIGH
+  # Technique: T1574.006
+  # ==========================================================================
+  suspicious-shared-library-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)\.(so(\.\d+)*)$
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "/lib/"
+            - op: contains
+              path: event/FILE_PATH
+              value: "/usr/lib/"
+            - op: contains
+              path: event/FILE_PATH
+              value: "/dev/shm/"
+            - op: contains
+              path: event/FILE_PATH
+              value: "/tmp/"
+            - op: contains
+              path: event/FILE_PATH
+              value: "/.hidden/"
+        # Exclude package managers
+        - op: matches
+          path: event/COMMAND_LINE
+          re: (?i)(dpkg|rpm|apt|yum|dnf|pacman|ldconfig)
+          not: true
+
+    respond:
+      - action: report
+        name: Suspicious Shared Library Created in System Path
+        metadata:
+          severity: high
+          mitre_attack: T1574.006
+          confidence: high
+          description: A new shared library was created in a system library directory outside of package management
+          investigation: Examine the .so file contents, check for LD_PRELOAD references, inspect the creating process
+
+      - action: task
+        command: history_dump
+        investigation: Suspicious-SO-Creation
+
+
+  # ==========================================================================
+  # RULE 3: Systemd Service with LD_PRELOAD Environment
+  # Purpose: Detect systemd service files containing LD_PRELOAD directives
+  # Confidence: HIGH
+  # Technique: T1574.006
+  # ==========================================================================
+  systemd-service-ld-preload:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          re: /(etc|lib|usr/lib|run)/systemd/(system|user)/.*\.service$
+        - op: matches
+          path: event/COMMAND_LINE
+          re: (?i)(dpkg|rpm|apt|yum|dnf)
+          not: true
+
+    respond:
+      - action: report
+        name: Systemd Service File Created (Potential LD_PRELOAD Persistence)
+        metadata:
+          severity: high
+          mitre_attack: T1574.006
+          confidence: high
+          description: A new systemd service file was created outside of package management. Perfctl uses systemd services with LD_PRELOAD for persistence.
+          investigation: Read the service file contents, check for LD_PRELOAD environment variables, inspect ExecStart binary
+
+
+  # ==========================================================================
+  # RULE 4: PAM Module Directory Modification
+  # Purpose: Detect new or modified files in PAM module directories
+  # Confidence: HIGH
+  # Technique: T1003.008
+  # ==========================================================================
+  pam-module-modification:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "/etc/pam.d/"
+            - op: contains
+              path: event/FILE_PATH
+              value: "/lib/security/"
+            - op: contains
+              path: event/FILE_PATH
+              value: "/lib/x86_64-linux-gnu/security/"
+            - op: contains
+              path: event/FILE_PATH
+              value: "/lib64/security/"
+        - op: matches
+          path: event/COMMAND_LINE
+          re: (?i)(dpkg|rpm|apt|yum|dnf|pam-auth-update)
+          not: true
+
+    respond:
+      - action: report
+        name: PAM Module Modified Outside Package Management
+        metadata:
+          severity: high
+          mitre_attack: T1003.008
+          confidence: high
+          description: PAM configuration or module was modified outside of package management. Perfctl hooks pam_authenticate for credential harvesting.
+          investigation: Check PAM configuration integrity, compare module checksums with package manager database
+
+      - action: task
+        command: history_dump
+        investigation: PAM-Module-Tampering
+
+
+  # ==========================================================================
+  # RULE 5: Shadow File Access by Non-Standard Process
+  # Purpose: Detect /etc/shadow reads by unexpected processes
+  # Confidence: HIGH
+  # Technique: T1003.008
+  # ==========================================================================
+  shadow-file-suspicious-access:
+    detect:
+      target: edr
+      event: FILE_GET_REP
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "/etc/shadow"
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)(passwd|chpasswd|useradd|usermod|login|sshd|sudo|su|nscd|sssd)
+          not: true
+
+    respond:
+      - action: report
+        name: Suspicious /etc/shadow Access Detected
+        metadata:
+          severity: high
+          mitre_attack: T1003.008
+          confidence: high
+          description: A non-standard process accessed /etc/shadow, indicating potential credential dumping
+          investigation: Identify the process, check for data exfiltration indicators, examine if this is part of an attack chain
+
+
+  # ==========================================================================
+  # RULE 6: SUID Binary Enumeration via find
+  # Purpose: Detect find commands searching for SUID/SGID binaries
+  # Confidence: HIGH
+  # Technique: T1548.001
+  # ==========================================================================
+  suid-binary-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: /find
+        - op: matches
+          path: event/COMMAND_LINE
+          re: -perm.*(-u=s|/4000|-4000|\+4000|/6000|-6000)
+
+    respond:
+      - action: report
+        name: SUID Binary Enumeration Detected
+        metadata:
+          severity: high
+          mitre_attack: T1548.001
+          confidence: high
+          description: A find command searched for SUID/SGID binaries, a common privilege escalation reconnaissance technique
+          investigation: Identify the user, check for subsequent privilege escalation attempts, review command history
+
+
+  # ==========================================================================
+  # RULE 7: SUID Bit Set on Interpreter Binary
+  # Purpose: Detect chmod u+s on bash, sh, python, or other interpreters
+  # Confidence: CRITICAL
+  # Technique: T1548.001
+  # ==========================================================================
+  suid-bit-set-on-interpreter:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: /chmod
+        - op: matches
+          path: event/COMMAND_LINE
+          re: (u\+s|\+4|4755|4711|4777)
+        - op: matches
+          path: event/COMMAND_LINE
+          re: (/bin/bash|/bin/sh|/usr/bin/python|/usr/bin/perl|/usr/bin/vim|/usr/bin/find|/usr/bin/env)
+
+    respond:
+      - action: report
+        name: CRITICAL - SUID Bit Set on System Interpreter
+        metadata:
+          severity: critical
+          mitre_attack: T1548.001
+          confidence: critical
+          description: The SUID bit was set on a system interpreter binary, creating a persistent privilege escalation vector
+          investigation: Immediately verify the binary permissions, identify the actor, check for active exploitation
+
+      - action: task
+        command: history_dump
+        investigation: SUID-Interpreter-Persistence
+
+
+  # ==========================================================================
+  # RULE 8: GTFOBins SUID Exploitation Patterns
+  # Purpose: Detect known GTFOBins exploitation command patterns
+  # Confidence: HIGH
+  # Technique: T1548.001
+  # ==========================================================================
+  gtfobins-suid-exploitation:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        # find SUID exploitation
+        - op: matches
+          path: event/COMMAND_LINE
+          re: find\s+.*-exec\s+/bin/(sh|bash)\s
+        # vim shell escape
+        - op: matches
+          path: event/COMMAND_LINE
+          re: vim.*-c\s+['":].*sh
+        # bash privileged mode
+        - op: matches
+          path: event/COMMAND_LINE
+          re: bash\s+-p\b
+        # nmap interactive mode
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "nmap --interactive"
+        # python os.setuid
+        - op: matches
+          path: event/COMMAND_LINE
+          re: python[23]?\s+-c\s+.*os\.set[ug]id
+
+    respond:
+      - action: report
+        name: GTFOBins SUID Exploitation Pattern Detected
+        metadata:
+          severity: high
+          mitre_attack: T1548.001
+          confidence: high
+          description: A known GTFOBins SUID exploitation pattern was detected, indicating active privilege escalation
+          investigation: Identify the user, check effective vs real UID, examine process tree for evidence of privilege escalation
+
+
+  # ==========================================================================
+  # RULE 9: Shell Profile Injection (LD_PRELOAD Persistence)
+  # Purpose: Detect modifications to shell profile files
+  # Confidence: MEDIUM
+  # Technique: T1574.006
+  # ==========================================================================
+  shell-profile-injection:
+    detect:
+      target: edr
+      event: FILE_MODIFIED
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: matches
+              path: event/FILE_PATH
+              re: /home/[^/]+/\.(profile|bashrc|bash_profile|bash_login|zshrc|zprofile)$
+            - op: matches
+              path: event/FILE_PATH
+              re: /root/\.(profile|bashrc|bash_profile)$
+            - op: contains
+              path: event/FILE_PATH
+              value: "/etc/profile.d/"
+        - op: matches
+          path: event/COMMAND_LINE
+          re: (?i)(dpkg|rpm|apt|yum|dnf)
+          not: true
+
+    respond:
+      - action: report
+        name: Shell Profile File Modified (Potential LD_PRELOAD Persistence)
+        metadata:
+          severity: medium
+          mitre_attack: T1574.006
+          confidence: medium
+          description: A shell profile file was modified, potentially to add LD_PRELOAD persistence
+          investigation: Read the modified profile file, check for LD_PRELOAD or suspicious export statements
+
+
+  # ==========================================================================
+  # RULE 10: Crontab Binary Integrity Violation
+  # Purpose: Detect modification of the crontab binary itself
+  # Confidence: CRITICAL
+  # Technique: T1059.004
+  # ==========================================================================
+  crontab-binary-modification:
+    detect:
+      target: edr
+      event: FILE_MODIFIED
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          re: /(usr/)?(s?bin)/crontab$
+        - op: matches
+          path: event/COMMAND_LINE
+          re: (?i)(dpkg|rpm|apt|yum|dnf)
+          not: true
+
+    respond:
+      - action: report
+        name: CRITICAL - Crontab Binary Modified (Potential Trojanization)
+        metadata:
+          severity: critical
+          mitre_attack: T1059.004
+          confidence: critical
+          description: The system crontab binary was modified outside of package management. Perfctl replaces crontab to hide malicious cron entries.
+          investigation: Verify crontab binary integrity via package manager, compare hash with known-good, check raw cron spool files
+
+      - action: task
+        command: history_dump
+        investigation: Trojanized-Crontab

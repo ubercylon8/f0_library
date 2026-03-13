@@ -1,0 +1,556 @@
+# ============================================================
+# ESXi Hypervisor Ransomware Kill Chain - Sigma Detection Rules
+# Test ID: 25aafe2c-ec57-4a85-a26a-c3d7cf35620c
+# MITRE ATT&CK: T1046, T1018, T1021.004, T1068, T1489, T1529, T1048, T1567.002, T1486
+# Threat Actor: RansomHub / Akira / Black Basta / LockBit Linux
+# Generated: 2026-03-13
+# Sigma Specification: 2.0
+# ============================================================
+# FOCUS: Technique behaviors only - no test framework artifacts
+# ============================================================
+
+# ============================================================
+# Rule 1: ESXi Management Command Execution (T1046, T1489)
+# ============================================================
+title: ESXi Management Command Execution - vim-cmd or esxcli
+id: 25aafe2c-sigma-001
+status: experimental
+description: |
+    Detects execution of ESXi management commands (vim-cmd, esxcli, vmdumper)
+    that are used during hypervisor ransomware attacks for VM enumeration,
+    VM killing, snapshot deletion, and service disruption. RansomHub, LockBit,
+    Akira, and Black Basta all rely on these tools during ESXi targeting.
+references:
+    - https://attack.mitre.org/techniques/T1046/
+    - https://attack.mitre.org/techniques/T1489/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.discovery
+    - attack.impact
+    - attack.t1046
+    - attack.t1489
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_binaries:
+        Image|endswith:
+            - '/vim-cmd'
+            - '/esxcli'
+            - '/vmdumper'
+    selection_commands:
+        CommandLine|contains:
+            - 'vmsvc/getallvms'
+            - 'vm process kill'
+            - 'vm process list'
+            - 'vmsvc/power.off'
+            - 'vmsvc/snapshot.removeall'
+            - 'hostsvc/enable_ssh'
+            - 'vmdumper -l'
+    condition: selection_binaries or selection_commands
+falsepositives:
+    - Legitimate ESXi administration by authorized VMware administrators
+    - Scheduled maintenance scripts using vim-cmd or esxcli
+level: high
+
+---
+
+# ============================================================
+# Rule 2: Mass VM Termination via esxcli (T1489, T1529)
+# ============================================================
+title: Mass VM Process Kill via esxcli - Hypervisor Ransomware Pattern
+id: 25aafe2c-sigma-002
+status: experimental
+description: |
+    Detects rapid execution of esxcli vm process kill commands, which is
+    characteristic of ESXi ransomware operations. LockBit uses a 9x retry
+    pattern for stubborn VMs, while RansomHub and Akira force-kill all
+    running VMs before encryption.
+references:
+    - https://attack.mitre.org/techniques/T1489/
+    - https://attack.mitre.org/techniques/T1529/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1489
+    - attack.t1529
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        CommandLine|contains|all:
+            - 'esxcli'
+            - 'vm process kill'
+    condition: selection
+falsepositives:
+    - Planned VM migration during maintenance windows
+level: critical
+
+---
+
+# ============================================================
+# Rule 3: SSH Key File Access - Credential Harvesting (T1021.004)
+# ============================================================
+title: SSH Key File Access for Lateral Movement
+id: 25aafe2c-sigma-003
+status: experimental
+description: |
+    Detects access to SSH private key files, known_hosts, authorized_keys,
+    and SSH config files. SSH-Snake and similar lateral movement tools
+    harvest these files to discover and authenticate to additional hosts.
+    RansomHub affiliates use SSH key chains to spread across ESXi hosts.
+references:
+    - https://attack.mitre.org/techniques/T1021/004/
+    - https://sysdig.com/blog/ssh-snake/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.lateral_movement
+    - attack.t1021.004
+logsource:
+    category: file_access
+    product: linux
+detection:
+    selection:
+        TargetFilename|contains:
+            - '.ssh/id_rsa'
+            - '.ssh/id_ed25519'
+            - '.ssh/id_ecdsa'
+            - '.ssh/authorized_keys'
+            - '.ssh/known_hosts'
+            - '.ssh/config'
+    filter_ssh_daemon:
+        Image|endswith:
+            - '/sshd'
+            - '/ssh-agent'
+    condition: selection and not filter_ssh_daemon
+falsepositives:
+    - Ansible and other automation tools reading SSH keys
+    - SSH key rotation scripts
+level: high
+
+---
+
+# ============================================================
+# Rule 4: ESX Admins AD Group Creation - CVE-2024-37085 (T1068)
+# ============================================================
+title: ESX Admins Active Directory Group Creation - CVE-2024-37085
+id: 25aafe2c-sigma-004
+status: experimental
+description: |
+    Detects creation of Active Directory groups matching the ESX Admins
+    naming pattern. CVE-2024-37085 allows attackers to create this group
+    to automatically gain administrator privileges on ESXi hosts joined
+    to the AD domain. Used by Storm-0506 and Black Basta.
+references:
+    - https://attack.mitre.org/techniques/T1068/
+    - https://www.cve.org/CVERecord?id=CVE-2024-37085
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.t1068
+    - cve.2024.37085
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID:
+            - 4727  # Security-enabled global group created
+            - 4731  # Security-enabled local group created
+            - 4754  # Security-enabled universal group created
+        TargetGroupName|contains:
+            - 'ESX Admins'
+            - 'ESXAdmins'
+            - 'ESX_Admins'
+    condition: selection
+falsepositives:
+    - Legitimate creation of ESXi management groups by authorized administrators
+level: critical
+
+---
+
+# ============================================================
+# Rule 5: Rclone Execution or Cloud Storage Sync (T1048, T1567.002)
+# ============================================================
+title: Rclone Cloud Sync Execution - Data Exfiltration Tool
+id: 25aafe2c-sigma-005
+status: experimental
+description: |
+    Detects execution of Rclone or commands containing Rclone-specific
+    arguments for cloud storage synchronization. Rclone appears in 57%
+    of ransomware incidents per ReliaQuest, and RansomHub affiliates
+    commonly rename the binary to svchost.exe for evasion.
+references:
+    - https://attack.mitre.org/techniques/T1048/
+    - https://attack.mitre.org/techniques/T1567/002/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.exfiltration
+    - attack.t1048
+    - attack.t1567.002
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_binary:
+        Image|endswith: '/rclone'
+    selection_args:
+        CommandLine|contains:
+            - 'rclone sync'
+            - 'rclone copy'
+            - '--transfers'
+            - '--checkers'
+            - 'mega:'
+            - 's3:'
+            - 'sftp:'
+            - '--s3-chunk-size'
+            - 'rclone.conf'
+    condition: selection_binary or selection_args
+falsepositives:
+    - Legitimate cloud backup operations using Rclone
+level: high
+
+---
+
+# ============================================================
+# Rule 6: Rclone Configuration File Creation (T1048)
+# ============================================================
+title: Rclone Configuration File Creation
+id: 25aafe2c-sigma-006
+status: experimental
+description: |
+    Detects creation of rclone.conf files which contain cloud storage
+    provider credentials and configuration for data exfiltration.
+    Ransomware operators create these files to configure targets for
+    stolen data upload.
+references:
+    - https://attack.mitre.org/techniques/T1048/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.exfiltration
+    - attack.t1048
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '/rclone.conf'
+            - '/.config/rclone/rclone.conf'
+    condition: selection
+falsepositives:
+    - Legitimate Rclone setup for backup operations
+level: medium
+
+---
+
+# ============================================================
+# Rule 7: Binary Rename Evasion - System Process Name Masquerading (T1036.005)
+# ============================================================
+title: Renamed Binary Masquerading as System Process
+id: 25aafe2c-sigma-007
+status: experimental
+description: |
+    Detects execution of binaries named after legitimate system processes
+    (svchost, csrss, lsass) that contain data transfer or cloud storage
+    arguments. RansomHub renames Rclone to svchost.exe for EDR evasion.
+references:
+    - https://attack.mitre.org/techniques/T1036/005/
+    - https://attack.mitre.org/techniques/T1048/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1036.005
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_name:
+        Image|endswith:
+            - '/svchost'
+            - '/csrss'
+            - '/lsass'
+            - '/taskhost'
+    selection_cloud:
+        CommandLine|contains:
+            - 'mega:'
+            - 's3:'
+            - 'sftp:'
+            - 'sync'
+            - '--transfers'
+    condition: selection_name and selection_cloud
+falsepositives:
+    - None expected
+level: critical
+
+---
+
+# ============================================================
+# Rule 8: Mass File Rename with Ransomware Extension (T1486)
+# ============================================================
+title: Mass File Rename with Ransomware Extension
+id: 25aafe2c-sigma-008
+status: experimental
+description: |
+    Detects file rename operations using known ransomware extensions
+    including .ransomhub, .akira, .lockbit, .blackbasta, and .encrypted.
+    This indicates active file encryption by ransomware.
+references:
+    - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1486
+logsource:
+    category: file_rename
+    product: linux
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '.ransomhub'
+            - '.akira'
+            - '.lockbit'
+            - '.blackbasta'
+            - '.encrypted'
+            - '.enc'
+    condition: selection
+falsepositives:
+    - None expected for ransomware-specific extensions
+level: critical
+
+---
+
+# ============================================================
+# Rule 9: VMDK/VMX File Modification - Hypervisor Encryption (T1486)
+# ============================================================
+title: Virtual Machine Disk File Modification in Datastore
+id: 25aafe2c-sigma-009
+status: experimental
+description: |
+    Detects modification or deletion of virtual machine disk files (.vmdk,
+    .vmx, .vmsn, .vmsd) within datastore paths. ESXi ransomware targets
+    these files for encryption to maximize impact across all hosted VMs.
+references:
+    - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1486
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection_ext:
+        TargetFilename|endswith:
+            - '.vmdk'
+            - '.vmx'
+            - '.vmsn'
+            - '.vmsd'
+            - '.nvram'
+    selection_path:
+        TargetFilename|contains:
+            - '/vmfs/volumes/'
+            - 'datastore'
+    condition: selection_ext and selection_path
+falsepositives:
+    - VM migration and storage vMotion operations
+    - VM snapshot creation by authorized administrators
+level: critical
+
+---
+
+# ============================================================
+# Rule 10: Ransom Note File Creation (T1486)
+# ============================================================
+title: Ransom Note File Creation Across Multiple Directories
+id: 25aafe2c-sigma-010
+status: experimental
+description: |
+    Detects creation of files with known ransom note filenames deployed
+    across multiple directories, which is characteristic of ransomware
+    operations. RansomHub uses README.txt, while other variants use
+    different naming conventions.
+references:
+    - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1486
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '/README.txt'
+            - '/HOW_TO_DECRYPT.txt'
+            - '/RECOVER_YOUR_FILES.txt'
+            - '/DECRYPT_INSTRUCTIONS.txt'
+            - '/RESTORE_FILES.txt'
+    condition: selection
+falsepositives:
+    - Legitimate README.txt creation (low confidence if across multiple dirs)
+level: high
+
+---
+
+# ============================================================
+# Rule 11: ESXi SSH Service Enable - Persistent Access (T1021.004)
+# ============================================================
+title: ESXi SSH Service Enable via vim-cmd
+id: 25aafe2c-sigma-011
+status: experimental
+description: |
+    Detects enabling of SSH services on ESXi hosts using vim-cmd or esxcli.
+    LockBit Linux enables SSH on all ESXi hosts during the attack chain
+    to ensure persistent remote access for encryption deployment.
+references:
+    - https://attack.mitre.org/techniques/T1021/004/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.lateral_movement
+    - attack.t1021.004
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_ssh_enable:
+        CommandLine|contains:
+            - 'hostsvc/enable_ssh'
+            - 'hostsvc/start_ssh'
+    selection_firewall:
+        CommandLine|contains|all:
+            - 'esxcli'
+            - 'sshServer'
+            - 'set -e true'
+    condition: selection_ssh_enable or selection_firewall
+falsepositives:
+    - Administrator temporarily enabling SSH for troubleshooting
+level: high
+
+---
+
+# ============================================================
+# Rule 12: Free-Space Wiping on Datastore - Anti-Forensics (T1485)
+# ============================================================
+title: Free-Space Wiping via dd on Datastore Path
+id: 25aafe2c-sigma-012
+status: experimental
+description: |
+    Detects use of dd to write from /dev/zero or /dev/urandom to paths
+    within VMware datastores. LockBit 5.0 performs free-space wiping
+    after encryption to prevent forensic recovery of deleted VM data.
+references:
+    - https://attack.mitre.org/techniques/T1485/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1485
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_dd:
+        Image|endswith: '/dd'
+    selection_source:
+        CommandLine|contains:
+            - 'if=/dev/zero'
+            - 'if=/dev/urandom'
+    selection_target:
+        CommandLine|contains:
+            - '/vmfs/volumes/'
+            - 'datastore'
+            - '.fswipe'
+    condition: selection_dd and selection_source and selection_target
+falsepositives:
+    - Legitimate disk sanitization during hardware decommissioning
+level: critical
+
+---
+
+# ============================================================
+# Rule 13: ESXi Critical Service Disruption (T1489)
+# ============================================================
+title: ESXi Critical Service Stop Commands
+id: 25aafe2c-sigma-013
+status: experimental
+description: |
+    Detects stopping of critical ESXi services (hostd, vpxd, fdm, vsan)
+    which prevents recovery and management operations. Ransomware
+    operators stop these services to prevent VM restart and backup
+    recovery during encryption.
+references:
+    - https://attack.mitre.org/techniques/T1489/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1489
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        CommandLine|contains:
+            - '/etc/init.d/vmware-vpxd stop'
+            - '/etc/init.d/hostd stop'
+            - '/etc/init.d/vmware-fdm stop'
+            - '/etc/init.d/vmware-sps stop'
+            - '/etc/init.d/rhttpproxy stop'
+            - '/etc/init.d/sfcbd-watchdog stop'
+    condition: selection
+falsepositives:
+    - Planned ESXi maintenance with coordinated service restarts
+level: critical
+
+---
+
+# ============================================================
+# Rule 14: nftables Manipulation - CVE-2024-1086 Indicator (T1068)
+# ============================================================
+title: Suspicious nftables Rule Manipulation - Possible Kernel Exploit
+id: 25aafe2c-sigma-014
+status: experimental
+description: |
+    Detects rapid nftables rule creation and deletion patterns that may
+    indicate exploitation of CVE-2024-1086 (nf_tables use-after-free).
+    RansomHub and Akira affiliates use this kernel exploit for root
+    privilege escalation on Linux/ESXi hosts.
+references:
+    - https://attack.mitre.org/techniques/T1068/
+    - https://www.cve.org/CVERecord?id=CVE-2024-1086
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.t1068
+    - cve.2024.1086
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        Image|endswith:
+            - '/nft'
+        CommandLine|contains:
+            - 'add chain'
+            - 'add rule'
+            - 'delete'
+            - 'flush'
+    condition: selection
+falsepositives:
+    - Legitimate firewall rule management by system administrators
+level: medium

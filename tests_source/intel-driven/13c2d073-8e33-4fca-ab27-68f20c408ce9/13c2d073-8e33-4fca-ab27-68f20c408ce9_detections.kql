@@ -1,142 +1,406 @@
+// ============================================================
 // Behavioral Detection Queries for APT33 Tickler Backdoor DLL Sideloading
 // Test ID: 13c2d073-8e33-4fca-ab27-68f20c408ce9
 // MITRE ATT&CK: T1566.001, T1574.002, T1547.001, T1053.005, T1036, T1071.001
-// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+// Threat Actor: APT33 (Elfin / Peach Sandstorm / Refined Kitten)
+// Generated: 2026-03-13
+// ============================================================
+// FOCUS: Technique-level attack behaviors only.
+// All detections target the underlying attack technique, NOT test framework artifacts.
+// ============================================================
 
-//
-// QUERY 1: DLL Side-Loading Detection
-// Purpose: Detect renamed Microsoft binaries loading DLLs from non-standard paths
-// Covers: T1574.002
-//
+
+// ============================================================
+// QUERY 1: DLL Side-Loading Detection (T1574.002)
+// Confidence: High
+// Purpose: Detect VC++ runtime DLLs loaded from non-standard directories
+//          by processes that are NOT legitimate VC++ redistributable hosts.
+//          APT33 Tickler sideloads msvcp140.dll and vcruntime140.dll alongside
+//          a renamed Microsoft binary.
+// False Positives: Portable applications bundling VC++ runtime DLLs,
+//                  development/build tools in non-standard paths.
+// Threshold: Any single match warrants investigation.
+// ============================================================
 DeviceImageLoadEvents
 | where TimeGenerated > ago(1h)
-| where FileName in~("msvcp140.dll", "vcruntime140.dll")
+| where FileName in~ ("msvcp140.dll", "vcruntime140.dll", "msvcp140d.dll", "vcruntime140d.dll")
 | where FolderPath !startswith "C:\\Windows\\"
     and FolderPath !startswith "C:\\Program Files\\"
     and FolderPath !startswith "C:\\Program Files (x86)\\"
-| where InitiatingProcessFileName has_any("SharePoint", "NativeMessaging", "Microsoft.")
+    and FolderPath !startswith "C:\\ProgramData\\Microsoft\\"
+| where InitiatingProcessFolderPath !startswith "C:\\Program Files\\"
+    and InitiatingProcessFolderPath !startswith "C:\\Program Files (x86)\\"
+    and InitiatingProcessFolderPath !startswith "C:\\Windows\\"
 | project TimeGenerated, DeviceName, AccountName,
     InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine, InitiatingProcessSHA256,
     FileName, FolderPath
-| extend ThreatScore = 85
-| extend Detection = "APT33 Tickler DLL Sideloading - Renamed binary loading VC++ DLLs from non-standard path"
+| extend
+    Severity = "High",
+    ThreatType = "DLL Side-Loading",
+    MitreAttack = "T1574.002",
+    Detection = "VC++ runtime DLL loaded from non-standard directory - possible DLL sideloading"
 
-//
-// QUERY 2: Registry Run Key Persistence with SharePoint Masquerading
-// Purpose: Detect Run key additions referencing SharePoint in non-standard paths
-// Covers: T1547.001, T1036
-//
+
+// ============================================================
+// QUERY 2: Renamed Binary Loading VC++ DLLs (T1574.002 + T1036)
+// Confidence: High
+// Purpose: Detect binaries with Microsoft-related names (SharePoint,
+//          Teams, OneDrive, etc.) executing from non-standard paths
+//          while loading DLLs from the same directory. This pattern
+//          is characteristic of DLL sideloading via renamed binaries.
+// False Positives: Legitimate portable SharePoint tools, ClickOnce apps.
+// Threshold: Any single match warrants investigation.
+// ============================================================
+DeviceImageLoadEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("msvcp140.dll", "vcruntime140.dll")
+| where FolderPath !startswith "C:\\Windows\\"
+    and FolderPath !startswith "C:\\Program Files\\"
+    and FolderPath !startswith "C:\\Program Files (x86)\\"
+| where InitiatingProcessFileName has_any (
+    "SharePoint", "NativeMessaging", "OneDrive", "Teams",
+    "Microsoft.", "Office", "Outlook", "Exchange"
+)
+| where InitiatingProcessFolderPath !startswith "C:\\Program Files\\"
+    and InitiatingProcessFolderPath !startswith "C:\\Program Files (x86)\\"
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine, InitiatingProcessSHA256,
+    FileName, FolderPath
+| extend
+    Severity = "Critical",
+    ThreatType = "DLL Side-Loading via Renamed Binary",
+    MitreAttack = "T1574.002, T1036",
+    Detection = "Microsoft-named binary loading VC++ DLLs from non-standard path - APT33 Tickler pattern"
+
+
+// ============================================================
+// QUERY 3: Registry Run Key Persistence with Suspicious Binary Path (T1547.001)
+// Confidence: High
+// Purpose: Detect Run key additions referencing executables in
+//          non-standard paths (outside Program Files / Windows).
+//          APT33 creates a Run key named "SharePoint" pointing to
+//          a binary in a user-writable directory.
+// False Positives: Legitimate software installers writing user-space
+//                  Run keys, portable applications with auto-start.
+// Threshold: Alert on Run key values pointing to user directories.
+// ============================================================
 DeviceRegistryEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "RegistryValueSet"
-| where RegistryKey has_any(
+| where RegistryKey has_any (
     @"Software\Microsoft\Windows\CurrentVersion\Run",
-    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run")
-| where RegistryValueName =~ "SharePoint"
-    or RegistryValueData has "SharePoint.exe"
-    or RegistryValueData has "NativeMessaging"
+    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+    @"Software\Microsoft\Windows\CurrentVersion\RunOnce",
+    @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
+)
 | where RegistryValueData !startswith "\"C:\\Program Files\\"
     and RegistryValueData !startswith "\"C:\\Program Files (x86)\\"
+    and RegistryValueData !startswith "C:\\Program Files\\"
+    and RegistryValueData !startswith "C:\\Program Files (x86)\\"
+    and RegistryValueData !startswith "\"C:\\Windows\\"
+    and RegistryValueData !startswith "C:\\Windows\\"
+| where RegistryValueData has_any (".exe", ".bat", ".cmd", ".ps1", ".vbs", ".js")
 | project TimeGenerated, DeviceName, AccountName,
     RegistryKey, RegistryValueName, RegistryValueData,
     InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend ThreatScore = 90
-| extend Detection = "APT33 Tickler Persistence - SharePoint Run key in non-standard path"
+| extend
+    Severity = "High",
+    ThreatType = "Registry Run Key Persistence",
+    MitreAttack = "T1547.001",
+    Detection = "Run key persistence pointing to non-standard executable path"
 
-//
-// QUERY 3: Suspicious Scheduled Task Creation
-// Purpose: Detect scheduled tasks referencing masqueraded binaries
-// Covers: T1053.005
-//
+
+// ============================================================
+// QUERY 4: SharePoint-Themed Registry Persistence (T1547.001 + T1036)
+// Confidence: Critical
+// Purpose: Detect Run key additions using SharePoint-related names
+//          or referencing SharePoint-named binaries in non-standard paths.
+//          This is the specific persistence pattern used by APT33 Tickler.
+// False Positives: Legitimate SharePoint Online sync client (would be
+//                  in Program Files). Very low FP rate.
+// Threshold: Any single match warrants immediate investigation.
+// ============================================================
+DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey has_any (
+    @"Software\Microsoft\Windows\CurrentVersion\Run",
+    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+)
+| where RegistryValueName =~ "SharePoint"
+    or RegistryValueData has "SharePoint.exe"
+    or RegistryValueData has "NativeMessaging"
+    or RegistryValueData has "Microsoft.SharePoint"
+| where RegistryValueData !startswith "\"C:\\Program Files\\"
+    and RegistryValueData !startswith "\"C:\\Program Files (x86)\\"
+    and RegistryValueData !startswith "C:\\Program Files\\"
+    and RegistryValueData !startswith "C:\\Program Files (x86)\\"
+| project TimeGenerated, DeviceName, AccountName,
+    RegistryKey, RegistryValueName, RegistryValueData,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "Critical",
+    ThreatType = "APT33 Tickler Registry Persistence",
+    MitreAttack = "T1547.001, T1036",
+    Detection = "SharePoint-themed Run key persistence in non-standard path - APT33 Tickler indicator"
+
+
+// ============================================================
+// QUERY 5: Scheduled Task Creation Referencing Masqueraded Binaries (T1053.005)
+// Confidence: High
+// Purpose: Detect schtasks.exe creating tasks that reference
+//          Microsoft-themed binary names from non-standard paths.
+//          APT33 creates task "MicrosoftSharePointSync" for dual persistence.
+// False Positives: Legitimate SharePoint migration/sync tools creating tasks.
+// Threshold: Any single match warrants investigation.
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName =~ "schtasks.exe"
 | where ProcessCommandLine has "/Create"
-| where ProcessCommandLine has_any("SharePoint", "NativeMessaging", "MicrosoftSharePointSync")
-| where ProcessCommandLine has_any("/SC ONLOGON", "/SC ONSTART", "/RL HIGHEST")
+| where ProcessCommandLine has_any (
+    "SharePoint", "NativeMessaging", "MicrosoftSharePointSync",
+    "Microsoft.SharePoint", "SPSync", "SharePointSync"
+)
 | project TimeGenerated, DeviceName, AccountName,
     ProcessCommandLine, InitiatingProcessFileName,
-    InitiatingProcessCommandLine
-| extend ThreatScore = 80
-| extend Detection = "APT33 Tickler Scheduled Task - Persistence via masqueraded binary"
+    InitiatingProcessFolderPath, InitiatingProcessCommandLine
+| extend
+    Severity = "High",
+    ThreatType = "Scheduled Task Persistence",
+    MitreAttack = "T1053.005",
+    Detection = "Scheduled task creation referencing SharePoint-themed binary - APT33 persistence pattern"
 
-//
-// QUERY 4: Renamed Microsoft Binary Execution
-// Purpose: Detect execution of binaries masquerading as Microsoft SharePoint components
-// Covers: T1036
-//
+
+// ============================================================
+// QUERY 6: Scheduled Task with ONLOGON Trigger and HIGHEST Privilege (T1053.005)
+// Confidence: Medium
+// Purpose: Detect scheduled tasks created with ONLOGON triggers and
+//          HIGHEST run level that reference non-standard executable paths.
+//          This broader detection catches persistence via scheduled tasks
+//          regardless of naming convention.
+// False Positives: Legitimate software creating logon-triggered tasks.
+//                  Tune by excluding known software paths.
+// Threshold: Correlate with other indicators on same host.
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
-| where FileName in~("Microsoft.SharePoint.NativeMessaging.exe", "SharePoint.exe")
+| where FileName =~ "schtasks.exe"
+| where ProcessCommandLine has "/Create"
+| where ProcessCommandLine has_any ("/SC ONLOGON", "/SC ONSTART")
+| where ProcessCommandLine has_any ("/RL HIGHEST", "/RU SYSTEM")
+| where ProcessCommandLine !has "Program Files"
+    and ProcessCommandLine !has "Windows\\System32"
+| project TimeGenerated, DeviceName, AccountName,
+    ProcessCommandLine, InitiatingProcessFileName,
+    InitiatingProcessFolderPath
+| extend
+    Severity = "Medium",
+    ThreatType = "Elevated Scheduled Task Persistence",
+    MitreAttack = "T1053.005",
+    Detection = "Elevated scheduled task with logon trigger referencing non-standard path"
+
+
+// ============================================================
+// QUERY 7: Binary Masquerading as Microsoft SharePoint Component (T1036)
+// Confidence: High
+// Purpose: Detect execution of binaries named as Microsoft SharePoint
+//          components running from paths outside Program Files.
+//          Tests for version info mismatch (original name != file name).
+// False Positives: ClickOnce-deployed SharePoint tools, development builds.
+// Threshold: Any single match warrants investigation.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ (
+    "Microsoft.SharePoint.NativeMessaging.exe",
+    "SharePoint.exe",
+    "Microsoft.SharePoint.exe",
+    "SPClient.exe",
+    "SharePointSync.exe"
+)
 | where FolderPath !startswith "C:\\Program Files\\"
     and FolderPath !startswith "C:\\Program Files (x86)\\"
-| where not(ProcessVersionInfoCompanyName has "Microsoft")
-    or ProcessVersionInfoOriginalFileName != FileName
+    and FolderPath !startswith "C:\\Windows\\"
 | project TimeGenerated, DeviceName, AccountName,
     FileName, FolderPath, ProcessCommandLine,
     ProcessVersionInfoOriginalFileName, ProcessVersionInfoCompanyName,
-    SHA256
-| extend ThreatScore = 85
-| extend Detection = "APT33 Tickler Masquerading - Non-Microsoft binary posing as SharePoint component"
+    ProcessVersionInfoProductName, SHA256,
+    InitiatingProcessFileName
+| extend VersionMismatch = iff(
+    ProcessVersionInfoOriginalFileName != "" and ProcessVersionInfoOriginalFileName != FileName,
+    true, false
+)
+| extend
+    Severity = "High",
+    ThreatType = "Binary Masquerading",
+    MitreAttack = "T1036",
+    Detection = "SharePoint-named binary executing from non-standard path - possible masquerading"
 
-//
-// QUERY 5: HTTP POST C2 on Non-Standard Ports
-// Purpose: Detect outbound HTTP POST traffic on ports 808 and 880 (Tickler C2)
-// Covers: T1071.001
-//
+
+// ============================================================
+// QUERY 8: HTTP Traffic on Non-Standard Ports 808/880 (T1071.001)
+// Confidence: High
+// Purpose: Detect outbound connections on TCP ports 808 and 880,
+//          which are the documented Tickler C2 communication ports.
+//          APT33 uses fraudulent Azure subscriptions for C2 on these ports.
+// False Positives: WCF services on port 808, internal web services.
+//                  Tune by excluding known internal services.
+// Threshold: Multiple connections from non-browser processes are high confidence.
+// ============================================================
 DeviceNetworkEvents
 | where TimeGenerated > ago(1h)
-| where ActionType == "ConnectionSuccess"
+| where ActionType in ("ConnectionSuccess", "ConnectionAttempt")
 | where RemotePort in (808, 880)
-| where RemoteIPType != "Private"
+| where InitiatingProcessFileName !in~ ("svchost.exe", "services.exe", "System")
 | project TimeGenerated, DeviceName, AccountName,
-    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
     RemoteIP, RemotePort, RemoteUrl
-| summarize ConnectionCount=count(),
-    UniqueRemoteIPs=dcount(RemoteIP),
-    Processes=make_set(InitiatingProcessFileName),
-    FirstConnection=min(TimeGenerated),
-    LastConnection=max(TimeGenerated)
+| summarize
+    ConnectionCount = count(),
+    UniqueRemoteIPs = dcount(RemoteIP),
+    Processes = make_set(InitiatingProcessFileName),
+    FirstConnection = min(TimeGenerated),
+    LastConnection = max(TimeGenerated)
     by DeviceName, AccountName, RemotePort
-| extend ThreatScore = 75
-| extend Detection = "APT33 Tickler C2 - HTTP traffic on non-standard ports (808/880)"
+| extend
+    Severity = "High",
+    ThreatType = "C2 Communication on Non-Standard Port",
+    MitreAttack = "T1071.001",
+    Detection = "Outbound HTTP traffic on port 808/880 - APT33 Tickler C2 ports"
 
-//
-// QUERY 6: Spearphishing ZIP with PDF Extension
-// Purpose: Detect creation of ZIP files with double extensions (.pdf.zip)
-// Covers: T1566.001
-//
+
+// ============================================================
+// QUERY 9: Spoofed SharePoint User-Agent from Non-Browser Process (T1071.001)
+// Confidence: High
+// Purpose: Detect HTTP requests with "Microsoft SharePoint" User-Agent
+//          originating from processes that are NOT legitimate browsers
+//          or SharePoint client components. Tickler uses
+//          "Microsoft SharePoint/16.0" as its C2 User-Agent.
+// False Positives: Legitimate SharePoint Online sync client, OneDrive.
+// Threshold: Any match from non-Microsoft process warrants investigation.
+// ============================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "HttpConnectionInspected"
+| where AdditionalFields has "SharePoint"
+| where InitiatingProcessFileName !in~ (
+    "OneDrive.exe", "groove.exe", "msoia.exe",
+    "WINWORD.EXE", "EXCEL.EXE", "POWERPNT.EXE",
+    "Microsoft.SharePoint.exe"
+)
+| where InitiatingProcessFolderPath !startswith "C:\\Program Files\\"
+    and InitiatingProcessFolderPath !startswith "C:\\Program Files (x86)\\"
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    RemoteIP, RemotePort, RemoteUrl, AdditionalFields
+| extend
+    Severity = "High",
+    ThreatType = "Spoofed SharePoint User-Agent C2",
+    MitreAttack = "T1071.001",
+    Detection = "SharePoint User-Agent from non-Microsoft process - possible C2 communication"
+
+
+// ============================================================
+// QUERY 10: Spearphishing ZIP with Double Extension (T1566.001)
+// Confidence: Medium
+// Purpose: Detect creation of archive files with double extensions
+//          (e.g., .pdf.zip, .doc.zip, .xlsx.rar) that masquerade as
+//          documents. APT33 delivers Tickler as "Q3_Financial_Report_2025.pdf.zip".
+// False Positives: Legitimate document archival workflows,
+//                  backup scripts creating document archives.
+// Threshold: Correlate with subsequent extraction and execution events.
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
-| where FileName endswith ".pdf.zip" or FileName endswith ".doc.zip" or FileName endswith ".pdf.rar"
+| where FileName matches regex @"\.(pdf|doc|docx|xls|xlsx|ppt|pptx|rtf)\.(zip|rar|7z|tar|gz)$"
 | project TimeGenerated, DeviceName, AccountName,
     FileName, FolderPath, FileSize,
     InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend ThreatScore = 70
-| extend Detection = "APT33 Spearphishing - ZIP archive with double extension masquerading as document"
+| extend
+    Severity = "Medium",
+    ThreatType = "Spearphishing Double Extension Archive",
+    MitreAttack = "T1566.001",
+    Detection = "Archive file with double extension masquerading as document - possible spearphishing payload"
 
-//
-// QUERY 7: Combined APT33 Tickler Behavioral Detection
-// Purpose: Correlate multiple indicators for high-confidence APT33 detection
-//
+
+// ============================================================
+// QUERY 11: ZIP Extraction to User Directory Followed by Binary Execution (T1566.001)
+// Confidence: Medium
+// Purpose: Detect extraction of executables or DLLs from ZIP archives
+//          into user-writable directories, followed by execution.
+//          Models the APT33 delivery chain where ZIP contents are
+//          extracted and the payload is executed.
+// False Positives: Legitimate software distributed as ZIP archives.
+// Threshold: Correlate with masquerading or sideloading indicators.
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".exe" or FileName endswith ".dll"
+| where FolderPath has "Users" and FolderPath !has "Program Files"
+| where InitiatingProcessFileName in~ ("explorer.exe", "7zFM.exe", "7z.exe", "WinRAR.exe", "powershell.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, FolderPath, FileSize,
+    InitiatingProcessFileName
+| extend
+    Severity = "Medium",
+    ThreatType = "Executable Extracted to User Directory",
+    MitreAttack = "T1566.001",
+    Detection = "Executable or DLL extracted from archive to user directory - possible payload delivery"
+
+
+// ============================================================
+// QUERY 12: Combined APT33 Tickler Behavioral Correlation (Multi-Technique)
+// Confidence: Critical
+// Purpose: Correlate multiple APT33 Tickler indicators on the same
+//          device within a 1-hour window for high-confidence detection.
+//          Requires DLL sideloading pattern + SharePoint persistence
+//          (registry or scheduled task) on the same host.
+// False Positives: Extremely low. Two independent APT33 indicators
+//                  on same host is near-certain compromise.
+// Threshold: Any match is critical priority.
+// ============================================================
 let DLLSideloading = DeviceImageLoadEvents
 | where TimeGenerated > ago(1h)
-| where FileName in~("msvcp140.dll", "vcruntime140.dll")
-| where FolderPath !startswith "C:\\Windows\\" and FolderPath !startswith "C:\\Program Files\\"
+| where FileName in~ ("msvcp140.dll", "vcruntime140.dll")
+| where FolderPath !startswith "C:\\Windows\\"
+    and FolderPath !startswith "C:\\Program Files\\"
+    and FolderPath !startswith "C:\\Program Files (x86)\\"
+| where InitiatingProcessFolderPath !startswith "C:\\Program Files\\"
+    and InitiatingProcessFolderPath !startswith "C:\\Windows\\"
 | distinct DeviceName;
-let SharePointPersistence = DeviceRegistryEvents
+let SharePointRegistryPersistence = DeviceRegistryEvents
 | where TimeGenerated > ago(1h)
-| where RegistryValueName =~ "SharePoint"
 | where RegistryKey has @"CurrentVersion\Run"
+| where RegistryValueName =~ "SharePoint"
+    or RegistryValueData has "SharePoint.exe"
+    or RegistryValueData has "NativeMessaging"
 | distinct DeviceName;
-let ScheduledTaskPersistence = DeviceProcessEvents
+let SharePointTaskPersistence = DeviceProcessEvents
 | where TimeGenerated > ago(1h)
-| where FileName =~ "schtasks.exe" and ProcessCommandLine has "SharePoint"
+| where FileName =~ "schtasks.exe"
+| where ProcessCommandLine has "/Create"
+| where ProcessCommandLine has_any ("SharePoint", "NativeMessaging", "MicrosoftSharePointSync")
+| distinct DeviceName;
+let NonStandardPortC2 = DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemotePort in (808, 880)
+| where InitiatingProcessFileName !in~ ("svchost.exe", "services.exe")
 | distinct DeviceName;
 DLLSideloading
-| join kind=inner (SharePointPersistence) on DeviceName
-| join kind=leftouter (ScheduledTaskPersistence) on DeviceName
-| extend ThreatScore = 95
-| extend Detection = "HIGH CONFIDENCE: APT33 Tickler Activity - DLL Sideloading + SharePoint Persistence"
-| project DeviceName, ThreatScore, Detection
+| join kind=inner (SharePointRegistryPersistence) on DeviceName
+| join kind=leftouter (SharePointTaskPersistence) on DeviceName
+| join kind=leftouter (NonStandardPortC2) on DeviceName
+| extend HasDualPersistence = isnotempty(DeviceName2)
+| extend HasC2 = isnotempty(DeviceName3)
+| extend
+    Severity = "Critical",
+    ThreatType = "APT33 Tickler Attack Chain",
+    MitreAttack = "T1574.002, T1547.001, T1053.005, T1036, T1071.001",
+    Detection = "HIGH CONFIDENCE: APT33 Tickler Activity - DLL Sideloading + SharePoint Persistence correlated on same host"
+| project DeviceName, HasDualPersistence, HasC2, Severity, ThreatType, MitreAttack, Detection

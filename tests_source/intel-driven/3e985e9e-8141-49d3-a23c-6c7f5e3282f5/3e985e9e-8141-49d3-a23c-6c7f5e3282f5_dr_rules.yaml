@@ -1,0 +1,607 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 3e985e9e-8141-49d3-a23c-6c7f5e3282f5
+# Test Name: AMOS/Banshee macOS Infostealer Credential Harvesting Simulation
+# MITRE ATT&CK: T1059.002, T1555.001, T1056.002, T1005, T1560.001, T1041, T1027
+# Threat Actor: AMOS (Atomic Stealer) / Banshee Stealer / Cuckoo Stealer
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying macOS infostealer attack techniques,
+# NOT the F0RT1KA testing framework. They will catch real-world attackers
+# using the same AMOS/Banshee/Cuckoo TTPs with their own custom tooling.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 3e985e9e-8141-49d3-a23c-6c7f5e3282f5_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: osascript Credential Phishing Dialog (T1059.002, T1056.002)
+  # Purpose: Detect fake password dialogs used by AMOS/Banshee/Cuckoo stealers
+  # Confidence: CRITICAL
+  # ==========================================================================
+  macos-osascript-credential-phishing:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '/osascript'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "display dialog"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "hidden answer"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "password"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Password"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "System Preferences"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "macOS wants"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "authenticate"
+
+    respond:
+      - action: report
+        name: macOS Infostealer - osascript Credential Phishing Dialog
+        metadata:
+          severity: critical
+          mitre_attack: T1059.002, T1056.002
+          confidence: critical
+          description: osascript executed with credential phishing parameters (display dialog + hidden answer) - AMOS/Banshee/Cuckoo stealer pattern
+          investigation: Check parent process chain, examine full AppleScript content, look for follow-up dscl -authonly and keychain access
+
+      - action: task
+        command: history_dump
+        investigation: macOS-Infostealer-Credential-Phishing
+
+
+  # ==========================================================================
+  # RULE 2: dscl Credential Validation (T1059.002)
+  # Purpose: Detect password validation via dscl -authonly
+  # Confidence: CRITICAL
+  # ==========================================================================
+  macos-dscl-credential-validation:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '/dscl'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "-authonly"
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: '/loginwindow'
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: '/SecurityAgent'
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: '/authorizationhost'
+
+    respond:
+      - action: report
+        name: macOS Infostealer - dscl Credential Validation
+        metadata:
+          severity: critical
+          mitre_attack: T1059.002
+          confidence: critical
+          description: dscl -authonly executed from non-system parent process - universal macOS stealer password validation technique
+          investigation: Correlate with preceding osascript execution, check for keychain access within next 5 minutes
+
+      - action: task
+        command: history_dump
+        investigation: macOS-Infostealer-dscl-Validation
+
+
+  # ==========================================================================
+  # RULE 3: Keychain Credential Extraction via security command (T1555.001)
+  # Purpose: Detect Chainbreaker-style keychain credential dumping
+  # Confidence: HIGH
+  # ==========================================================================
+  macos-keychain-credential-extraction:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '/security'
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "list-keychains"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "find-generic-password"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "dump-keychain"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "find-internet-password"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Chrome Safe Storage"
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: '/Safari'
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: '/SecurityAgent'
+
+    respond:
+      - action: report
+        name: macOS Infostealer - Keychain Credential Extraction
+        metadata:
+          severity: critical
+          mitre_attack: T1555.001
+          confidence: high
+          description: security command used for keychain credential extraction from non-browser parent - Chainbreaker pattern
+          investigation: Check for Chrome Safe Storage key extraction, enumerate all keychain access within session, look for credential file creation
+
+      - action: task
+        command: history_dump
+        investigation: macOS-Infostealer-Keychain-Extraction
+
+
+  # ==========================================================================
+  # RULE 4: Chainbreaker Tool Execution (T1555.001)
+  # Purpose: Detect the Chainbreaker keychain extraction tool directly
+  # Confidence: CRITICAL
+  # ==========================================================================
+  macos-chainbreaker-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '/chainbreaker'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "chainbreaker"
+
+    respond:
+      - action: report
+        name: macOS Infostealer - Chainbreaker Keychain Extraction Tool
+        metadata:
+          severity: critical
+          mitre_attack: T1555.001
+          confidence: critical
+          description: Chainbreaker keychain extraction tool detected - used by AMOS stealer for offline keychain parsing
+          investigation: Immediately contain host, check for exfiltration staging (out.zip), collect memory dump
+
+      - action: task
+        command: history_dump
+        investigation: macOS-Chainbreaker-Execution
+
+
+  # ==========================================================================
+  # RULE 5: Keychain Database Direct File Access (T1555.001)
+  # Purpose: Detect direct file reads of keychain-db files
+  # Confidence: HIGH
+  # ==========================================================================
+  macos-keychain-db-direct-access:
+    detect:
+      target: edr
+      event: FILE_GET_REP
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "Library/Keychains/login.keychain-db"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Library/Keychains/System.keychain"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Library/Keychains/iCloud.keychain"
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/securityd'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/SecurityAgent'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/loginwindow'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/secd'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Keychain Access'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/SystemUIServer'
+
+    respond:
+      - action: report
+        name: macOS Infostealer - Direct Keychain Database File Access
+        metadata:
+          severity: critical
+          mitre_attack: T1555.001
+          confidence: high
+          description: Non-system process directly accessed keychain database file - indicates Chainbreaker or direct parsing tool
+          investigation: Identify accessing process, check for credential extraction output files, correlate with network activity
+
+
+  # ==========================================================================
+  # RULE 6: Browser Credential Database Access (T1005)
+  # Purpose: Detect access to browser Login Data and cookie databases
+  # Confidence: HIGH
+  # ==========================================================================
+  macos-browser-credential-database-access:
+    detect:
+      target: edr
+      event: FILE_GET_REP
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "Chrome/Default/Login Data"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Brave-Browser/Default/Login Data"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Microsoft Edge/Default/Login Data"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Vivaldi/Default/Login Data"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Chromium/Default/Login Data"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Cookies.binarycookies"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Firefox/Profiles"
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Google Chrome'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Google Chrome Helper'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/firefox'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Safari'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Brave Browser'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Microsoft Edge'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/mds_stores'
+
+    respond:
+      - action: report
+        name: macOS Infostealer - Browser Credential Database Access
+        metadata:
+          severity: critical
+          mitre_attack: T1005
+          confidence: high
+          description: Non-browser process accessed browser credential database files - infostealer credential theft pattern
+          investigation: Identify accessing process, check for multi-browser access pattern, look for Chrome Safe Storage key extraction
+
+
+  # ==========================================================================
+  # RULE 7: Cryptocurrency Wallet Data Access (T1005)
+  # Purpose: Detect access to cryptocurrency wallet extension directories
+  # Confidence: HIGH
+  # ==========================================================================
+  macos-crypto-wallet-data-access:
+    detect:
+      target: edr
+      event: FILE_GET_REP
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "nkbihfbeogaeaoehlefnkodbefgpgknn"
+            - op: contains
+              path: event/FILE_PATH
+              value: "hnfanknocfeofbddgcijnmhnfnkdnaad"
+            - op: contains
+              path: event/FILE_PATH
+              value: "bfnaelmomeimhlpmgjnjophhpkkoljpa"
+            - op: contains
+              path: event/FILE_PATH
+              value: "egjidjbpglichdcondbcbdnbeeppgdph"
+            - op: contains
+              path: event/FILE_PATH
+              value: "exodus.wallet"
+            - op: contains
+              path: event/FILE_PATH
+              value: ".electrum/wallets"
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Google Chrome'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Google Chrome Helper'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Brave Browser'
+
+    respond:
+      - action: report
+        name: macOS Infostealer - Cryptocurrency Wallet Data Access
+        metadata:
+          severity: critical
+          mitre_attack: T1005
+          confidence: high
+          description: Non-browser process accessed cryptocurrency wallet extension data - AMOS/Banshee wallet theft pattern
+          investigation: Identify accessing process, check which wallets were accessed, look for data staging archives
+
+
+  # ==========================================================================
+  # RULE 8: TCC Database Reset (Cuckoo Pattern)
+  # Purpose: Detect tccutil reset commands
+  # Confidence: HIGH
+  # ==========================================================================
+  macos-tcc-database-reset:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '/tccutil'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "reset"
+
+    respond:
+      - action: report
+        name: macOS Infostealer - TCC Database Reset (Cuckoo Pattern)
+        metadata:
+          severity: high
+          mitre_attack: T1059.002
+          confidence: high
+          description: tccutil reset executed - Cuckoo Stealer pattern to clear TCC consent decisions and force re-prompting
+          investigation: Check for preceding osascript credential dialog, examine what TCC service was reset (AppleEvents, Accessibility)
+
+
+  # ==========================================================================
+  # RULE 9: Apple Notes Database Access (T1005)
+  # Purpose: Detect non-Apple process accessing NoteStore.sqlite
+  # Confidence: MEDIUM
+  # ==========================================================================
+  macos-apple-notes-database-access:
+    detect:
+      target: edr
+      event: FILE_GET_REP
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "NoteStore.sqlite"
+            - op: contains
+              path: event/FILE_PATH
+              value: "group.com.apple.notes"
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Notes'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/mds'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/mds_stores'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/mdworker'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/backupd'
+
+    respond:
+      - action: report
+        name: macOS Infostealer - Apple Notes Database Access
+        metadata:
+          severity: high
+          mitre_attack: T1005
+          confidence: medium
+          description: Non-Apple process accessed NoteStore.sqlite - AMOS stealer targets Apple Notes for stored passwords and sensitive data
+          investigation: Identify accessing process, check for concurrent browser and keychain credential theft
+
+
+  # ==========================================================================
+  # RULE 10: Exfiltration Archive Creation (T1560.001)
+  # Purpose: Detect creation of stealer data staging archives
+  # Confidence: HIGH
+  # ==========================================================================
+  macos-exfil-archive-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: '/out.zip'
+            - op: ends with
+              path: event/FILE_PATH
+              value: '/output.zip'
+            - op: ends with
+              path: event/FILE_PATH
+              value: '/data.zip'
+            - op: ends with
+              path: event/FILE_PATH
+              value: '/loot.zip'
+            - op: ends with
+              path: event/FILE_PATH
+              value: '/dump.zip'
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Finder'
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: '/Archive Utility'
+
+    respond:
+      - action: report
+        name: macOS Infostealer - Exfiltration Archive Creation
+        metadata:
+          severity: critical
+          mitre_attack: T1560.001
+          confidence: high
+          description: Suspicious archive file created matching AMOS stealer exfiltration staging pattern (out.zip)
+          investigation: Check archive contents, look for preceding credential theft activity, block network exfiltration immediately
+
+      - action: task
+        command: history_dump
+        investigation: macOS-Infostealer-Exfiltration-Staging
+
+
+  # ==========================================================================
+  # RULE 11: Hidden Directory pw.dat Credential Cache (Cuckoo)
+  # Purpose: Detect .local-UUID/pw.dat credential caching pattern
+  # Confidence: CRITICAL
+  # ==========================================================================
+  macos-cuckoo-pwdat-credential-cache:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '/pw.dat'
+        - op: contains
+          path: event/FILE_PATH
+          value: '.local-'
+
+    respond:
+      - action: report
+        name: macOS Infostealer - Cuckoo Credential Cache (pw.dat)
+        metadata:
+          severity: critical
+          mitre_attack: T1059.002
+          confidence: critical
+          description: pw.dat file created in .local-UUID hidden directory - Cuckoo Stealer credential caching pattern
+          investigation: Immediately contain host, read pw.dat contents (may contain phished password), trace back to osascript execution
+
+      - action: task
+        command: history_dump
+        investigation: macOS-Cuckoo-Credential-Cache
+
+
+  # ==========================================================================
+  # RULE 12: dscl User Account Enumeration (T1087.001)
+  # Purpose: Detect local user enumeration via dscl
+  # Confidence: MEDIUM
+  # ==========================================================================
+  macos-dscl-user-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '/dscl'
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-list /Users"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "list /Users"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-read /Users"
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: '/loginwindow'
+                - op: ends with
+                  path: event/PARENT_FILE_PATH
+                  value: '/opendirectoryd'
+
+    respond:
+      - action: report
+        name: macOS Infostealer - Local User Account Enumeration via dscl
+        metadata:
+          severity: medium
+          mitre_attack: T1059.002, T1087.001
+          confidence: medium
+          description: dscl used to enumerate local user accounts from non-system parent - stealer reconnaissance step
+          investigation: Check for follow-up osascript credential phishing or keychain access attempts

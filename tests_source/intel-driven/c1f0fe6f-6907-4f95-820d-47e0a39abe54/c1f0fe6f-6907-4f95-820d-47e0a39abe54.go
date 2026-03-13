@@ -24,9 +24,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
+	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+)
+
+const (
+	TEST_UUID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54"
+	TEST_NAME = "TrollDisappearKey AMSI Bypass Detection"
 )
 
 //go:embed troll_disappear_key.exe
@@ -34,7 +40,7 @@ var malicious []byte
 
 func execute() error {
 	// Define target drop path
-	targetDir := "c:\\F0"
+	targetDir := `c:\F0`
 	targetPath := filepath.Join(targetDir, "troll_disappear_key.exe")
 
 	// Attempt to bypass AMSI and load a .NET assembly
@@ -104,57 +110,103 @@ func execute() error {
 	return nil
 }
 
-func test() {
-	// Initialize the dropper
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		Endpoint.Say("%v", err)
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+func main() {
+	Endpoint.Say("=================================================================")
+	Endpoint.Say("F0RT1KA TEST: %s", TEST_NAME)
+	Endpoint.Say("Test ID: %s", TEST_UUID)
+	Endpoint.Say("=================================================================")
+
+	metadata := TestMetadata{
+		Version:    "1.0.0",
+		Category:   "edr-evasion",
+		Severity:   "high",
+		Techniques: []string{"T1562.001"},
+		Tactics:    []string{"defense-evasion"},
+		Score:      7.9,
+		Tags:       []string{"amsi-bypass", "registry", "trolldisappearkey"},
 	}
 
-	// Create target directory for dropping the binary
-	targetDir := "c:\\F0"
+	orgInfo := ResolveOrganization("")
+	executionContext := ExecutionContext{
+		ExecutionID:    uuid.New().String(),
+		Organization:   orgInfo.UUID,
+		Environment:    "lab",
+		DeploymentType: "manual",
+	}
+
+	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
+
+	defer func() {
+		if r := recover(); r != nil {
+			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
+			SaveLog(999, fmt.Sprintf("Panic: %v", r))
+		}
+	}()
+
+	// ===== Phase 1: Drop binary and check for quarantine =====
+	LogPhaseStart(0, "Binary Drop & Quarantine Check")
+
+	targetDir := `c:\F0`
+	targetPath := filepath.Join(targetDir, "troll_disappear_key.exe")
 
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		LogMessage("ERROR", "Setup", fmt.Sprintf("Failed to create target directory %s: %v", targetDir, err))
+		LogPhaseEnd(0, "failed", fmt.Sprintf("Directory creation failed: %v", err))
 		Endpoint.Say("Failed to create target directory %s: %v", targetDir, err)
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(999, fmt.Sprintf("Failed to create target directory: %v", err))
+		os.Exit(999)
 	}
 
-	// Change to target directory for extraction
-	originalDir, err := os.Getwd()
-	if err != nil {
-		Endpoint.Say("Failed to get current directory: %v", err)
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
-
-	if err := os.Chdir(targetDir); err != nil {
-		Endpoint.Say("Failed to change to target directory: %v", err)
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
-	defer os.Chdir(originalDir) // Return to original directory when done
-
-	// Extract the TrollDisappearKey binary directly to c:\F0 and check if it gets quarantined
+	// Write embedded binary to disk
 	Endpoint.Say("Extracting TrollDisappearKey AMSI bypass tool to %s for quarantine test", targetDir)
-	Endpoint.Say("Pausing for 3 seconds to gauge defensive reaction")
-	Endpoint.Wait(3)
-
-	if Endpoint.Quarantined("troll_disappear_key.exe", malicious) {
-		Endpoint.Say("TrollDisappearKey binary was caught and quarantined!")
-		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
+	if err := os.WriteFile(targetPath, malicious, 0755); err != nil {
+		LogMessage("ERROR", "Binary Drop", fmt.Sprintf("Failed to write binary: %v", err))
+		LogPhaseEnd(0, "failed", fmt.Sprintf("Binary write failed: %v", err))
+		Endpoint.Say("Failed to write TrollDisappearKey binary: %v", err)
+		SaveLog(999, fmt.Sprintf("Failed to write binary: %v", err))
+		os.Exit(999)
 	}
+
+	fileInfo, _ := os.Stat(targetPath)
+	if fileInfo != nil {
+		LogFileDropped("troll_disappear_key.exe", targetPath, fileInfo.Size(), false)
+	}
+
+	// Pause to allow AV/EDR to react
+	Endpoint.Say("Pausing for 3 seconds to gauge defensive reaction")
+	time.Sleep(3 * time.Second)
+
+	// Check if file was quarantined using os.Stat (per Bug Prevention Rules)
+	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+		LogMessage("SUCCESS", "Quarantine Check", "TrollDisappearKey binary was caught and quarantined!")
+		LogFileDropped("troll_disappear_key.exe", targetPath, 0, true)
+		LogPhaseEnd(0, "blocked", "Binary quarantined on extraction")
+		Endpoint.Say("TrollDisappearKey binary was caught and quarantined!")
+		SaveLog(105, "TrollDisappearKey binary quarantined on extraction")
+		os.Exit(105)
+	}
+
+	LogMessage("INFO", "Quarantine Check", "Binary survived quarantine check - proceeding to execution")
+	LogPhaseEnd(0, "success", "Binary not quarantined")
+
+	// ===== Phase 2: Execute AMSI bypass =====
+	LogPhaseStart(1, "AMSI Bypass Execution")
 
 	Endpoint.Say("TrollDisappearKey binary was not caught, attempting AMSI bypass execution")
 
-	// Try to execute TrollDisappearKey and perform AMSI bypass
-	err = execute()
+	err := execute()
 	if err != nil {
+		LogMessage("SUCCESS", "Execution", fmt.Sprintf("TrollDisappearKey execution was prevented: %v", err))
+		LogPhaseEnd(1, "blocked", fmt.Sprintf("Execution prevented: %v", err))
 		Endpoint.Say("Got error \"%v\" when executing TrollDisappearKey", err)
-		Endpoint.Stop(Endpoint.ExecutionPrevented)
+		SaveLog(126, fmt.Sprintf("TrollDisappearKey execution prevented: %v", err))
+		os.Exit(126)
 	}
 
-	Endpoint.Say("TrollDisappearKey execution was not prevented - AMSI bypass succeeded")
-	Endpoint.Stop(Endpoint.Unprotected)
-}
+	LogMessage("WARN", "Execution", "TrollDisappearKey execution was not prevented - AMSI bypass succeeded")
+	LogPhaseEnd(1, "success", "AMSI bypass succeeded - endpoint unprotected")
 
-func main() {
-	Endpoint.Start(test)
+	Endpoint.Say("TrollDisappearKey execution was not prevented - AMSI bypass succeeded")
+	SaveLog(101, "TrollDisappearKey AMSI bypass succeeded - endpoint unprotected")
+	os.Exit(101)
 }

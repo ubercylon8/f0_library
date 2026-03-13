@@ -1,0 +1,689 @@
+# ============================================================================
+# DEFENSE GUIDANCE: Sigma Detection Rules
+# ============================================================================
+# Test ID: 94b248c0-a104-48c3-b4a5-3d45028c407d
+# Test Name: Gunra Ransomware Simulation
+# MITRE ATT&CK: T1486, T1490, T1082, T1083, T1622
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules detect the underlying ransomware behaviors demonstrated
+# by Gunra ransomware, NOT the F0RT1KA testing framework. They will catch
+# real-world ransomware attacks using similar encryption, recovery inhibition,
+# and evasion techniques across any SIEM backend.
+#
+# ============================================================================
+
+title: Gunra Ransomware File Encryption - ENCRT Extension
+id: 94b248c0-sigma-001
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects file creation or rename events where files receive the .ENCRT
+    extension used by Gunra ransomware. This extension is appended to files
+    after encryption. Any appearance of .ENCRT files on an endpoint is a
+    strong indicator of Gunra ransomware activity or a variant reusing this
+    extension. This detection is technique-focused and targets the file
+    encryption behavior (T1486), not any specific testing tool.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1486
+    - ransomware.gunra
+level: critical
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '.ENCRT'
+    condition: selection
+falsepositives:
+    - Legitimate encryption software using .ENCRT extension (extremely unlikely)
+    - Security testing with Gunra ransomware simulation
+fields:
+    - TargetFilename
+    - Image
+    - User
+    - Computer
+
+---
+
+title: Gunra Ransom Note Creation - R3ADM3.txt
+id: 94b248c0-sigma-002
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects creation of the R3ADM3.txt file, which is the ransom note
+    filename specific to the Gunra ransomware family. This file contains
+    extortion demands and instructions for victims. Its creation is a
+    critical indicator of an active or completed ransomware attack.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1486
+    - ransomware.gunra
+level: critical
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '\R3ADM3.txt'
+    condition: selection
+falsepositives:
+    - F0RT1KA security test execution (coordinate with SOC)
+    - Extremely unlikely in production
+fields:
+    - TargetFilename
+    - Image
+    - User
+    - Computer
+
+---
+
+title: Shadow Copy Deletion via vssadmin
+id: 94b248c0-sigma-003
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects vssadmin.exe being used to delete Volume Shadow Copies. This
+    is one of the most common ransomware techniques (T1490) used to prevent
+    file recovery. Nearly all modern ransomware families -- including Gunra,
+    LockBit, Conti, REvil, BlackCat, and others -- delete shadow copies
+    before or during encryption. This is a technique-generic detection.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1490
+level: high
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\vssadmin.exe'
+    selection_args:
+        CommandLine|contains|all:
+            - 'delete'
+            - 'shadows'
+    condition: selection_img and selection_args
+falsepositives:
+    - IT administrators performing scheduled VSS cleanup
+    - Disk space management automation
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+    - Computer
+
+---
+
+title: Shadow Copy Deletion via WMIC
+id: 94b248c0-sigma-004
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects wmic.exe being used to delete shadow copies via WMI. This
+    alternative method is used by ransomware families when vssadmin-based
+    deletion is blocked or monitored. Gunra and many other ransomware
+    families use both vssadmin and wmic methods for redundancy.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1490
+level: high
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\wmic.exe'
+    selection_args:
+        CommandLine|contains|all:
+            - 'shadowcopy'
+            - 'delete'
+    condition: selection_img and selection_args
+falsepositives:
+    - Very rare in legitimate operations
+    - Automated WMI scripts managing shadow storage (should be baselined)
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+    - Computer
+
+---
+
+title: Shadow Copy Deletion via PowerShell WMI
+id: 94b248c0-sigma-005
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects PowerShell commands targeting Win32_ShadowCopy WMI class for
+    deletion. Sophisticated ransomware and living-off-the-land attacks use
+    PowerShell to interact with shadow copies instead of vssadmin or wmic,
+    which may be more heavily monitored.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1490
+    - attack.execution
+    - attack.t1059.001
+level: high
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_args:
+        CommandLine|contains: 'Win32_ShadowCopy'
+    selection_delete:
+        CommandLine|contains:
+            - 'Delete'
+            - 'Remove'
+    condition: selection_img and selection_args and selection_delete
+falsepositives:
+    - PowerShell-based VSS management scripts (should be rare and baselined)
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+    - Computer
+
+---
+
+title: Boot Recovery Disabled via BCDEdit
+id: 94b248c0-sigma-006
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects bcdedit.exe being used to disable Windows recovery options.
+    Ransomware uses this technique to prevent victims from recovering
+    through Windows Recovery Environment, Safe Mode, or automatic repair.
+    This makes the impact of encryption more severe. Gunra and most modern
+    ransomware families execute this as part of their recovery inhibition
+    phase.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1490
+level: high
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\bcdedit.exe'
+    selection_recovery:
+        CommandLine|contains|all:
+            - 'recoveryenabled'
+            - 'no'
+    selection_boot:
+        CommandLine|contains|all:
+            - 'bootstatuspolicy'
+            - 'ignoreallfailures'
+    condition: selection_img and (selection_recovery or selection_boot)
+falsepositives:
+    - System administrators configuring boot settings during maintenance
+    - OEM deployment scripts
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+    - Computer
+
+---
+
+title: Rapid System Information Discovery - Pre-Encryption Reconnaissance
+id: 94b248c0-sigma-007
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects rapid execution of multiple system information discovery
+    commands from a single parent process. Gunra ransomware gathers
+    hostname, username, and OS information before beginning its encryption
+    routine. A burst of 3 or more discovery commands within a short window
+    from the same parent is suspicious when the parent is not a known
+    system management tool.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.discovery
+    - attack.t1082
+level: medium
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith:
+            - '\hostname.exe'
+            - '\whoami.exe'
+            - '\systeminfo.exe'
+            - '\ipconfig.exe'
+            - '\net.exe'
+            - '\nltest.exe'
+    filter_parent:
+        ParentImage|endswith:
+            - '\svchost.exe'
+            - '\services.exe'
+            - '\mmc.exe'
+            - '\explorer.exe'
+    condition: selection and not filter_parent
+    # Note: Sigma alone cannot express time-based correlation.
+    # SIEM-side aggregation (3+ events in 2 min from same ParentImage) is recommended.
+falsepositives:
+    - IT asset inventory scripts
+    - System monitoring and health check agents
+    - Administrator troubleshooting sessions
+fields:
+    - CommandLine
+    - ParentImage
+    - ParentCommandLine
+    - User
+    - Computer
+
+---
+
+title: Suspicious vssadmin Shadow Copy Enumeration
+id: 94b248c0-sigma-008
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects vssadmin.exe being used to list or enumerate shadow copies.
+    While less severe than deletion, shadow copy enumeration by a non-system
+    process may indicate ransomware reconnaissance. Gunra checks shadow
+    copy accessibility before attempting deletion. When correlated with
+    other ransomware indicators, this becomes a high-confidence signal.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1490
+    - attack.discovery
+level: medium
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\vssadmin.exe'
+    selection_list:
+        CommandLine|contains|all:
+            - 'list'
+            - 'shadows'
+    filter_parent:
+        ParentImage|endswith:
+            - '\svchost.exe'
+            - '\services.exe'
+    condition: selection_img and selection_list and not filter_parent
+falsepositives:
+    - IT administrators checking backup status
+    - Backup monitoring scripts
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+    - Computer
+
+---
+
+title: Mass File Rename with Suspicious Extension Appended
+id: 94b248c0-sigma-009
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects file rename events where a known ransomware extension is
+    appended to the original filename (e.g., document.docx.ENCRT). This
+    pattern of appending an extension rather than replacing it is the
+    dominant method used by ransomware families including Gunra. This rule
+    covers multiple known ransomware extensions for broad detection.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1486
+level: high
+logsource:
+    category: file_rename
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '.ENCRT'
+            - '.encrypted'
+            - '.locked'
+            - '.crypted'
+            - '.enc'
+            - '.crypt'
+            - '.locky'
+            - '.cerber'
+            - '.ryuk'
+            - '.conti'
+            - '.lockbit'
+            - '.phobos'
+            - '.dharma'
+            - '.djvu'
+            - '.stop'
+    condition: selection
+falsepositives:
+    - Legitimate file encryption tools
+    - File renaming by backup software
+fields:
+    - TargetFilename
+    - Image
+    - User
+    - Computer
+
+---
+
+title: Common Ransom Note Filename Creation
+id: 94b248c0-sigma-010
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects creation of files matching common ransom note filenames across
+    multiple ransomware families. Includes Gunra's R3ADM3.txt as well as
+    patterns used by LockBit, Conti, REvil, BlackCat, Phobos, and other
+    families. This provides broad ransomware detection capability beyond
+    a single strain.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1486
+level: high
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_gunra:
+        TargetFilename|endswith: '\R3ADM3.txt'
+    selection_generic:
+        TargetFilename|endswith:
+            - '\DECRYPT_INSTRUCTION.txt'
+            - '\DECRYPT_INFORMATION.html'
+            - '\HOW_TO_DECRYPT.txt'
+            - '\HOW_TO_RECOVER_FILES.txt'
+            - '\RESTORE_FILES.txt'
+            - '\RECOVER_YOUR_DATA.txt'
+            - '\readme.txt'
+            - '\!_READ_ME_!.txt'
+            - '\HELP_DECRYPT.txt'
+    selection_pattern:
+        TargetFilename|contains:
+            - 'DECRYPT'
+            - 'RECOVER'
+            - 'RESTORE'
+        TargetFilename|endswith:
+            - '.hta'
+            - '.html'
+    condition: selection_gunra or selection_generic or selection_pattern
+falsepositives:
+    - Legitimate readme.txt files (high volume -- tune by directory)
+    - Security awareness training materials
+fields:
+    - TargetFilename
+    - Image
+    - User
+    - Computer
+
+---
+
+title: Anti-Debugging API Call by Non-Security Process
+id: 94b248c0-sigma-011
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects calls to anti-debugging APIs (IsDebuggerPresent,
+    CheckRemoteDebuggerPresent, NtQueryInformationProcess with
+    ProcessDebugPort) by processes that are not known security tools or
+    debuggers. Gunra ransomware uses IsDebuggerPresent to detect analysis
+    environments before executing its payload. While anti-debugging is used
+    by legitimate software (DRM, anti-cheat), its presence in an unknown
+    binary combined with other ransomware indicators is highly suspicious.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1622
+level: medium
+logsource:
+    category: api_call
+    product: windows
+detection:
+    selection_api:
+        ApiName:
+            - 'IsDebuggerPresent'
+            - 'CheckRemoteDebuggerPresent'
+            - 'NtQueryInformationProcess'
+    filter_known:
+        Image|endswith:
+            - '\devenv.exe'
+            - '\windbg.exe'
+            - '\x64dbg.exe'
+            - '\ollydbg.exe'
+            - '\ida.exe'
+            - '\ida64.exe'
+            - '\MsMpEng.exe'
+            - '\MsSense.exe'
+    condition: selection_api and not filter_known
+falsepositives:
+    - Legitimate anti-cheat software
+    - DRM-protected applications
+    - Software license enforcement tools
+fields:
+    - ApiName
+    - Image
+    - User
+    - Computer
+
+---
+
+title: Linux/macOS - Ransomware File Extension Change (.ENCRT)
+id: 94b248c0-sigma-012
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects file creation or modification events on Linux and macOS where
+    files receive the .ENCRT extension associated with Gunra ransomware.
+    While Gunra primarily targets Windows, cross-platform ransomware
+    variants and copycats may reuse the same extension on Linux/macOS.
+    This rule provides defense-in-depth coverage for non-Windows platforms.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1486
+level: high
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection:
+        TargetFilename|endswith: '.ENCRT'
+    condition: selection
+falsepositives:
+    - Extremely unlikely on Linux/macOS
+fields:
+    - TargetFilename
+    - Image
+    - User
+    - Hostname
+
+---
+
+title: Linux - Snapshot or Backup Deletion (Recovery Inhibition)
+id: 94b248c0-sigma-013
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects commands on Linux that destroy filesystem snapshots, LVM
+    snapshots, or backup data. This is the Linux equivalent of Windows
+    shadow copy deletion (T1490). Ransomware targeting Linux systems
+    (such as ESXi-targeting variants) uses these commands to inhibit
+    recovery from snapshots and backups before encrypting data.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1490
+level: high
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection_lvm:
+        Image|endswith: '/lvremove'
+    selection_btrfs:
+        Image|endswith: '/btrfs'
+        CommandLine|contains:
+            - 'subvolume delete'
+            - 'snapshot delete'
+    selection_zfs:
+        Image|endswith: '/zfs'
+        CommandLine|contains: 'destroy'
+    selection_rm_backup:
+        Image|endswith:
+            - '/rm'
+            - '/shred'
+        CommandLine|contains:
+            - '/backup'
+            - '/var/lib/snapshots'
+            - '.snapshot'
+    condition: selection_lvm or selection_btrfs or selection_zfs or selection_rm_backup
+falsepositives:
+    - Automated snapshot rotation scripts (should be baselined)
+    - Storage administrators performing maintenance
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+    - Hostname
+
+---
+
+title: macOS - Time Machine Backup Deletion (Recovery Inhibition)
+id: 94b248c0-sigma-014
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects commands on macOS that delete Time Machine backups or disable
+    Time Machine. This is the macOS equivalent of Windows shadow copy
+    deletion (T1490). Ransomware targeting macOS would use tmutil to delete
+    local snapshots and backups to prevent recovery after encryption.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1490
+level: high
+logsource:
+    category: process_creation
+    product: macos
+detection:
+    selection_tmutil_delete:
+        Image|endswith: '/tmutil'
+        CommandLine|contains:
+            - 'deletelocalsnapshots'
+            - 'delete'
+    selection_tmutil_disable:
+        Image|endswith: '/tmutil'
+        CommandLine|contains: 'disable'
+    selection_defaults:
+        Image|endswith: '/defaults'
+        CommandLine|contains|all:
+            - 'com.apple.TimeMachine'
+            - 'AutoBackup'
+            - '-bool'
+            - 'false'
+    condition: selection_tmutil_delete or selection_tmutil_disable or selection_defaults
+falsepositives:
+    - Users manually managing Time Machine snapshots
+    - IT deployment scripts reconfiguring Time Machine
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+    - Hostname
+
+---
+
+title: Linux - Mass File Rename with Ransomware Extension
+id: 94b248c0-sigma-015
+related:
+    - id: 94b248c0-a104-48c3-b4a5-3d45028c407d
+      type: derived
+status: experimental
+description: |
+    Detects file rename events on Linux where files receive known
+    ransomware extensions. Cross-platform ransomware (written in Go, Rust,
+    or C++) may target Linux servers and NAS devices using the same
+    encryption extensions as their Windows counterparts.
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.impact
+    - attack.t1486
+level: high
+logsource:
+    category: file_rename
+    product: linux
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '.ENCRT'
+            - '.encrypted'
+            - '.locked'
+            - '.crypted'
+            - '.enc'
+            - '.crypt'
+    condition: selection
+falsepositives:
+    - Legitimate file encryption (GPG, age, openssl enc)
+    - Security testing
+fields:
+    - TargetFilename
+    - Image
+    - User
+    - Hostname

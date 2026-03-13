@@ -1,45 +1,179 @@
+// ============================================================
 // Behavioral Detection Queries for APT42 TAMECAT Fileless Backdoor
 // Test ID: 92b0b4f6-a09b-4c7b-b593-31ce461f804c
 // MITRE ATT&CK: T1204.002, T1059.005, T1059.001, T1547.001, T1037.001, T1555.003, T1102
-// FOCUS: Malicious attack behaviors only (excludes test setup/staging)
+// Author: F0RT1KA Defense Guidance Builder
+// Date: 2026-03-13
+// Version: 2.0.0
+// ============================================================
+// FOCUS: Technique-level attack behaviors only.
+// All detections target the underlying attack technique, NOT test framework artifacts.
+// ============================================================
 
-//
-// QUERY 1: VBScript WMI AV Enumeration Detection (T1059.005)
-// Purpose: Detect VBScript-based WMI queries to SecurityCenter2 for AV product enumeration
-//
+
+// ============================================================
+// QUERY 1: Malicious LNK File Targeting Script Interpreters (T1204.002)
+// Purpose: Detect LNK shortcut files whose target path or arguments invoke
+//          cscript.exe, wscript.exe, or mshta.exe -- a known APT42 delivery pattern
+// Confidence: HIGH
+// False Positives: Legitimate administrative scripts launched via shortcuts
+// Threshold: Any occurrence warrants investigation
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where FileName endswith ".lnk"
+| where ActionType in ("FileCreated", "FileModified")
+| where InitiatingProcessFileName !in~ ("explorer.exe", "SearchProtocolHost.exe", "msiexec.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, FolderPath, ActionType,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    FileSize
+| extend
+    Severity = "High",
+    ThreatType = "Malicious Shortcut File Creation",
+    MitreAttack = "T1204.002",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
+
+
+// ============================================================
+// QUERY 2: VBScript WMI AV Enumeration (T1059.005)
+// Purpose: Detect VBScript execution that performs WMI queries to
+//          SecurityCenter2 or Windows Defender namespaces for AV enumeration
+// Confidence: HIGH
+// False Positives: Legitimate IT management scripts querying AV status
+// Threshold: Alert on any non-SCCM/Intune-managed VBScript WMI enumeration
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName in~ ("cscript.exe", "wscript.exe")
 | where ProcessCommandLine has_any (".vbs", ".vbe")
-| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, ProcessCommandLine,
     InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend IsAVEnumeration = ProcessCommandLine has_any ("SecurityCenter", "AntiVirus", "Defender")
-| where IsAVEnumeration == true or true  // Show all VBScript execution
+| join kind=leftouter (
+    DeviceEvents
+    | where TimeGenerated > ago(1h)
+    | where ActionType == "WmiQuery"
+    | where AdditionalFields has_any ("SecurityCenter2", "AntiVirusProduct", "MSFT_MpComputerStatus")
+    | project WmiTime=TimeGenerated, DeviceName, WmiQuery=AdditionalFields
+) on DeviceName
+| extend
+    Severity = "High",
+    ThreatType = "VBScript WMI AV Enumeration",
+    MitreAttack = "T1059.005",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
 
-//
-// QUERY 2: PowerShell Encoded Command from Conhost (T1059.001 - TAMECAT)
-// Purpose: Detect TAMECAT pattern of conhost.exe spawning PowerShell with encoded commands
-//
+
+// ============================================================
+// QUERY 3: PowerShell Encoded Command from Suspicious Parent (T1059.001)
+// Purpose: Detect TAMECAT pattern: PowerShell.exe -EncodedCommand spawned from
+//          conhost.exe, cmd.exe, cscript.exe, wscript.exe, or mshta.exe
+// Confidence: HIGH
+// False Positives: Some enterprise automation tools use encoded commands from cmd
+// Threshold: Encoded payload > 100 chars from suspicious parent = alert
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where FileName =~ "powershell.exe"
-| where ProcessCommandLine has "-EncodedCommand"
-| where InitiatingProcessFileName in~ ("conhost.exe", "cmd.exe", "cscript.exe", "wscript.exe")
+| where ProcessCommandLine has "-EncodedCommand" or ProcessCommandLine has "-enc " or ProcessCommandLine has "-ec "
+| where InitiatingProcessFileName in~ ("conhost.exe", "cmd.exe", "cscript.exe", "wscript.exe", "mshta.exe")
+| extend EncodedPayload = extract("-[Ee]n[codedCmamnd]*\\s+(\\S+)", 1, ProcessCommandLine)
+| extend EncodedCmdLength = strlen(EncodedPayload)
+| where EncodedCmdLength > 100
 | project TimeGenerated, DeviceName, AccountName,
     InitiatingProcessFileName, InitiatingProcessCommandLine,
-    FileName, ProcessCommandLine
-| extend EncodedCmdLength = strlen(extract("-EncodedCommand\\s+(\\S+)", 1, ProcessCommandLine))
-| where EncodedCmdLength > 100  // Significant encoded payload
+    FileName, ProcessCommandLine,
+    EncodedCmdLength
+| extend
+    Severity = "Critical",
+    ThreatType = "TAMECAT Fileless PowerShell Execution",
+    MitreAttack = "T1059.001",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
 
-//
-// QUERY 3: Dual Registry Persistence Detection (T1547.001 + T1037.001)
-// Purpose: Detect simultaneous creation of Run key and UserInitMprLogonScript
-//
+
+// ============================================================
+// QUERY 4: Conhost Headless PowerShell Spawn (T1059.001)
+// Purpose: Detect conhost.exe launched with --headless flag spawning
+//          powershell.exe. This is the specific execution chain used by
+//          TAMECAT to evade console-based detection
+// Confidence: CRITICAL
+// False Positives: Very low -- headless conhost spawning PowerShell is rare
+// Threshold: Any occurrence
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "conhost.exe"
+| where ProcessCommandLine has "--headless"
+| where ProcessCommandLine has_any ("powershell.exe", "pwsh.exe", "cmd.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessId
+| extend
+    Severity = "Critical",
+    ThreatType = "Headless Conhost Execution Chain",
+    MitreAttack = "T1059.001",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
+
+
+// ============================================================
+// QUERY 5: Registry Run Key Persistence with Script Target (T1547.001)
+// Purpose: Detect creation of Registry Run key values pointing to script
+//          interpreters (cscript, wscript, mshta, powershell)
+// Confidence: HIGH
+// False Positives: Some legitimate software uses Run keys for startup scripts
+// Threshold: Alert on values targeting cscript/wscript with .vbs argument
+// ============================================================
+DeviceRegistryEvents
+| where TimeGenerated > ago(24h)
+| where RegistryKey has @"CurrentVersion\Run"
+| where ActionType == "RegistryValueSet"
+| where RegistryValueData has_any ("cscript", "wscript", "mshta", "powershell", ".vbs", ".vbe", ".js", ".jse", ".wsf")
+| project TimeGenerated, DeviceName, AccountName,
+    RegistryKey, RegistryValueName, RegistryValueData,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "High",
+    ThreatType = "Script-Based Registry Run Key Persistence",
+    MitreAttack = "T1547.001",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
+
+
+// ============================================================
+// QUERY 6: UserInitMprLogonScript Persistence (T1037.001)
+// Purpose: Detect modification of the rare UserInitMprLogonScript
+//          registry value. This is an uncommon persistence mechanism
+//          heavily used by Iranian APTs including APT42/Magic Hound
+// Confidence: CRITICAL (very rare legitimate use)
+// False Positives: Enterprise login scripts managed via GPO (rare)
+// Threshold: Any modification to this value
+// ============================================================
+DeviceRegistryEvents
+| where TimeGenerated > ago(24h)
+| where RegistryValueName =~ "UserInitMprLogonScript"
+| where ActionType == "RegistryValueSet"
+| project TimeGenerated, DeviceName, AccountName,
+    RegistryKey, RegistryValueName, RegistryValueData,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "Critical",
+    ThreatType = "UserInitMprLogonScript Persistence - Rare Technique",
+    MitreAttack = "T1037.001",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
+
+
+// ============================================================
+// QUERY 7: Dual Persistence Mechanism Correlation (T1547.001 + T1037.001)
+// Purpose: Correlate simultaneous creation of Run key persistence AND
+//          UserInitMprLogonScript on the same host -- signature APT42 behavior
+// Confidence: CRITICAL (dual persistence is very high signal)
+// False Positives: Extremely low
+// Threshold: 2+ persistence mechanisms created within 1 hour
+// ============================================================
 let RunKeyChanges = DeviceRegistryEvents
 | where TimeGenerated > ago(1h)
 | where RegistryKey has @"CurrentVersion\Run"
 | where ActionType == "RegistryValueSet"
-| where RegistryValueName =~ "Renovation" or RegistryValueData has_any ("cscript", "wscript", ".vbs")
+| where RegistryValueData has_any ("cscript", "wscript", ".vbs", ".vbe", ".js", "powershell")
 | project TimeGenerated, DeviceName, AccountName, RegistryKey, RegistryValueName, RegistryValueData,
     InitiatingProcessFileName;
 let LogonScriptChanges = DeviceRegistryEvents
@@ -53,93 +187,261 @@ RunKeyChanges
 | summarize PersistenceCount=count(), Mechanisms=make_set(RegistryValueName),
     FirstChange=min(TimeGenerated), LastChange=max(TimeGenerated)
     by DeviceName, AccountName
-| where PersistenceCount >= 2  // Dual persistence indicator
+| where PersistenceCount >= 2
+| extend
+    Severity = "Critical",
+    ThreatType = "APT42 Dual Persistence Mechanism",
+    MitreAttack = "T1547.001, T1037.001",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
 
-//
-// QUERY 4: Browser Credential Database Access (T1555.003)
-// Purpose: Detect access to Chrome/Edge Login Data SQLite databases
-//
+
+// ============================================================
+// QUERY 8: Browser Credential Database Access by Non-Browser Process (T1555.003)
+// Purpose: Detect access to Chrome/Edge Login Data, Cookies, or Web Data
+//          SQLite databases by processes other than the browser itself
+// Confidence: HIGH
+// False Positives: Backup software, browser profile migration tools
+// Threshold: Any non-browser process accessing Login Data files
+// ============================================================
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
-| where ActionType in ("FileRead", "FileCopied", "FileCreated", "FileModified")
+| where ActionType in ("FileRead", "FileCopied", "FileCreated", "FileModified", "FileAccessed")
 | where FolderPath has_any (
-    @"Chrome\User Data\Default\Login Data",
-    @"Edge\User Data\Default\Login Data",
-    @"Chrome\User Data\Default\Cookies",
-    @"Edge\User Data\Default\Cookies"
+    @"User Data\Default\Login Data",
+    @"User Data\Default\Cookies",
+    @"User Data\Default\Web Data",
+    @"User Data\Profile 1\Login Data",
+    @"User Data\Default\Local State"
 )
-| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "MsMpEng.exe")
+| where FolderPath has_any ("Chrome", "Edge", "Brave", "Opera", "Vivaldi")
+| where InitiatingProcessFileName !in~ (
+    "chrome.exe", "msedge.exe", "brave.exe", "opera.exe", "vivaldi.exe",
+    "MsMpEng.exe", "MpCopyAccelerator.exe", "SearchProtocolHost.exe",
+    "SecurityHealthSystray.exe", "OneDrive.exe"
+)
 | project TimeGenerated, DeviceName, AccountName,
     InitiatingProcessFileName, InitiatingProcessCommandLine,
     FileName, FolderPath, ActionType
+| extend
+    Severity = "Critical",
+    ThreatType = "Browser Credential Database Access",
+    MitreAttack = "T1555.003",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
 
-//
-// QUERY 5: Edge Remote Debugging Port Activation (T1555.003)
-// Purpose: Detect Edge launched with --remote-debugging-port flag
-//
+
+// ============================================================
+// QUERY 9: Edge/Chrome Remote Debugging Port Activation (T1555.003)
+// Purpose: Detect browser launched with --remote-debugging-port flag,
+//          which allows external processes to control the browser and
+//          extract credentials, cookies, and session tokens via CDP
+// Confidence: HIGH
+// False Positives: Developers using browser debugging, CI/CD test runners
+// Threshold: Non-developer context launching browser with debug port
+// ============================================================
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
-| where FileName =~ "msedge.exe"
+| where FileName in~ ("msedge.exe", "chrome.exe", "brave.exe")
 | where ProcessCommandLine has "--remote-debugging-port"
 | project TimeGenerated, DeviceName, AccountName,
     InitiatingProcessFileName, FileName, ProcessCommandLine
 | extend DebugPort = extract("--remote-debugging-port=(\\d+)", 1, ProcessCommandLine)
+| extend
+    Severity = "High",
+    ThreatType = "Browser Remote Debugging Port Activation",
+    MitreAttack = "T1555.003",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
 
-//
-// QUERY 6: Telegram API Traffic Detection (T1102)
-// Purpose: Detect outbound connections to Telegram API from workstations
-//
+
+// ============================================================
+// QUERY 10: CryptUnprotectData DPAPI Call from Suspicious Process (T1555.003)
+// Purpose: Detect DPAPI decryption API calls from non-standard processes,
+//          indicating credential decryption attempts against browser-stored data
+// Confidence: MEDIUM
+// False Positives: Legitimate applications using DPAPI for their own credential storage
+// Threshold: DPAPI calls from unsigned or non-standard binaries
+// ============================================================
+DeviceEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "SensitiveApiCall" or ActionType == "ApiCallDetected"
+| where AdditionalFields has "CryptUnprotectData"
+| where InitiatingProcessFileName !in~ (
+    "chrome.exe", "msedge.exe", "brave.exe", "firefox.exe",
+    "explorer.exe", "lsass.exe", "svchost.exe",
+    "MsMpEng.exe", "SecurityHealthService.exe"
+)
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    ActionType, AdditionalFields
+| extend
+    Severity = "High",
+    ThreatType = "DPAPI Credential Decryption Attempt",
+    MitreAttack = "T1555.003",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
+
+
+// ============================================================
+// QUERY 11: Telegram API Traffic from Non-Telegram Process (T1102)
+// Purpose: Detect outbound HTTPS connections to api.telegram.org from
+//          processes that are not the official Telegram desktop client.
+//          APT42 uses Telegram Bot API as a C2 channel for data exfiltration
+// Confidence: HIGH
+// False Positives: Custom bots running on workstations (should be servers)
+// Threshold: Any non-Telegram desktop process connecting to api.telegram.org
+// ============================================================
 DeviceNetworkEvents
 | where TimeGenerated > ago(1h)
 | where RemoteUrl has "api.telegram.org" or RemoteUrl has "telegram.org"
-| where InitiatingProcessFileName !in~ ("Telegram.exe", "TelegramDesktop.exe")
+| where InitiatingProcessFileName !in~ ("Telegram.exe", "TelegramDesktop.exe", "Updater.exe")
 | project TimeGenerated, DeviceName, AccountName,
-    InitiatingProcessFileName, RemoteUrl, RemoteIP, RemotePort,
-    ActionType
-| extend ThreatScore = 85
-| extend Detection = "Non-Telegram process connecting to Telegram API"
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    RemoteUrl, RemoteIP, RemotePort, ActionType
+| extend
+    Severity = "Critical",
+    ThreatType = "Telegram API C2 Communication",
+    MitreAttack = "T1102",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
 
-//
-// QUERY 7: Combined APT42 Kill Chain Detection
-// Purpose: Correlate multiple APT42 indicators for high-confidence detection
-//
+
+// ============================================================
+// QUERY 12: HTTPS POST Data Exfiltration to External Services (T1102)
+// Purpose: Detect large HTTPS POST requests to external web services
+//          from processes that do not typically perform uploads
+// Confidence: MEDIUM
+// False Positives: Legitimate file upload services, telemetry, updates
+// Threshold: POST > 4KB to external endpoints from non-browser processes
+// ============================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "ConnectionSuccess"
+| where RemotePort in (443, 8443)
+| where RemoteUrl has_any ("httpbin.org", "paste", "webhook", "requestbin", "ngrok", "pipedream")
+| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe", "Teams.exe", "OneDrive.exe", "outlook.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    RemoteUrl, RemoteIP, RemotePort
+| extend
+    Severity = "High",
+    ThreatType = "HTTPS POST Exfiltration to External Service",
+    MitreAttack = "T1102",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
+
+
+// ============================================================
+// QUERY 13: FTP Port Connectivity from Workstation (T1048)
+// Purpose: Detect outbound FTP connections (port 21) from workstations.
+//          APT42 uses FTP as a secondary exfiltration channel
+// Confidence: HIGH
+// False Positives: Developers using FTP clients (should be restricted)
+// Threshold: Any outbound FTP connection from a workstation
+// ============================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemotePort == 21
+| where ActionType == "ConnectionSuccess"
+| where InitiatingProcessFileName !in~ ("svchost.exe", "FileZilla.exe", "winscp.exe", "explorer.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    RemoteUrl, RemoteIP, RemotePort
+| extend
+    Severity = "High",
+    ThreatType = "FTP Outbound Connection from Workstation",
+    MitreAttack = "T1048",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
+
+
+// ============================================================
+// QUERY 14: PowerShell Script Block Logging - TAMECAT Indicators (T1059.001)
+// Purpose: Detect TAMECAT-specific PowerShell script content in Script Block
+//          Logging events: AMSI detection checks, Defender process enumeration,
+//          environment fingerprinting patterns
+// Confidence: HIGH
+// False Positives: Security audit scripts checking Defender status
+// Threshold: Multiple TAMECAT indicators in single script block
+// ============================================================
+DeviceEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "PowerShellCommand"
+| where AdditionalFields has_any (
+    "GetAssemblies",
+    "amsi",
+    "MsMpEng",
+    "MsSense",
+    "SenseIR",
+    "ConvertTo-Json",
+    "beacon",
+    "SecurityCenter2",
+    "AntiVirusProduct"
+)
+| where AdditionalFields has_any (
+    "WindowsIdentity",
+    "IsInRole",
+    "Get-Process",
+    "Get-NetIPAddress",
+    "COMPUTERNAME"
+)
+| project TimeGenerated, DeviceName, AccountName,
+    ActionType, AdditionalFields,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "High",
+    ThreatType = "TAMECAT PowerShell Fingerprinting Activity",
+    MitreAttack = "T1059.001",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
+
+
+// ============================================================
+// QUERY 15: APT42 TAMECAT Kill Chain Correlation (Multi-Stage)
+// Purpose: Correlate multiple APT42 indicators across the full kill chain
+//          for high-confidence, low-false-positive composite detection.
+//          Requires 3+ indicators within 4 hours on the same host
+// Confidence: CRITICAL
+// False Positives: Extremely low -- requires multiple diverse indicators
+// Threshold: 3+ distinct technique indicators
+// ============================================================
 let VBScriptExec = DeviceProcessEvents
 | where TimeGenerated > ago(4h)
 | where FileName in~ ("cscript.exe", "wscript.exe")
-| distinct DeviceName, AccountName;
+| where ProcessCommandLine has_any (".vbs", ".vbe")
+| extend Indicator = "VBScript Execution"
+| project TimeGenerated, DeviceName, AccountName, Indicator;
 let PSEncodedCmd = DeviceProcessEvents
 | where TimeGenerated > ago(4h)
 | where FileName =~ "powershell.exe"
-| where ProcessCommandLine has "-EncodedCommand"
-| distinct DeviceName, AccountName;
+| where ProcessCommandLine has_any ("-EncodedCommand", "-enc ", "-ec ")
+| extend Indicator = "Encoded PowerShell"
+| project TimeGenerated, DeviceName, AccountName, Indicator;
 let RegistryPersistence = DeviceRegistryEvents
 | where TimeGenerated > ago(4h)
-| where RegistryValueName in~ ("Renovation", "UserInitMprLogonScript")
-| distinct DeviceName, AccountName;
+| where RegistryValueName =~ "UserInitMprLogonScript"
+   or (RegistryKey has @"CurrentVersion\Run" and RegistryValueData has_any ("cscript", "wscript", ".vbs"))
+| extend Indicator = "Persistence Mechanism"
+| project TimeGenerated, DeviceName, AccountName, Indicator;
 let BrowserCredAccess = DeviceFileEvents
 | where TimeGenerated > ago(4h)
-| where FolderPath has_any ("Login Data", "Cookies")
+| where FolderPath has "Login Data" or FolderPath has "Cookies"
 | where FolderPath has_any ("Chrome", "Edge")
 | where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe")
-| distinct DeviceName, AccountName;
+| extend Indicator = "Browser Credential Access"
+| project TimeGenerated, DeviceName, AccountName, Indicator;
+let TelegramC2 = DeviceNetworkEvents
+| where TimeGenerated > ago(4h)
+| where RemoteUrl has "api.telegram.org"
+| where InitiatingProcessFileName !in~ ("Telegram.exe", "TelegramDesktop.exe")
+| extend Indicator = "Telegram C2 Communication"
+| project TimeGenerated, DeviceName, AccountName, Indicator;
 VBScriptExec
-| join kind=inner (PSEncodedCmd) on DeviceName, AccountName
-| join kind=leftouter (RegistryPersistence) on DeviceName, AccountName
-| join kind=leftouter (BrowserCredAccess) on DeviceName, AccountName
-| extend ThreatScore = 95
-| extend Detection = "APT42 TAMECAT Kill Chain - Multiple indicators correlated"
-| project DeviceName, AccountName, ThreatScore, Detection
-
-//
-// QUERY 8: UserInitMprLogonScript Persistence (Rare - High Signal)
-// Purpose: Detect the uncommon UserInitMprLogonScript persistence technique
-//
-DeviceRegistryEvents
-| where TimeGenerated > ago(24h)
-| where RegistryValueName =~ "UserInitMprLogonScript"
-| where ActionType == "RegistryValueSet"
-| project TimeGenerated, DeviceName, AccountName,
-    RegistryKey, RegistryValueName, RegistryValueData,
-    InitiatingProcessFileName, InitiatingProcessCommandLine
-| extend ThreatScore = 90
-| extend Detection = "UserInitMprLogonScript modification - rare persistence mechanism"
+| union PSEncodedCmd
+| union RegistryPersistence
+| union BrowserCredAccess
+| union TelegramC2
+| summarize IndicatorCount=dcount(Indicator), Indicators=make_set(Indicator),
+    FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated)
+    by DeviceName, AccountName
+| where IndicatorCount >= 3
+| extend
+    Severity = "Critical",
+    ThreatType = "APT42 TAMECAT Kill Chain - Multi-Indicator Correlation",
+    MitreAttack = "T1204.002, T1059.001, T1547.001, T1037.001, T1555.003, T1102",
+    TestID = "92b0b4f6-a09b-4c7b-b593-31ce461f804c"
+| project DeviceName, AccountName, IndicatorCount, Indicators, FirstSeen, LastSeen,
+    Severity, ThreatType, MitreAttack

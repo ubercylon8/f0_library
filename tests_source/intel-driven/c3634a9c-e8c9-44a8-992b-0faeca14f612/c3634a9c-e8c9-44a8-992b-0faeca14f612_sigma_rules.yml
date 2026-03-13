@@ -1,0 +1,502 @@
+# ============================================================================
+# Sigma Detection Rules
+# ============================================================================
+# Test ID: c3634a9c-e8c9-44a8-992b-0faeca14f612
+# Test Name: Akira Ransomware BYOVD Attack Chain
+# MITRE ATT&CK: T1068 (Privilege Escalation), T1562.001 (Impair Defenses)
+# Created: 2026-03-13
+# Author: F0RT1KA Defense Guidance Builder
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules detect the underlying BYOVD and defense evasion
+# techniques, NOT the F0RT1KA testing framework. They will catch real-world
+# attackers using similar vulnerable driver exploitation and Defender
+# tampering techniques with any tooling.
+#
+# ============================================================================
+
+---
+title: Vulnerable Driver File Dropped to Non-Standard Location
+id: a1d3f9c0-7e8b-4a2f-b5c6-1d9e0f3a2b7c
+status: experimental
+description: |
+    Detects .sys driver files created in directories outside the standard
+    Windows driver paths. This is a common indicator of BYOVD attacks where
+    attackers drop vulnerable drivers to writable locations before loading
+    them as kernel services.
+references:
+    - https://attack.mitre.org/techniques/T1068/
+    - https://www.loldrivers.io/
+    - https://learn.microsoft.com/en-us/windows/security/threat-protection/windows-defender-application-control/microsoft-recommended-driver-block-rules
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.t1068
+    - byovd
+    - akira
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '.sys'
+    filter_standard_paths:
+        TargetFilename|startswith:
+            - 'C:\Windows\System32\drivers\'
+            - 'C:\Windows\System32\DriverStore\'
+            - 'C:\Windows\SysWOW64\drivers\'
+            - 'C:\Windows\WinSxS\'
+            - 'C:\Windows\SoftwareDistribution\'
+    filter_legitimate_processes:
+        Image|endswith:
+            - '\svchost.exe'
+            - '\drvinst.exe'
+            - '\msiexec.exe'
+            - '\TiWorker.exe'
+            - '\TrustedInstaller.exe'
+    condition: selection and not filter_standard_paths and not filter_legitimate_processes
+falsepositives:
+    - Legitimate driver installations by hardware vendors
+    - Windows Update or DISM operations
+    - Third-party security tool driver deployment
+level: high
+fields:
+    - TargetFilename
+    - Image
+    - User
+
+---
+title: Known Vulnerable Driver Name Created on Disk
+id: b2e4a0d1-8f9c-5b3a-c6d7-2e0f1a4b3c8d
+status: experimental
+description: |
+    Detects the creation of files with names matching known vulnerable drivers
+    commonly abused in BYOVD attacks. These drivers include rwdrv.sys
+    (ThrottleStop), mhyprot2.sys, dbutil_2_3.sys, and others cataloged
+    in the LOLDrivers project.
+references:
+    - https://attack.mitre.org/techniques/T1068/
+    - https://www.loldrivers.io/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.t1068
+    - byovd
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '\rwdrv.sys'
+            - '\mhyprot2.sys'
+            - '\dbutil_2_3.sys'
+            - '\gdrv.sys'
+            - '\iqvw64e.sys'
+            - '\winio64.sys'
+            - '\asmmap64.sys'
+            - '\ntbios.sys'
+            - '\asio.sys'
+            - '\elrawdisk.sys'
+            - '\kprocesshacker.sys'
+            - '\procexp152.sys'
+            - '\RTCore64.sys'
+            - '\zemana.sys'
+            - '\inpoutx64.sys'
+            - '\phymemx64.sys'
+            - '\ene.sys'
+    condition: selection
+falsepositives:
+    - ThrottleStop legitimate use on personal systems (rwdrv.sys)
+    - Genshin Impact anti-cheat engine (mhyprot2.sys) on gaming endpoints
+    - Process Explorer driver (procexp152.sys) during troubleshooting
+level: critical
+fields:
+    - TargetFilename
+    - Image
+    - User
+
+---
+title: Kernel-Mode Service Creation via sc.exe with Non-Standard Binary Path
+id: c3f5b1e2-9a0d-6c4b-d7e8-3f1a2b5c4d9e
+status: experimental
+description: |
+    Detects sc.exe creating kernel-mode services where the binary path
+    points outside standard driver directories. Akira ransomware uses
+    this technique to load vulnerable drivers (mgdsrv, KMHLPSVC services)
+    as part of its BYOVD attack chain.
+references:
+    - https://attack.mitre.org/techniques/T1068/
+    - https://attack.mitre.org/techniques/T1543/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.t1068
+    - attack.persistence
+    - attack.t1543.003
+    - byovd
+    - akira
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_sc:
+        Image|endswith: '\sc.exe'
+        CommandLine|contains|all:
+            - 'create'
+            - 'kernel'
+    filter_standard_driver_path:
+        CommandLine|contains:
+            - 'C:\Windows\System32\drivers'
+            - '\SystemRoot\System32\drivers'
+    condition: selection_sc and not filter_standard_driver_path
+falsepositives:
+    - Legitimate driver installations using custom installer scripts
+    - Hardware vendor driver setup utilities
+level: critical
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+
+---
+title: Suspicious Kernel Service Installed - Event ID 7045
+id: d4a6c2f3-0b1e-7d5c-e8f9-4a2b3c6d5e0f
+status: experimental
+description: |
+    Detects new kernel-mode service installations (Event ID 7045) where the
+    service binary resides outside standard driver directories. This captures
+    the service installation step of BYOVD attacks regardless of whether
+    sc.exe or the SCM API was used.
+references:
+    - https://attack.mitre.org/techniques/T1068/
+    - https://attack.mitre.org/techniques/T1543/003/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.t1068
+    - attack.persistence
+    - attack.t1543.003
+    - byovd
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        EventID: 7045
+        ServiceType|contains: 'kernel'
+    filter_standard_paths:
+        ImagePath|startswith:
+            - '\SystemRoot\System32\drivers\'
+            - 'C:\Windows\System32\drivers\'
+            - 'system32\DRIVERS\'
+    condition: selection and not filter_standard_paths
+falsepositives:
+    - Third-party security products installing kernel drivers from non-standard locations
+    - Legitimate hardware driver installations
+level: high
+fields:
+    - ServiceName
+    - ImagePath
+    - ServiceType
+
+---
+title: Windows Defender Disabled via Registry - DisableAntiSpyware
+id: e5b7d3a4-1c2f-8e6d-f9a0-5b3c4d7e6f1a
+status: experimental
+description: |
+    Detects modification of the DisableAntiSpyware registry value under
+    Windows Defender policy keys. This is a critical defense evasion
+    technique used by Akira ransomware and many other threat actors to
+    disable Windows Defender before deploying ransomware.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - akira
+    - defender_tampering
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection_disable_antispyware:
+        TargetObject|endswith: '\Windows Defender\DisableAntiSpyware'
+        Details: 'DWORD (0x00000001)'
+    selection_disable_antivirus:
+        TargetObject|endswith: '\Windows Defender\DisableAntiVirus'
+        Details: 'DWORD (0x00000001)'
+    filter_legitimate:
+        Image|endswith:
+            - '\MsMpEng.exe'
+            - '\svchost.exe'
+            - '\gpupdate.exe'
+            - '\WaaSMedicAgent.exe'
+    condition: (selection_disable_antispyware or selection_disable_antivirus) and not filter_legitimate
+falsepositives:
+    - Legitimate Group Policy changes applying Defender configuration
+    - Intune/SCCM managed Defender policy deployment
+level: critical
+fields:
+    - TargetObject
+    - Details
+    - Image
+    - User
+
+---
+title: Windows Defender Real-Time Protection Disabled via Registry
+id: f6c8e4b5-2d3a-9f7e-a0b1-6c4d5e8f7a2b
+status: experimental
+description: |
+    Detects registry modifications that disable Windows Defender real-time
+    protection, behavior monitoring, or tamper protection. These modifications
+    are characteristic of defense evasion techniques used by ransomware
+    operators including Akira.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - defender_tampering
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection_realtime:
+        TargetObject|endswith: '\Real-Time Protection\DisableRealtimeMonitoring'
+        Details: 'DWORD (0x00000001)'
+    selection_behavior:
+        TargetObject|endswith: '\Real-Time Protection\DisableBehaviorMonitoring'
+        Details: 'DWORD (0x00000001)'
+    selection_tamper:
+        TargetObject|endswith: '\Windows Defender\Features\TamperProtection'
+        Details: 'DWORD (0x00000000)'
+    selection_onacess:
+        TargetObject|endswith: '\Real-Time Protection\DisableOnAccessProtection'
+        Details: 'DWORD (0x00000001)'
+    selection_scanrt:
+        TargetObject|endswith: '\Real-Time Protection\DisableScanOnRealtimeEnable'
+        Details: 'DWORD (0x00000001)'
+    filter_legitimate:
+        Image|endswith:
+            - '\MsMpEng.exe'
+            - '\svchost.exe'
+            - '\gpupdate.exe'
+    condition: (selection_realtime or selection_behavior or selection_tamper or selection_onacess or selection_scanrt) and not filter_legitimate
+falsepositives:
+    - Legitimate IT troubleshooting with documented change ticket
+    - Group Policy deployment managing Defender settings
+level: high
+fields:
+    - TargetObject
+    - Details
+    - Image
+    - User
+
+---
+title: PowerShell Execution with Policy Bypass Targeting Defender Configuration
+id: a7d9f5c6-3e4b-0a8f-b1c2-7d5e6f9a8b3c
+status: experimental
+description: |
+    Detects PowerShell execution with -ExecutionPolicy Bypass that contains
+    references to Windows Defender configuration keys or cmdlets. This pattern
+    is used by the Akira ransomware PowerShell defense evasion script to
+    disable Defender protections after BYOVD privilege escalation.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1059/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - attack.execution
+    - attack.t1059.001
+    - akira
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_powershell:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|contains: '-ExecutionPolicy'
+    selection_defender_keywords:
+        CommandLine|contains:
+            - 'DisableAntiSpyware'
+            - 'DisableRealtimeMonitoring'
+            - 'TamperProtection'
+            - 'Set-MpPreference'
+            - 'Windows Defender'
+    selection_hidden:
+        CommandLine|contains:
+            - '-WindowStyle Hidden'
+            - '-W Hidden'
+            - '-win Hidden'
+    condition: selection_powershell and (selection_defender_keywords or (selection_hidden and selection_powershell))
+falsepositives:
+    - IT automation scripts that configure Defender settings
+    - SCCM/Intune remediation scripts
+level: high
+fields:
+    - CommandLine
+    - ParentImage
+    - User
+
+---
+title: Unsigned or Suspicious Driver Loaded - Sysmon Event ID 6
+id: b8e0a6d7-4f5c-1b9a-c2d3-8e6f7a0b9c4d
+status: experimental
+description: |
+    Detects loading of unsigned drivers or drivers loaded from non-standard
+    paths via Sysmon Event ID 6 (Driver Loaded). This captures the actual
+    kernel driver loading step which is the critical exploitation moment
+    in BYOVD attacks.
+references:
+    - https://attack.mitre.org/techniques/T1068/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.t1068
+    - byovd
+logsource:
+    product: windows
+    service: sysmon
+detection:
+    selection_unsigned:
+        EventID: 6
+        Signed: 'false'
+    selection_suspicious_path:
+        EventID: 6
+        ImageLoaded|contains:
+            - '\Temp\'
+            - '\AppData\'
+            - '\Downloads\'
+            - '\Users\'
+            - '\ProgramData\'
+    filter_standard_paths:
+        ImageLoaded|startswith:
+            - 'C:\Windows\System32\drivers\'
+            - 'C:\Windows\System32\DriverStore\'
+    condition: (selection_unsigned or selection_suspicious_path) and not filter_standard_paths
+falsepositives:
+    - Third-party signed drivers loaded from non-standard paths during installation
+    - Development or testing environments with test-signed drivers
+level: high
+fields:
+    - ImageLoaded
+    - Signed
+    - Signature
+    - Hashes
+
+---
+title: PowerShell Script Block with Defender Tampering Commands
+id: c9f1b7e8-5a6d-2c0b-d3e4-9f7a8b1c0d5e
+status: experimental
+description: |
+    Detects PowerShell script block logging events (Event ID 4104) containing
+    commands that target Windows Defender configuration. This provides deep
+    visibility into the actual script content regardless of obfuscation of
+    the command line.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1059/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - attack.execution
+    - attack.t1059.001
+    - defender_tampering
+logsource:
+    product: windows
+    service: powershell-scriptblock
+detection:
+    selection_eventid:
+        EventID: 4104
+    selection_defender_registry:
+        ScriptBlockText|contains:
+            - 'SOFTWARE\Policies\Microsoft\Windows Defender'
+            - 'SOFTWARE\Microsoft\Windows Defender\Features'
+            - 'SOFTWARE\Microsoft\Windows Defender\Real-Time Protection'
+    selection_disable_values:
+        ScriptBlockText|contains:
+            - 'DisableAntiSpyware'
+            - 'DisableRealtimeMonitoring'
+            - 'TamperProtection'
+            - 'DisableBehaviorMonitoring'
+    selection_set_operations:
+        ScriptBlockText|contains:
+            - 'Set-ItemProperty'
+            - 'New-ItemProperty'
+            - 'Set-MpPreference'
+            - 'reg add'
+    condition: selection_eventid and selection_defender_registry and selection_disable_values and selection_set_operations
+falsepositives:
+    - Legitimate Defender configuration management scripts
+    - PowerShell DSC configurations managing Defender settings
+level: critical
+fields:
+    - ScriptBlockText
+    - Path
+    - ScriptBlockId
+
+---
+title: BYOVD Attack Sequence - Driver Drop Followed by Defender Tampering
+id: d0a2c8f9-6b7e-3d1c-e4f5-0a8b9c2d1e6f
+status: experimental
+description: |
+    Temporal correlation rule detecting the full BYOVD attack sequence:
+    a driver file appears in a non-standard location, followed by registry
+    modifications targeting Windows Defender settings. This captures the
+    complete attack pattern of the Akira ransomware BYOVD chain.
+    Note: This is a conceptual correlation rule. Implementation requires
+    a SIEM with temporal correlation capabilities (e.g., Sigma correlations,
+    Elastic threshold rules, or Splunk correlation searches).
+references:
+    - https://attack.mitre.org/techniques/T1068/
+    - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-13
+tags:
+    - attack.privilege_escalation
+    - attack.t1068
+    - attack.defense_evasion
+    - attack.t1562.001
+    - byovd
+    - akira
+    - correlation
+logsource:
+    category: file_event
+    product: windows
+detection:
+    # Stage 1: Driver file creation
+    stage1_driver_drop:
+        TargetFilename|endswith: '.sys'
+    stage1_filter_standard:
+        TargetFilename|startswith:
+            - 'C:\Windows\System32\drivers\'
+            - 'C:\Windows\System32\DriverStore\'
+    condition: stage1_driver_drop and not stage1_filter_standard
+    # NOTE: For full correlation, combine with the Defender registry tampering
+    # rule (e5b7d3a4-1c2f-8e6d-f9a0-5b3c4d7e6f1a) using your SIEM's
+    # correlation engine with a 30-60 minute time window on the same host.
+falsepositives:
+    - Very rare when correlated with Defender tampering events
+level: critical
+fields:
+    - TargetFilename
+    - Image
+    - User
