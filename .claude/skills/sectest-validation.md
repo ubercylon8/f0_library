@@ -23,9 +23,18 @@ Check that all expected files were created by Phase 2 agents.
 | `<uuid>_sigma_rules.yml` | sectest-detection-rules agent | Sigma rules |
 | `<uuid>_dr_rules.yaml` | sectest-detection-rules agent | LimaCharlie D&R rules |
 | `<uuid>_DEFENSE_GUIDANCE.md` | sectest-defense-guidance agent | Consolidated defense guide |
-| `<uuid>_hardening.ps1` | sectest-defense-guidance agent | Windows hardening |
-| `<uuid>_hardening_linux.sh` | sectest-defense-guidance agent | Linux hardening |
-| `<uuid>_hardening_macos.sh` | sectest-defense-guidance agent | macOS hardening |
+
+### Platform-Specific Files (based on test TARGET field)
+
+Hardening scripts are only required for the test's target platform(s). Read the `TARGET:` field from the Go metadata to determine which scripts should exist.
+
+| Platform Target | Required Script(s) |
+|-----------------|-------------------|
+| `windows-endpoint` | `<uuid>_hardening.ps1` |
+| `linux-endpoint` | `<uuid>_hardening_linux.sh` |
+| `macos-endpoint` | `<uuid>_hardening_macos.sh` |
+| Multiple platforms | One script per target platform |
+| Non-OS targets (`entra-id`, `cloud-aws`, etc.) | All 3 hardening scripts |
 
 ### Required Files (Multi-Stage Only)
 
@@ -124,7 +133,7 @@ git commit -m "feat: add <test-name> security test (<uuid>)
 - Severity: <severity>
 - Architecture: <standard/multi-stage>
 - Includes: KQL, YARA, Sigma, Elastic EQL, LC D&R detection rules
-- Includes: Cross-platform hardening scripts (Windows/Linux/macOS)
+- Includes: Platform-appropriate hardening scripts
 - Includes: Defense guidance and IR playbook"
 
 git push
@@ -140,7 +149,7 @@ After all steps pass, provide the implementation summary:
 4. **Architecture**: Standard or multi-stage
 5. **Files Created**: Complete list
 6. **Detection Rules**: 5 rule types generated (KQL, YARA, Sigma, Elastic EQL, LC D&R)
-7. **Defense Guidance**: Hardening scripts (3 platforms) + IR playbook
+7. **Defense Guidance**: Hardening script(s) (target platform only) + IR playbook
 8. **Kill Chain**: Diagram generated (multi-stage only)
 9. **Build Instructions**: Commands to compile and sign
 10. **Expected Results**: Exit code meanings

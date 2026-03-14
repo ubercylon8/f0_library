@@ -149,9 +149,15 @@ run_in_background: true
 #### 3. Defense Guidance Agent
 ```
 Agent: sectest-defense-guidance
-Prompt: "Generate defense guidance including consolidated defense document, cross-platform hardening scripts (Windows/Linux/macOS), and IR playbook. Read the Go/PS1 source files in <test_dir>. [CONTEXT PAYLOAD]"
+Prompt: "Generate defense guidance including consolidated defense document, platform-appropriate hardening scripts (ONLY for target platform: <platform>), and IR playbook. Read the Go/PS1 source files in <test_dir>. [CONTEXT PAYLOAD]"
 run_in_background: true
 ```
+
+**Platform mapping for hardening scripts:**
+- `windows`/`windows-endpoint` → `_hardening.ps1` only
+- `linux`/`linux-endpoint` → `_hardening_linux.sh` only
+- `darwin`/`macos-endpoint` → `_hardening_macos.sh` only
+- Multiple targets or non-OS targets → all applicable scripts
 
 #### 4. Kill Chain Diagram (MANDATORY for Multi-Stage)
 
@@ -226,9 +232,9 @@ tests_source/intel-driven/<uuid>/
 ├── <uuid>_sigma_rules.yml          # Sigma vendor-agnostic rules
 ├── <uuid>_dr_rules.yaml            # LimaCharlie D&R rules
 ├── <uuid>_DEFENSE_GUIDANCE.md      # Consolidated defense guide
-├── <uuid>_hardening.ps1            # Windows hardening (PowerShell)
-├── <uuid>_hardening_linux.sh       # Linux hardening (Bash)
-├── <uuid>_hardening_macos.sh       # macOS hardening (Bash)
+├── <uuid>_hardening.ps1            # Windows hardening (if windows target)
+├── <uuid>_hardening_linux.sh       # Linux hardening (if linux target)
+├── <uuid>_hardening_macos.sh       # macOS hardening (if macOS target)
 └── kill_chain.html                 # Kill chain diagram (multi-stage only)
 ```
 
