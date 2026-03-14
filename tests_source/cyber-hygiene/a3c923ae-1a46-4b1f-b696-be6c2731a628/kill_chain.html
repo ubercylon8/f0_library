@@ -1,0 +1,382 @@
+<!-- Kill chain strip diagram for Cyber-Hygiene Bundle (Windows Defender Edition) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber-Hygiene Bundle (Windows Defender Edition) — Kill Chain Strip</title>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2/cytoscape-dagre.js"></script>
+    <style>
+        :root {
+            --bg: oklch(1 0 0);
+            --bg-grad-start: oklch(0.985 0 0);
+            --bg-grad-end: oklch(0.922 0 0);
+            --text-1: oklch(0.145 0 0);
+            --text-2: oklch(0.556 0 0);
+            --text-3: oklch(0.708 0 0);
+            --panel: oklch(1 0 0);
+            --border: oklch(0.922 0 0);
+            --card: oklch(0.97 0 0);
+            --card-hover: oklch(0.95 0 0);
+            --code-bg: oklch(0.97 0 0);
+            --shadow: oklch(0 0 0 / 15%);
+            --accent-red: #ff6b6b;
+            --accent-blue: #4fc3f7;
+            --accent-green: #66bb6a;
+            --accent-orange: #ff9f43;
+            --sev-high: #ff9f43;
+            --sev-high-bg: rgba(255,159,67,0.08);
+            --sev-crit: #ff4444;
+            --sev-crit-bg: rgba(255,68,68,0.08);
+        }
+        [data-theme="dark"], .dark {
+            --bg: oklch(0.145 0 0);
+            --bg-grad-start: oklch(0.1 0.02 265);
+            --bg-grad-end: oklch(0.18 0.02 265);
+            --text-1: oklch(0.985 0 0);
+            --text-2: oklch(0.708 0 0);
+            --text-3: oklch(0.556 0 0);
+            --panel: oklch(0.12 0.01 265);
+            --border: oklch(1 0 0 / 10%);
+            --card: oklch(0.205 0 0);
+            --card-hover: oklch(0.25 0 0);
+            --code-bg: oklch(0.1 0.02 265);
+            --shadow: oklch(0 0 0 / 50%);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) {
+                --bg: oklch(0.145 0 0);
+                --bg-grad-start: oklch(0.1 0.02 265);
+                --bg-grad-end: oklch(0.18 0.02 265);
+                --text-1: oklch(0.985 0 0);
+                --text-2: oklch(0.708 0 0);
+                --text-3: oklch(0.556 0 0);
+                --panel: oklch(0.12 0.01 265);
+                --border: oklch(1 0 0 / 10%);
+                --card: oklch(0.205 0 0);
+                --card-hover: oklch(0.25 0 0);
+                --code-bg: oklch(0.1 0.02 265);
+                --shadow: oklch(0 0 0 / 50%);
+            }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg-grad-start), var(--bg-grad-end));
+            color: var(--text-1); min-height: 100vh; padding: 2rem;
+        }
+        .container { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; }
+
+        /* -- Header -- */
+        .header {
+            display: flex; align-items: flex-start; gap: 1.5rem;
+            padding: 1.5rem 2rem; background: var(--panel);
+            border: 1px solid var(--border); border-radius: 12px;
+            box-shadow: 0 2px 12px var(--shadow);
+        }
+        .header-content { flex: 1; }
+        .header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.25rem; }
+        .header h1 .alias { color: var(--text-2); font-weight: 400; }
+        .header .subtitle { color: var(--text-2); font-size: 0.9rem; margin-bottom: 0.75rem; line-height: 1.4; }
+        .meta { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+        .badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; }
+        .badge-score { background: var(--sev-high-bg); color: var(--sev-high); border: 1px solid rgba(255,159,67,0.3); }
+        .badge-sev { background: var(--sev-high-bg); color: var(--sev-high); border: 1px solid rgba(255,159,67,0.3); text-transform: uppercase; font-size: 0.65rem; letter-spacing: 0.06em; }
+        .badge-uuid { background: var(--code-bg); color: var(--text-2); border: 1px solid var(--border); font-family: 'SF Mono','Cascadia Code',monospace; font-size: 0.7rem; }
+        .theme-toggle { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; transition: all 0.2s; flex-shrink: 0; }
+        .theme-toggle:hover { background: var(--card-hover); color: var(--text-1); }
+
+        /* -- MITRE Strip -- */
+        .mitre-strip { display: flex; gap: 0.5rem; padding: 1rem 1.5rem; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; box-shadow: 0 2px 8px var(--shadow); }
+        .mitre-tag { display: flex; flex-direction: column; align-items: center; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--card); border: 1px solid var(--border); min-width: 110px; text-align: center; transition: all 0.2s; }
+        .mitre-tag:hover { background: var(--card-hover); transform: translateY(-1px); }
+        .mitre-tag .tid { font-family: 'SF Mono','Cascadia Code',monospace; font-size: 0.75rem; font-weight: 700; color: var(--accent-blue); }
+        .mitre-tag .tname { font-size: 0.65rem; color: var(--text-2); margin-top: 0.15rem; line-height: 1.3; }
+        .mitre-tag .tactic { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin-top: 0.25rem; padding-top: 0.25rem; border-top: 1px solid var(--border); width: 100%; }
+
+        /* -- Diagram Panel -- */
+        .diagram-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 2px 12px var(--shadow); overflow: hidden; }
+        .diagram-bar { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border); }
+        .diagram-bar h2 { font-size: 0.85rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; }
+        .legend { display: flex; gap: 1rem; font-size: 0.7rem; color: var(--text-3); }
+        .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .legend-dot.stage { background: var(--accent-blue); }
+        .legend-dot.prot { background: var(--accent-green); }
+        .legend-dot.unprot { background: var(--accent-red); }
+
+        #cy { width: 100%; height: 460px; }
+
+        /* -- Stage Cards -- */
+        .stage-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+        .stage-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; box-shadow: 0 2px 8px var(--shadow); transition: all 0.2s; position: relative; overflow: hidden; }
+        .stage-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px var(--shadow); }
+        .stage-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+        .stage-card:nth-child(1)::before  { background: linear-gradient(90deg, #2563eb, #3b82f6); }
+        .stage-card:nth-child(2)::before  { background: linear-gradient(90deg, #3b82f6, #6366f1); }
+        .stage-card:nth-child(3)::before  { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+        .stage-card:nth-child(4)::before  { background: linear-gradient(90deg, #8b5cf6, #a855f7); }
+        .stage-card:nth-child(5)::before  { background: linear-gradient(90deg, #a855f7, #c084fc); }
+        .stage-card:nth-child(6)::before  { background: linear-gradient(90deg, #c084fc, #e879f9); }
+        .stage-card:nth-child(7)::before  { background: linear-gradient(90deg, #e879f9, #f472b6); }
+        .stage-card:nth-child(8)::before  { background: linear-gradient(90deg, #f472b6, #fb7185); }
+        .stage-card:nth-child(9)::before  { background: linear-gradient(90deg, #fb7185, #f97316); }
+        .stage-card:nth-child(10)::before { background: linear-gradient(90deg, #f97316, #ef4444); }
+        .sc-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .sc-num { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: white; flex-shrink: 0; }
+        .stage-card:nth-child(1)  .sc-num { background: #2563eb; }
+        .stage-card:nth-child(2)  .sc-num { background: #4f46e5; }
+        .stage-card:nth-child(3)  .sc-num { background: #7c3aed; }
+        .stage-card:nth-child(4)  .sc-num { background: #9333ea; }
+        .stage-card:nth-child(5)  .sc-num { background: #a855f7; }
+        .stage-card:nth-child(6)  .sc-num { background: #c026d3; }
+        .stage-card:nth-child(7)  .sc-num { background: #db2777; }
+        .stage-card:nth-child(8)  .sc-num { background: #e11d48; }
+        .stage-card:nth-child(9)  .sc-num { background: #f97316; }
+        .stage-card:nth-child(10) .sc-num { background: #ef4444; }
+        .sc-title { font-size: 0.85rem; font-weight: 600; }
+        .sc-tech { font-family: 'SF Mono','Cascadia Code',monospace; font-size: 0.7rem; color: var(--accent-blue); margin-bottom: 0.4rem; }
+        .sc-desc { font-size: 0.78rem; color: var(--text-2); line-height: 1.5; }
+        .sc-chips { margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+        .chip { font-size: 0.65rem; padding: 0.15rem 0.45rem; border-radius: 4px; background: var(--code-bg); color: var(--text-3); border: 1px solid var(--border); font-family: 'SF Mono','Cascadia Code',monospace; }
+
+        /* -- Outcome -- */
+        .outcomes { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .outcome { padding: 1rem 1.25rem; border-radius: 10px; border: 1px solid; }
+        .outcome.prot { background: oklch(0.95 0.05 145); border-color: oklch(0.8 0.1 145); }
+        .outcome.unprot { background: oklch(0.95 0.03 25); border-color: oklch(0.8 0.08 25); }
+        [data-theme="dark"] .outcome.prot, .dark .outcome.prot { background: oklch(0.2 0.05 145); border-color: oklch(0.35 0.1 145); }
+        [data-theme="dark"] .outcome.unprot, .dark .outcome.unprot { background: oklch(0.2 0.04 25); border-color: oklch(0.35 0.08 25); }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) .outcome.prot { background: oklch(0.2 0.05 145); border-color: oklch(0.35 0.1 145); }
+            :root:not([data-theme]) .outcome.unprot { background: oklch(0.2 0.04 25); border-color: oklch(0.35 0.08 25); }
+        }
+        .outcome h3 { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.4rem; }
+        .outcome.prot h3 { color: var(--accent-green); }
+        .outcome.unprot h3 { color: var(--accent-red); }
+        .outcome p { font-size: 0.75rem; color: var(--text-2); line-height: 1.4; }
+        .outcome .code { font-family: 'SF Mono','Cascadia Code',monospace; font-weight: 700; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <h1>Cyber-Hygiene Bundle <span class="alias">(Windows Defender Edition)</span></h1>
+                <p class="subtitle">10-validator endpoint hardening assessment — Defender, LSASS, ASR, SMB, PowerShell, Network, Audit, Lockout, LAPS, Print Spooler</p>
+                <div class="meta">
+                    <span class="badge badge-score">&#9733; 9.0 / 10</span>
+                    <span class="badge badge-sev">HIGH</span>
+                    <span class="badge badge-uuid">a3c923ae-1a46-4b1f-b696-be6c2731a628</span>
+                </div>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#x263E;</button>
+        </header>
+
+        <div class="mitre-strip">
+            <div class="mitre-tag"><span class="tid">T1562.001</span><span class="tname">Disable or Modify Tools</span><span class="tactic">Defense Evasion</span></div>
+            <div class="mitre-tag"><span class="tid">T1003.001</span><span class="tname">LSASS Memory</span><span class="tactic">Credential Access</span></div>
+            <div class="mitre-tag"><span class="tid">T1059.001</span><span class="tname">PowerShell</span><span class="tactic">Execution</span></div>
+            <div class="mitre-tag"><span class="tid">T1021.002</span><span class="tname">SMB/Admin Shares</span><span class="tactic">Lateral Movement</span></div>
+            <div class="mitre-tag"><span class="tid">T1110</span><span class="tname">Brute Force</span><span class="tactic">Credential Access</span></div>
+            <div class="mitre-tag"><span class="tid">T1547.001</span><span class="tname">Autostart Execution</span><span class="tactic">Persistence</span></div>
+            <div class="mitre-tag"><span class="tid">T1548.002</span><span class="tname">Elevation Control</span><span class="tactic">Privilege Escalation</span></div>
+            <div class="mitre-tag"><span class="tid">T1569.002</span><span class="tname">Service Execution</span><span class="tactic">Execution</span></div>
+        </div>
+
+        <div class="diagram-panel">
+            <div class="diagram-bar">
+                <h2>Kill Chain &mdash; Validator Progression</h2>
+                <div class="legend">
+                    <span class="legend-item"><span class="legend-dot stage"></span> Validator</span>
+                    <span class="legend-item"><span class="legend-dot prot"></span> Compliant</span>
+                    <span class="legend-item"><span class="legend-dot unprot"></span> Non-Compliant</span>
+                </div>
+            </div>
+            <div id="cy"></div>
+        </div>
+
+        <div class="stage-cards">
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">1</div><span class="sc-title">Defender Configuration</span></div>
+                <div class="sc-tech">T1562.001 — Disable or Modify Tools</div>
+                <p class="sc-desc">Validates 6 core Defender features: real-time protection, behavior monitoring, tamper protection, cloud delivery, sample submission, and PUA blocking.</p>
+                <div class="sc-chips"><span class="chip">real-time</span><span class="chip">tamper</span><span class="chip">MAPS</span><span class="chip">PUA</span></div>
+            </div>
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">2</div><span class="sc-title">LSASS Protection</span></div>
+                <div class="sc-tech">T1003.001 — LSASS Memory</div>
+                <p class="sc-desc">Checks credential protection: RunAsPPL (Protected Process Light), Credential Guard, and Virtualization-Based Security status.</p>
+                <div class="sc-chips"><span class="chip">RunAsPPL</span><span class="chip">CredGuard</span><span class="chip">VBS</span></div>
+            </div>
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">3</div><span class="sc-title">ASR Rules</span></div>
+                <div class="sc-tech">T1059.001 — PowerShell</div>
+                <p class="sc-desc">Validates 8 critical Attack Surface Reduction rules are in Block mode, covering Office macros, script execution, and email-borne threats.</p>
+                <div class="sc-chips"><span class="chip">Office macros</span><span class="chip">script block</span><span class="chip">email content</span></div>
+            </div>
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">4</div><span class="sc-title">SMB Hardening</span></div>
+                <div class="sc-tech">T1021.002 — SMB/Admin Shares</div>
+                <p class="sc-desc">Verifies SMBv1 is disabled, server/client signing is required, encryption is enabled, and null sessions are restricted.</p>
+                <div class="sc-chips"><span class="chip">SMBv1</span><span class="chip">signing</span><span class="chip">encryption</span><span class="chip">null session</span></div>
+            </div>
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">5</div><span class="sc-title">PowerShell Security</span></div>
+                <div class="sc-tech">T1059.001 — PowerShell</div>
+                <p class="sc-desc">Validates PowerShell Script Block Logging, Module Logging, Transcription, and Constrained Language Mode policy.</p>
+                <div class="sc-chips"><span class="chip">ScriptBlock</span><span class="chip">ModuleLog</span><span class="chip">Transcription</span><span class="chip">CLM</span></div>
+            </div>
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">6</div><span class="sc-title">Network Hardening</span></div>
+                <div class="sc-tech">T1557 — Adversary-in-the-Middle</div>
+                <p class="sc-desc">Checks that LLMNR, NetBIOS over TCP/IP, WPAD, and IPv6 tunneling technologies are disabled to prevent network poisoning.</p>
+                <div class="sc-chips"><span class="chip">LLMNR</span><span class="chip">NetBIOS</span><span class="chip">WPAD</span><span class="chip">IPv6 tunnel</span></div>
+            </div>
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">7</div><span class="sc-title">Audit Logging</span></div>
+                <div class="sc-tech">T1547.001 — Autostart Execution</div>
+                <p class="sc-desc">Validates 9 critical audit categories: logon/logoff events, process creation, policy changes, and account management auditing.</p>
+                <div class="sc-chips"><span class="chip">logon</span><span class="chip">process creation</span><span class="chip">policy change</span><span class="chip">acct mgmt</span></div>
+            </div>
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">8</div><span class="sc-title">Account Lockout</span></div>
+                <div class="sc-tech">T1110 — Brute Force</div>
+                <p class="sc-desc">Validates CIS-compliant lockout policies: threshold, duration, reset counter, minimum password length, and complexity requirements.</p>
+                <div class="sc-chips"><span class="chip">threshold</span><span class="chip">duration</span><span class="chip">complexity</span><span class="chip">min length</span></div>
+            </div>
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">9</div><span class="sc-title">LAPS</span></div>
+                <div class="sc-tech">T1548.002 — Elevation Control</div>
+                <p class="sc-desc">Checks for Windows LAPS (built-in, Server 2019+) or Legacy Microsoft LAPS to ensure local admin passwords are rotated.</p>
+                <div class="sc-chips"><span class="chip">Windows LAPS</span><span class="chip">Legacy LAPS</span></div>
+            </div>
+            <div class="stage-card">
+                <div class="sc-header"><div class="sc-num">10</div><span class="sc-title">Print Spooler</span></div>
+                <div class="sc-tech">T1569.002 — Service Execution</div>
+                <p class="sc-desc">Validates PrintNightmare (CVE-2021-34527) mitigations: Print Spooler service status and Point and Print restrictions.</p>
+                <div class="sc-chips"><span class="chip">PrintNightmare</span><span class="chip">Point and Print</span><span class="chip">CVE-2021-34527</span></div>
+            </div>
+        </div>
+
+        <div class="outcomes">
+            <div class="outcome prot">
+                <h3>&#x2705; Compliant <span class="code">(Exit 126)</span></h3>
+                <p>All 10 validators passed. The endpoint meets CIS Benchmark hardening standards with all security configurations properly enabled.</p>
+            </div>
+            <div class="outcome unprot">
+                <h3>&#x26A0; Non-Compliant <span class="code">(Exit 101)</span></h3>
+                <p>One or more validators failed. Security gaps detected — the failed validators identify specific hardening deficiencies requiring remediation.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // -- Theme --
+    function getTheme() {
+        const s = localStorage.getItem('diagram-theme');
+        if (s) return s;
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    function applyTheme(t) {
+        document.documentElement.setAttribute('data-theme', t);
+        localStorage.setItem('diagram-theme', t);
+        document.querySelector('.theme-toggle').textContent = t === 'dark' ? '\u2600' : '\u263E';
+    }
+    function toggleTheme() {
+        const cur = document.documentElement.getAttribute('data-theme') || getTheme();
+        applyTheme(cur === 'dark' ? 'light' : 'dark');
+    }
+    window.addEventListener('message', e => { if (e.data && e.data.theme) applyTheme(e.data.theme); });
+
+    // -- Kill Chain Strip --
+    const elements = [
+        // Orchestrator nodes
+        { data: { id: 'deploy', label: 'DEPLOY\nc:\\F0', type: 'orchestrator' } },
+        { data: { id: 'extract', label: 'EXTRACT\n10 validators', type: 'orchestrator' } },
+        // Stage nodes (10 validators)
+        { data: { id: 's1',  label: 'STAGE 1\nDefender\nT1562.001',   type: 'stage', stage: 1 } },
+        { data: { id: 's2',  label: 'STAGE 2\nLSASS\nT1003.001',     type: 'stage', stage: 2 } },
+        { data: { id: 's3',  label: 'STAGE 3\nASR Rules\nT1059.001', type: 'stage', stage: 3 } },
+        { data: { id: 's4',  label: 'STAGE 4\nSMB\nT1021.002',       type: 'stage', stage: 4 } },
+        { data: { id: 's5',  label: 'STAGE 5\nPowerShell\nT1059.001', type: 'stage', stage: 5 } },
+        { data: { id: 's6',  label: 'STAGE 6\nNetwork\nT1557',       type: 'stage', stage: 6 } },
+        { data: { id: 's7',  label: 'STAGE 7\nAudit Log\nT1547.001', type: 'stage', stage: 7 } },
+        { data: { id: 's8',  label: 'STAGE 8\nLockout\nT1110',       type: 'stage', stage: 8 } },
+        { data: { id: 's9',  label: 'STAGE 9\nLAPS\nT1548.002',      type: 'stage', stage: 9 } },
+        { data: { id: 's10', label: 'STAGE 10\nPrint Spooler\nT1569.002', type: 'stage', stage: 10 } },
+        // Unprotected exit
+        { data: { id: 'success', label: 'EXIT 101\nNON-COMPLIANT', type: 'unprotected' } },
+        // Protected (compliant) outcomes
+        { data: { id: 'p1',  label: '126\nDefender OK',   type: 'protected' } },
+        { data: { id: 'p2',  label: '126\nLSASS OK',      type: 'protected' } },
+        { data: { id: 'p3',  label: '126\nASR OK',        type: 'protected' } },
+        { data: { id: 'p4',  label: '126\nSMB OK',        type: 'protected' } },
+        { data: { id: 'p5',  label: '126\nPowerShell OK', type: 'protected' } },
+        { data: { id: 'p6',  label: '126\nNetwork OK',    type: 'protected' } },
+        { data: { id: 'p7',  label: '126\nAudit OK',      type: 'protected' } },
+        { data: { id: 'p8',  label: '126\nLockout OK',    type: 'protected' } },
+        { data: { id: 'p9',  label: '126\nLAPS OK',       type: 'protected' } },
+        { data: { id: 'p10', label: '126\nSpooler OK',    type: 'protected' } },
+        // Pipeline edges (orchestrator + pass)
+        { data: { source: 'deploy',  target: 'extract' } },
+        { data: { source: 'extract', target: 's1' } },
+        { data: { source: 's1',  target: 's2',  label: 'pass' } },
+        { data: { source: 's2',  target: 's3',  label: 'pass' } },
+        { data: { source: 's3',  target: 's4',  label: 'pass' } },
+        { data: { source: 's4',  target: 's5',  label: 'pass' } },
+        { data: { source: 's5',  target: 's6',  label: 'pass' } },
+        { data: { source: 's6',  target: 's7',  label: 'pass' } },
+        { data: { source: 's7',  target: 's8',  label: 'pass' } },
+        { data: { source: 's8',  target: 's9',  label: 'pass' } },
+        { data: { source: 's9',  target: 's10', label: 'pass' } },
+        { data: { source: 's10', target: 'success', label: 'pass' } },
+        // Blocked edges (compliant branches)
+        { data: { source: 's1',  target: 'p1',  label: 'blocked' } },
+        { data: { source: 's2',  target: 'p2',  label: 'blocked' } },
+        { data: { source: 's3',  target: 'p3',  label: 'blocked' } },
+        { data: { source: 's4',  target: 'p4',  label: 'blocked' } },
+        { data: { source: 's5',  target: 'p5',  label: 'blocked' } },
+        { data: { source: 's6',  target: 'p6',  label: 'blocked' } },
+        { data: { source: 's7',  target: 'p7',  label: 'blocked' } },
+        { data: { source: 's8',  target: 'p8',  label: 'blocked' } },
+        { data: { source: 's9',  target: 'p9',  label: 'blocked' } },
+        { data: { source: 's10', target: 'p10', label: 'blocked' } },
+    ];
+
+    const cy = cytoscape({
+        container: document.getElementById('cy'),
+        elements: elements,
+        style: [
+            { selector: 'node', style: { 'label': 'data(label)', 'text-wrap': 'wrap', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '11px', 'font-family': '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif', 'width': 'label', 'height': 'label', 'padding': '14px', 'shape': 'roundrectangle', 'border-width': 2, 'text-max-width': '140px' } },
+            { selector: 'node[type="orchestrator"]', style: { 'background-color': '#1a1a2e', 'border-color': '#0f3460', 'color': '#a0b4d0', 'font-size': '10px' } },
+            { selector: 'node[type="stage"]', style: { 'border-width': 3, 'color': '#ffffff', 'font-size': '12px', 'font-weight': 'bold', 'padding': '18px', 'text-max-width': '160px' } },
+            { selector: 'node[stage=1]',  style: { 'background-color': '#2563eb', 'border-color': '#3b82f6' } },
+            { selector: 'node[stage=2]',  style: { 'background-color': '#4f46e5', 'border-color': '#6366f1' } },
+            { selector: 'node[stage=3]',  style: { 'background-color': '#7c3aed', 'border-color': '#8b5cf6' } },
+            { selector: 'node[stage=4]',  style: { 'background-color': '#9333ea', 'border-color': '#a855f7' } },
+            { selector: 'node[stage=5]',  style: { 'background-color': '#a855f7', 'border-color': '#c084fc' } },
+            { selector: 'node[stage=6]',  style: { 'background-color': '#c026d3', 'border-color': '#e879f9' } },
+            { selector: 'node[stage=7]',  style: { 'background-color': '#db2777', 'border-color': '#f472b6' } },
+            { selector: 'node[stage=8]',  style: { 'background-color': '#e11d48', 'border-color': '#fb7185' } },
+            { selector: 'node[stage=9]',  style: { 'background-color': '#f97316', 'border-color': '#fb923c' } },
+            { selector: 'node[stage=10]', style: { 'background-color': '#ef4444', 'border-color': '#f87171' } },
+            { selector: 'node[type="protected"]', style: { 'background-color': '#1b4332', 'border-color': '#2d6a4f', 'color': '#95d5b2', 'border-style': 'dashed', 'border-width': 2, 'font-size': '10px', 'padding': '10px' } },
+            { selector: 'node[type="unprotected"]', style: { 'background-color': '#6a040f', 'border-color': '#9d0208', 'color': '#ffd6a5', 'border-width': 3, 'font-weight': 'bold', 'font-size': '12px', 'padding': '16px' } },
+            { selector: 'edge', style: { 'width': 3, 'line-color': '#5a9fd4', 'target-arrow-color': '#5a9fd4', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 1.3 } },
+            { selector: 'edge[label="pass"]', style: { 'label': '', 'width': 4, 'line-color': '#5a9fd4', 'target-arrow-color': '#5a9fd4' } },
+            { selector: 'edge[label="blocked"]', style: { 'label': 'blocked', 'font-size': '9px', 'color': '#66bb6a', 'line-color': '#66bb6a', 'target-arrow-color': '#66bb6a', 'line-style': 'dashed', 'width': 2, 'text-background-color': '#0d1b2a', 'text-background-opacity': 0.85, 'text-background-padding': '2px', 'text-background-shape': 'roundrectangle' } },
+        ],
+        layout: { name: 'dagre', rankDir: 'LR', nodeSep: 30, rankSep: 60, edgeSep: 15, animate: false },
+        userZoomingEnabled: true,
+        userPanningEnabled: true,
+        boxSelectionEnabled: false,
+    });
+
+    cy.fit(undefined, 30);
+    applyTheme(getTheme());
+    </script>
+</body>
+</html>
