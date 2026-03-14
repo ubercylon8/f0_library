@@ -1,0 +1,299 @@
+# ============================================================
+# Sigma Rules: NativeDump (NimDump) LSASS Memory Dumping
+# Test ID: b83616c2-84ee-4738-b398-d2d57eebecec
+# MITRE ATT&CK: T1003.001 - OS Credential Dumping: LSASS Memory
+# Tactic: TA0006 - Credential Access
+# Created: 2026-03-14
+# Author: F0RT1KA Detection Rules Generator
+# ============================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules detect LSASS credential dumping via NTAPI-only tools
+# such as NativeDump and NimDump. All detections target the underlying
+# attack behavior — not test framework artifacts — and will catch real-world
+# attackers using the same techniques with custom tooling.
+#
+# ============================================================
+
+---
+# ============================================================
+# RULE 1: LSASS Process Access via Suspicious Initiating Process
+# Targets Sysmon Event ID 10 (ProcessAccess) — lsass.exe as target
+# Confidence: High
+# ============================================================
+title: Suspicious Process Access to LSASS Memory
+id: 4a1f8c3e-7b2d-4e9a-b6f1-2c8d5e0a3f7b
+status: experimental
+description: >
+  Detects a non-system process opening a handle to lsass.exe, which is the
+  primary indicator of credential dumping tools including NTAPI-based tools
+  such as NativeDump and NimDump that bypass MiniDumpWriteDump. Any tool that
+  reads LSASS memory must open a process handle — this detection is technique-
+  inherent and catches all credential dumpers regardless of implementation.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://github.com/ricardojoserf/NativeDump
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    TargetImage|endswith: '\lsass.exe'
+    GrantedAccess|contains:
+      - '0x1F0FFF'   # PROCESS_ALL_ACCESS
+      - '0x1FFFFF'   # Full access
+      - '0x1010'     # VM_READ + QUERY_INFORMATION
+      - '0x0410'     # VM_READ + QUERY_INFORMATION (alternate mask)
+      - '0x0010'     # PROCESS_VM_READ
+  filter_system:
+    SourceImage|endswith:
+      - '\csrss.exe'
+      - '\wininit.exe'
+      - '\services.exe'
+      - '\svchost.exe'
+      - '\lsass.exe'
+      - '\smss.exe'
+  filter_security_software:
+    SourceImage|contains:
+      - '\MsMpEng.exe'
+      - '\MpCmdRun.exe'
+      - '\SenseIR.exe'
+      - '\SenseCncProxy.exe'
+      - '\SecurityHealthService.exe'
+      - '\WerFault.exe'
+      - '\wermgr.exe'
+  condition: selection and not filter_system and not filter_security_software
+falsepositives:
+  - Legitimate debuggers (Visual Studio, WinDbg) during development
+  - Some EDR or DLP agents that inspect LSASS memory
+  - Password manager applications using SSPI
+  - Tune by adding known security product paths to filter_security_software
+level: high
+
+---
+# ============================================================
+# RULE 2: Credential Dumper Process Execution Patterns
+# Targets process_creation — known dumper names, NTAPI flags, output patterns
+# Confidence: High
+# ============================================================
+title: LSASS Credential Dumper Process Execution
+id: 9e3c5a7f-1d4b-4f8e-a2c6-7b0d3e9f1a4c
+status: experimental
+description: >
+  Detects the execution of credential dumping tools that target LSASS memory.
+  Covers known tool names (mimikatz, nanodump, procdump when targeting lsass,
+  comsvcs.dll MiniDump), NativeDump/NimDump behavioral patterns (output file
+  flags with document disguise), and the comsvcs.dll living-off-the-land
+  technique. Technique-inherent: every LSASS dumper must be executed as a
+  process.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://lolbas-project.github.io/lolbas/Libraries/Comsvcs/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_known_tools:
+    Image|re: '(?i)(mimikatz|nanodump|handlekatz|dumpert|lsassy|pypykatz|safetykatz|bettersafetykatz|sharpkatz).*\.exe$'
+  selection_comsvcs:
+    CommandLine|contains:
+      - 'comsvcs.dll'
+    CommandLine|contains:
+      - 'MiniDump'
+      - '#24'
+      - 'lsass'
+  selection_nativedump_flags:
+    CommandLine|contains: '-o:'
+    CommandLine|re: '(?i)-o:.+\.(dmp|mdmp|bin|docx|xlsx|pdf)$'
+  selection_nativedump_remap:
+    CommandLine|contains:
+      - '--remap'
+      - '-r'
+    CommandLine|re: '(?i)(lsass|dump|ntdll)'
+  selection_credential_cmdline:
+    CommandLine|contains:
+      - 'sekurlsa'
+      - 'logonpasswords'
+      - 'lsadump'
+      - 'minidump'
+  condition: >
+    selection_known_tools or
+    selection_comsvcs or
+    selection_nativedump_flags or
+    selection_nativedump_remap or
+    selection_credential_cmdline
+falsepositives:
+  - Authorized penetration testing and red team exercises
+  - Security research labs
+  - Legitimate procdump usage for application crash analysis (not targeting lsass)
+  - Add authorized pentest process hashes to an allowlist
+level: high
+
+---
+# ============================================================
+# RULE 3: LSASS Memory Dump File Created on Disk
+# Targets file_event — .dmp/.mdmp files or disguised dump extensions
+# Confidence: High
+# ============================================================
+title: Potential LSASS Memory Dump File Written to Disk
+id: 2f7d9b4e-5c1a-4a8f-b3e7-6d0c2a8e4f1b
+status: experimental
+description: >
+  Detects creation of files that are consistent with LSASS memory dump output.
+  NativeDump and NimDump write hand-crafted Minidump files and support disguised
+  output filenames (e.g., document.docx). Standard dump extensions and patterns
+  such as "lsass" in the filename are also covered. Any credential dumper that
+  saves output to disk will trigger this rule regardless of tool.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_standard_extensions:
+    TargetFilename|endswith:
+      - '.dmp'
+      - '.mdmp'
+  selection_lsass_in_name:
+    TargetFilename|re: '(?i)lsass.+\.(dmp|bin|docx|xlsx|pdf|zip)$'
+  selection_credential_in_name:
+    TargetFilename|re: '(?i)(credential|memory|procdump|memdump).+\.(dmp|bin|mdmp)$'
+  filter_legitimate_crashdump:
+    Image|endswith:
+      - '\WerFault.exe'
+      - '\wermgr.exe'
+      - '\DumpRep.exe'
+    TargetFilename|contains: '\CrashDumps\'
+  filter_system_volume:
+    TargetFilename|startswith: 'C:\Windows\System32\'
+  condition: >
+    (selection_standard_extensions or
+     selection_lsass_in_name or
+     selection_credential_in_name)
+    and not filter_legitimate_crashdump
+    and not filter_system_volume
+falsepositives:
+  - Application crash dumps in user profiles when WerFault.exe is involved (filtered)
+  - Developer-generated core dumps from debugging sessions
+  - Legitimate forensic tools in authorized use
+  - Tune by adding crash dump directories to filter_legitimate_crashdump
+level: high
+
+---
+# ============================================================
+# RULE 4: SeDebugPrivilege Enabled by Non-System Process
+# Targets security event log — EventID 4703 (Token Right Adjusted)
+# Confidence: Medium-High
+# ============================================================
+title: SeDebugPrivilege Token Right Enabled by Non-System Process
+id: 7c4e1a9f-3b8d-4c5e-a1f2-9e6d0b3c7a2e
+status: experimental
+description: >
+  Detects a non-system process enabling the SeDebugPrivilege token right.
+  NativeDump and NimDump use NtAdjustPrivilegesToken (via NtOpenProcessToken)
+  to obtain debug access before opening an LSASS process handle. Enabling this
+  privilege is required for any tool that must read LSASS memory under a
+  non-SYSTEM context, making this a technique-inherent behavioral indicator.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://docs.microsoft.com/en-us/windows/win32/secauthz/privilege-constants
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+  - attack.defense_evasion
+  - attack.t1134
+logsource:
+  category: security
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4703
+    EnabledPrivilegeList|contains: 'SeDebugPrivilege'
+  filter_system_processes:
+    ProcessName|endswith:
+      - '\csrss.exe'
+      - '\services.exe'
+      - '\svchost.exe'
+      - '\lsass.exe'
+      - '\System'
+      - '\MsMpEng.exe'
+      - '\TrustedInstaller.exe'
+  condition: selection and not filter_system_processes
+falsepositives:
+  - Debuggers (WinDbg, x64dbg, Visual Studio debugger)
+  - Some system administration tools
+  - Certain security products that use debug access legitimately
+  - Establish a baseline of processes that legitimately use this privilege in your environment
+level: medium
+
+---
+# ============================================================
+# RULE 5: ntdll.dll Remapping / Unhooking via File Mapping
+# Targets process_creation — processes loading a fresh ntdll copy to bypass EDR hooks
+# Confidence: Medium
+# ============================================================
+title: Potential ntdll.dll Remapping to Bypass EDR API Hooks
+id: 5b9f2e7a-4c1d-4b3e-8a5f-1e7c3d9b2f4a
+status: experimental
+description: >
+  Detects behavioral indicators of ntdll.dll remapping, a technique used by
+  NativeDump (-r flag) and similar tools to load a clean copy of ntdll.dll
+  from disk and overwrite hooked functions in the process's memory space. This
+  bypasses user-mode API hooks placed by EDR products. The detection is
+  technique-inherent: remapping ntdll requires opening the file from System32,
+  creating a file mapping, and copying the .text section over in-memory stubs.
+  Correlate with LSASS access for higher-confidence alerting.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://www.ired.team/offensive-security/defense-evasion/using-syscalls-directly-from-vs
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+  - attack.defense_evasion
+  - attack.t1562.001
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection_ntdll_load:
+    ImageLoaded|endswith: '\ntdll.dll'
+    ImageLoaded|contains: '\System32\'
+  filter_standard_loaders:
+    Image|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+  filter_known_hosts:
+    Image|endswith:
+      - '\explorer.exe'
+      - '\svchost.exe'
+      - '\lsass.exe'
+      - '\services.exe'
+  condition: selection_ntdll_load and not filter_standard_loaders and not filter_known_hosts
+falsepositives:
+  - Applications that load ntdll.dll from unusual paths (rare but legitimate)
+  - Custom .NET CLR hosts or native binary loaders
+  - Some legitimate security tools performing API monitoring
+  - This rule has moderate false positive potential — correlate with LSASS access events
+level: medium

@@ -1,0 +1,355 @@
+# ============================================================
+# Sigma Rules - Multi-Stage Ransomware Killchain
+# Test ID: 5ed12ef2-5e29-49a2-8f26-269d8e9edcea
+# MITRE ATT&CK: T1204.002, T1134.001, T1083, T1486, T1491.001
+# Platform: Windows
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+# NOTE: All rules target underlying attack technique behavior.
+# They will fire against any attacker using these techniques,
+# not only against this test.
+# ============================================================
+
+---
+# ============================================================
+# Rule 1: Ransomware-Style Mass File Encryption Pattern
+# MITRE ATT&CK: T1486 - Data Encrypted for Impact
+# Confidence: High
+# ============================================================
+title: Ransomware Mass File Encryption - Encrypted Extension Appended
+id: a3f81c2e-7d14-4b09-9c35-d8e402f1a657
+status: experimental
+description: >
+  Detects a process creating many files with appended encryption extensions in a short
+  window, characteristic of ransomware AES-based encryption where the ciphertext is
+  written as <original>.<ext>. Adversaries such as Conti, LockBit, and BlackCat append
+  a custom extension to every encrypted file and delete the original, producing a burst
+  of file-create events with identical new extensions.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+  - https://www.cisa.gov/stopransomware
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_create:
+    EventID: 11         # Sysmon FileCreate
+  filter_extensions:
+    TargetFilename|endswith:
+      - '.encrypted'
+      - '.locked'
+      - '.crypted'
+      - '.enc'
+      - '.crypt'
+      - '.ransom'
+      - '.WNCRY'
+      - '.ryk'
+      - '.lck'
+  condition: selection_create and filter_extensions
+falsepositives:
+  - Backup or archive software that writes intermediate files with a staging extension
+  - Developer test tooling that appends build suffixes (tune by excluding known build
+    process image names such as msbuild.exe, gradle.exe)
+level: high
+---
+# ============================================================
+# Rule 2: Access Token Manipulation - SYSTEM Process Token Theft
+# MITRE ATT&CK: T1134.001 - Access Token Manipulation: Token Impersonation/Theft
+# Confidence: High
+# ============================================================
+title: Access Token Manipulation - OpenProcess on Protected SYSTEM Processes
+id: b8c9241f-3e55-4a17-8d46-f3210de2b741
+status: experimental
+description: >
+  Detects a non-system process attempting to open a handle to winlogon.exe or lsass.exe
+  with PROCESS_QUERY_INFORMATION or PROCESS_ALL_ACCESS rights. Ransomware and other
+  privilege-escalation malware use CreateToolhelp32Snapshot to enumerate processes and
+  then call OpenProcess on SYSTEM-context processes to obtain a token for duplication
+  (ImpersonateLoggedOnUser / DuplicateToken flow). This is a core behavior of T1134.001.
+references:
+  - https://attack.mitre.org/techniques/T1134/001/
+  - https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.privilege_escalation
+  - attack.t1134.001
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    TargetImage|endswith:
+      - '\winlogon.exe'
+      - '\lsass.exe'
+      - '\csrss.exe'
+      - '\services.exe'
+    GrantedAccess|contains:
+      - '0x1fffff'   # PROCESS_ALL_ACCESS
+      - '0x1010'     # PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+      - '0x0410'     # PROCESS_QUERY_INFORMATION | PROCESS_DUP_HANDLE
+      - '0x0008'     # PROCESS_QUERY_INFORMATION (standalone)
+  filter_legitimate:
+    SourceImage|endswith:
+      - '\MsMpEng.exe'
+      - '\svchost.exe'
+      - '\WmiPrvSE.exe'
+      - '\taskmgr.exe'
+      - '\csrss.exe'
+      - '\lsass.exe'
+  condition: selection and not filter_legitimate
+falsepositives:
+  - Security products (EDR agents, AV scanners) that monitor SYSTEM processes
+  - System administration utilities and debuggers (WinDbg, Process Hacker) during
+    authorized administrative tasks
+  - Vulnerability scanners performing local privilege checks
+level: high
+---
+# ============================================================
+# Rule 3: Dangerous Privilege Enablement via AdjustTokenPrivileges
+# MITRE ATT&CK: T1134.001 - Access Token Manipulation
+# Confidence: High
+# ============================================================
+title: Suspicious Token Privilege Adjustment - Ransomware Dangerous Privileges
+id: c2d73b5a-8f61-4e28-a053-e9301bc4c832
+status: experimental
+description: >
+  Detects processes that enable high-risk token privileges commonly abused by ransomware
+  to bypass file access controls and gain SYSTEM-equivalent capability.
+  SeDebugPrivilege allows reading any process memory; SeBackupPrivilege and
+  SeRestorePrivilege allow bypassing DACL on files; SeTakeOwnershipPrivilege allows
+  taking ownership of any object. Enabling multiple of these simultaneously is strongly
+  indicative of privilege escalation pre-encryption.
+references:
+  - https://attack.mitre.org/techniques/T1134/001/
+  - https://docs.microsoft.com/en-us/windows/win32/secauthz/privilege-constants
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.privilege_escalation
+  - attack.t1134.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_api:
+    # Detect via audit log Event 4703 (token right adjusted)
+    EventID: 4703
+  selection_privs:
+    EnabledPrivilegeList|contains:
+      - 'SeDebugPrivilege'
+      - 'SeBackupPrivilege'
+      - 'SeRestorePrivilege'
+      - 'SeTakeOwnershipPrivilege'
+  filter_expected:
+    SubjectLogonId: 'S-1-5-18'  # SYSTEM enabling its own privs is expected
+  condition: selection_api and selection_privs and not filter_expected
+falsepositives:
+  - Backup agents and restore utilities that legitimately require SeBackupPrivilege
+    and SeRestorePrivilege (tune by excluding known backup agent image names)
+  - Developers using Visual Studio debugger which requests SeDebugPrivilege
+level: high
+---
+# ============================================================
+# Rule 4: Aggressive File System Enumeration - Ransomware Pre-Encryption Scan
+# MITRE ATT&CK: T1083 - File and Directory Discovery
+# Confidence: Medium
+# ============================================================
+title: Aggressive File System Enumeration Across User Directories
+id: d5e84c6b-9a72-5f39-b164-fa420cf5d943
+status: experimental
+description: >
+  Detects processes performing rapid recursive directory traversal across multiple
+  user-owned directories (Desktop, Documents, Downloads, profile root) within a short
+  time window. Real-world ransomware performs this scan to build an encryption target
+  list, filtering by file extension priority. The behavior generates a spike in
+  NtQueryDirectoryFile/FindFirstFile/FindNextFile calls across diverse paths within
+  a single process in under 60 seconds, which is anomalous for interactive user activity.
+references:
+  - https://attack.mitre.org/techniques/T1083/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.discovery
+  - attack.t1083
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    EventID: 11   # Sysmon FileCreate used as proxy for file access activity spike
+    TargetFilename|contains:
+      - '\Desktop\'
+      - '\Documents\'
+      - '\Downloads\'
+      - '\AppData\'
+  filter_known_good:
+    Image|endswith:
+      - '\SearchIndexer.exe'
+      - '\MsMpEng.exe'
+      - '\explorer.exe'
+      - '\OneDrive.exe'
+      - '\Dropbox.exe'
+      - '\GoogleDrive.exe'
+  condition: selection and not filter_known_good
+falsepositives:
+  - Cloud sync clients (OneDrive, Dropbox, Google Drive) when performing initial sync
+  - Antivirus full-scan activity
+  - Backup software performing incremental scans
+  - Developer IDE indexing operations
+level: medium
+---
+# ============================================================
+# Rule 5: Ransom Note Deployment - Multiple Locations
+# MITRE ATT&CK: T1491.001 - Defacement: Internal Defacement
+# Confidence: High
+# ============================================================
+title: Ransom Note File Created in User-Accessible Directory
+id: e6f95d7c-0b83-6a4a-c275-gb531de6e054
+status: experimental
+description: >
+  Detects creation of files with names matching common ransom note naming conventions
+  used by multiple ransomware families (Conti: CONTI_README.txt, LockBit: README.txt,
+  BlackCat: RECOVER-FILES.txt, generic: README_RANSOMWARE.txt, HOW_TO_DECRYPT.txt,
+  YOUR_FILES_ENCRYPTED.html). Real ransomware writes these notes to every directory
+  it touches as well as to the Desktop and Documents folder. Any single occurrence in
+  a user-accessible path is high-confidence.
+references:
+  - https://attack.mitre.org/techniques/T1491/001/
+  - https://www.cisa.gov/stopransomware
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1491.001
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    EventID: 11   # Sysmon FileCreate
+    TargetFilename|contains:
+      - 'README_RANSOMWARE'
+      - 'YOUR_FILES_ENCRYPTED'
+      - 'PAYMENT_INSTRUCTIONS'
+      - 'HOW_TO_DECRYPT'
+      - 'DECRYPT_INSTRUCTIONS'
+      - 'RECOVER_FILES'
+      - 'FILES_ENCRYPTED'
+      - '!README!'
+      - 'RESTORE_FILES'
+      - 'CONTI_README'
+  condition: selection
+falsepositives:
+  - Security awareness training simulations that create dummy ransom notes
+  - Intentional security posture testing (document in change management)
+level: critical
+---
+# ============================================================
+# Rule 6: Desktop Wallpaper Modification via Registry - Defacement
+# MITRE ATT&CK: T1491.001 - Defacement: Internal Defacement
+# Confidence: Medium
+# ============================================================
+title: Desktop Wallpaper Registry Modification by Non-User Process
+id: f7a06e8d-1c94-7b5b-d386-hc642ef7f165
+status: experimental
+description: >
+  Detects modifications to HKCU\Control Panel\Desktop\Wallpaper or WallpaperStyle
+  by a process other than the expected UI components (explorer.exe, SystemSettings.exe).
+  Ransomware (notably BlackCat/ALPHV, Ryuk, REvil) sets the wallpaper to a custom
+  ransomware image or BMP marker after encryption to ensure the victim sees the ransom
+  demand on next login.
+references:
+  - https://attack.mitre.org/techniques/T1491/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1491.001
+logsource:
+  category: registry_event
+  product: windows
+detection:
+  selection:
+    EventID:
+      - 13    # Sysmon RegistryValueSet
+      - 14    # Sysmon RegistryValueRename
+    TargetObject|contains: '\Control Panel\Desktop\'
+    TargetObject|endswith:
+      - 'Wallpaper'
+      - 'WallpaperStyle'
+  filter_expected:
+    Image|endswith:
+      - '\explorer.exe'
+      - '\SystemSettings.exe'
+      - '\svchost.exe'
+      - '\UserOOBEBroker.exe'
+  condition: selection and not filter_expected
+falsepositives:
+  - Third-party desktop customization utilities (Wallpaper Engine, Fences, DisplayFusion)
+  - Group Policy-driven wallpaper changes via svchost/gpupdate
+  - Remote administration tools setting desktop background during configuration
+level: medium
+---
+# ============================================================
+# Rule 7: Ransomware Encrypt-then-Delete Pattern
+# MITRE ATT&CK: T1486 - Data Encrypted for Impact
+# Confidence: High
+# ============================================================
+title: Ransomware Encrypt-Then-Delete - Original File Removed After Encrypted Copy Created
+id: 08b17f9e-2d05-8c6c-e497-id753fg8g276
+status: experimental
+description: >
+  Detects the classic ransomware encryption pattern where a process creates an encrypted
+  copy of a file (appending an extension) and then immediately deletes the original within
+  a short window. This read-encrypt-write-delete cycle is the core operation of virtually
+  every file-encrypting ransomware family and is distinct from benign file operations
+  such as saves and backups which do not delete the original.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  # Proxy: detect high-volume file delete events on documents/data files
+  # (full encrypt-then-delete correlation is better done in SIEM via join)
+  selection_delete:
+    EventID: 23     # Sysmon FileDelete
+    TargetFilename|endswith:
+      - '.docx'
+      - '.xlsx'
+      - '.pdf'
+      - '.db'
+      - '.sqlite'
+      - '.pem'
+      - '.key'
+      - '.cpp'
+      - '.py'
+      - '.java'
+      - '.zip'
+      - '.jpg'
+      - '.png'
+      - '.mp4'
+  filter_system_paths:
+    TargetFilename|startswith:
+      - 'C:\Windows\'
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+      - 'C:\ProgramData\Microsoft\'
+  condition: selection_delete and not filter_system_paths
+falsepositives:
+  - File management utilities that replace files in-place by delete-and-recreate
+  - Development workflows that clean and rebuild source trees
+  - Legitimate document conversion tools (tune by excluding known converter processes)
+level: high

@@ -1,140 +1,136 @@
 // ============================================================
-// F0RT1KA Detection Rules - Multi-Stage Ransomware Killchain
+// Detection Rules - Multi-Stage Ransomware Killchain
 // Test ID: 5ed12ef2-5e29-49a2-8f26-269d8e9edcea
 // MITRE ATT&CK: T1204.002, T1134.001, T1083, T1486, T1491.001
-// ============================================================
-// Purpose: Detect ransomware killchain behaviors simulated by F0RT1KA
 // Platform: Microsoft Sentinel / Microsoft Defender for Endpoint
-// Author: F0RT1KA Defense Guidance Builder
+// Author: F0RT1KA Detection Rules Generator
+// Date: 2026-03-14
+// ============================================================
+// All rules target underlying attack technique behaviors.
+// They will detect any attacker using these techniques regardless
+// of what tooling was used to execute them.
 // ============================================================
 
 
 // ============================================================
-// Detection 1: F0RT1KA Test Execution
-// MITRE ATT&CK: All Stages
-// Confidence: High
-// ============================================================
-// Purpose: Detect F0RT1KA ransomware simulation test execution
-// False Positives: Authorized security testing
-// Threshold: Any occurrence
-// ============================================================
-
-DeviceFileEvents
-| where TimeGenerated > ago(1h)
-| where FolderPath startswith "C:\\F0\\"
-| where FileName has_any (
-    "5ed12ef2-5e29-49a2-8f26-269d8e9edcea",
-    "T1204.002.exe",
-    "T1134.001.exe",
-    "T1083.exe",
-    "T1486.exe",
-    "T1491.001.exe"
-)
-| extend
-    Severity = "High",
-    ThreatType = "F0RT1KA_Security_Test",
-    MitreAttack = "T1204.002,T1134.001,T1083,T1486,T1491.001",
-    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
-| project TimeGenerated, DeviceName, FileName, FolderPath, ActionType,
-          InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
-
-
-// ============================================================
-// Detection 2: Mass File Operations (Encryption Pattern)
+// Detection 1: Mass File Encryption Pattern
 // MITRE ATT&CK: T1486 - Data Encrypted for Impact
 // Confidence: High
 // ============================================================
-// Purpose: Detect rapid file modifications indicative of ransomware encryption
-// False Positives: Legitimate backup software, file sync utilities
-// Threshold: >50 files modified in 5 minutes
-// ============================================================
-
-DeviceFileEvents
-| where TimeGenerated > ago(1h)
-| where ActionType in ("FileModified", "FileDeleted", "FileCreated", "FileRenamed")
-| where FolderPath !startswith "C:\\Windows\\"
-| where FolderPath !startswith "C:\\Program Files\\"
-| summarize
-    FileCount = count(),
-    UniqueExtensions = dcount(FileExtension),
-    UniqueDirectories = dcount(FolderPath),
-    Operations = make_set(ActionType),
-    FirstEvent = min(TimeGenerated),
-    LastEvent = max(TimeGenerated)
-    by DeviceName, InitiatingProcessFileName, InitiatingProcessFolderPath, AccountName, bin(TimeGenerated, 5m)
-| where FileCount > 50
-| extend
-    DurationSeconds = datetime_diff('second', LastEvent, FirstEvent),
-    FilesPerSecond = FileCount / max(datetime_diff('second', LastEvent, FirstEvent), 1)
-| where FilesPerSecond > 5  // More than 5 files per second
-| extend
-    Severity = case(
-        FileCount > 200, "Critical",
-        FileCount > 100, "High",
-        "Medium"
-    ),
-    ThreatType = "Ransomware_Encryption_Pattern",
-    MitreAttack = "T1486",
-    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
-| project TimeGenerated, DeviceName, InitiatingProcessFileName, AccountName,
-          FileCount, FilesPerSecond, UniqueExtensions, DurationSeconds,
-          Severity, ThreatType, MitreAttack
-
-
-// ============================================================
-// Detection 3: File Extension Changes (.f0rtika)
-// MITRE ATT&CK: T1486 - Data Encrypted for Impact
-// Confidence: High
-// ============================================================
-// Purpose: Detect files being renamed with ransomware extensions
-// False Positives: None expected for .f0rtika extension
-// Threshold: >5 files with ransomware extension in 5 minutes
+// Purpose: Detect rapid file creation with ransomware extensions, the core
+//          write phase of any file-encrypting ransomware.
+// False Positives: Backup software writing intermediate staging files;
+//                  tune by excluding known backup process names.
+// Threshold: >10 encrypted-extension files created in a 5-minute window
 // ============================================================
 
 DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType in ("FileCreated", "FileRenamed")
-| where FileName endswith ".f0rtika"
-    or FileName endswith ".encrypted"
+| where FileName endswith ".encrypted"
     or FileName endswith ".locked"
     or FileName endswith ".crypted"
+    or FileName endswith ".enc"
+    or FileName endswith ".crypt"
+    or FileName endswith ".ransom"
+    or FileName endswith ".WNCRY"
+    or FileName endswith ".ryk"
+    or FileName endswith ".lck"
+| where FolderPath !startswith "C:\\Windows\\"
+    and FolderPath !startswith "C:\\Program Files\\"
 | summarize
     EncryptedFileCount = count(),
-    Files = make_set(FileName, 10)
+    SampleFiles = make_set(FileName, 5),
+    Directories = make_set(FolderPath, 5)
     by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 5m)
-| where EncryptedFileCount > 5
+| where EncryptedFileCount > 10
 | extend
-    Severity = "Critical",
-    ThreatType = "Ransomware_File_Extension",
+    Severity = case(
+        EncryptedFileCount > 100, "Critical",
+        EncryptedFileCount > 50,  "High",
+        "Medium"
+    ),
+    ThreatType = "Ransomware_Encryption_Extension",
     MitreAttack = "T1486",
     TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
 | project TimeGenerated, DeviceName, InitiatingProcessFileName, AccountName,
-          EncryptedFileCount, Files, Severity, ThreatType, MitreAttack
+          EncryptedFileCount, SampleFiles, Directories, Severity, ThreatType, MitreAttack
 
 
 // ============================================================
-// Detection 4: Token Manipulation - SYSTEM Process Access
+// Detection 2: Encrypt-then-Delete Pattern
+// MITRE ATT&CK: T1486 - Data Encrypted for Impact
+// Confidence: High
+// ============================================================
+// Purpose: Correlate file creation (encrypted copy) immediately followed by
+//          deletion of the original file in the same directory - the defining
+//          behavioral signature of file-encrypting ransomware.
+// False Positives: File conversion tools that delete originals after convert;
+//                  tune by adding process name exclusions for known converters.
+// Threshold: 5+ correlated encrypt-delete pairs within 30 seconds
+// ============================================================
+
+let EncryptedCreations = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName has_any (".encrypted", ".locked", ".crypted", ".enc", ".crypt", ".ransom")
+| extend OriginalName = replace_regex(FileName, @"\.(encrypted|locked|crypted|enc|crypt|ransom)$", "")
+| project CreateTime = TimeGenerated, DeviceName, EncryptedFile = FileName,
+          OriginalName, FolderPath, InitiatingProcessFileName, AccountName;
+
+let Deletions = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileDeleted"
+| project DeleteTime = TimeGenerated, DeviceName, DeletedFile = FileName, FolderPath;
+
+EncryptedCreations
+| join kind=inner (Deletions) on DeviceName, FolderPath
+| where OriginalName == DeletedFile
+| where abs(datetime_diff("second", DeleteTime, CreateTime)) < 30
+| summarize
+    PairCount = count(),
+    SampleOriginals = make_set(OriginalName, 5)
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(CreateTime, 5m)
+| where PairCount >= 5
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware_Encrypt_Delete_Cycle",
+    MitreAttack = "T1486",
+    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
+| project CreateTime, DeviceName, InitiatingProcessFileName, AccountName,
+          PairCount, SampleOriginals, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 3: Token Manipulation - SYSTEM Process Access
 // MITRE ATT&CK: T1134.001 - Access Token Manipulation
 // Confidence: High
 // ============================================================
-// Purpose: Detect attempts to access SYSTEM processes for token theft
-// False Positives: System administration tools, debuggers
-// Threshold: Any access to winlogon.exe or lsass.exe
+// Purpose: Detect non-system processes opening handles to SYSTEM-context
+//          processes (winlogon.exe, lsass.exe) for token duplication.
+//          OpenProcess + OpenProcessToken on these targets is the prerequisite
+//          for ImpersonateLoggedOnUser / DuplicateToken privilege escalation.
+// False Positives: Security products, debuggers, admin tools.
+//                  Tune by adding trusted process exclusions.
+// Threshold: Any occurrence from non-whitelisted process
 // ============================================================
 
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "ProcessAccessed"
-| where FileName in~ ("winlogon.exe", "lsass.exe", "services.exe", "csrss.exe")
+| where FileName in~ ("winlogon.exe", "lsass.exe", "csrss.exe", "services.exe")
 | where InitiatingProcessFileName !in~ (
-    "MsMpEng.exe",      // Windows Defender
-    "svchost.exe",      // System services
-    "WmiPrvSE.exe",     // WMI Provider
-    "taskmgr.exe"       // Task Manager
+    "MsMpEng.exe",
+    "svchost.exe",
+    "WmiPrvSE.exe",
+    "taskmgr.exe",
+    "csrss.exe",
+    "wininit.exe",
+    "smss.exe"
 )
 | extend
     Severity = "High",
-    ThreatType = "Token_Manipulation_Attempt",
+    ThreatType = "Token_Manipulation_System_Process_Access",
     MitreAttack = "T1134.001",
     TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
 | project TimeGenerated, DeviceName, FileName, InitiatingProcessFileName,
@@ -142,35 +138,131 @@ DeviceProcessEvents
 
 
 // ============================================================
-// Detection 5: Privilege Escalation via Token APIs
+// Detection 4: Dangerous Privilege Enablement
 // MITRE ATT&CK: T1134.001 - Access Token Manipulation
-// Confidence: Medium
+// Confidence: High
 // ============================================================
-// Purpose: Detect suspicious API calls related to token manipulation
-// False Positives: Administrative tools, legitimate elevation
-// Threshold: Correlation of multiple token-related behaviors
+// Purpose: Detect AdjustTokenPrivileges calls enabling high-risk privileges
+//          (SeDebugPrivilege, SeBackupPrivilege, SeRestorePrivilege,
+//          SeTakeOwnershipPrivilege) from non-system processes.
+//          Ransomware enables these to bypass file ACLs before encryption.
+// False Positives: Backup agents, debuggers; tune with process exclusions.
+// Threshold: Any enablement of 2+ dangerous privileges in same process
 // ============================================================
 
 DeviceEvents
 | where TimeGenerated > ago(1h)
 | where ActionType in ("ProcessPrimaryTokenModified", "ThreadTokenModified")
-| where InitiatingProcessFileName !in~ ("svchost.exe", "services.exe", "System")
+| where AdditionalFields has_any (
+    "SeDebugPrivilege",
+    "SeBackupPrivilege",
+    "SeRestorePrivilege",
+    "SeTakeOwnershipPrivilege",
+    "SeShutdownPrivilege"
+)
+| where InitiatingProcessFileName !in~ (
+    "svchost.exe",
+    "services.exe",
+    "System",
+    "lsass.exe",
+    "wininit.exe"
+)
 | extend
     Severity = "High",
-    ThreatType = "Privilege_Escalation_Token",
+    ThreatType = "Dangerous_Privilege_Enablement",
     MitreAttack = "T1134.001",
     TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
 | project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName,
-          InitiatingProcessCommandLine, AccountName, Severity, ThreatType, MitreAttack
+          InitiatingProcessCommandLine, AdditionalFields, AccountName,
+          Severity, ThreatType, MitreAttack
 
 
 // ============================================================
-// Detection 6: Ransom Note Deployment
-// MITRE ATT&CK: T1491.001 - Internal Defacement
+// Detection 5: Aggressive File System Enumeration
+// MITRE ATT&CK: T1083 - File and Directory Discovery
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect rapid recursive directory traversal across multiple user
+//          directories simultaneously. Ransomware performs an aggressive
+//          pre-encryption scan filtering by extension priority across
+//          Desktop, Documents, Downloads, and profile root.
+// False Positives: Cloud sync clients, antivirus scans, backup software,
+//                  IDE indexing. Tune with process exclusions.
+// Threshold: >100 file accesses across >10 unique directories in 1 minute
+// ============================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileRead", "DirectoryAccessed", "FileAccessed")
+| where FolderPath has_any ("\\Desktop\\", "\\Documents\\", "\\Downloads\\", "\\AppData\\")
+| where InitiatingProcessFileName !in~ (
+    "SearchIndexer.exe",
+    "MsMpEng.exe",
+    "explorer.exe",
+    "OneDrive.exe",
+    "Dropbox.exe",
+    "GoogleDriveFS.exe",
+    "BackupService.exe"
+)
+| summarize
+    AccessCount = count(),
+    UniqueDirectories = dcount(FolderPath),
+    UniqueExtensions = dcount(FileExtension)
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 1m)
+| where AccessCount > 100 and UniqueDirectories > 10
+| extend
+    Severity = "Medium",
+    ThreatType = "Aggressive_File_Discovery_Enumeration",
+    MitreAttack = "T1083",
+    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, AccountName,
+          AccessCount, UniqueDirectories, UniqueExtensions, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 6: Encryption Target List File Creation
+// MITRE ATT&CK: T1083 - File and Directory Discovery
 // Confidence: High
 // ============================================================
-// Purpose: Detect ransom note files being created
-// False Positives: None expected for these specific filenames
+// Purpose: Detect creation of files whose names suggest a file-system
+//          scan output list - an artifact of ransomware building its
+//          encryption target queue. Multiple ransomware families write
+//          such a list before beginning the encryption phase.
+// False Positives: Backup software writing file manifests;
+//                  tune by excluding known backup process names.
+// Threshold: Any occurrence
+// ============================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName has_any (
+    "targets.list",
+    "filelist.txt",
+    "file_list.txt",
+    "encrypt_targets",
+    "files_to_encrypt",
+    "target_files"
+)
+| extend
+    Severity = "High",
+    ThreatType = "Ransomware_Target_List_Creation",
+    MitreAttack = "T1083",
+    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
+| project TimeGenerated, DeviceName, FileName, FolderPath, FileSize,
+          InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 7: Ransom Note Deployment to Multiple Locations
+// MITRE ATT&CK: T1491.001 - Defacement: Internal Defacement
+// Confidence: High
+// ============================================================
+// Purpose: Detect creation of ransom note files using naming patterns
+//          documented across Conti, LockBit, BlackCat, Ryuk, REvil, and
+//          other ransomware families. A single occurrence in a user-
+//          accessible directory is a critical indicator.
+// False Positives: Security awareness training simulations.
 // Threshold: Any occurrence
 // ============================================================
 
@@ -183,8 +275,12 @@ DeviceFileEvents
     "PAYMENT_INSTRUCTIONS",
     "HOW_TO_DECRYPT",
     "DECRYPT_INSTRUCTIONS",
+    "RECOVER_FILES",
+    "FILES_ENCRYPTED",
     "!README!",
-    "RECOVER_FILES"
+    "RESTORE_FILES",
+    "CONTI_README",
+    "LOCKBIT_README"
 )
 | extend
     Severity = "Critical",
@@ -196,87 +292,32 @@ DeviceFileEvents
 
 
 // ============================================================
-// Detection 7: Aggressive File Discovery
-// MITRE ATT&CK: T1083 - File and Directory Discovery
+// Detection 8: Desktop Wallpaper Registry Modification
+// MITRE ATT&CK: T1491.001 - Defacement: Internal Defacement
 // Confidence: Medium
 // ============================================================
-// Purpose: Detect rapid file system enumeration patterns
-// False Positives: Backup software, indexing services, search tools
-// Threshold: >100 directory accesses in 1 minute
-// ============================================================
-
-DeviceFileEvents
-| where TimeGenerated > ago(1h)
-| where ActionType in ("FileRead", "DirectoryAccessed")
-| summarize
-    AccessCount = count(),
-    UniqueDirectories = dcount(FolderPath),
-    UniqueExtensions = dcount(FileExtension)
-    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 1m)
-| where AccessCount > 100 and UniqueDirectories > 20
-| where InitiatingProcessFileName !in~ (
-    "SearchIndexer.exe",
-    "MsMpEng.exe",
-    "explorer.exe",
-    "OneDrive.exe"
-)
-| extend
-    Severity = "Medium",
-    ThreatType = "Aggressive_File_Discovery",
-    MitreAttack = "T1083",
-    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
-| project TimeGenerated, DeviceName, InitiatingProcessFileName, AccountName,
-          AccessCount, UniqueDirectories, UniqueExtensions, Severity, ThreatType, MitreAttack
-
-
-// ============================================================
-// Detection 8: Ransomware Component Drops
-// MITRE ATT&CK: T1204.002 - User Execution: Malicious File
-// Confidence: High
-// ============================================================
-// Purpose: Detect suspicious component files being dropped
-// False Positives: None expected for these patterns
-// Threshold: Any occurrence
-// ============================================================
-
-DeviceFileEvents
-| where TimeGenerated > ago(1h)
-| where ActionType == "FileCreated"
-| where FileName has_any (
-    "crypto_engine",
-    "file_enum",
-    "ransom_core",
-    "targets.list",
-    "MASTER_KEY.key",
-    "ENCRYPTION_COMPLETE"
-)
-| extend
-    Severity = "High",
-    ThreatType = "Ransomware_Component_Drop",
-    MitreAttack = "T1204.002",
-    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
-| project TimeGenerated, DeviceName, FileName, FolderPath, FileSize,
-          InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
-
-
-// ============================================================
-// Detection 9: Desktop Wallpaper Modification (Registry)
-// MITRE ATT&CK: T1491.001 - Internal Defacement
-// Confidence: High
-// ============================================================
-// Purpose: Detect ransomware modifying desktop wallpaper
-// False Positives: User changing wallpaper, GPO updates
-// Threshold: Combined with other ransomware indicators
+// Purpose: Detect writes to HKCU\Control Panel\Desktop\Wallpaper or
+//          WallpaperStyle by non-UI processes. Ransomware (BlackCat, REvil,
+//          Ryuk) modifies the wallpaper to display ransom demand imagery
+//          ensuring victim sees it on next desktop interaction.
+// False Positives: Third-party desktop customization tools, GPO changes.
+// Threshold: Any modification from a non-whitelisted process
 // ============================================================
 
 DeviceRegistryEvents
 | where TimeGenerated > ago(1h)
 | where RegistryKey has "Control Panel\\Desktop"
 | where RegistryValueName in~ ("Wallpaper", "WallpaperStyle")
-| where InitiatingProcessFileName !in~ ("explorer.exe", "SystemSettings.exe", "svchost.exe")
+| where InitiatingProcessFileName !in~ (
+    "explorer.exe",
+    "SystemSettings.exe",
+    "svchost.exe",
+    "UserOOBEBroker.exe",
+    "rundll32.exe"
+)
 | extend
     Severity = "Medium",
-    ThreatType = "Wallpaper_Modification",
+    ThreatType = "Ransomware_Wallpaper_Defacement",
     MitreAttack = "T1491.001",
     TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
 | project TimeGenerated, DeviceName, RegistryKey, RegistryValueName, RegistryValueData,
@@ -284,39 +325,87 @@ DeviceRegistryEvents
 
 
 // ============================================================
-// Detection 10: Multi-Stage Behavioral Correlation
-// MITRE ATT&CK: Full Killchain
+// Detection 9: Encryption Key Escrow File Creation
+// MITRE ATT&CK: T1486 - Data Encrypted for Impact
 // Confidence: High
 // ============================================================
-// Purpose: Correlate multiple ransomware indicators for high-confidence detection
-// False Positives: Very low when all indicators present
-// Threshold: 3+ indicators within 15-minute window
+// Purpose: Detect creation of files that store or reference ransomware
+//          encryption keys. Real ransomware writes a local key file as
+//          proof-of-decryption capability or for C2 upload. Any file
+//          named MASTER_KEY or containing key material naming patterns
+//          created outside system paths is suspicious.
+// False Positives: Legitimate key management software; tune by process.
+// Threshold: Any occurrence
+// ============================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName has_any (
+    "MASTER_KEY",
+    "master_key",
+    "ENCRYPTION_KEY",
+    "encryption_key",
+    "PRIVATE_KEY",
+    "key_escrow",
+    "ENCRYPTION_COMPLETE"
+)
+| where FolderPath !startswith "C:\\Windows\\"
+    and FolderPath !startswith "C:\\Program Files\\"
+    and FolderPath !has "\\ProgramData\\Microsoft\\"
+| extend
+    Severity = "High",
+    ThreatType = "Ransomware_Key_File_Creation",
+    MitreAttack = "T1486",
+    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
+| project TimeGenerated, DeviceName, FileName, FolderPath, FileSize,
+          InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 10: Ransomware Multi-Stage Behavioral Correlation
+// MITRE ATT&CK: T1134.001, T1486, T1491.001 (Full Killchain)
+// Confidence: High
+// ============================================================
+// Purpose: Correlate token manipulation, mass encryption, and ransom note
+//          deployment from the same host within a 15-minute window.
+//          All three indicators present simultaneously is near-certain
+//          active ransomware regardless of tooling used.
+// False Positives: Extremely low when all three indicators are present.
+// Threshold: All three indicator types within 15 minutes on same host
 // ============================================================
 
 let TokenManipulation = DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "ProcessAccessed"
 | where FileName in~ ("winlogon.exe", "lsass.exe")
+| where InitiatingProcessFileName !in~ (
+    "MsMpEng.exe", "svchost.exe", "WmiPrvSE.exe",
+    "taskmgr.exe", "csrss.exe", "wininit.exe"
+)
 | project TokenTime = TimeGenerated, DeviceName, TokenProcess = InitiatingProcessFileName;
 
 let FileEncryption = DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType in ("FileCreated", "FileRenamed")
-| where FileName endswith ".f0rtika"
+| where FileName has_any (".encrypted", ".locked", ".crypted", ".enc", ".crypt", ".ransom")
 | summarize EncryptedCount = count() by DeviceName, EncryptionTime = bin(TimeGenerated, 5m)
-| where EncryptedCount > 5;
+| where EncryptedCount >= 5;
 
 let RansomNote = DeviceFileEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "FileCreated"
-| where FileName has_any ("README_RANSOMWARE", "YOUR_FILES_ENCRYPTED")
+| where FileName has_any (
+    "README_RANSOMWARE", "YOUR_FILES_ENCRYPTED",
+    "HOW_TO_DECRYPT", "DECRYPT_INSTRUCTIONS", "RECOVER_FILES"
+)
 | project NoteTime = TimeGenerated, DeviceName, NotePath = FolderPath;
 
 TokenManipulation
 | join kind=inner (FileEncryption) on DeviceName
 | join kind=inner (RansomNote) on DeviceName
-| where abs(datetime_diff('minute', TokenTime, EncryptionTime)) < 15
-| where abs(datetime_diff('minute', EncryptionTime, NoteTime)) < 15
+| where abs(datetime_diff("minute", TokenTime, EncryptionTime)) < 15
+| where abs(datetime_diff("minute", EncryptionTime, NoteTime)) < 15
 | extend
     Severity = "Critical",
     ThreatType = "Ransomware_Killchain_Confirmed",
@@ -327,92 +416,75 @@ TokenManipulation
 
 
 // ============================================================
-// Detection 11: Process Spawning from C:\F0 Directory
-// MITRE ATT&CK: T1204.002 - User Execution
+// Detection 11: Batch Script Execution for Payload Initialization
+// MITRE ATT&CK: T1204.002 - User Execution: Malicious File
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect cmd.exe executing batch scripts dropped by an external
+//          process in non-standard user-writable directories. Ransomware
+//          frequently uses a dropper that writes and immediately executes
+//          a batch file to test execution permissions and establish
+//          initial foothold before deploying main payload components.
+// False Positives: Legitimate software installers, developer build scripts.
+//                  Tune by excluding known installer parent processes.
+// Threshold: cmd.exe running .bat from non-standard writable directories
+// ============================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "ProcessCreated"
+| where FileName =~ "cmd.exe"
+| where ProcessCommandLine has ".bat"
+| where ProcessCommandLine !has "C:\\Windows\\"
+    and ProcessCommandLine !has "C:\\Program Files\\"
+    and ProcessCommandLine !has "C:\\ProgramData\\"
+| where InitiatingProcessFileName !in~ (
+    "msiexec.exe",
+    "setup.exe",
+    "installer.exe",
+    "devenv.exe",
+    "code.exe"
+)
+| extend
+    Severity = "Medium",
+    ThreatType = "Suspicious_Batch_Script_Execution",
+    MitreAttack = "T1204.002",
+    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
+| project TimeGenerated, DeviceName, ProcessCommandLine,
+          ParentProcessName = InitiatingProcessFileName, AccountName,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 12: Ransomware Note Opened via Notepad
+// MITRE ATT&CK: T1491.001 - Defacement: Internal Defacement
 // Confidence: High
 // ============================================================
-// Purpose: Detect process execution from F0RT1KA test directory
-// False Positives: Authorized security testing
+// Purpose: Detect notepad.exe being spawned with a ransom note file as
+//          its argument. Ransomware auto-opens the ransom note to ensure
+//          the victim is immediately informed of the attack and demanded
+//          payment. This is a documented behavior across many families.
+// False Positives: None expected for this specific combination.
 // Threshold: Any occurrence
 // ============================================================
 
 DeviceProcessEvents
 | where TimeGenerated > ago(1h)
 | where ActionType == "ProcessCreated"
-| where FolderPath startswith "C:\\F0\\"
-| extend
-    Severity = "High",
-    ThreatType = "F0_Directory_Execution",
-    MitreAttack = "T1204.002",
-    TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
-| project TimeGenerated, DeviceName, FileName, ProcessCommandLine,
-          ParentProcessName = InitiatingProcessFileName, AccountName,
-          Severity, ThreatType, MitreAttack
-
-
-// ============================================================
-// Detection 12: Original File Deletion After Encryption
-// MITRE ATT&CK: T1486 - Data Encrypted for Impact
-// Confidence: High
-// ============================================================
-// Purpose: Detect pattern of file deletion following encryption
-// False Positives: Legitimate file operations with similar naming
-// Threshold: Multiple delete operations following creates
-// ============================================================
-
-let FileCreations = DeviceFileEvents
-| where TimeGenerated > ago(1h)
-| where ActionType == "FileCreated"
-| where FileName endswith ".f0rtika"
-| extend OriginalName = replace_string(FileName, ".f0rtika", "")
-| project CreateTime = TimeGenerated, DeviceName, EncryptedFile = FileName, OriginalName, FolderPath;
-
-let FileDeletions = DeviceFileEvents
-| where TimeGenerated > ago(1h)
-| where ActionType == "FileDeleted"
-| project DeleteTime = TimeGenerated, DeviceName, DeletedFile = FileName, FolderPath;
-
-FileCreations
-| join kind=inner (FileDeletions) on DeviceName, FolderPath
-| where OriginalName == DeletedFile
-| where datetime_diff('second', DeleteTime, CreateTime) < 30
+| where FileName =~ "notepad.exe"
+| where ProcessCommandLine has_any (
+    "README_RANSOMWARE",
+    "YOUR_FILES_ENCRYPTED",
+    "HOW_TO_DECRYPT",
+    "DECRYPT_INSTRUCTIONS",
+    "PAYMENT_INSTRUCTIONS",
+    "RECOVER_FILES"
+)
 | extend
     Severity = "Critical",
-    ThreatType = "Encrypt_Then_Delete_Pattern",
-    MitreAttack = "T1486",
+    ThreatType = "Ransom_Note_Display_Attempt",
+    MitreAttack = "T1491.001",
     TestID = "5ed12ef2-5e29-49a2-8f26-269d8e9edcea"
-| project CreateTime, DeviceName, OriginalName, EncryptedFile, FolderPath,
+| project TimeGenerated, DeviceName, ProcessCommandLine,
+          ParentProcessName = InitiatingProcessFileName, AccountName,
           Severity, ThreatType, MitreAttack
-
-
-// ============================================================
-// Summary Dashboard Query
-// ============================================================
-// Purpose: Aggregate all ransomware indicators for dashboard
-// ============================================================
-
-union
-(
-    DeviceFileEvents
-    | where TimeGenerated > ago(24h)
-    | where FolderPath startswith "C:\\F0\\"
-    | summarize FileEvents = count() by DeviceName, bin(TimeGenerated, 1h)
-    | extend EventType = "File_Activity"
-),
-(
-    DeviceProcessEvents
-    | where TimeGenerated > ago(24h)
-    | where FolderPath startswith "C:\\F0\\"
-    | summarize ProcessEvents = count() by DeviceName, bin(TimeGenerated, 1h)
-    | extend EventType = "Process_Activity"
-),
-(
-    DeviceFileEvents
-    | where TimeGenerated > ago(24h)
-    | where FileName endswith ".f0rtika"
-    | summarize EncryptedFiles = count() by DeviceName, bin(TimeGenerated, 1h)
-    | extend EventType = "Encryption_Activity"
-)
-| project TimeGenerated, DeviceName, EventType,
-          ActivityCount = coalesce(FileEvents, ProcessEvents, EncryptedFiles)
-| render timechart

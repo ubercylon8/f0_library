@@ -1,0 +1,233 @@
+# ============================================================
+# Sigma Rules: SafePay Go-Native Ransomware Simulation
+# Test ID: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+# MITRE ATT&CK: T1486, T1560.001, T1490, T1083, T1005, T1071.001
+# Threat Actor: SafePay
+# ============================================================
+#
+# Rules Included:
+#   1. safepay-ransomware-file-extension        - Files renamed with .safepay extension (T1486)
+#   2. safepay-ransom-note-created              - Ransomware ransom note dropped (T1486)
+#   3. rar-utility-data-staging                 - RAR/WinRAR archiving from temp/non-standard path (T1560.001)
+#   4. mass-document-deletion-by-process        - Single process deleting many document types (T1490)
+#   5. ransomware-file-extension-rename         - Generic ransomware double-extension rename pattern (T1486)
+#
+# Field naming: SigmaHQ conventions (Sysmon / Windows Security log field names)
+# Logsource categories: file_event, process_creation, registry_event
+# ============================================================
+
+---
+title: SafePay Ransomware File Encryption - .safepay Extension Created
+id: a2f1d3e8-7c45-4b90-8a6f-1e2d3c4b5a60
+status: experimental
+description: |
+    Detects creation of files with the .safepay extension, the hallmark encryption
+    artifact of SafePay ransomware. SafePay appends .safepay to the original filename
+    after encrypting the file contents. Any legitimate process creating .safepay files
+    is extremely unlikely in an enterprise environment.
+references:
+    - https://attack.mitre.org/techniques/T1486/
+    - https://www.cisa.gov/stopransomware/safepay
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1486
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '.safepay'
+    condition: selection
+falsepositives:
+    - None expected. The .safepay extension is not used by any legitimate software.
+      If triggered in a test environment, verify authorized ransomware simulation.
+level: critical
+
+---
+title: Ransomware Ransom Note Created - Generic Pattern
+id: b4e2c6f9-8d56-4ca1-9b7e-2f3e4d5c6b71
+status: experimental
+description: |
+    Detects creation of text or HTML files matching common ransomware ransom note
+    naming conventions such as readme_safepay.txt, DECRYPT_INSTRUCTIONS.html, or
+    HOW_TO_RECOVER.txt. This pattern is consistent with many ransomware families
+    including SafePay, LockBit, BlackCat/ALPHV, and others that drop ransom notes
+    after completing encryption.
+references:
+    - https://attack.mitre.org/techniques/T1486/
+    - https://id-ransomware.malwarehunterteam.com/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1486
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_name:
+        TargetFilename|contains|any:
+            - 'readme_safepay'
+            - 'RECOVER_FILES'
+            - 'HOW_TO_DECRYPT'
+            - 'DECRYPT_INSTRUCTIONS'
+            - 'FILES_ENCRYPTED'
+            - 'YOUR_FILES_ARE_ENCRYPTED'
+            - 'RANSOM_NOTE'
+            - 'readme_to_recover'
+    selection_ext:
+        TargetFilename|endswith:
+            - '.txt'
+            - '.html'
+            - '.hta'
+    condition: selection_name and selection_ext
+falsepositives:
+    - Security researchers or documentation authors working with ransomware-related
+      content. Tune by excluding known security research workstations.
+level: critical
+
+---
+title: Archive Utility Executing from Non-Standard Path with Recursive Flags
+id: c5f3d7a0-9e67-4db2-ac8f-3g4f5e6d7c82
+status: experimental
+description: |
+    Detects WinRAR or rar.exe executing from non-standard installation paths (e.g.,
+    %TEMP%, user profile, or other writable directories) with flags indicative of
+    bulk data collection: recursive archiving (-r), compression level specification
+    (-m0 through -m5), and base folder exclusion (-ep1). This pattern is consistent
+    with ransomware operators staging data for exfiltration prior to or during encryption.
+    Legitimate WinRAR installations run from %ProgramFiles% or %ProgramFiles(x86)%.
+references:
+    - https://attack.mitre.org/techniques/T1560/001/
+    - https://www.winrar.com/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.collection
+    - attack.t1560.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_binary:
+        Image|endswith:
+            - '\WinRAR.exe'
+            - '\rar.exe'
+    filter_standard_install:
+        Image|contains:
+            - '\Program Files\WinRAR\'
+            - '\Program Files (x86)\WinRAR\'
+    selection_suspicious_args:
+        CommandLine|contains|all:
+            - ' a '
+            - '-r'
+    selection_staging_pattern:
+        CommandLine|contains|any:
+            - '-ep1'
+            - '-ep2'
+            - 'EXFIL'
+            - '_Archive'
+            - '_Data'
+    condition: selection_binary and not filter_standard_install and (selection_suspicious_args or selection_staging_pattern)
+falsepositives:
+    - Portable WinRAR installations carried by administrators for ad-hoc archiving.
+      Tune by adding known portable tool locations to the filter.
+    - Backup software that bundles rar.exe as a compression engine.
+level: high
+
+---
+title: Mass Deletion of Office and Document Files by Single Process
+id: d6a4e8b1-af78-4ec3-bd90-4h5g6f7e8d93
+status: experimental
+description: |
+    Detects a single process deleting large numbers of common document file types
+    (Office documents, PDFs, CSVs, SQL dumps, backups) within a short time window.
+    Ransomware commonly deletes original files after encrypting them, or deletes
+    originals without encryption to cause destruction. A threshold of 50+ deletions
+    by a single non-system process is a strong ransomware behavioral indicator.
+    This technique is mapped to T1490 (Inhibit System Recovery) as mass deletion
+    destroys data and hampers recovery efforts.
+references:
+    - https://attack.mitre.org/techniques/T1490/
+    - https://www.cisa.gov/stopransomware
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1490
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        EventType: FileDelete
+        TargetFilename|endswith:
+            - '.docx'
+            - '.doc'
+            - '.xlsx'
+            - '.xls'
+            - '.pdf'
+            - '.txt'
+            - '.csv'
+            - '.sql'
+            - '.bak'
+            - '.ppt'
+            - '.pptx'
+            - '.zip'
+        TargetFilename|contains:
+            - '\Users\'
+    filter_system_processes:
+        Image|contains:
+            - '\Windows\System32\'
+            - '\Windows\SysWOW64\'
+    condition: selection and not filter_system_processes
+falsepositives:
+    - File migration tools, bulk delete operations by administrators, or cleanup
+      scripts removing large numbers of temporary files. Implement a volume threshold
+      (e.g., 50+ events per process per 5 minutes) in your SIEM aggregation layer
+      to reduce false positive volume.
+    - Antivirus quarantine operations that remove infected files en masse.
+level: high
+
+---
+title: Ransomware Double-Extension File Rename Pattern
+id: e7b5f9c2-b089-4fd4-ce01-5i6h7g8f9e04
+status: experimental
+description: |
+    Detects files being created with a double-extension pattern where a known
+    document extension is followed by a ransomware-style extension appended to
+    the original filename. Real-world ransomware families use extensions such as
+    .safepay, .locked, .encrypted, .enc, .crypt, .crypto, .WNCRY, .mkos, and many
+    others. The double-extension pattern (original.docx.safepay) is a reliable
+    behavioral indicator that does not require knowing the specific ransomware family
+    in advance.
+references:
+    - https://attack.mitre.org/techniques/T1486/
+    - https://any.run/ransomware-tracker/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1486
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        EventType: FileCreate
+        TargetFilename|re: '(?i)\.(docx?|xlsx?|pdf|csv|txt|ppt[x]?|sql|bak|zip)\.[a-z0-9]{3,12}$'
+    filter_known_good:
+        TargetFilename|endswith:
+            - '.docx.tmp'
+            - '.xlsx.tmp'
+            - '.pdf.tmp'
+            - '.doc.tmp'
+    condition: selection and not filter_known_good
+falsepositives:
+    - Some version control or sync tools (e.g., Dropbox .dropbox.cache suffix,
+      OneDrive conflict files). Tune by adding known sync application suffixes
+      to the filter_known_good list.
+    - Archive utilities that temporarily create files with additional suffixes.
+level: high

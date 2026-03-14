@@ -1,0 +1,256 @@
+# ============================================================
+# Sigma Rules: SafePay Enhanced Ransomware Simulation & Mass Data Operations
+# Test ID: 109266e2-2310-40ea-9f63-b97e4b7fda61
+# MITRE ATT&CK: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These Sigma rules target real-world ransomware behaviors:
+#   - Mass file encryption with suspicious extensions (.safepay, .locked, .encrypted)
+#   - Data staging via archive utilities (WinRAR / rar.exe)
+#   - PowerShell execution policy bypass launching scripts
+#   - Ransom note file creation in user directories
+#   - Bulk document file deletion characteristic of ransomware
+#
+# Translate with sigma-cli:
+#   sigma convert -t <backend> 109266e2-2310-40ea-9f63-b97e4b7fda61_sigma_rules.yml
+#
+# ============================================================
+
+---
+title: Ransomware File Encryption - Suspicious Extension Mass Creation
+id: b3e1d4f7-8c2a-4e09-a5b6-1f3d2e7c9a04
+status: experimental
+description: >
+  Detects mass creation of files with ransomware-characteristic extensions
+  (.safepay, .encrypted, .locked, .crypted). Any positive hit warrants
+  immediate investigation regardless of count. SafePay ransomware appends
+  the .safepay extension after Base64-encoding file contents.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+  - https://www.cisa.gov/sites/default/files/publications/CISA_MS-ISAC_Ransomware%20Guide_S508C.pdf
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_ransomware_ext:
+    TargetFilename|endswith:
+      - '.safepay'
+      - '.encrypted'
+      - '.locked'
+      - '.crypted'
+      - '.enc'
+      - '.crypt'
+  condition: selection_ransomware_ext
+falsepositives:
+  - Encrypted vault software creating legitimate .enc containers (tune by
+    adding known vault application parent process exclusions)
+  - Developer test environments generating encrypted output files
+level: critical
+
+---
+title: Ransomware Ransom Note Created in User Directory
+id: c4f2e5a8-9d3b-4f10-b6c7-2a4e3f8d1b15
+status: experimental
+description: >
+  Detects creation of files matching ransom note naming patterns in user
+  directories. Ransom note files are a definitive late-stage ransomware
+  indicator confirming that encryption has completed or is in progress.
+  SafePay specifically creates readme_safepay.txt.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_ransom_note_name:
+    TargetFilename|contains:
+      - 'readme_safepay'
+      - 'HOW_TO_DECRYPT'
+      - 'DECRYPT_INSTRUCTION'
+      - 'YOUR_FILES_ARE_ENCRYPTED'
+      - 'RANSOM_NOTE'
+      - 'FILES_ENCRYPTED'
+  selection_ransom_note_location:
+    TargetFilename|contains:
+      - '\Users\'
+      - '\Desktop\'
+      - '\Documents\'
+  condition: selection_ransom_note_name and selection_ransom_note_location
+falsepositives:
+  - Security awareness training materials placed in user directories
+  - IT documentation files with similar naming (unlikely but possible)
+level: critical
+
+---
+title: WinRAR Executed with Data Staging Arguments
+id: d5a3f6b9-0e4c-4a11-c7d8-3b5f4a9e2c26
+status: experimental
+description: >
+  Detects WinRAR or rar.exe executing with command-line arguments associated
+  with data staging for exfiltration: recursive archiving, multi-threading,
+  and volume-split options. Ransomware operators frequently use WinRAR to
+  compress and stage stolen data before exfiltration. The combination of
+  recursive archiving (-r), compression level (-m), and multi-threading
+  (-mt) on multiple directories indicates automated bulk staging.
+references:
+  - https://attack.mitre.org/techniques/T1560/001/
+  - https://www.mandiant.com/resources/blog/winrar-data-collection-threat-actors
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.collection
+  - attack.t1560.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_process:
+    Image|endswith:
+      - '\WinRAR.exe'
+      - '\rar.exe'
+      - '\Rar.exe'
+  selection_archive_add:
+    CommandLine|contains: ' a '
+  selection_suspicious_flags:
+    CommandLine|contains:
+      - ' -r '
+      - ' -mt'
+      - ' -m3'
+      - ' -m5'
+      - ' -ep1'
+      - 'EXFIL'
+      - '_Archive_'
+      - '_Data_'
+  condition: selection_process and selection_archive_add and selection_suspicious_flags
+falsepositives:
+  - Authorized IT backup scripts using WinRAR for compression (tune by
+    adding known backup service account exclusions)
+  - Developers running automated build scripts that archive project files
+level: high
+
+---
+title: PowerShell Execution Policy Bypass Launching Script File
+id: e6b4a7c0-1f5d-4b22-d8e9-4c6a5b0f3d37
+status: experimental
+description: >
+  Detects PowerShell launched with -ExecutionPolicy Bypass and a -File
+  argument pointing to a .ps1 script. Ransomware operators routinely bypass
+  the execution policy to run malicious PowerShell scripts without requiring
+  signed scripts. This is a common first-stage dropper or orchestration
+  technique that precedes file encryption and data staging operations.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.defense_evasion
+  - attack.t1562
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_powershell:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_bypass:
+    CommandLine|contains|all:
+      - 'Bypass'
+      - '-File'
+  selection_suspicious_script:
+    CommandLine|contains:
+      - 'encrypt'
+      - 'ransom'
+      - '_sim'
+      - 'safepay'
+      - 'staging'
+      - 'exfil'
+  filter_known_admin:
+    ParentImage|startswith:
+      - 'C:\Program Files\Microsoft\Exchange'
+      - 'C:\Program Files\Microsoft Configuration Manager'
+  condition: >
+    selection_powershell
+    and selection_bypass
+    and selection_suspicious_script
+    and not filter_known_admin
+falsepositives:
+  - Legitimate administrative scripts with bypass flag (tune by adding
+    known admin tool parent process exceptions)
+  - Security testing frameworks running authorised penetration test scripts
+level: high
+
+---
+title: Bulk Document File Deletion by Non-System Process
+id: f7c5b8d1-2a6e-4c33-e9f0-5d7b6c1a4e48
+status: experimental
+description: >
+  Detects bulk deletion of document files (Office formats, PDFs, databases,
+  backups) in user directory paths initiated by a non-system process. Mass
+  deletion of user documents following archival is a hallmark behaviour of
+  ransomware operators who delete originals after compressing/encrypting
+  them. This rule uses a low threshold per-event to capture the pattern at
+  the EDR telemetry level; SIEM aggregation should be used to count events
+  per initiating process per five-minute window (threshold: 50+).
+references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1490
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_delete:
+    EventType: 'DeleteFile'
+  selection_doc_extensions:
+    TargetFilename|endswith:
+      - '.docx'
+      - '.xlsx'
+      - '.pdf'
+      - '.pptx'
+      - '.ppt'
+      - '.doc'
+      - '.csv'
+      - '.sql'
+      - '.bak'
+      - '.txt'
+  selection_user_path:
+    TargetFilename|contains:
+      - '\Users\'
+      - '\Documents\'
+      - '\Desktop\'
+  filter_system_cleanup:
+    Image|startswith:
+      - 'C:\Windows\system32\cleanmgr.exe'
+      - 'C:\Windows\system32\msiexec.exe'
+  condition: >
+    selection_delete
+    and selection_doc_extensions
+    and selection_user_path
+    and not filter_system_cleanup
+falsepositives:
+  - Users emptying large folders manually (tune with volume threshold in SIEM)
+  - IT-initiated cleanup scripts run as user context
+  - Backup agents performing retention policy enforcement
+level: medium

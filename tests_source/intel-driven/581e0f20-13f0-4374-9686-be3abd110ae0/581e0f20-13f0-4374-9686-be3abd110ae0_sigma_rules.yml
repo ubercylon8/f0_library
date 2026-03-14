@@ -1,0 +1,405 @@
+# ============================================================
+# Sigma Rules - Ransomware Encryption via BitLocker
+# Test ID: 581e0f20-13f0-4374-9686-be3abd110ae0
+# MITRE ATT&CK: T1070.001, T1562.004, T1082, T1083, T1486, T1490
+# Generated: 2026-03-14
+# ============================================================
+#
+# Rule Index:
+# 1. Windows Event Log Clearing via Wevtutil (T1070.001)
+# 2. Netsh Firewall Rule Manipulation (T1562.004)
+# 3. BitLocker Encryption Initiated via Manage-BDE (T1486)
+# 4. Password-Based BitLocker Activation - High-Confidence Ransomware (T1486)
+# 5. Volume Shadow Copy Deletion via VSSAdmin or WMIC (T1490)
+# 6. Diskpart VHD Creation for Isolated Encryption (T1486)
+# 7. Pre-Encryption Drive Enumeration via WMIC (T1083)
+# 8. BitLocker Ransomware Kill Chain Correlation (T1070.001,T1562.004,T1486,T1490)
+# ============================================================
+---
+
+# ============================================================
+# Rule 1: Windows Event Log Clearing via Wevtutil
+# MITRE ATT&CK: T1070.001
+# Confidence: High
+# ============================================================
+
+title: Windows Event Log Cleared via Wevtutil
+id: 4e8b3c7a-1f52-4d89-b0e6-9a7c2d310f85
+status: stable
+description: >
+  Detects use of wevtutil.exe with the clear-log (cl) subcommand to wipe Windows
+  event logs. Ransomware and other threat actors clear logs after initial access to
+  remove forensic evidence before deploying payloads. Any event log clearing outside
+  approved maintenance windows should be treated as a high-priority alert.
+references:
+  - https://attack.mitre.org/techniques/T1070/001/
+  - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/wevtutil
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.defense_evasion
+  - attack.t1070.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\wevtutil.exe'
+    CommandLine|contains:
+      - ' cl '
+      - ' clear-log '
+  condition: selection
+falsepositives:
+  - Scheduled IT maintenance scripts that rotate or clear specific application logs
+  - SIEM log management agents that prune stale channels
+  - Security product log cleanup routines
+level: high
+
+---
+
+# ============================================================
+# Rule 2: Netsh Firewall Rule Manipulation
+# MITRE ATT&CK: T1562.004
+# Confidence: Medium
+# ============================================================
+
+title: Windows Firewall Rule Added or Deleted via Netsh
+id: 7d2c5f1a-9b83-4e60-a3d7-1c4f8e520b96
+status: experimental
+description: >
+  Detects netsh.exe being used to add, delete, or modify Windows Firewall rules.
+  Adversaries manipulate firewall rules to open inbound/outbound paths required
+  for C2 communication or lateral movement, and to remove evidence of prior rule
+  changes. Rapid add-then-delete sequences indicate temporary tunneling or
+  anti-forensic behaviour.
+references:
+  - https://attack.mitre.org/techniques/T1562/004/
+  - https://docs.microsoft.com/en-us/windows-server/networking/technologies/netsh/netsh-contexts
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.defense_evasion
+  - attack.t1562.004
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_binary:
+    Image|endswith: '\netsh.exe'
+    CommandLine|contains: 'advfirewall'
+  selection_action:
+    CommandLine|contains:
+      - 'add rule'
+      - 'delete rule'
+      - 'set rule'
+  condition: selection_binary and selection_action
+falsepositives:
+  - Software installers (VPN clients, AV products) that configure firewall rules
+  - IT automation scripts for firewall policy enforcement
+  - Group Policy application during domain join
+level: medium
+
+---
+
+# ============================================================
+# Rule 3: BitLocker Encryption Initiated via Manage-BDE
+# MITRE ATT&CK: T1486
+# Confidence: High
+# ============================================================
+
+title: BitLocker Drive Encryption Enabled via Manage-BDE
+id: a3e91b74-c502-4f18-9d52-8b7c6e130d41
+status: stable
+description: >
+  Detects manage-bde.exe invoked with the -on flag to enable BitLocker encryption
+  on a volume. Threat actors (e.g., operators employing NCC Group-documented
+  BitLocker ransomware techniques) abuse BitLocker to encrypt victim data using a
+  password or recovery key they control, preventing victim access without paying a
+  ransom. Legitimate BitLocker deployments typically originate from SCCM, Intune,
+  or Group Policy — not from interactive processes or unsigned binaries.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+  - https://research.nccgroup.com/
+  - https://docs.microsoft.com/en-us/windows/security/information-protection/bitlocker/bitlocker-use-bitlocker-drive-encryption-tools-to-manage-bitlocker
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\manage-bde.exe'
+    CommandLine|contains: '-on'
+  filter_management:
+    ParentImage|contains:
+      - '\svchost.exe'
+      - '\services.exe'
+  condition: selection and not filter_management
+falsepositives:
+  - Legitimate enterprise BitLocker deployment via SCCM or Intune (typically spawned
+    from management agent processes — tune ParentImage allowlist accordingly)
+  - IT helpdesk enabling BitLocker interactively under approved change tickets
+level: high
+
+---
+
+# ============================================================
+# Rule 4: Password-Based BitLocker Activation - High-Confidence Ransomware
+# MITRE ATT&CK: T1486
+# Confidence: Critical
+# ============================================================
+
+title: BitLocker Encryption Enabled with Explicit Password Protector
+id: f1c84d20-3b76-4a59-b2e9-0d5c7f290e63
+status: stable
+description: >
+  Detects manage-bde.exe enabling BitLocker with a -Password (or -RecoveryPassword)
+  protector. Legitimate enterprise deployments rely on TPM or TPM+PIN protectors
+  managed via Group Policy. An explicit command-line password is the hallmark of
+  attacker-controlled BitLocker ransomware: the threat actor sets the password,
+  encrypts the volume, and then demands ransom for decryption. This rule has very
+  low false-positive rates in well-managed enterprise environments.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+  - https://research.nccgroup.com/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\manage-bde.exe'
+    CommandLine|contains|all:
+      - '-on'
+      - '-Password'
+  condition: selection
+falsepositives:
+  - Rare: security team members manually testing BitLocker recovery flows in isolated
+    lab environments
+  - Legacy scripts that pre-date TPM-based policy enforcement
+level: critical
+
+---
+
+# ============================================================
+# Rule 5: Volume Shadow Copy Deletion via VSSAdmin or WMIC
+# MITRE ATT&CK: T1490
+# Confidence: Critical
+# ============================================================
+
+title: Volume Shadow Copy Deletion - Ransomware Recovery Inhibition
+id: b8e52f37-4d61-47a2-9c0e-3e1b8d470a94
+status: stable
+description: >
+  Detects deletion of Volume Shadow Copies (VSS) via vssadmin.exe or wmic.exe.
+  Ransomware operators delete shadow copies immediately before or after encryption
+  to prevent victims from restoring files without paying the ransom. This is one of
+  the highest-fidelity ransomware indicators available. The /quiet or /q flags
+  indicate automated, non-interactive execution typical of malware.
+references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/vssadmin
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1490
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_vssadmin:
+    Image|endswith: '\vssadmin.exe'
+    CommandLine|contains|all:
+      - 'delete'
+      - 'shadows'
+  selection_wmic:
+    Image|endswith: '\wmic.exe'
+    CommandLine|contains|all:
+      - 'shadowcopy'
+      - 'delete'
+  selection_wbadmin:
+    Image|endswith: '\wbadmin.exe'
+    CommandLine|contains|all:
+      - 'delete'
+      - 'catalog'
+  condition: 1 of selection_*
+falsepositives:
+  - Backup software (Veeam, Acronis, Backup Exec) that rotates shadow copies as part
+    of scheduled backup cycles — validate against backup job schedules
+  - IT disk maintenance scripts run under approved change management
+level: critical
+
+---
+
+# ============================================================
+# Rule 6: Diskpart VHD Creation for Isolated Encryption Container
+# MITRE ATT&CK: T1486
+# Confidence: Medium
+# ============================================================
+
+title: Diskpart Scripted VHD Creation - Potential Encryption Container
+id: 6a7d4c82-0e95-4b30-8f19-2e5a9c140b52
+status: experimental
+description: >
+  Detects diskpart.exe being launched with the /s script flag. Threat actors use
+  diskpart scripts to programmatically create and mount VHD containers that are then
+  encrypted with BitLocker. Script-driven diskpart invocations from unexpected parent
+  processes or user-context processes are suspicious. Correlate with subsequent
+  manage-bde.exe or vssadmin.exe activity for higher confidence.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+  - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/diskpart
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\diskpart.exe'
+    CommandLine|contains: '/s'
+  filter_known_admin:
+    ParentImage|endswith:
+      - '\mmc.exe'
+      - '\diskmgmt.msc'
+  condition: selection and not filter_known_admin
+falsepositives:
+  - Automated Windows deployment and provisioning workflows (MDT, WDS)
+  - IT disaster recovery scripts that create VHD snapshots
+  - Developer environment setup scripts
+level: medium
+
+---
+
+# ============================================================
+# Rule 7: Pre-Encryption Drive Enumeration via WMIC
+# MITRE ATT&CK: T1082, T1083
+# Confidence: Low (standalone) / Medium (in chain)
+# ============================================================
+
+title: Ransomware Reconnaissance - Drive and System Enumeration via WMIC
+id: 9c3e6b15-2a48-4f71-d1c4-7b0e3f820c37
+status: experimental
+description: >
+  Detects WMIC queries targeting logical disk, volume, and system information that
+  are characteristic of ransomware pre-encryption reconnaissance. Ransomware
+  operators enumerate drives to identify encryption targets before deploying their
+  payload. While individual WMIC queries have high false-positive rates, sequences
+  involving multiple enumeration queries from the same process tree — especially
+  when combined with BitLocker or VSS activity — are high-confidence indicators.
+references:
+  - https://attack.mitre.org/techniques/T1082/
+  - https://attack.mitre.org/techniques/T1083/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.discovery
+  - attack.t1082
+  - attack.t1083
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\wmic.exe'
+    CommandLine|contains:
+      - 'logicaldisk'
+      - 'computersystem'
+      - 'volume'
+  filter_management_tools:
+    ParentImage|contains:
+      - '\svchost.exe'
+      - '\WmiPrvSE.exe'
+      - '\mmc.exe'
+  condition: selection and not filter_management_tools
+falsepositives:
+  - IT monitoring agents and SIEM collection scripts that use WMIC for asset inventory
+  - RMM tools (ConnectWise, Kaseya) executing system queries
+  - System management batch scripts run by administrators
+level: low
+
+---
+
+# ============================================================
+# Rule 8: BitLocker Ransomware Kill Chain Correlation
+# MITRE ATT&CK: T1070.001, T1562.004, T1486, T1490
+# Confidence: Critical (multi-indicator)
+# ============================================================
+
+title: BitLocker Ransomware Kill Chain - Multi-Stage Attack Detected
+id: 2f5e8a43-7c91-4b62-e0d8-5a3c1d490f28
+status: experimental
+description: >
+  High-confidence composite rule that fires when two or more distinct ransomware
+  technique indicators occur within a short time window on the same host. The
+  pattern — event log clearing, firewall manipulation, system discovery, BitLocker
+  encryption, and VSS deletion — mirrors the documented BitLocker ransomware kill
+  chain. A single indicator may be benign; two or more from distinct technique
+  categories within one hour represents a near-certain ransomware campaign or
+  active red team operation.
+  Use this rule as an escalation trigger: alert on 2+ technique categories and
+  immediately escalate to incident response.
+references:
+  - https://attack.mitre.org/techniques/T1070/001/
+  - https://attack.mitre.org/techniques/T1562/004/
+  - https://attack.mitre.org/techniques/T1486/
+  - https://attack.mitre.org/techniques/T1490/
+  - https://research.nccgroup.com/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.defense_evasion
+  - attack.discovery
+  - attack.impact
+  - attack.t1070.001
+  - attack.t1562.004
+  - attack.t1082
+  - attack.t1083
+  - attack.t1486
+  - attack.t1490
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  indicator_eventlog_clear:
+    Image|endswith: '\wevtutil.exe'
+    CommandLine|contains:
+      - ' cl '
+      - ' clear-log '
+  indicator_firewall:
+    Image|endswith: '\netsh.exe'
+    CommandLine|contains|all:
+      - 'advfirewall'
+      - 'firewall'
+  indicator_bitlocker_encrypt:
+    Image|endswith: '\manage-bde.exe'
+    CommandLine|contains: '-on'
+  indicator_vss_delete:
+    Image|endswith:
+      - '\vssadmin.exe'
+      - '\wmic.exe'
+    CommandLine|contains:
+      - 'delete shadows'
+      - 'shadowcopy delete'
+  condition: 2 of indicator_*
+falsepositives:
+  - Authorised penetration tests or security validation exercises (validate against
+    change management records)
+  - Combined IT maintenance operations where log rotation, firewall review, and disk
+    management coincidentally occur in the same window
+level: critical
+
+# ============================================================
+# END OF SIGMA RULES
+# ============================================================

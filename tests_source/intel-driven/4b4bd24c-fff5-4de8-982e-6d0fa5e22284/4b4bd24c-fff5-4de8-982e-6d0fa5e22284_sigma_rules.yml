@@ -1,0 +1,310 @@
+# ============================================================
+# Sigma Rules - Data Exfiltration and Encryption Simulation
+# Test ID: 4b4bd24c-fff5-4de8-982e-6d0fa5e22284
+# MITRE ATT&CK: T1020, T1041, T1486, T1055, T1083, T1036.005,
+#               T1560.001, T1074.001, T1552.001, T1059.001
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+
+---
+title: Azure Storage Explorer Configuration Reconnaissance via PowerShell
+id: a3f1c820-7d42-4e91-b3c5-8f2d9e014b67
+status: experimental
+description: >
+  Detects PowerShell accessing Azure Storage Explorer configuration directories,
+  Azure CLI credential files, or Azure-related registry keys. This pattern is
+  consistent with cloud credential reconnaissance performed before data
+  exfiltration operations (T1083, T1552.001). Attackers target Azure CLI
+  accessTokens.json, azureProfile.json, and StorageExplorer configuration to
+  obtain cloud access credentials.
+references:
+  - https://attack.mitre.org/techniques/T1083/
+  - https://attack.mitre.org/techniques/T1552/001/
+  - https://attack.mitre.org/techniques/T1018/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.discovery
+  - attack.credential_access
+  - attack.t1083
+  - attack.t1552.001
+  - attack.t1018
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_process:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_paths:
+    TargetFilename|contains:
+      - 'StorageExplorer'
+      - 'Azure Storage Explorer'
+      - '\.azure\'
+      - 'AzureStorageExplorer'
+      - 'accessTokens.json'
+      - 'azureProfile.json'
+      - 'service_principal_entries.json'
+      - 'msal_http_cache'
+      - 'msal_token_cache.json'
+  condition: selection_process and selection_paths
+falsepositives:
+  - Legitimate Azure CLI operations (az.exe, azurecli)
+  - Azure Storage Explorer application reading its own configuration
+  - DevOps CI/CD pipelines using Azure CLI credentials
+  - IDE plugins (VS Code Azure extension) accessing credential files
+level: high
+
+---
+title: Recursive High-Value File Enumeration for Data Exfiltration
+id: b7e2d953-4f81-5a02-c4d6-9e3f0b125c78
+status: experimental
+description: >
+  Detects PowerShell executing recursive file enumeration across user-profile
+  directories (Documents, Desktop, Downloads, AppData, ProgramData) targeting
+  high-value file types. This is a characteristic behavior of automated data
+  staging operations prior to exfiltration (T1083, T1074.001). The combination
+  of recursive enumeration with sensitive extension filters (*.pdf, *.docx,
+  *.pfx, *.pem, *.sql) across multiple user directories in a short window
+  indicates pre-exfiltration reconnaissance.
+references:
+  - https://attack.mitre.org/techniques/T1083/
+  - https://attack.mitre.org/techniques/T1074/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.discovery
+  - attack.collection
+  - attack.t1083
+  - attack.t1074.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_process:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_gci:
+    CommandLine|contains:
+      - 'Get-ChildItem'
+  selection_recurse:
+    CommandLine|contains:
+      - '-Recurse'
+  selection_targets:
+    CommandLine|contains:
+      - 'Documents'
+      - 'Desktop'
+      - 'Downloads'
+      - 'AppData'
+      - 'ProgramData'
+  selection_sensitive_ext:
+    CommandLine|contains:
+      - '.pdf'
+      - '.docx'
+      - '.xlsx'
+      - '.p12'
+      - '.pfx'
+      - '.pem'
+      - '.sql'
+      - '.accdb'
+  condition: selection_process and selection_gci and selection_recurse and (selection_targets or selection_sensitive_ext)
+falsepositives:
+  - Legitimate IT administration and backup scripts performing file inventory
+  - Software installers scanning for existing documents
+  - Antivirus or DLP agents performing scheduled file scans
+  - Developer tooling performing project-wide searches
+level: medium
+
+---
+title: PowerShell Data Compression for Exfiltration Staging
+id: c9d3e064-5a93-6b13-d5e7-0f4c1c236d89
+status: experimental
+description: >
+  Detects PowerShell Compress-Archive cmdlet usage that targets high-value
+  file extensions or staging directories. Attackers use PowerShell's built-in
+  compression to reduce exfiltration footprint and package data before
+  transmission to cloud storage (T1560.001, T1020). The detection focuses on
+  archive creation in user-writable paths combined with sensitive extension
+  patterns or explicit staging directory references.
+references:
+  - https://attack.mitre.org/techniques/T1560/001/
+  - https://attack.mitre.org/techniques/T1020/
+  - https://attack.mitre.org/techniques/T1074/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.collection
+  - attack.exfiltration
+  - attack.t1560.001
+  - attack.t1020
+  - attack.t1074.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_process:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_compress:
+    CommandLine|contains:
+      - 'Compress-Archive'
+  selection_high_value:
+    CommandLine|contains:
+      - '.pdf'
+      - '.docx'
+      - '.xlsx'
+      - '.p12'
+      - '.pfx'
+      - '.pem'
+      - '.key'
+      - '.sql'
+      - '.json'
+      - '.csv'
+      - 'staging'
+      - 'exfil'
+  condition: selection_process and selection_compress and selection_high_value
+falsepositives:
+  - Legitimate backup scripts using PowerShell Compress-Archive
+  - Developer workflows archiving build artifacts
+  - IT operations compressing log files for storage
+  - Software deployment packaging scripts
+level: high
+
+---
+title: Process Masquerading - System Binary Executing from Non-Standard Path
+id: d4a5f175-6b04-7c24-e6f8-1a5d2d347e90
+status: experimental
+description: >
+  Detects Windows system binaries (conhost.exe, svchost.exe, lsass.exe,
+  explorer.exe) executing from paths outside their expected system directories
+  (C:\Windows\System32, C:\Windows\SysWOW64). This is a reliable indicator of
+  process masquerading (T1036.005) where adversaries name their malicious
+  binaries after legitimate Windows processes to evade detection. conhost.exe
+  outside System32 is a particularly high-fidelity indicator as it is almost
+  never legitimately relocated.
+references:
+  - https://attack.mitre.org/techniques/T1036/005/
+  - https://attack.mitre.org/techniques/T1055/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.defense_evasion
+  - attack.t1036.005
+  - attack.t1055
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_system_binaries:
+    Image|endswith:
+      - '\conhost.exe'
+      - '\svchost.exe'
+      - '\lsass.exe'
+      - '\csrss.exe'
+      - '\wininit.exe'
+      - '\services.exe'
+  filter_legitimate_paths:
+    Image|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+      - 'C:\Windows\WinSxS\'
+  condition: selection_system_binaries and not filter_legitimate_paths
+falsepositives:
+  - Very rare; may occur with certain virtualization or sandboxing environments
+  - Some legacy software that bundles renamed system DLLs (investigate immediately)
+level: critical
+
+---
+title: Ransom Note File Creation
+id: e5b6a286-7c15-8d35-f7a9-2b6e3e458f01
+status: experimental
+description: >
+  Detects creation of files whose names match common ransomware ransom note
+  naming patterns (DECRYPT, RANSOM, HOW_TO, RESTORE, RECOVER, README, LOCKED,
+  INSTRUCTIONS, _readme). Ransom note creation (T1486) is a reliable behavioral
+  indicator of ransomware activity because it occurs regardless of the specific
+  ransomware family or encryption algorithm used. The detection applies to
+  common ransom note file formats: .txt, .html, and .hta.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_ransom_name:
+    TargetFilename|contains:
+      - 'DECRYPT'
+      - 'RANSOM'
+      - 'HOW_TO'
+      - 'HOW TO'
+      - 'RESTORE_FILES'
+      - 'RESTORE FILES'
+      - 'RECOVER_FILES'
+      - 'README_DECRYPT'
+      - 'LOCKED'
+      - '_readme'
+      - 'INSTRUCTIONS'
+  selection_ransom_ext:
+    TargetFilename|endswith:
+      - '.txt'
+      - '.html'
+      - '.hta'
+  condition: selection_ransom_name and selection_ransom_ext
+falsepositives:
+  - Security research or penetration testing without sufficient labelling
+  - Software documentation files that happen to include these keywords
+  - IT knowledge base articles about ransomware response stored on endpoints
+level: critical
+
+---
+title: Mass Encrypted File Extension Creation - Ransomware Behavioral Indicator
+id: f6c7b397-8d26-9e46-a8b0-3c7f4f569a12
+status: experimental
+description: >
+  Detects rapid creation of files with extensions commonly appended by
+  ransomware during the encryption phase (.encrypted, .enc, .locked, .crypt,
+  .crypted). This behavioral pattern (T1486) is a high-fidelity indicator of
+  active ransomware encryption regardless of the specific threat actor or
+  family. Detection should be tuned to alert when multiple such files appear
+  within a short time window from the same process.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_encrypted_ext:
+    EventType: FileCreate
+    TargetFilename|endswith:
+      - '.encrypted'
+      - '.enc'
+      - '.locked'
+      - '.crypt'
+      - '.crypted'
+      - '.ryk'
+      - '.RYK'
+      - '.conti'
+  filter_legitimate:
+    Image|startswith:
+      - 'C:\Program Files\GNU\GnuPG'
+      - 'C:\Program Files\7-Zip'
+  condition: selection_encrypted_ext and not filter_legitimate
+falsepositives:
+  - GNU PnuPG or 7-Zip encrypting files with user-selected .enc output names
+  - Backup software that creates encrypted archive segments
+  - Development/testing of encryption utilities
+level: high

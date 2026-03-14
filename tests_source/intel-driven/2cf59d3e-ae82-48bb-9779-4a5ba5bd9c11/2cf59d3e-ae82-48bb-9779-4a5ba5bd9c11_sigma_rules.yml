@@ -1,0 +1,283 @@
+# ============================================================
+# Sigma Rules: SafePay UAC Bypass & Defense Evasion
+# Test ID: 2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11
+# MITRE ATT&CK: T1548.002, T1562.001, T1547.001
+# Created: 2026-03-14
+# Author: F0RT1KA Detection Rules Generator
+# ============================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These rules detect the underlying attack behaviors (CMSTPLUA COM abuse,
+# registry Run key persistence, Defender tampering) used by SafePay and
+# other threat actors — NOT any specific testing framework artifacts.
+#
+# Field naming follows SigmaHQ conventions.
+# ============================================================
+
+---
+
+# ============================================================
+# Rule 1: CMSTPLUA COM Object UAC Bypass via PowerShell
+# Purpose: Detect PowerShell invoking the CMSTPLUA auto-elevated
+#          COM interface to gain elevated privileges without a
+#          UAC prompt. Any tool — not just test frameworks —
+#          will emit the CLSID and GetTypeFromCLSID call.
+# Confidence: High
+# MITRE ATT&CK: T1548.002
+# ============================================================
+
+title: CMSTPLUA COM Object UAC Bypass via PowerShell
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+status: experimental
+description: |
+    Detects PowerShell using the CMSTPLUA auto-elevated COM object
+    (CLSID 3E5FC7F9-9A51-4367-9063-A120244FBEC7) to bypass User Account
+    Control. The technique instantiates the COM interface via
+    [System.Activator]::CreateInstance / GetTypeFromCLSID and is used
+    by SafePay ransomware and other threat actors to silently elevate
+    without displaying a UAC prompt to the user.
+references:
+    - https://attack.mitre.org/techniques/T1548/002/
+    - https://www.activecyber.us/activelabs/windows-uac-bypass
+    - https://www.secureworks.com/research/safepay-malware
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.privilege_escalation
+    - attack.defense_evasion
+    - attack.t1548.002
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_process:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_cmstplua:
+        CommandLine|contains|any:
+            - '3E5FC7F9-9A51-4367-9063-A120244FBEC7'
+            - 'CMSTPLUA'
+            - 'GetTypeFromCLSID'
+    condition: selection_process and selection_cmstplua
+falsepositives:
+    - Legitimate COM automation scripts that explicitly reference this
+      CLSID are extremely rare; treat any match as high-priority
+level: high
+
+---
+
+# ============================================================
+# Rule 2: Registry Run Key Persistence Created by Non-Standard Process
+# Purpose: Detect creation of autorun entries from processes that do
+#          not normally manage startup programs. Covers the general
+#          T1547.001 behavior and the SafePay-specific IoC.
+# Confidence: High (SafePay IoC), Medium (generic variant)
+# MITRE ATT&CK: T1547.001
+# ============================================================
+
+title: Suspicious Registry Run Key Persistence by Non-Standard Process
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+status: experimental
+description: |
+    Detects modification of HKCU or HKLM Run/RunOnce autostart registry
+    keys by processes residing in user-writable locations (Temp,
+    AppData, Public, Downloads). Legitimate installers that touch these
+    keys typically run from Program Files or Windows directories. This
+    behavior is consistent with T1547.001 as employed by SafePay
+    (value name: SafePayService, data: 6F22-C16F-0C71-688A) and many
+    other persistent malware families.
+references:
+    - https://attack.mitre.org/techniques/T1547/001/
+    - https://www.secureworks.com/research/safepay-malware
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.persistence
+    - attack.t1547.001
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    selection_key:
+        TargetObject|contains|any:
+            - '\Software\Microsoft\Windows\CurrentVersion\Run'
+            - '\Software\Microsoft\Windows\CurrentVersion\RunOnce'
+            - '\Software\Microsoft\Windows NT\CurrentVersion\Winlogon'
+    selection_suspicious_process:
+        Image|contains|any:
+            - '\Temp\'
+            - '\AppData\Local\Temp\'
+            - '\Users\Public\'
+            - '\Downloads\'
+    filter_legitimate:
+        Image|startswith|any:
+            - 'C:\Windows\System32\'
+            - 'C:\Windows\SysWOW64\'
+            - 'C:\Program Files\'
+            - 'C:\Program Files (x86)\'
+    condition: selection_key and selection_suspicious_process and not filter_legitimate
+falsepositives:
+    - Software installed by running an installer directly from a Downloads
+      or Temp folder; investigate context before dismissing
+    - Developer tools or portable applications launched from AppData
+level: high
+
+---
+
+# ============================================================
+# Rule 3: SafePay Malware Registry Persistence IoC
+# Purpose: Detect the exact SafePay persistence value written to the
+#          Run key. This is an IoC-level rule; any match is
+#          almost certainly malicious.
+# Confidence: High
+# MITRE ATT&CK: T1547.001
+# ============================================================
+
+title: SafePay Malware Registry Run Key IoC
+id: c3d4e5f6-a7b8-9012-cdef-123456789012
+status: experimental
+description: |
+    Detects the SafePay ransomware-specific registry persistence IoC:
+    value name "SafePayService" or value data "6F22-C16F-0C71-688A"
+    written to the HKCU Run key. This combination is a high-confidence
+    indicator of SafePay malware or tooling that directly imitates it.
+references:
+    - https://attack.mitre.org/techniques/T1547/001/
+    - https://www.secureworks.com/research/safepay-malware
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.persistence
+    - attack.t1547.001
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    selection_key:
+        TargetObject|contains: '\CurrentVersion\Run'
+    selection_ioc:
+        Details|contains|any:
+            - 'SafePayService'
+            - '6F22-C16F-0C71-688A'
+    condition: selection_key and selection_ioc
+falsepositives:
+    - None expected; these strings have no known legitimate use
+level: critical
+
+---
+
+# ============================================================
+# Rule 4: Windows Defender Tampering via Set-MpPreference
+# Purpose: Detect PowerShell disabling Defender real-time and
+#          behavior monitoring protections — core T1562.001 behavior
+#          used by SafePay and countless ransomware families.
+# Confidence: High
+# MITRE ATT&CK: T1562.001
+# ============================================================
+
+title: Windows Defender Real-Time Protection Disabled via PowerShell
+id: d4e5f6a7-b8c9-0123-defa-234567890123
+status: experimental
+description: |
+    Detects PowerShell invocations of Set-MpPreference that disable
+    Defender's real-time monitoring, behavior monitoring, IOAV protection,
+    or block-at-first-seen features. This is the primary programmatic
+    method used by ransomware and other malware (including SafePay) to
+    impair endpoint defenses before deploying their payload.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://docs.microsoft.com/en-us/powershell/module/defender/set-mppreference
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_process:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_cmdlet:
+        CommandLine|contains: 'Set-MpPreference'
+    selection_disable_flag:
+        CommandLine|contains|any:
+            - 'DisableRealtimeMonitoring'
+            - 'DisableBehaviorMonitoring'
+            - 'DisableIOAVProtection'
+            - 'DisableBlockAtFirstSeen'
+            - 'DisableIntrusionPreventionSystem'
+            - 'DisableScriptScanning'
+    condition: selection_process and selection_cmdlet and selection_disable_flag
+falsepositives:
+    - Authorized IT/security administrators disabling Defender during
+      maintenance; correlate with change management records
+    - Endpoint management tools (Intune, SCCM) applying policy;
+      filter by known management process parent
+level: high
+
+---
+
+# ============================================================
+# Rule 5: PowerShell P/Invoke GUI Automation Targeting Security Tools
+# Purpose: Detect PowerShell using Add-Type with DllImport to load
+#          user32.dll window management functions, specifically when
+#          combined with references to Windows Security / Defender
+#          UI components. Used by SafePay to interact with the
+#          Windows Security GUI to disable protection.
+# Confidence: Medium
+# MITRE ATT&CK: T1562.001
+# ============================================================
+
+title: PowerShell P/Invoke GUI Automation Targeting Windows Security
+id: e5f6a7b8-c9d0-1234-efab-345678901234
+status: experimental
+description: |
+    Detects PowerShell scripts that use Add-Type with DllImport
+    (P/Invoke) to load user32.dll window management functions
+    (FindWindow, ShowWindow, SendMessage) while also referencing
+    Windows Security or Windows Defender UI components. This technique
+    is used to automate interaction with the security center GUI in
+    order to disable protections without triggering Set-MpPreference
+    detections.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1106/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - attack.execution
+    - attack.t1106
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_process:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_addtype:
+        CommandLine|contains: 'Add-Type'
+    selection_pinvoke:
+        CommandLine|contains|any:
+            - 'DllImport'
+            - 'user32.dll'
+    selection_window_funcs:
+        CommandLine|contains|any:
+            - 'FindWindow'
+            - 'ShowWindow'
+            - 'SendMessage'
+            - 'PostMessage'
+    condition: >
+        selection_process and selection_addtype and
+        selection_pinvoke and selection_window_funcs
+falsepositives:
+    - Accessibility tooling and legitimate UI automation frameworks
+      (e.g., UIAutomation.dll, PowerShell-driven test harnesses)
+    - Some IT scripts that use Win32 APIs for window management
+level: medium
