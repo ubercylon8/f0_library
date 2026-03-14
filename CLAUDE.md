@@ -431,6 +431,7 @@ Details: `docs/MULTISTAGE_QUICK_REFERENCE.md`
 | Generate detection rules (standalone) | `@agent-sectest-detection-rules` |
 | Generate defense guidance (standalone) | `@agent-sectest-defense-guidance` |
 | Generate all defense artifacts (legacy) | `@agent-defense-guidance-builder` (delegates to above two) |
+| Deploy & execute test on endpoint | `@agent-sectest-deploy-test` |
 
 ## Additional Documentation
 

@@ -25,12 +25,17 @@ graph TD
     end
 
     subgraph Phase3["Phase 3: Validation Skill<br/><i>shared orchestrator context</i>"]
-        VAL["sectest-validation<br/><i>verify files, ES sync,<br/>endpoint deploy, git commit</i>"]
+        VAL["sectest-validation<br/><i>verify files, ES sync,<br/>score check, git commit</i>"]
+    end
+
+    subgraph Phase3b["Phase 3b: Endpoint Deploy Skill<br/><i>shared orchestrator context</i>"]
+        DEP["sectest-deploy<br/><i>SSH deploy, execute,<br/>capture output, interpret</i>"]
     end
 
     Orch --> Phase1
     SB -->|"context<br/>payload"| Phase2
     Phase2 --> Phase3
+    Phase3 --> Phase3b
 
     subgraph Output["Complete Test Package (~19 files)"]
         direction LR
@@ -41,11 +46,12 @@ graph TD
         KCH["kill_chain.html"]
     end
 
-    VAL --> Output
+    DEP --> Output
 
     style Phase1 fill:#1a1a2e,stroke:#4a4a8a,color:#fff
     style Phase2 fill:#0d2137,stroke:#2d6a9f,color:#fff
     style Phase3 fill:#1a2e1a,stroke:#4a8a4a,color:#fff
+    style Phase3b fill:#2e2e1a,stroke:#8a8a4a,color:#fff
     style Output fill:#2e1a1a,stroke:#8a4a4a,color:#fff
     style KC stroke-dasharray: 5 5
 ```
@@ -87,8 +93,23 @@ Runs after all Phase 2 agents complete. Acts as the quality gate before shipping
 | Score consistency | README.md and info.md show same score |
 | Artifact contamination | Detection rules don't reference `c:\F0`, test UUIDs, etc. |
 | ES catalog sync | Runs `sync-test-catalog-to-elasticsearch.py` |
-| Endpoint validation | Deploys binary to target host and verifies exit codes |
 | Git commit | Commits all files |
+
+### Phase 3b: Endpoint Deployment Skill (Shared Context)
+
+Runs after validation. Deploys the compiled binary to the target endpoint and verifies it executes correctly.
+
+| Step | What It Does |
+|------|-------------|
+| Platform detection | Identifies target from `test_logger_<platform>.go` files |
+| SSH connectivity | Verifies target host is reachable |
+| Binary deployment | SCP binary to remote host |
+| Remote execution | Runs test with full stdout/stderr capture |
+| Exit code interpretation | Maps codes to F0RT1KA results (101/105/126/999) |
+| Log retrieval | Copies output to local `staging/<uuid>/` |
+| Remote cleanup | Removes test artifacts from remote host |
+
+**Why a separate phase?** Deployment was previously embedded in `sectest-validation` Step 5, but was extracted for two reasons: (1) The standalone `@sectest-deploy-test` agent reuses the same deployment logic. (2) Deploy has distinct error recovery (SSH failures, false positive detection) that should be isolated from validation concerns (file counts, score consistency, ES sync).
 
 ## Component Inventory
 
@@ -100,6 +121,7 @@ Runs after all Phase 2 agents complete. Acts as the quality gate before shipping
 | `sectest-implementation` | ~510 | `.claude/skills/sectest-implementation.md` |
 | `sectest-build-config` | ~270 | `.claude/skills/sectest-build-config.md` |
 | `sectest-validation` | ~180 | `.claude/skills/sectest-validation.md` |
+| `sectest-deploy` | ~150 | `.claude/skills/sectest-deploy.md` |
 
 ### Agents (independent sub-processes)
 
@@ -111,6 +133,7 @@ Runs after all Phase 2 agents complete. Acts as the quality gate before shipping
 | `sectest-defense-guidance` | ~590 | Sonnet | `.claude/agents/sectest-defense-guidance.md` |
 | `kill-chain-diagram-builder` | ~195 | Opus | `.claude/agents/kill-chain-diagram-builder.md` |
 | `defense-guidance-builder` (shim) | ~55 | Opus | `.claude/agents/defense-guidance-builder.md` |
+| `sectest-deploy-test` | ~200 | Sonnet | `.claude/agents/sectest-deploy-test.md` |
 
 ## Invocation
 
@@ -130,6 +153,7 @@ The orchestrator handles everything — you get a complete test package with all
 | Defense guidance for existing test | `@sectest-defense-guidance <test_dir>` |
 | Both detection + defense (legacy) | `@defense-guidance-builder <test_dir>` |
 | Kill chain diagram only | `@kill-chain-diagram-builder <test_dir>` |
+| Deploy test to endpoint | `@sectest-deploy-test <test_dir>` |
 
 ## Complete Output Package
 
@@ -155,6 +179,8 @@ tests_source/intel-driven/<uuid>/
 ├── <uuid>_hardening_macos.sh       # macOS hardening (NEW)
 └── kill_chain.html                 # Kill chain diagram (multi-stage only)
 ```
+
+The `staging/<uuid>/` directory contains deployment logs from `sectest-deploy` (Phase 3b).
 
 ## Design Decisions
 
