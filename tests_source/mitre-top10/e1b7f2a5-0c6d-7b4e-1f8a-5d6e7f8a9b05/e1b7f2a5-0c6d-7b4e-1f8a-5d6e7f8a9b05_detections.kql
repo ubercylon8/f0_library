@@ -1,0 +1,264 @@
+// ============================================================
+// Detection: T1490 — vssadmin Shadow Copy Deletion
+// Test ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+// MITRE ATT&CK: T1490 (Inhibit System Recovery)
+// Confidence: High
+// ============================================================
+// Purpose: Detects vssadmin.exe invoked with destructive shadow-copy
+//          arguments — the most common ransomware recovery-inhibition
+//          primitive used by LockBit, Conti, BlackCat/ALPHV and others.
+// False Positives: Legitimate backup software occasionally calls
+//                  "vssadmin delete shadows" during rotation; tune by
+//                  excluding known backup agent parent processes
+//                  (e.g., veeam, backup exec service accounts).
+// Threshold: Alert on first occurrence — zero tolerance recommended.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "vssadmin.exe"
+| where ProcessCommandLine has_any (
+    "delete shadows",
+    "resize shadowstorage",
+    "delete shadowstorage"
+)
+| extend
+    Severity      = "Critical",
+    ThreatType    = "Recovery-Inhibition",
+    MitreAttack   = "T1490",
+    TestID        = "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, ProcessCommandLine, Severity,
+          ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: T1490 — bcdedit Boot Recovery Modification
+// Test ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+// MITRE ATT&CK: T1490 (Inhibit System Recovery)
+// Confidence: High
+// ============================================================
+// Purpose: Detects bcdedit.exe modifying boot configuration to
+//          disable Windows Recovery Environment or suppress boot
+//          failure dialogs — standard pre-encryption ransomware step.
+// False Positives: IT administrators deploying kiosk or embedded
+//                  systems; exclude known IT admin workstation account
+//                  names or change-management windows.
+// Threshold: Alert immediately; bcdedit modification is rare in
+//            legitimate non-admin scenarios.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "bcdedit.exe"
+| where ProcessCommandLine has_any (
+    "recoveryenabled",
+    "bootstatuspolicy",
+    "ignoreallfailures",
+    "safeboot",
+    "/deletevalue",
+    "/delete"
+)
+| extend
+    Severity      = "Critical",
+    ThreatType    = "Recovery-Inhibition",
+    MitreAttack   = "T1490",
+    TestID        = "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, ProcessCommandLine, Severity,
+          ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: T1490 — wbadmin Backup Catalog / State Deletion
+// Test ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+// MITRE ATT&CK: T1490 (Inhibit System Recovery)
+// Confidence: High
+// ============================================================
+// Purpose: Detects wbadmin.exe invoked with arguments that destroy
+//          backup catalogs or system-state backups, eliminating
+//          offline restore points.
+// False Positives: Scheduled retention jobs from Windows Server
+//                  Backup; filter by known backup service accounts or
+//                  SYSTEM context during maintenance windows.
+// Threshold: Alert on any "delete catalog" or keepVersions:0 usage
+//            outside known maintenance windows.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "wbadmin.exe"
+| where ProcessCommandLine has_any (
+    "delete catalog",
+    "delete systemstatebackup",
+    "keepVersions:0",
+    "delete backup"
+)
+| extend
+    Severity      = "Critical",
+    ThreatType    = "Recovery-Inhibition",
+    MitreAttack   = "T1490",
+    TestID        = "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, ProcessCommandLine, Severity,
+          ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: T1490 — WMIC Shadow Copy Deletion
+// Test ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+// MITRE ATT&CK: T1490 (Inhibit System Recovery)
+// Confidence: High
+// ============================================================
+// Purpose: Detects wmic.exe targeting the Win32_ShadowCopy WMI class
+//          for deletion — a vssadmin.exe alternative used by newer
+//          ransomware variants to evade command-line rules.
+// False Positives: Very rare in production; legitimate shadow-copy
+//                  management is almost always via VSS API not WMIC.
+// Threshold: Alert on first occurrence.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "wmic.exe"
+| where ProcessCommandLine has "shadowcopy"
+    and ProcessCommandLine has_any ("delete", "call delete", "where")
+| extend
+    Severity      = "Critical",
+    ThreatType    = "Recovery-Inhibition",
+    MitreAttack   = "T1490",
+    TestID        = "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, ProcessCommandLine, Severity,
+          ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: T1490 — PowerShell Shadow Copy / Recovery Inhibition
+// Test ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+// MITRE ATT&CK: T1490 (Inhibit System Recovery)
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects PowerShell commands that query, delete, or
+//          manipulate VSS shadow copies or boot configuration —
+//          increasingly used by living-off-the-land ransomware actors.
+// False Positives: PowerShell-based backup scripts; filter on known
+//                  backup automation accounts or scheduled task names.
+// Threshold: Combine with additional ransomware indicators before
+//            paging on-call (medium confidence standalone).
+// ============================================================
+DeviceProcessEvents
+| where FileName in~ ("powershell.exe", "pwsh.exe")
+| where ProcessCommandLine has_any (
+    "Win32_ShadowCopy",
+    "Get-WmiObject.*shadow",
+    "vssadmin",
+    "bcdedit",
+    "wbadmin",
+    "recoveryenabled",
+    "bootstatuspolicy"
+)
+| extend
+    Severity      = "High",
+    ThreatType    = "Recovery-Inhibition",
+    MitreAttack   = "T1490",
+    TestID        = "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: T1490 — VSS Event Log — Shadow Copy Deletion (Event 8224)
+// Test ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+// MITRE ATT&CK: T1490 (Inhibit System Recovery)
+// Confidence: High
+// ============================================================
+// Purpose: Uses Windows VSS/Application event log evidence of shadow
+//          copy deletion or service errors indicative of forced VSS
+//          tear-down (Events 8193, 8194, 8224 in Application log,
+//          provider in System log).
+// False Positives: Volume resize operations; document and suppress
+//                  known backup maintenance IDs.
+// Threshold: Two or more VSS error events within 10 minutes.
+// ============================================================
+SecurityEvent
+| where EventID in (8193, 8194, 8224)
+| summarize EventCount = count(), FirstSeen = min(TimeGenerated),
+            LastSeen = max(TimeGenerated)
+    by Computer, EventID, bin(TimeGenerated, 10m)
+| where EventCount >= 2
+| extend
+    Severity      = "High",
+    ThreatType    = "Recovery-Inhibition-EventLog",
+    MitreAttack   = "T1490",
+    TestID        = "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05"
+| project FirstSeen, Computer, EventID, EventCount, Severity,
+          ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: T1490 — Recovery Tool Spawned from Unusual Parent
+// Test ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+// MITRE ATT&CK: T1490 (Inhibit System Recovery)
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects recovery tools (vssadmin, bcdedit, wbadmin) spawned
+//          by atypical parent processes that are commonly abused as
+//          ransomware dropper/loader stages.
+// False Positives: WMI-based software deployment; filter on known
+//                  SCCM/Intune service account contexts.
+// Threshold: Alert on suspicious parent-child combinations.
+// ============================================================
+DeviceProcessEvents
+| where FileName in~ ("vssadmin.exe", "bcdedit.exe", "wbadmin.exe")
+| where InitiatingProcessFileName in~ (
+    "cmd.exe", "powershell.exe", "pwsh.exe",
+    "wscript.exe", "cscript.exe", "mshta.exe",
+    "rundll32.exe", "regsvr32.exe",
+    "wmic.exe", "msiexec.exe"
+)
+| extend
+    Severity      = "High",
+    ThreatType    = "Recovery-Inhibition-ParentChain",
+    MitreAttack   = "T1490",
+    TestID        = "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05"
+| project TimeGenerated, DeviceName, AccountName,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          FileName, ProcessCommandLine, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: T1490 — Ransomware Recovery-Inhibition Correlation
+//            (High-Confidence Behavioral Bundle)
+// Test ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+// MITRE ATT&CK: T1490 (Inhibit System Recovery)
+// Confidence: High
+// ============================================================
+// Purpose: Multi-indicator correlation — flags a device where two or
+//          more distinct recovery-inhibition tools are executed within
+//          a 15-minute window.  This pattern is a near-universal
+//          pre-encryption signal across all major ransomware families.
+// False Positives: Rare; legitimate administrator scripts that
+//                  simultaneously touch VSS, BCD, and backup catalog.
+//                  Document in suppression list.
+// Threshold: Two or more distinct recovery tools within 15 minutes.
+// ============================================================
+let RecoveryToolEvents =
+    DeviceProcessEvents
+    | where FileName in~ ("vssadmin.exe", "bcdedit.exe", "wbadmin.exe", "wmic.exe")
+    | where ProcessCommandLine has_any (
+          "delete shadows", "resize shadowstorage",
+          "recoveryenabled", "bootstatuspolicy",
+          "delete catalog", "delete systemstatebackup",
+          "shadowcopy delete"
+      )
+    | project TimeGenerated, DeviceName, AccountName,
+              FileName, ProcessCommandLine;
+RecoveryToolEvents
+| summarize
+      ToolsUsed    = make_set(FileName),
+      CommandLines = make_set(ProcessCommandLine),
+      EventCount   = count(),
+      FirstEvent   = min(TimeGenerated),
+      LastEvent    = max(TimeGenerated)
+    by DeviceName, AccountName, bin(TimeGenerated, 15m)
+| where array_length(ToolsUsed) >= 2
+| extend
+    Severity      = "Critical",
+    ThreatType    = "Recovery-Inhibition-Correlated",
+    MitreAttack   = "T1490",
+    TestID        = "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05"
+| project FirstEvent, LastEvent, DeviceName, AccountName, ToolsUsed,
+          CommandLines, EventCount, Severity, ThreatType, MitreAttack

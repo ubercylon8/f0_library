@@ -1,0 +1,314 @@
+# ============================================================
+# LimaCharlie Detection & Response Rules
+# Test ID: d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10
+# MITRE ATT&CK: T1489 (Service Stop), T1562.001 (Impair Defenses)
+# Tactics: Impact, Defense Evasion
+# Platform: Windows
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# Format: FILE FORMAT for `limacharlie dr add`
+# ============================================================
+# DETECTION PHILOSOPHY:
+# All rules below target the underlying attack technique
+# behaviors. Any attacker using service-stop or defense-
+# impairment techniques with their own tooling will trigger
+# these rules. No test framework artifacts are included.
+# ============================================================
+
+
+rules:
+
+  # ============================================================
+  # Rule 1: Security Service Stop via sc.exe
+  # Confidence: High
+  # MITRE ATT&CK: T1489
+  # Description: Detects sc.exe issuing stop commands against
+  #   security-relevant Windows services. WinDefend, wscsvc,
+  #   VSS, and wbengine are primary targets of ransomware
+  #   before payload encryption begins.
+  # ============================================================
+  security-service-stop-sc-exe:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '\sc.exe'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: 'stop'
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'WinDefend'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'wscsvc'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'VSS'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'wbengine'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'MsMpSvc'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'Sense'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'SecurityHealthService'
+
+    respond:
+      - action: report
+        name: security-service-stop-sc-exe
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre: T1489
+          severity: high
+          description: sc.exe stop command targeting a security or backup service
+
+
+  # ============================================================
+  # Rule 2: Service Disable via sc.exe config start=disabled
+  # Confidence: High
+  # MITRE ATT&CK: T1562.001
+  # Description: Detects sc.exe config commands setting a
+  #   security service start type to disabled. This is a
+  #   persistent disable method that survives reboots —
+  #   more severe than a simple service stop.
+  # ============================================================
+  security-service-disable-sc-config:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '\sc.exe'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: 'config'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: 'disabled'
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'WinDefend'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'wscsvc'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'VSS'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'wbengine'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'Sense'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'SecurityHealthService'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'MsMpSvc'
+
+    respond:
+      - action: report
+        name: security-service-disable-sc-config
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre: T1562.001
+          severity: high
+          description: sc.exe config disabling a security service start type
+
+
+  # ============================================================
+  # Rule 3: Security Process Force Termination via taskkill
+  # Confidence: High
+  # MITRE ATT&CK: T1562.001
+  # Description: Detects taskkill.exe with force flag (/F)
+  #   targeting AV/EDR agent process image names. Covers
+  #   Microsoft Defender, CrowdStrike Falcon, SentinelOne,
+  #   Carbon Black, and common third-party AV agents.
+  # ============================================================
+  security-process-force-termination:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '\taskkill.exe'
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: '/F'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: '-F'
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'MsMpEng'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'NisSrv'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'csfalconservice'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'SentinelAgent'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'SentinelServiceHost'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'cb.exe'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'xagt'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'bdservicehost'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'avguard'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'mcshield'
+
+    respond:
+      - action: report
+        name: security-process-force-termination
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre: T1562.001
+          severity: high
+          description: taskkill force-terminating a known security product process
+
+
+  # ============================================================
+  # Rule 4: Volume Shadow Copy Deletion or Backup Destruction
+  # Confidence: High
+  # MITRE ATT&CK: T1490, T1489
+  # Description: Detects the ransomware hallmark behavior of
+  #   destroying backup infrastructure. Covers vssadmin delete
+  #   shadows, wmic shadowcopy delete, and bcdedit disabling
+  #   Windows Recovery. Any match is critical — no legitimate
+  #   process should run these commands outside maintenance.
+  # ============================================================
+  backup-and-recovery-destruction:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\vssadmin.exe'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'delete'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'shadows'
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\wmic.exe'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'shadowcopy'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'delete'
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\bcdedit.exe'
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: 'recoveryenabled'
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: 'bootstatuspolicy'
+
+    respond:
+      - action: report
+        name: backup-and-recovery-destruction
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre: T1490,T1489
+          severity: critical
+          description: Backup or shadow copy destruction command detected — ransomware indicator
+
+
+  # ============================================================
+  # Rule 5: Offensive Tool SMB Service Enumeration (NetExec)
+  # Confidence: High
+  # MITRE ATT&CK: T1489, T1021.002
+  # Description: Detects NetExec (nxc.exe) or CrackMapExec
+  #   (cme.exe) execution with SMB service enumeration flags.
+  #   These tools are used to remotely enumerate and stop
+  #   services across a network via SMB. Detection targets
+  #   the tool's inherent command structure.
+  # ============================================================
+  offensive-tool-smb-service-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\nxc.exe'
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\netexec.exe'
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\cme.exe'
+            - op: ends with
+              path: event/FILE_PATH
+              value: '\crackmapexec.exe'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: 'smb'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: '--services'
+
+    respond:
+      - action: report
+        name: offensive-tool-smb-service-enumeration
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre: T1489,T1021.002
+          severity: high
+          description: NetExec or CrackMapExec executing SMB service enumeration

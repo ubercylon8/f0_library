@@ -1,0 +1,215 @@
+# ============================================================
+# LimaCharlie D&R Rules — T1490 Inhibit System Recovery
+# Test ID:    e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+# MITRE ATT&CK: T1490
+# Author:     F0RT1KA Detection Rules Generator
+# Date:       2026-03-14
+# Format:     FILE FORMAT for `limacharlie dr add`
+# ============================================================
+# Rules target the underlying T1490 technique behaviors and
+# will fire regardless of what tool or actor executes them.
+# ============================================================
+
+rules:
+
+  # ----------------------------------------------------------
+  # Rule 1: vssadmin Shadow Copy Deletion
+  # Confidence: High
+  # Description: Detects vssadmin.exe executed with arguments
+  #   that delete or resize Volume Shadow Copies — the most
+  #   common ransomware recovery-inhibition primitive.
+  # MITRE ATT&CK: T1490 — Inhibit System Recovery
+  # ----------------------------------------------------------
+  t1490-vssadmin-shadow-deletion:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \vssadmin.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "delete shadows"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "resize shadowstorage"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "delete shadowstorage"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: T1490 - vssadmin Shadow Copy Deletion
+        publish: true
+        priority: 3
+      - action: add tag
+        tag: t1490-recovery-inhibition
+        ttl: 86400
+
+  # ----------------------------------------------------------
+  # Rule 2: bcdedit Boot Recovery Disabled
+  # Confidence: High
+  # Description: Detects bcdedit.exe modifying boot configuration
+  #   to disable Windows Recovery Environment or hide boot
+  #   failures — a standard ransomware pre-encryption step.
+  # MITRE ATT&CK: T1490 — Inhibit System Recovery
+  # ----------------------------------------------------------
+  t1490-bcdedit-recovery-disabled:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \bcdedit.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "recoveryenabled No"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "bootstatuspolicy ignoreallfailures"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/set {default} safeboot"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/deletevalue"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: T1490 - bcdedit Boot Recovery Disabled
+        publish: true
+        priority: 3
+      - action: add tag
+        tag: t1490-recovery-inhibition
+        ttl: 86400
+
+  # ----------------------------------------------------------
+  # Rule 3: wbadmin Backup Catalog / System State Destroyed
+  # Confidence: High
+  # Description: Detects wbadmin.exe deleting Windows backup
+  #   catalogs or system-state snapshots — eliminates offline
+  #   restore options available to ransomware victims.
+  # MITRE ATT&CK: T1490 — Inhibit System Recovery
+  # ----------------------------------------------------------
+  t1490-wbadmin-backup-destroyed:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \wbadmin.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "delete catalog"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "delete systemstatebackup"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "keepVersions:0"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "delete backup"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: T1490 - wbadmin Backup Catalog Destroyed
+        publish: true
+        priority: 3
+      - action: add tag
+        tag: t1490-recovery-inhibition
+        ttl: 86400
+
+  # ----------------------------------------------------------
+  # Rule 4: WMIC Win32_ShadowCopy Deletion
+  # Confidence: High
+  # Description: Detects wmic.exe targeting the Win32_ShadowCopy
+  #   WMI class for deletion — a vssadmin alternative used by
+  #   newer ransomware variants to evade process-name detections.
+  # MITRE ATT&CK: T1490 — Inhibit System Recovery
+  # ----------------------------------------------------------
+  t1490-wmic-shadowcopy-delete:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \wmic.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "shadowcopy"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "delete"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: T1490 - WMIC ShadowCopy Deletion
+        publish: true
+        priority: 3
+      - action: add tag
+        tag: t1490-recovery-inhibition
+        ttl: 86400
+
+  # ----------------------------------------------------------
+  # Rule 5: Recovery Inhibition Tag Correlation (Behavioral Bundle)
+  # Confidence: High
+  # Description: Raises a high-priority alert when two or more
+  #   distinct T1490 recovery-inhibition events occur on the
+  #   same sensor (detected via shared tag applied by rules 1-4
+  #   above).  This multi-tool co-occurrence is a near-universal
+  #   pre-encryption ransomware signal.
+  # MITRE ATT&CK: T1490 — Inhibit System Recovery
+  # ----------------------------------------------------------
+  t1490-recovery-inhibition-multi-tool:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: .exe
+          case sensitive: false
+        - op: exists
+          path: routing/tags
+        - op: contains
+          path: routing/tags
+          value: t1490-recovery-inhibition
+
+    respond:
+      - action: report
+        name: T1490 - Recovery Inhibition Multi-Tool Correlated (Pre-Encryption Signal)
+        publish: true
+        priority: 2

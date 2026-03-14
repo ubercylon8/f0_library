@@ -1,0 +1,266 @@
+# ============================================================
+# Sigma Rules: Security Service Stop / Impair Defenses
+# Test ID: d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10
+# MITRE ATT&CK: T1489 (Service Stop), T1562.001 (Impair Defenses)
+# Tactics: Impact, Defense Evasion
+# Platform: Windows
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+# DETECTION PHILOSOPHY:
+# All rules target the underlying attack technique behaviors —
+# service control operations that any attacker would generate
+# using native Windows tooling or third-party offensive tools.
+# No test framework artifacts are included.
+# ============================================================
+
+---
+title: Security Service Enumeration via sc.exe
+id: 3a7f1e2b-9c4d-4e8f-b2a1-5d6e7f8a9b0c
+status: experimental
+description: >
+    Detects multiple sc.exe query commands targeting security-relevant Windows
+    services (Windows Defender, Security Center, VSS, Backup Engine) in a short
+    time window. This reconnaissance pattern precedes service stop operations
+    in ransomware and APT toolkits including LockBit, Conti, and REvil.
+references:
+    - https://attack.mitre.org/techniques/T1489/
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-165a
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.defense_evasion
+    - attack.t1489
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_sc_query:
+        Image|endswith: '\sc.exe'
+        CommandLine|contains: 'query'
+    selection_security_services:
+        CommandLine|contains:
+            - 'WinDefend'
+            - 'wscsvc'
+            - 'VSS'
+            - 'wbengine'
+            - 'MsMpSvc'
+            - 'Sense'
+            - 'SecurityHealthService'
+            - 'mpssvc'
+    condition: all of selection_*
+falsepositives:
+    - Legitimate system administrators querying service health
+    - Monitoring and SIEM agent processes checking security service status
+    - IT automation scripts performing health checks
+    - Help desk runbooks
+level: medium
+
+
+---
+title: Service Stop Targeting Security or Backup Services
+id: 7b2c3d4e-5f6a-7b8c-9d0e-1f2a3b4c5d6e
+status: experimental
+description: >
+    Detects sc.exe or net.exe commands issuing stop operations against security
+    services (Windows Defender, Security Center) or backup infrastructure (VSS,
+    Windows Backup Engine). Stopping these services is a critical step in
+    ransomware attack chains and defense evasion operations. Any single
+    occurrence targeting these services warrants investigation.
+references:
+    - https://attack.mitre.org/techniques/T1489/
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa21-265a
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.defense_evasion
+    - attack.t1489
+    - attack.t1562.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_sc_stop:
+        Image|endswith:
+            - '\sc.exe'
+            - '\net.exe'
+            - '\net1.exe'
+        CommandLine|contains:
+            - 'stop'
+            - 'config'
+    selection_security_targets:
+        CommandLine|contains:
+            - 'WinDefend'
+            - 'wscsvc'
+            - 'VSS'
+            - 'wbengine'
+            - 'MsMpSvc'
+            - 'Sense'
+            - 'SecurityHealthService'
+            - 'SAVService'
+            - 'MBAMService'
+    selection_config_disable:
+        CommandLine|contains|all:
+            - 'config'
+            - 'disabled'
+    condition: (all of selection_sc_stop and selection_security_targets) or
+               (selection_sc_stop and selection_config_disable and selection_security_targets)
+falsepositives:
+    - IT operations during planned maintenance windows
+    - Authorized security software removal
+    - Known service management automation with documented change tickets
+level: high
+
+
+---
+title: taskkill Force-Termination of Security Processes
+id: 4e5f6a7b-8c9d-0e1f-2a3b-4c5d6e7f8a9b
+status: experimental
+description: >
+    Detects taskkill.exe with /F (force) flag targeting security product
+    processes by image name (/IM). Forcibly terminating AV/EDR agents is
+    a key step in disabling endpoint defenses before payload execution.
+    Used by multiple ransomware families and APT groups to clear the path
+    for follow-on activity.
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+    - https://attack.mitre.org/techniques/T1489/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.defense_evasion
+    - attack.impact
+    - attack.t1562.001
+    - attack.t1489
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_taskkill:
+        Image|endswith: '\taskkill.exe'
+        CommandLine|contains:
+            - '/F'
+            - '-F'
+    selection_security_targets:
+        CommandLine|contains:
+            - 'MsMpEng.exe'
+            - 'NisSrv.exe'
+            - 'SecurityHealthSystray.exe'
+            - 'MpCmdRun.exe'
+            - 'csfalconservice.exe'
+            - 'SentinelAgent.exe'
+            - 'SentinelServiceHost.exe'
+            - 'cb.exe'
+            - 'xagt.exe'
+            - 'avguard.exe'
+            - 'mcshield.exe'
+            - 'bdservicehost.exe'
+    filter_interactive_admin:
+        ParentImage|endswith:
+            - '\cmd.exe'
+            - '\powershell.exe'
+        ParentCommandLine|contains: 'taskkill'
+    condition: all of selection_* and not filter_interactive_admin
+falsepositives:
+    - Authorized security software uninstallation by IT teams
+    - Legitimate process cleanup scripts with documented approval
+level: high
+
+
+---
+title: NetExec SMB Service Enumeration Execution
+id: 9a0b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d
+status: experimental
+description: >
+    Detects execution of NetExec (nxc.exe) or CrackMapExec (cme.exe) with
+    SMB service enumeration flags. These offensive tools are used by threat
+    actors and red teams to enumerate and remotely stop services across a
+    network via SMB. Any execution with --services flag should be investigated
+    outside of authorized red team engagements.
+references:
+    - https://attack.mitre.org/techniques/T1489/
+    - https://attack.mitre.org/techniques/T1021/002/
+    - https://github.com/Pennyw0rth/NetExec
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.lateral_movement
+    - attack.t1489
+    - attack.t1021.002
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_tool:
+        Image|endswith:
+            - '\nxc.exe'
+            - '\netexec.exe'
+            - '\cme.exe'
+            - '\crackmapexec.exe'
+    selection_smb_services:
+        CommandLine|contains:
+            - '--services'
+            - 'smb'
+    condition: all of selection_*
+falsepositives:
+    - Authorized red team engagements with documented scope
+    - Internal security assessment activities
+level: high
+
+
+---
+title: Volume Shadow Copy and Backup Service Destruction
+id: 2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e
+status: experimental
+description: >
+    Detects commands that delete Volume Shadow Copies or stop backup services.
+    This is one of the most reliable indicators of ransomware activity —
+    destroying backups prevents victims from recovering without paying the
+    ransom. Covers vssadmin, wmic shadowcopy, sc stop VSS, sc stop wbengine,
+    and bcdedit recovery disable patterns. Any match is a critical alert.
+references:
+    - https://attack.mitre.org/techniques/T1490/
+    - https://attack.mitre.org/techniques/T1489/
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-165a
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1490
+    - attack.t1489
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_vssadmin:
+        Image|endswith: '\vssadmin.exe'
+        CommandLine|contains:
+            - 'delete'
+            - 'shadows'
+    selection_wmic_vss:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains|all:
+            - 'shadowcopy'
+            - 'delete'
+    selection_sc_backup:
+        Image|endswith: '\sc.exe'
+        CommandLine|contains:
+            - 'stop VSS'
+            - 'stop wbengine'
+            - 'stop SDRSVC'
+            - 'stop swprv'
+    selection_bcdedit:
+        Image|endswith: '\bcdedit.exe'
+        CommandLine|contains:
+            - 'recoveryenabled no'
+            - 'bootstatuspolicy ignoreallfailures'
+    condition: 1 of selection_*
+falsepositives:
+    - Authorized backup software maintenance performing shadow copy management
+    - Storage administrators running cleanup operations (verify with ticket system)
+level: critical

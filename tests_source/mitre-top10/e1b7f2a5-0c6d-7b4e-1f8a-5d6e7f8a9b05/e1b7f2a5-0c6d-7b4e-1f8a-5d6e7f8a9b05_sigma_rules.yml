@@ -1,0 +1,208 @@
+# ============================================================
+# Sigma Rules: T1490 — Inhibit System Recovery
+# Test ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
+# MITRE ATT&CK: T1490
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+# Note: Each rule is separated by "---" as per Sigma convention.
+# ============================================================
+
+---
+title: T1490 — vssadmin Shadow Copy Deletion
+id: 3a7c1f9e-d4b2-4e5a-8c6f-1b2d3e4f5a6b
+status: experimental
+description: >
+    Detects vssadmin.exe invoked with arguments that delete or resize
+    Volume Shadow Copy storage.  Used universally by ransomware families
+    (LockBit, Conti, BlackCat/ALPHV, Ryuk) to eliminate restore points
+    before or after file encryption.
+references:
+    - https://attack.mitre.org/techniques/T1490/
+    - https://www.microsoft.com/en-us/security/blog/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1490
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\vssadmin.exe'
+    selection_args:
+        CommandLine|contains:
+            - 'delete shadows'
+            - 'resize shadowstorage'
+            - 'delete shadowstorage'
+    condition: selection_img and selection_args
+falsepositives:
+    - Backup software with aggressive retention policies (Veeam, Acronis)
+    - Administrator-initiated cleanup scripts during documented maintenance
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+    - ParentCommandLine
+    - User
+level: critical
+
+---
+title: T1490 — bcdedit Boot Recovery Disabled
+id: 6f2e4a8b-c9d1-4f7e-9b3a-2c5d6e7f8a9b
+status: experimental
+description: >
+    Detects bcdedit.exe modifying the boot configuration to suppress
+    Windows Recovery Environment or hide boot failures.  This prevents
+    the system from entering recovery mode after ransomware encryption,
+    maximising victim pressure to pay.
+references:
+    - https://attack.mitre.org/techniques/T1490/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1490
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\bcdedit.exe'
+    selection_recovery:
+        CommandLine|contains:
+            - 'recoveryenabled No'
+            - 'bootstatuspolicy ignoreallfailures'
+            - '/set {default} safeboot'
+    selection_delete:
+        CommandLine|contains:
+            - '/deletevalue'
+    condition: selection_img and (selection_recovery or selection_delete)
+falsepositives:
+    - Kiosk or embedded-system deployments managed by IT
+    - Image deployment scripts during OS provisioning (SCCM / MDT)
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+    - User
+level: critical
+
+---
+title: T1490 — wbadmin Backup Catalog / System State Destroyed
+id: 9b4d7f1a-2e5c-4b8d-a3f6-1c2d3e4f5a6b
+status: experimental
+description: >
+    Detects wbadmin.exe invoked with arguments that destroy Windows
+    backup catalogs or system-state snapshots.  Ransomware operators
+    use this to eliminate offline restore options alongside shadow-copy
+    deletion.
+references:
+    - https://attack.mitre.org/techniques/T1490/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1490
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\wbadmin.exe'
+    selection_args:
+        CommandLine|contains:
+            - 'delete catalog'
+            - 'delete systemstatebackup'
+            - 'keepVersions:0'
+            - 'delete backup'
+    condition: selection_img and selection_args
+falsepositives:
+    - Windows Server Backup scheduled retention jobs (SYSTEM account, nightly)
+    - IT-managed backup lifecycle scripts with documented change tickets
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+    - User
+level: high
+
+---
+title: T1490 — WMIC Win32_ShadowCopy Deletion
+id: c1f3e5a7-b9d2-4e6f-8a1b-3c4d5e6f7a8b
+status: experimental
+description: >
+    Detects wmic.exe targeting Win32_ShadowCopy for deletion — a
+    vssadmin.exe alternative favoured by ransomware variants designed
+    to evade process-name-based detections.
+references:
+    - https://attack.mitre.org/techniques/T1490/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1490
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\wmic.exe'
+    selection_class:
+        CommandLine|contains: 'shadowcopy'
+    selection_action:
+        CommandLine|contains:
+            - 'delete'
+            - 'call delete'
+    condition: selection_img and selection_class and selection_action
+falsepositives:
+    - Very rare in production; document any legitimate use in suppression list
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+    - User
+level: high
+
+---
+title: T1490 — Multiple Recovery Inhibition Tools in Short Window
+id: e5a9c3f1-7b2d-4e8f-a6b1-5c6d7e8f9a0b
+status: experimental
+description: >
+    Detects execution of two or more distinct recovery-inhibition
+    tools (vssadmin, bcdedit, wbadmin, wmic with shadowcopy args)
+    within a 5-minute window on the same host.  This multi-tool
+    co-occurrence is a high-fidelity pre-encryption ransomware signal
+    found across LockBit, Conti, BlackCat/ALPHV, Ryuk, Hive, and others.
+references:
+    - https://attack.mitre.org/techniques/T1490/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1490
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_tools:
+        Image|endswith:
+            - '\vssadmin.exe'
+            - '\bcdedit.exe'
+            - '\wbadmin.exe'
+    selection_wmic_shadow:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains: 'shadowcopy'
+    condition: selection_tools or selection_wmic_shadow
+    # Correlation note: SIEM must count distinct Image values per
+    # host within a 5-minute bucket and alert when count >= 2.
+falsepositives:
+    - Documented backup maintenance windows using multiple utilities simultaneously
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+    - User
+    - ComputerName
+level: critical

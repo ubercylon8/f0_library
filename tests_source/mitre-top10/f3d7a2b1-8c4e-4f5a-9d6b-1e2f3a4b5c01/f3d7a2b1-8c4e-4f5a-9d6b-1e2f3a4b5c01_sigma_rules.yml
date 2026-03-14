@@ -1,0 +1,223 @@
+# ============================================================
+# Sigma Rule Set: PowerShell Execution & AMSI Bypass Detection
+# Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+# MITRE ATT&CK: T1059.001, T1140
+# ============================================================
+
+---
+title: PowerShell Encoded Command Execution
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567801
+status: experimental
+description: >
+    Detects PowerShell launched with the -EncodedCommand (or -enc/-ec) parameter,
+    a technique used by attackers to pass obfuscated base64-encoded commands that
+    evade command-line string inspection. Commonly combined with -ExecutionPolicy
+    Bypass and -WindowStyle Hidden for stealthy execution.
+references:
+    - https://attack.mitre.org/techniques/T1059/001/
+    - https://attack.mitre.org/techniques/T1140/
+    - https://lolbas-project.github.io/lolbas/Binaries/Powershell/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.defense_evasion
+    - attack.t1059.001
+    - attack.t1140
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_flags:
+        CommandLine|contains:
+            - '-EncodedCommand'
+            - '-encodedcommand'
+            - ' -enc '
+            - ' -ec '
+    filter_legitimate:
+        # Reduce FPs from known management frameworks
+        ParentImage|endswith:
+            - '\sccmexec.exe'
+            - '\ccmexec.exe'
+    condition: selection_image and selection_flags and not filter_legitimate
+falsepositives:
+    - Legitimate administrative scripts using -EncodedCommand for special character handling
+    - SCCM/Intune deployment scripts
+    - Software packaging tools that encode complex commands
+    - PowerShell DSC configuration management
+level: high
+
+---
+title: PowerShell Hidden Window Execution with Bypass Policy
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567802
+status: experimental
+description: >
+    Detects PowerShell launched with -WindowStyle Hidden combined with
+    -ExecutionPolicy Bypass. This combination is a staple of attacker tradecraft
+    to execute scripts silently without user visibility and without restriction
+    by system execution policy controls.
+references:
+    - https://attack.mitre.org/techniques/T1059/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.defense_evasion
+    - attack.t1059.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_hidden:
+        CommandLine|contains:
+            - '-WindowStyle Hidden'
+            - '-windowstyle hidden'
+            - '-w hidden'
+            - '-wi h'
+    selection_bypass:
+        CommandLine|contains:
+            - '-ExecutionPolicy Bypass'
+            - '-executionpolicy bypass'
+            - '-ep bypass'
+            - '-ep b'
+    condition: selection_image and selection_hidden and selection_bypass
+falsepositives:
+    - Scheduled tasks running administrative PowerShell automation
+    - Remote monitoring and management (RMM) tools
+    - Some software installation processes that run silently
+level: high
+
+---
+title: PowerShell Download Cradle with Invoke-Expression
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567803
+status: experimental
+description: >
+    Detects PowerShell download cradle patterns combining Net.WebClient or
+    Invoke-WebRequest with IEX/Invoke-Expression. This is the canonical fileless
+    execution pattern used for initial access, stager delivery, and post-exploitation
+    tool loading without writing payloads to disk.
+references:
+    - https://attack.mitre.org/techniques/T1059/001/
+    - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1059.001/T1059.001.md
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_download:
+        CommandLine|contains:
+            - 'Net.WebClient'
+            - 'System.Net.WebClient'
+            - 'DownloadString'
+            - 'DownloadFile'
+            - 'DownloadData'
+            - 'Invoke-WebRequest'
+    selection_exec:
+        CommandLine|contains:
+            - 'IEX'
+            - 'Invoke-Expression'
+            - '| iex'
+            - '|iex'
+    condition: selection_image and selection_download and selection_exec
+falsepositives:
+    - PowerShell Gallery module installation (Install-Module uses similar patterns)
+    - Custom software deployment scripts
+    - Internal automation using WebClient for intranet resources
+level: critical
+
+---
+title: PowerShell Script Block Logging - AMSI Bypass Indicator Strings
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567804
+status: experimental
+description: >
+    Detects AMSI bypass indicator strings in PowerShell Script Block Logging
+    (Event ID 4104). Script Block Logging captures the decoded content of
+    PowerShell commands regardless of encoding, making it effective against
+    obfuscated AMSI bypass attempts. The listed strings are characteristic of
+    the most common AMSI bypass techniques used by commodity malware and APTs.
+references:
+    - https://attack.mitre.org/techniques/T1059/001/
+    - https://docs.microsoft.com/en-us/windows/win32/amsi/antimalware-scan-interface-portal
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.defense_evasion
+    - attack.t1059.001
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Script Block Logging must be enabled: HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging -> EnableScriptBlockLogging = 1'
+detection:
+    keywords:
+        - 'AmsiScanBuffer'
+        - 'amsiInitFailed'
+        - 'System.Management.Automation.AmsiUtils'
+        - '[Ref].Assembly.GetType'
+        - 'AmsiUtils'
+        - 'amsi.dll'
+        - 'AmsiInitialize'
+    condition: keywords
+falsepositives:
+    - Security research and AMSI testing tools run by authorized personnel
+    - Antivirus vendor testing scripts
+    - Blue team detection validation scripts
+level: critical
+
+---
+title: PowerShell Runtime Base64 Decode and Execute (T1140)
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567805
+status: experimental
+description: >
+    Detects PowerShell script blocks (Event ID 4104) that perform runtime
+    base64 decoding followed by execution, implementing MITRE T1140
+    (Deobfuscate/Decode Files or Information). This pattern is used to
+    deliver encoded payloads that bypass static script inspection while
+    still being captured by script block logging after decode.
+references:
+    - https://attack.mitre.org/techniques/T1140/
+    - https://attack.mitre.org/techniques/T1059/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.defense_evasion
+    - attack.execution
+    - attack.t1140
+    - attack.t1059.001
+logsource:
+    category: ps_script
+    product: windows
+    definition: 'Script Block Logging must be enabled: HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging -> EnableScriptBlockLogging = 1'
+detection:
+    selection_decode:
+        ScriptBlockText|contains:
+            - 'FromBase64String'
+            - '[System.Convert]::FromBase64String'
+            - '[Convert]::FromBase64String'
+    selection_exec:
+        ScriptBlockText|contains:
+            - 'IEX'
+            - 'Invoke-Expression'
+            - 'GetString('
+    condition: selection_decode and selection_exec
+falsepositives:
+    - Legitimate scripts that decode base64-encoded data for non-execution purposes
+    - Configuration management tools that encode large payloads
+    - Some module loading scripts in enterprise environments
+level: high

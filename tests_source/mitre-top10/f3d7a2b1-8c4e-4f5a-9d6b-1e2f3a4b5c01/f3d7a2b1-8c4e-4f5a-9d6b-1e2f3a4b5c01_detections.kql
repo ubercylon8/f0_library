@@ -1,0 +1,325 @@
+// ============================================================
+// Detection: PowerShell Encoded Command Execution
+// Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+// MITRE ATT&CK: T1059.001, T1140
+// Confidence: High
+// ============================================================
+// Purpose: Detects PowerShell launched with -EncodedCommand or -enc parameter,
+//          a primary obfuscation technique used to hide malicious payloads from
+//          command-line logging and signature-based detection.
+// False Positives: Legitimate administrative scripts using -EncodedCommand,
+//                  SCCM/Intune management tasks, some monitoring agents.
+//                  Tune by excluding known management system source processes.
+// Threshold: Alert on first occurrence per host/user; high-confidence indicator.
+// ============================================================
+
+DeviceProcessEvents
+| where FileName =~ "powershell.exe" or FileName =~ "pwsh.exe"
+| where ProcessCommandLine has_any ("-EncodedCommand", "-enc ", "-ec ", "-en ")
+| where ProcessCommandLine !has "-Encode"  // Exclude legitimate encoding operations
+| extend
+    IsBase64Arg = extract(@"(?i)-(?:EncodedCommand|enc?)\s+([A-Za-z0-9+/=]{20,})", 1, ProcessCommandLine),
+    HasBypassPolicy = ProcessCommandLine has "-ExecutionPolicy Bypass" or ProcessCommandLine has "-ep bypass",
+    HasHiddenWindow = ProcessCommandLine has_any ("-WindowStyle Hidden", "-w hidden", "-wi h")
+| extend RiskScore = case(
+    HasBypassPolicy and HasHiddenWindow, 95,
+    HasBypassPolicy or HasHiddenWindow, 75,
+    50)
+| extend
+    Severity = case(RiskScore >= 90, "Critical", RiskScore >= 70, "High", "Medium"),
+    ThreatType = "PowerShell Obfuscated Execution",
+    MitreAttack = "T1059.001, T1140",
+    TestID = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, IsBase64Arg, HasBypassPolicy, HasHiddenWindow,
+          RiskScore, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: PowerShell Hidden Window Execution
+// Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+// MITRE ATT&CK: T1059.001
+// Confidence: High
+// ============================================================
+// Purpose: Detects PowerShell processes launched with window hidden flags,
+//          a common technique to execute scripts without user visibility.
+// False Positives: Scheduled tasks running PowerShell, some RMM tools,
+//                  Windows Update components. Tune by whitelisting known
+//                  scheduled task parent processes (svchost.exe, taskeng.exe).
+// Threshold: Elevate if combined with -ExecutionPolicy Bypass or encoded args.
+// ============================================================
+
+DeviceProcessEvents
+| where FileName =~ "powershell.exe" or FileName =~ "pwsh.exe"
+| where ProcessCommandLine has_any ("-WindowStyle Hidden", "-w hidden", "-WindowStyle h", "-wi h", "-w h")
+| extend
+    HasBypassPolicy = ProcessCommandLine has_any ("-ExecutionPolicy Bypass", "-ep bypass", "-ep b"),
+    HasEncodedCommand = ProcessCommandLine has_any ("-EncodedCommand", "-enc ", "-ec "),
+    HasNonInteractive = ProcessCommandLine has_any ("-NonInteractive", "-noni", "-noni"),
+    HasNoProfile = ProcessCommandLine has_any ("-NoProfile", "-nop")
+| extend SuspicionFlags = toint(HasBypassPolicy) + toint(HasEncodedCommand) +
+                           toint(HasNonInteractive) + toint(HasNoProfile)
+| extend
+    Severity = case(SuspicionFlags >= 3, "Critical", SuspicionFlags >= 2, "High",
+                    SuspicionFlags == 1, "Medium", "Low"),
+    ThreatType = "PowerShell Hidden Window Execution",
+    MitreAttack = "T1059.001",
+    TestID = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, SuspicionFlags, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: PowerShell Download Cradle Patterns
+// Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+// MITRE ATT&CK: T1059.001
+// Confidence: High
+// ============================================================
+// Purpose: Detects PowerShell download cradle patterns used for fileless payload
+//          delivery. These patterns are among the most widely abused techniques
+//          for initial access and lateral movement.
+// False Positives: Legitimate use of WebClient for automated downloads,
+//                  software update scripts, PowerShell module installers (PSGallery).
+//                  Tune by excluding known software deployment parent processes.
+// Threshold: Any IEX + download combination is high confidence. Standalone
+//            WebClient usage warrants investigation but may have higher FP rate.
+// ============================================================
+
+DeviceProcessEvents
+| where FileName =~ "powershell.exe" or FileName =~ "pwsh.exe"
+| where ProcessCommandLine has_any (
+    "Net.WebClient",
+    "WebClient",
+    "DownloadString",
+    "DownloadFile",
+    "DownloadData",
+    "Invoke-WebRequest",
+    "iwr ",
+    "curl ",
+    "wget ",
+    "BitsTransfer",
+    "Start-BitsTransfer"
+  )
+| extend
+    HasIEX = ProcessCommandLine has_any ("IEX", "Invoke-Expression"),
+    HasWebDownload = ProcessCommandLine has_any ("DownloadString", "DownloadFile", "DownloadData"),
+    HasRemoteURL = ProcessCommandLine matches regex @"https?://[^\s'""]+",
+    HasEncodedCommand = ProcessCommandLine has_any ("-EncodedCommand", "-enc ")
+| extend IsCradlePattern = HasIEX and (HasWebDownload or HasRemoteURL)
+| where IsCradlePattern or (HasWebDownload and HasRemoteURL)
+| extend
+    Severity = case(IsCradlePattern, "Critical", HasWebDownload and HasRemoteURL, "High", "Medium"),
+    ThreatType = "PowerShell Download Cradle",
+    MitreAttack = "T1059.001",
+    TestID = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, IsCradlePattern, HasIEX, HasWebDownload,
+          Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: PowerShell Script Block Logging - Suspicious Content
+// Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+// MITRE ATT&CK: T1059.001, T1140
+// Confidence: High
+// ============================================================
+// Purpose: Detects suspicious PowerShell content captured via Script Block Logging
+//          (Event ID 4104). This catches obfuscated scripts that bypass command-line
+//          inspection because the decoded content is logged regardless of encoding.
+// False Positives: Security research scripts, PowerShell development tools,
+//                  legitimate automation that uses reflection. Tune by user/host.
+// Threshold: AMSI bypass strings are high confidence. Base64 decode in combination
+//            with IEX warrants alerting. Standalone reflection may need investigation.
+// ============================================================
+
+SecurityEvent
+| where EventID == 4104  // PowerShell Script Block Logging
+| extend ScriptBlock = tostring(EventData)
+| where ScriptBlock has_any (
+    "AmsiScanBuffer",
+    "amsiInitFailed",
+    "AmsiUtils",
+    "System.Management.Automation.AmsiUtils",
+    "[Ref].Assembly.GetType",
+    "amsi.dll",
+    "AmsiInitialize",
+    "AmsiScanString"
+  )
+| extend
+    HasAMSIBypass = ScriptBlock has_any ("AmsiScanBuffer", "amsiInitFailed", "AmsiUtils"),
+    HasReflection = ScriptBlock has "[Ref].Assembly.GetType",
+    HasBase64Decode = ScriptBlock has_any (
+        "[System.Convert]::FromBase64String",
+        "FromBase64String",
+        "[System.Text.Encoding]"
+    )
+| extend
+    Severity = case(HasAMSIBypass, "Critical", HasReflection and HasBase64Decode, "High", "Medium"),
+    ThreatType = "AMSI Bypass Attempt",
+    MitreAttack = "T1059.001",
+    TestID = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
+| project TimeGenerated, Computer, Account, ScriptBlock, HasAMSIBypass,
+          HasReflection, HasBase64Decode, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: PowerShell Execution Policy Bypass
+// Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+// MITRE ATT&CK: T1059.001
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects PowerShell launched with execution policy bypass flags.
+//          While not malicious alone, it is a prerequisite for many attack chains
+//          and should be correlated with other indicators.
+// False Positives: High volume - many legitimate tools use -ExecutionPolicy Bypass.
+//                  This query is most useful as a correlation signal, not standalone alert.
+//                  Tune by correlating with unusual parent processes or off-hours execution.
+// Threshold: Use as enrichment signal; alert only when combined with hidden window,
+//            encoded commands, or download cradle patterns.
+// ============================================================
+
+DeviceProcessEvents
+| where FileName =~ "powershell.exe" or FileName =~ "pwsh.exe"
+| where ProcessCommandLine has_any (
+    "-ExecutionPolicy Bypass",
+    "-ExecutionPolicy Unrestricted",
+    "-ep bypass",
+    "-ep unrestricted",
+    "-ep b"
+  )
+| extend
+    HasHiddenWindow = ProcessCommandLine has_any ("-WindowStyle Hidden", "-w hidden"),
+    HasEncodedCommand = ProcessCommandLine has_any ("-EncodedCommand", "-enc "),
+    HasDownloadCradle = ProcessCommandLine has_any ("WebClient", "DownloadString", "IEX"),
+    ParentIsUnusual = InitiatingProcessFileName !in~ (
+        "explorer.exe", "cmd.exe", "powershell.exe", "pwsh.exe",
+        "svchost.exe", "msiexec.exe", "services.exe"
+    )
+| extend CombinedRisk = toint(HasHiddenWindow) + toint(HasEncodedCommand) +
+                         toint(HasDownloadCradle) + toint(ParentIsUnusual)
+| where CombinedRisk >= 2
+| extend
+    Severity = case(CombinedRisk >= 3, "High", "Medium"),
+    ThreatType = "PowerShell Execution Policy Bypass",
+    MitreAttack = "T1059.001",
+    TestID = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, CombinedRisk, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: PowerShell Base64 Deobfuscation via Convert
+// Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+// MITRE ATT&CK: T1140
+// Confidence: High
+// ============================================================
+// Purpose: Detects T1140 (Deobfuscate/Decode) - PowerShell scripts that perform
+//          runtime base64 decoding and execution, a key technique for carrying
+//          encoded payloads past static inspection.
+// False Positives: Legitimate base64 encoding/decoding in automation scripts,
+//                  certificate processing (CER/PFX), data transformation tasks.
+//                  Tune by excluding known certificate management scripts.
+// Threshold: FromBase64String alone has moderate FP rate; combine with IEX for high confidence.
+// ============================================================
+
+SecurityEvent
+| where EventID == 4104  // Script Block Logging required
+| extend ScriptBlock = tostring(EventData)
+| where ScriptBlock has_any (
+    "FromBase64String",
+    "[System.Convert]::FromBase64String",
+    "[Convert]::FromBase64String",
+    "System.Text.Encoding"
+  )
+| extend
+    HasIEX = ScriptBlock has_any ("IEX ", "Invoke-Expression"),
+    HasExecution = ScriptBlock has_any (
+        "([System.Text.Encoding]", "Encoding]::Unicode",
+        "[System.Runtime.InteropServices", "CreateInstance"
+    ),
+    HasNetworking = ScriptBlock has_any ("WebClient", "DownloadString", "Net.Http")
+| where HasIEX or HasExecution
+| extend
+    Severity = case(HasIEX and HasNetworking, "Critical", HasIEX, "High", "Medium"),
+    ThreatType = "PowerShell Runtime Deobfuscation",
+    MitreAttack = "T1140",
+    TestID = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
+| project TimeGenerated, Computer, Account, ScriptBlock, HasIEX, HasExecution,
+          HasNetworking, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: AMSI Bypass String Detection via Windows Defender ATP
+// Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+// MITRE ATT&CK: T1059.001
+// Confidence: High
+// ============================================================
+// Purpose: Detects known AMSI bypass technique strings that appear in PowerShell
+//          process memory or command-line arguments. These strings are characteristic
+//          of attempts to disable the Antimalware Scan Interface before executing
+//          malicious payloads.
+// False Positives: Security researchers, AMSI testing tools, some AV vendors'
+//                  own testing scripts. Tune by user account and time of day.
+// Threshold: Any occurrence of AmsiScanBuffer or amsiInitFailed is high confidence.
+// ============================================================
+
+DeviceEvents
+| where ActionType == "AmsiScriptDetection" or ActionType == "PowerShellCommand"
+| where AdditionalFields has_any (
+    "AmsiScanBuffer",
+    "amsiInitFailed",
+    "AmsiUtils",
+    "System.Management.Automation.AmsiUtils",
+    "[Ref].Assembly.GetType",
+    "amsi.dll"
+  )
+| extend
+    HasPatchAttempt = AdditionalFields has_any ("AmsiScanBuffer", "amsiInitFailed"),
+    HasReflection = AdditionalFields has_any ("[Ref].Assembly.GetType", "AmsiUtils"),
+    HasDLLRef = AdditionalFields has "amsi.dll"
+| extend
+    Severity = case(HasPatchAttempt, "Critical", HasReflection, "High", "Medium"),
+    ThreatType = "AMSI Bypass Attempt - Known Pattern",
+    MitreAttack = "T1059.001",
+    TestID = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          AdditionalFields, HasPatchAttempt, HasReflection,
+          Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: Behavioral Correlation - PowerShell Multi-Indicator Attack Chain
+// Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+// MITRE ATT&CK: T1059.001, T1140
+// Confidence: High
+// ============================================================
+// Purpose: High-confidence behavioral correlation that joins multiple indicators
+//          within a short time window on the same host. A single PowerShell
+//          indicator may be benign; multiple indicators together strongly suggest
+//          an active attack chain.
+// False Positives: Minimal - multiple simultaneous PowerShell anomalies on the
+//                  same host in a short window are rarely legitimate.
+// Threshold: 3+ distinct technique indicators within a 10-minute window. Tune
+//            window size to reduce FP rate if needed.
+// ============================================================
+
+let lookback = 10m;
+let EncodedCommands = DeviceProcessEvents
+    | where FileName =~ "powershell.exe"
+    | where ProcessCommandLine has_any ("-EncodedCommand", "-enc ")
+    | summarize EncodedCount = count(), FirstSeen = min(TimeGenerated)
+      by DeviceName, bin(TimeGenerated, lookback);
+let HiddenWindow = DeviceProcessEvents
+    | where FileName =~ "powershell.exe"
+    | where ProcessCommandLine has "-WindowStyle Hidden"
+    | summarize HiddenCount = count()
+      by DeviceName, bin(TimeGenerated, lookback);
+let BypassPolicy = DeviceProcessEvents
+    | where FileName =~ "powershell.exe"
+    | where ProcessCommandLine has "-ExecutionPolicy Bypass"
+    | summarize BypassCount = count()
+      by DeviceName, bin(TimeGenerated, lookback);
+EncodedCommands
+| join kind=inner HiddenWindow on DeviceName, TimeGenerated
+| join kind=inner BypassPolicy on DeviceName, TimeGenerated
+| where EncodedCount >= 1 and HiddenCount >= 1 and BypassCount >= 1
+| extend
+    Severity = "Critical",
+    ThreatType = "PowerShell Multi-Technique Attack Chain",
+    MitreAttack = "T1059.001, T1140",
+    TestID = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
+| project FirstSeen, DeviceName, EncodedCount, HiddenCount, BypassCount,
+          Severity, ThreatType, MitreAttack

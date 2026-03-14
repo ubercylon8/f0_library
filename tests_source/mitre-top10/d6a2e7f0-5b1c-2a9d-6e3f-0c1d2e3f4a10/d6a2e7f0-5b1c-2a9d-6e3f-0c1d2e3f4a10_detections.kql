@@ -1,0 +1,302 @@
+// ============================================================
+// Detection Rules: Security Service Stop / Impair Defenses
+// Test ID: d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10
+// MITRE ATT&CK: T1489 (Service Stop), T1562.001 (Impair Defenses: Disable or Modify Tools)
+// Tactics: Impact, Defense Evasion
+// Platform: Windows
+// Threat Actors: LockBit, Conti, REvil, BlackCat/ALPHV
+// ============================================================
+
+
+// ============================================================
+// Query 1: Security Service Enumeration via sc.exe
+// Confidence: High
+// MITRE ATT&CK: T1489, T1562.001
+// ============================================================
+// Purpose: Detects sequential sc.exe query commands targeting
+//          security-relevant Windows services in a short time
+//          window — a strong pre-attack reconnaissance pattern
+//          used by ransomware before disabling defenses.
+// False Positives: Legitimate admin scripts, monitoring tools,
+//                  help-desk runbooks querying service health.
+//                  Filter by parent process (e.g., exclude
+//                  svchost.exe, services.exe) and known admin hosts.
+// Threshold: 3+ distinct security service queries within 60 seconds
+// ============================================================
+
+let SecurityServiceNames = dynamic(["WinDefend", "wscsvc", "VSS", "wbengine", "MsMpSvc",
+    "Sense", "SecurityHealthService", "mpssvc", "EventLog", "BITS"]);
+DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has "query"
+| extend QueriedService = extract(@"sc\s+query\s+(\S+)", 1, ProcessCommandLine)
+| where QueriedService in~ (SecurityServiceNames)
+| summarize
+    QueryCount = count(),
+    QueriedServices = make_set(QueriedService),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    ProcessIds = make_set(ProcessId),
+    ParentProcess = any(InitiatingProcessFileName)
+    by DeviceName, InitiatingProcessId, bin(TimeGenerated, 60s)
+| where QueryCount >= 3
+| extend
+    Severity = "High",
+    ThreatType = "SecurityServiceEnumeration",
+    MitreAttack = "T1489,T1562.001",
+    TestID = "d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10"
+| project TimeGenerated, DeviceName, ParentProcess, QueryCount, QueriedServices,
+    FirstSeen, LastSeen, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 2: Service Stop Against Security or Backup Services
+// Confidence: High
+// MITRE ATT&CK: T1489
+// ============================================================
+// Purpose: Detects sc.exe stop commands targeting security
+//          tools, backup engines, or Volume Shadow Copy —
+//          a hallmark behavior of ransomware pre-encryption.
+// False Positives: Legitimate service management by IT ops.
+//                  Tune by excluding known maintenance windows
+//                  and service accounts.
+// Threshold: Any single occurrence is high-confidence alert.
+// ============================================================
+
+let HighValueServices = dynamic([
+    "WinDefend", "wscsvc", "MsMpSvc", "Sense", "SecurityHealthService",
+    "VSS", "wbengine", "SDRSVC", "vds", "MBAMService", "SAVService",
+    "SepMasterService", "ekrn", "AVP", "avast!", "McShield"
+]);
+DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine matches regex @"(?i)sc\s+(stop|config\s+.*start=\s*disabled)"
+| extend TargetService = extract(@"sc\s+(?:stop|config)\s+(\S+)", 1, ProcessCommandLine)
+| where TargetService in~ (HighValueServices)
+| extend
+    Severity = "Critical",
+    ThreatType = "SecurityServiceStop",
+    MitreAttack = "T1489",
+    TestID = "d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    ProcessCommandLine, TargetService, AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 3: Bulk Service Stop or Disable (Ransomware Batch Pattern)
+// Confidence: High
+// MITRE ATT&CK: T1489, T1562.001
+// ============================================================
+// Purpose: Detects rapid-fire invocations of sc.exe (or net.exe)
+//          used to stop or disable multiple services in a short
+//          window — consistent with ransomware pre-encryption
+//          kill scripts.
+// False Positives: Automated update scripts, deployment automation.
+//                  Baseline expected sc.exe frequency per host.
+// Threshold: 5+ stop/disable operations within 120 seconds
+// ============================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName in~ ("sc.exe", "net.exe", "net1.exe")
+| where ProcessCommandLine matches regex @"(?i)(stop|config.*disabled|pause)"
+| summarize
+    StopCount = count(),
+    Commands = make_set(ProcessCommandLine, 20),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, InitiatingProcessId, InitiatingProcessFileName, bin(TimeGenerated, 120s)
+| where StopCount >= 5
+| extend
+    TimeSpanSec = datetime_diff("second", LastSeen, FirstSeen),
+    Severity = "Critical",
+    ThreatType = "BulkServiceStop",
+    MitreAttack = "T1489",
+    TestID = "d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, StopCount,
+    TimeSpanSec, Commands, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 4: Service Creation Followed by Immediate Stop/Delete
+// Confidence: High
+// MITRE ATT&CK: T1489, T1543.003
+// ============================================================
+// Purpose: Detects the create-then-stop-then-delete service lifecycle
+//          pattern. Attackers test EDR tamper protection by attempting
+//          to create and terminate services. Also catches transient
+//          malicious service installation.
+// False Positives: Software installers performing service registration
+//                  tests. Tune by excluding known installer parent
+//                  process names (msiexec.exe, setup.exe).
+// Threshold: Create + stop/delete within 60 seconds
+// ============================================================
+
+let ServiceCreate = DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has "create"
+| project CreateTime = TimeGenerated, DeviceName, InitiatingProcessId,
+    CreatedService = extract(@"create\s+(\S+)", 1, ProcessCommandLine),
+    CreateCmd = ProcessCommandLine;
+
+let ServiceStop = DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine matches regex @"(?i)(stop|delete)"
+| project StopTime = TimeGenerated, DeviceName, InitiatingProcessId,
+    StoppedService = extract(@"(?:stop|delete)\s+(\S+)", 1, ProcessCommandLine),
+    StopCmd = ProcessCommandLine;
+
+ServiceCreate
+| join kind=inner ServiceStop on DeviceName, InitiatingProcessId
+| where CreatedService =~ StoppedService
+| where StopTime between (CreateTime .. (CreateTime + 5m))
+| extend
+    LifetimeSec = datetime_diff("second", StopTime, CreateTime),
+    Severity = "High",
+    ThreatType = "TransientServiceLifecycle",
+    MitreAttack = "T1489",
+    TestID = "d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10"
+| project CreateTime, DeviceName, CreatedService, CreateCmd, StopCmd, LifetimeSec,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 5: taskkill.exe Invocation Targeting Security Processes
+// Confidence: High
+// MITRE ATT&CK: T1562.001
+// ============================================================
+// Purpose: Detects taskkill.exe used to forcibly terminate
+//          AV/EDR/security processes — a key step in disabling
+//          defenses before payload execution.
+// False Positives: Help desk scripts, IT automation.
+//                  Exclude well-known management platforms.
+// Threshold: Any match against known security process list is alert.
+// ============================================================
+
+let SecurityProcesses = dynamic([
+    "MsMpEng.exe", "NisSrv.exe", "SecurityHealthSystray.exe",
+    "MpCmdRun.exe", "SenseCncProxy.exe", "MonitoringHost.exe",
+    "csfalconservice.exe", "csfalconcontainer.exe", "falcond.exe",
+    "bdservicehost.exe", "bdredline.exe", "vsserv.exe",
+    "avguard.exe", "avgcsrva.exe", "mcshield.exe", "mfemactl.exe",
+    "SentinelAgent.exe", "SentinelServiceHost.exe",
+    "cb.exe", "RepMgr.exe", "xagt.exe"
+]);
+DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName =~ "taskkill.exe"
+| where ProcessCommandLine matches regex @"(?i)/f|/im|/pid"
+| extend TargetProcess = extract(@"(?i)/im\s+(\S+)", 1, ProcessCommandLine)
+| where TargetProcess in~ (SecurityProcesses)
+    or ProcessCommandLine matches regex @"(?i)(defender|falcon|crowdstrike|sentinel|carbon.?black|cylance|sophos|bitdefender|kaspersky)"
+| extend
+    Severity = "Critical",
+    ThreatType = "SecurityProcessTermination",
+    MitreAttack = "T1562.001",
+    TestID = "d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, ProcessCommandLine,
+    TargetProcess, AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 6: SMB-Based Remote Service Enumeration (NetExec/CrackMapExec)
+// Confidence: High
+// MITRE ATT&CK: T1489, T1021.002
+// ============================================================
+// Purpose: Detects offensive tooling (NetExec/nxc, crackmapexec/cme)
+//          performing service enumeration over SMB — used by
+//          threat actors to identify and remotely stop security
+//          services across the network.
+// False Positives: Authorized red team activity, network admin tools.
+//                  Tune by excluding known red team hosts and
+//                  authorized scanner IP ranges.
+// Threshold: Any NetExec --services invocation is alert-worthy.
+// ============================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName in~ ("nxc.exe", "netexec.exe", "cme.exe", "crackmapexec.exe")
+| where ProcessCommandLine has_any ("--services", "service")
+| extend
+    Severity = "High",
+    ThreatType = "OffensiveToolServiceEnumeration",
+    MitreAttack = "T1489,T1021.002",
+    TestID = "d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10"
+| project TimeGenerated, DeviceName, FolderPath, ProcessCommandLine,
+    InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 7: Volume Shadow Copy or Backup Service Targeted
+// Confidence: High
+// MITRE ATT&CK: T1490, T1489
+// ============================================================
+// Purpose: Detects commands targeting Volume Shadow Copy Service
+//          or Windows Backup Engine — critical ransomware indicator.
+//          VSS deletion/stop prevents recovery after encryption.
+// False Positives: Backup software, disk management utilities.
+//                  Validate against known backup solution processes.
+// Threshold: Any stop or delete of VSS/wbengine from non-system process.
+// ============================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where ProcessCommandLine matches regex @"(?i)(vssadmin.*delete.*shadows|sc\s+stop\s+VSS|sc\s+stop\s+wbengine|wmic\s+shadowcopy\s+delete|bcdedit.*recoveryenabled|bcdedit.*bootstatuspolicy)"
+| extend
+    Severity = "Critical",
+    ThreatType = "BackupServiceTampering",
+    MitreAttack = "T1490,T1489",
+    TestID = "d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10"
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 8: Behavioral Correlation — Service Recon to Service Control
+// Confidence: High
+// MITRE ATT&CK: T1489, T1562.001
+// ============================================================
+// Purpose: High-fidelity multi-step correlation: a process that
+//          first enumerates security services via sc query then
+//          proceeds to stop or delete services within a 10-minute
+//          window. Covers the full attacker workflow.
+// False Positives: Extremely rare in production. Investigate all hits.
+// Threshold: Recon + control from same initiating process within 10 min.
+// ============================================================
+
+let Recon = DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has "query"
+| where ProcessCommandLine matches regex @"(?i)(WinDefend|wscsvc|VSS|wbengine|MsMpSvc|Sense|SecurityHealth)"
+| project ReconTime = TimeGenerated, DeviceName, InitiatingProcessId,
+    InitiatingProcessFileName, ReconCmd = ProcessCommandLine;
+
+let Control = DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName in~ ("sc.exe", "net.exe", "net1.exe", "taskkill.exe")
+| where ProcessCommandLine matches regex @"(?i)(stop|delete|config.*disabled|/f\s+/im)"
+| project ControlTime = TimeGenerated, DeviceName, InitiatingProcessId,
+    ControlCmd = ProcessCommandLine;
+
+Recon
+| join kind=inner Control on DeviceName, InitiatingProcessId
+| where ControlTime between (ReconTime .. (ReconTime + 10m))
+| summarize
+    ReconCmds = make_set(ReconCmd, 10),
+    ControlCmds = make_set(ControlCmd, 10),
+    FirstRecon = min(ReconTime),
+    FirstControl = min(ControlTime)
+    by DeviceName, InitiatingProcessId, InitiatingProcessFileName
+| extend
+    MinutesFromReconToControl = datetime_diff("minute", FirstControl, FirstRecon),
+    Severity = "Critical",
+    ThreatType = "ServiceReconToControl",
+    MitreAttack = "T1489,T1562.001",
+    TestID = "d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10"
+| project FirstRecon, DeviceName, InitiatingProcessFileName, ReconCmds, ControlCmds,
+    MinutesFromReconToControl, Severity, ThreatType, MitreAttack

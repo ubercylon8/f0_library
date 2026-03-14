@@ -1,0 +1,327 @@
+# ============================================================
+# LimaCharlie D&R Rules: PowerShell Execution & AMSI Bypass
+# Test ID: f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01
+# MITRE ATT&CK: T1059.001, T1140
+# Format: File format for `limacharlie dr add`
+# ============================================================
+
+rules:
+  # ============================================================
+  # Rule 1: PowerShell Encoded Command Execution
+  # Confidence: High
+  # MITRE: T1059.001, T1140
+  # Description: Detects powershell.exe launched with -EncodedCommand or
+  #   abbreviated -enc/-ec flags. Base64-encoded command execution is a
+  #   primary obfuscation technique used to hide malicious payloads from
+  #   command-line inspection and log analysis tools.
+  # False Positives: Legitimate management scripts using EncodedCommand,
+  #   SCCM/ConfigMgr tasks. Tune by adding parent process exceptions for
+  #   known management frameworks (ccmexec.exe, etc.).
+  # ============================================================
+  powershell-encoded-command-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "powershell.exe"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "pwsh.exe"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-EncodedCommand"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: " -enc "
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: " -ec "
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: ps-encoded-command-execution
+        metadata:
+          severity: high
+          description: "PowerShell launched with -EncodedCommand flag - T1059.001/T1140"
+          mitre_attack: "T1059.001, T1140"
+          author: "F0RT1KA"
+
+  # ============================================================
+  # Rule 2: PowerShell Hidden Window with Bypass Policy
+  # Confidence: High
+  # MITRE: T1059.001
+  # Description: Detects PowerShell with -WindowStyle Hidden combined with
+  #   -ExecutionPolicy Bypass. This combination is the most prevalent
+  #   attacker pattern for silent, unrestricted PowerShell execution.
+  # False Positives: Scheduled tasks, RMM tools, software installation.
+  #   Consider adding time-of-day restrictions or parent process context.
+  # ============================================================
+  powershell-hidden-window-bypass-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "powershell.exe"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "pwsh.exe"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-WindowStyle Hidden"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-w hidden"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-wi h"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-ExecutionPolicy Bypass"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-ep bypass"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-ep b"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: ps-hidden-window-bypass
+        metadata:
+          severity: high
+          description: "PowerShell with -WindowStyle Hidden and -ExecutionPolicy Bypass - T1059.001"
+          mitre_attack: "T1059.001"
+          author: "F0RT1KA"
+
+  # ============================================================
+  # Rule 3: PowerShell Download Cradle Pattern
+  # Confidence: High
+  # MITRE: T1059.001
+  # Description: Detects PowerShell command lines containing download methods
+  #   (Net.WebClient, Invoke-WebRequest) combined with in-memory execution
+  #   (IEX, Invoke-Expression). This is the canonical fileless execution
+  #   vector for initial access and post-exploitation tool loading.
+  # False Positives: PowerShell Gallery installs, custom deployment scripts
+  #   using internal WebClient calls. Tune with allowlisted URLs or parent
+  #   processes for software deployment systems.
+  # ============================================================
+  powershell-download-cradle-iex:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "powershell.exe"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "pwsh.exe"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Net.WebClient"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DownloadString"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DownloadFile"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Invoke-WebRequest"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "IEX"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Invoke-Expression"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: ps-download-cradle-iex
+        metadata:
+          severity: critical
+          description: "PowerShell download cradle with in-memory execution (IEX) - T1059.001"
+          mitre_attack: "T1059.001"
+          author: "F0RT1KA"
+
+  # ============================================================
+  # Rule 4: AMSI Bypass Indicator String in Script Execution
+  # Confidence: High
+  # MITRE: T1059.001
+  # Description: Detects PowerShell process command lines or script content
+  #   containing known AMSI bypass indicator strings. These strings are
+  #   characteristic of attempts to patch or disable AMSI before executing
+  #   malicious payloads. LimaCharlie captures script content via its
+  #   PowerShell script interception capability.
+  # False Positives: Security researchers, authorized red team exercises,
+  #   AV vendor testing scripts. Tune by user identity or source host.
+  # ============================================================
+  powershell-amsi-bypass-indicators:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "powershell.exe"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "pwsh.exe"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "AmsiScanBuffer"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "amsiInitFailed"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "AmsiUtils"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "System.Management.Automation.AmsiUtils"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "[Ref].Assembly.GetType"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: ps-amsi-bypass-attempt
+        metadata:
+          severity: critical
+          description: "AMSI bypass indicator strings detected in PowerShell command - T1059.001"
+          mitre_attack: "T1059.001"
+          author: "F0RT1KA"
+
+  # ============================================================
+  # Rule 5: PowerShell Suspicious Multi-Flag Combination
+  # Confidence: High
+  # MITRE: T1059.001
+  # Description: Detects PowerShell with three or more evasion-oriented flags
+  #   used together: -NoProfile, -NonInteractive, -ExecutionPolicy Bypass,
+  #   and -WindowStyle Hidden. Real-world attackers combine multiple flags
+  #   to minimize footprint; legitimate automation rarely needs all of them
+  #   simultaneously. Implemented as nested OR groups with AND logic.
+  # False Positives: Low - the specific combination of 3+ evasion flags is
+  #   rarely seen in legitimate operations.
+  # ============================================================
+  powershell-multi-evasion-flag-combination:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "powershell.exe"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "pwsh.exe"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-NoProfile"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-nop"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-NonInteractive"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-noni"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-ExecutionPolicy Bypass"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-ep bypass"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-WindowStyle Hidden"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-w hidden"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: ps-multi-evasion-flags
+        metadata:
+          severity: high
+          description: "PowerShell launched with multiple evasion flags simultaneously - T1059.001"
+          mitre_attack: "T1059.001"
+          author: "F0RT1KA"
