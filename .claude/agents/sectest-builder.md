@@ -169,7 +169,7 @@ run_in_background: true
 ```
 
 **Kill chain eligibility rules:**
-- **GENERATE** for multi-stage tests in `intel-driven/` or `phase-aligned/` (real attack simulations)
+- **GENERATE** for multi-stage tests in `intel-driven/` or `mitre-top10/` (real attack simulations)
 - **NEVER generate** for `cyber-hygiene/` tests — these are compliance validators, not attack killchains
 - **NEVER generate** for any test with subcategory `baseline`, `identity-tenant`, `identity-endpoint`, or category `cyber-hygiene`
 - **SKIP** for standard (non-multi-stage) tests regardless of category
@@ -220,7 +220,7 @@ This skill:
 After all 3 phases, the test directory contains:
 
 ```
-tests_source/intel-driven/<uuid>/
+tests_source/<category>/<uuid>/
 ├── <uuid>.go                       # Source code
 ├── stage-T*.go                     # Stage files (multi-stage only)
 ├── test_logger.go                  # Shared logger

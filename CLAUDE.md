@@ -142,7 +142,7 @@ File format vs Web UI format differ significantly in indentation and wrapper str
 ### Build Tests
 ```bash
 ./utils/gobuild build tests_source/intel-driven/<uuid>/    # Intel-driven tests
-./utils/gobuild build tests_source/phase-aligned/<uuid>/   # Phase-aligned tests
+./utils/gobuild build tests_source/cyber-hygiene/<uuid>/    # Cyber-hygiene tests
 ./utils/gobuild build-all                                   # Build all tests
 ```
 
@@ -163,8 +163,8 @@ powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
 tests_source/                 # All security tests
   ├── intel-driven/           # Tests from threat intelligence (APT reports, CVEs)
   │   └── <uuid>/             # Individual threat-based tests
-  └── phase-aligned/          # Tests organized by pentest phases (DORA/TIBER-EU)
-      └── <uuid>/             # Phase-aligned suite tests
+  └── mitre-top10/            # MITRE ATT&CK top 10 technique tests
+      └── <uuid>/             # Individual technique tests
 sample_tests/                 # Reference implementations
   └── multistage_template/    # Multi-stage test reference
 pentest_suites/               # Pentest readiness suite artifacts
@@ -180,7 +180,7 @@ utils/                        # Build and signing utilities
 |----------|----------|------------|---------|
 | Cyber-Hygiene | `tests_source/cyber-hygiene/` | `@agent-sectest-builder` | Endpoint and cloud identity configuration validation |
 | Intel-Driven | `tests_source/intel-driven/` | `@agent-sectest-builder` | Tests from threat intelligence, APT reports, CVEs |
-| Phase-Aligned | `tests_source/phase-aligned/` | `@agent-pentest-readiness-builder` | DORA/TIBER-EU pentest phase validation |
+| MITRE Top 10 | `tests_source/mitre-top10/` | `@agent-sectest-builder` | MITRE ATT&CK top 10 technique tests |
 
 ### Cyber-Hygiene Subcategories
 
@@ -219,7 +219,7 @@ Details: `docs/ARCHITECTURE.md`
 
 ## Elasticsearch Catalog Sync (MANDATORY for new tests)
 
-Test results in Elasticsearch are enriched with metadata from a catalog index. The sync script supports 4 test categories: `cyber-hygiene`, `intel-driven`, `mitre-top10`, `phase-aligned`.
+Test results in Elasticsearch are enriched with metadata from a catalog index. The sync script supports 3 test categories: `cyber-hygiene`, `intel-driven`, `mitre-top10`.
 
 ### 1. Include Metadata Header in Go File
 
@@ -425,7 +425,7 @@ Details: `docs/MULTISTAGE_QUICK_REFERENCE.md`
 | Need | Agent |
 |------|-------|
 | Test specific threat/technique | `@agent-sectest-builder` (orchestrates skills + sub-agents) |
-| Validate TIBER-EU phase readiness | `@agent-pentest-readiness-builder` |
+| Validate TIBER-EU phase readiness (on-demand) | `@agent-pentest-readiness-builder` |
 | Visualize attack flow (on-demand) | `@agent-attack-flow-diagram-builder` |
 | Visualize kill chain | `@agent-kill-chain-diagram-builder` (mandatory for multi-stage tests) |
 | Generate detection rules (standalone) | `@agent-sectest-detection-rules` |
