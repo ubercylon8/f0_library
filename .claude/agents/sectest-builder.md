@@ -159,18 +159,22 @@ run_in_background: true
 - `darwin`/`macos-endpoint` → `_hardening_macos.sh` only
 - Multiple targets or non-OS targets → all applicable scripts
 
-#### 4. Kill Chain Diagram (MANDATORY for Multi-Stage)
+#### 4. Kill Chain Diagram (Multi-Stage Attack Tests ONLY)
 
-**If architecture is multi-stage**, ALWAYS invoke:
+**If architecture is multi-stage AND the test simulates a real attack**, invoke:
 ```
 Agent: kill-chain-diagram-builder
 Prompt: "Generate a kill chain strip diagram for the test in <test_dir>"
 run_in_background: true
 ```
 
-**This is NOT optional for multi-stage tests.** Every multi-stage test must have a `kill_chain.html`.
+**Kill chain eligibility rules:**
+- **GENERATE** for multi-stage tests in `intel-driven/` or `phase-aligned/` (real attack simulations)
+- **NEVER generate** for `cyber-hygiene/` tests — these are compliance validators, not attack killchains
+- **NEVER generate** for any test with subcategory `baseline`, `identity-tenant`, `identity-endpoint`, or category `cyber-hygiene`
+- **SKIP** for standard (non-multi-stage) tests regardless of category
 
-For standard (non-multi-stage) tests, skip this agent.
+Kill chain diagrams model attack progression where each stage is a detection opportunity. Compliance checks have independent validators, not causal attack chains — blocking one check doesn't prevent the next.
 
 ---
 

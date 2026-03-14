@@ -36,11 +36,13 @@ Hardening scripts are only required for the test's target platform(s). Read the 
 | Multiple platforms | One script per target platform |
 | Non-OS targets (`entra-id`, `cloud-aws`, etc.) | All 3 hardening scripts |
 
-### Required Files (Multi-Stage Only)
+### Required Files (Multi-Stage Attack Tests Only)
+
+Kill chain diagrams are required for multi-stage tests that simulate real attacks (`intel-driven/`, `phase-aligned/`). They are **NOT** generated for compliance/hygiene tests (`cyber-hygiene/`, subcategories `baseline`, `identity-tenant`, `identity-endpoint`).
 
 | File | Created By | Purpose |
 |------|-----------|---------|
-| `kill_chain.html` | kill-chain-diagram-builder agent | Kill chain visualization |
+| `kill_chain.html` | kill-chain-diagram-builder agent | Kill chain visualization (attack tests only) |
 
 ### Verification Procedure
 
