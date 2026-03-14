@@ -1,0 +1,335 @@
+# ============================================================
+# Sigma Rules: Webshell Post-Exploitation Simulation
+# Test ID: c5f1d6e9-4a0b-1f8c-5d2e-9b0c1d2e3f09
+# MITRE ATT&CK: T1190, T1059.003
+# Platform: Windows
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+
+
+---
+# ============================================================
+# Rule 1: Web Server Process Spawning Command Shell
+# Confidence: High
+# MITRE ATT&CK: T1190
+# ============================================================
+title: Web Server Process Spawning Command Interpreter
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+status: experimental
+description: >
+    Detects web application worker processes (IIS w3wp.exe, Apache httpd.exe,
+    Tomcat, Java web containers, PHP, Python WSGI servers) spawning command
+    interpreters such as cmd.exe or PowerShell. This is a primary indicator
+    of webshell execution following exploitation of a public-facing application
+    (T1190). Attackers deploy webshells to maintain access and execute commands
+    through the web server process context.
+references:
+    - https://attack.mitre.org/techniques/T1190/
+    - https://www.microsoft.com/en-us/security/blog/2021/02/11/web-shell-attacks-continue-to-rise/
+    - https://media.defense.gov/2020/Jun/09/2002313081/-1/-1/0/CSI-DETECT-AND-PREVENT-WEB-SHELL-MALWARE-20200422.PDF
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.initial_access
+    - attack.t1190
+    - attack.execution
+    - attack.t1059.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_parent:
+        ParentImage|endswith:
+            - '\w3wp.exe'
+            - '\httpd.exe'
+            - '\tomcat.exe'
+            - '\tomcat9.exe'
+            - '\nginx.exe'
+            - '\java.exe'
+            - '\javaw.exe'
+            - '\php.exe'
+            - '\php-cgi.exe'
+            - '\python.exe'
+            - '\python3.exe'
+            - '\ruby.exe'
+            - '\node.exe'
+    selection_child:
+        Image|endswith:
+            - '\cmd.exe'
+            - '\powershell.exe'
+            - '\pwsh.exe'
+            - '\wscript.exe'
+            - '\cscript.exe'
+            - '\mshta.exe'
+            - '\rundll32.exe'
+            - '\regsvr32.exe'
+    condition: selection_parent and selection_child
+falsepositives:
+    - Legitimate deployment scripts triggered by CI/CD pipelines through application servers
+    - IIS application pool recycle scripts that invoke cmd.exe
+    - Java-based build tools (Maven, Gradle) spawning shell commands
+    - Whitelist known-good parent-child pairs specific to your environment
+level: high
+
+
+---
+# ============================================================
+# Rule 2: Rapid Reconnaissance Command Execution from Anomalous Parent
+# Confidence: High
+# MITRE ATT&CK: T1059.003
+# ============================================================
+title: Windows Discovery Commands Spawned by Web Server Process
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+status: experimental
+description: >
+    Detects native Windows reconnaissance commands (whoami, systeminfo,
+    ipconfig, netstat, tasklist, hostname) executed with characteristic
+    flags when the parent process is a web application server. This
+    behavioral pattern mirrors the post-exploitation reconnaissance phase
+    that webshells perform immediately after initial access to enumerate
+    the compromised system's context, network configuration, running
+    processes, and security software.
+references:
+    - https://attack.mitre.org/techniques/T1059/003/
+    - https://attack.mitre.org/techniques/T1190/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.t1059.003
+    - attack.initial_access
+    - attack.t1190
+    - attack.discovery
+    - attack.t1033
+    - attack.t1082
+    - attack.t1049
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_parent:
+        ParentImage|endswith:
+            - '\w3wp.exe'
+            - '\httpd.exe'
+            - '\tomcat.exe'
+            - '\java.exe'
+            - '\php.exe'
+            - '\php-cgi.exe'
+            - '\python.exe'
+            - '\nginx.exe'
+    selection_recon:
+        Image|endswith:
+            - '\whoami.exe'
+            - '\hostname.exe'
+            - '\ipconfig.exe'
+            - '\systeminfo.exe'
+            - '\netstat.exe'
+            - '\tasklist.exe'
+            - '\net.exe'
+            - '\net1.exe'
+            - '\nltest.exe'
+            - '\arp.exe'
+            - '\route.exe'
+            - '\nslookup.exe'
+    condition: selection_parent and selection_recon
+falsepositives:
+    - Automated application health checks that invoke system utilities
+    - Java application servers with built-in diagnostic commands
+    - Monitoring agents embedded in application containers
+level: high
+
+
+---
+# ============================================================
+# Rule 3: Whoami with Privilege Enumeration Flags
+# Confidence: High
+# MITRE ATT&CK: T1059.003
+# ============================================================
+title: Whoami Privilege and Group Enumeration
+id: c3d4e5f6-a7b8-9012-cdef-123456789012
+status: experimental
+description: >
+    Detects execution of whoami.exe with the /all, /priv, or /groups flags.
+    These flags enumerate the full security context including privileges and
+    group memberships, which attackers use after initial access to determine
+    what escalation paths are available. When this occurs from a service
+    account context, non-interactive session, or with a web server parent,
+    it strongly indicates post-exploitation reconnaissance (T1059.003).
+references:
+    - https://attack.mitre.org/techniques/T1059/003/
+    - https://attack.mitre.org/techniques/T1033/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.t1059.003
+    - attack.discovery
+    - attack.t1033
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith: '\whoami.exe'
+    selection_flags:
+        CommandLine|contains:
+            - '/all'
+            - '/priv'
+            - '/groups'
+            - '/fo'
+    filter_interactive:
+        # Optional: uncomment to limit to non-interactive sessions only
+        # LogonType: 2  # Interactive
+        ParentImage|endswith:
+            - '\explorer.exe'
+            - '\cmd.exe'
+    condition: selection_image and selection_flags and not filter_interactive
+falsepositives:
+    - Security engineers and administrators checking their own context
+    - Privilege escalation detection tools performing whoami checks
+    - Automated vulnerability scanners
+    - Tune by excluding specific administrator workstation names
+level: medium
+
+
+---
+# ============================================================
+# Rule 4: Sequential Discovery Commands in Short Time Window
+# Confidence: High
+# MITRE ATT&CK: T1059.003
+# ============================================================
+title: Multiple Windows Discovery Commands Executed in Rapid Succession
+id: d4e5f6a7-b8c9-0123-def0-234567890123
+status: experimental
+description: >
+    Detects execution of multiple native Windows reconnaissance commands
+    (whoami, ipconfig, systeminfo, netstat, tasklist) with their characteristic
+    argument flags used during webshell post-exploitation. The presence of
+    multiple discovery commands with the specific flags used by webshell
+    operators (whoami /all, ipconfig /all, netstat -an) is a high-fidelity
+    behavioral pattern that indicates automated post-exploitation activity
+    rather than interactive administrator use.
+references:
+    - https://attack.mitre.org/techniques/T1059/003/
+    - https://attack.mitre.org/techniques/T1082/
+    - https://attack.mitre.org/techniques/T1049/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.t1059.003
+    - attack.discovery
+    - attack.t1082
+    - attack.t1049
+    - attack.t1057
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_whoami_all:
+        Image|endswith: '\whoami.exe'
+        CommandLine|contains: '/all'
+    selection_ipconfig_all:
+        Image|endswith: '\ipconfig.exe'
+        CommandLine|contains: '/all'
+    selection_netstat_an:
+        Image|endswith: '\netstat.exe'
+        CommandLine|contains:
+            - '-an'
+            - '-ano'
+    selection_systeminfo:
+        Image|endswith: '\systeminfo.exe'
+    selection_tasklist:
+        Image|endswith: '\tasklist.exe'
+    # Note: Backend aggregation (ECS, Splunk correlation) should be used
+    # to detect 3+ of these conditions occurring within a 2-minute window
+    # on the same host. This rule flags the specific high-risk flag patterns.
+    condition: 1 of selection_*
+falsepositives:
+    - IT operations staff performing manual system audits
+    - Automated inventory collection scripts
+    - SIEM agent data collection
+    - Tune by correlating with parent process and logon type
+level: medium
+
+
+---
+# ============================================================
+# Rule 5: Outbound Network Connection from Web Server Worker Process
+# Confidence: High
+# MITRE ATT&CK: T1190
+# ============================================================
+title: Web Server Worker Process Initiating Outbound Network Connection
+id: e5f6a7b8-c9d0-1234-ef01-345678901234
+status: experimental
+description: >
+    Detects web application worker processes (IIS w3wp.exe, Apache httpd.exe,
+    Java web containers) initiating outbound network connections to external
+    IP addresses. Legitimate web server processes typically accept inbound
+    connections; outbound connections to arbitrary external endpoints indicate
+    webshell C2 callback behavior where the attacker's webshell sends
+    collected reconnaissance data or establishes a reverse channel.
+references:
+    - https://attack.mitre.org/techniques/T1190/
+    - https://attack.mitre.org/techniques/T1071/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.initial_access
+    - attack.t1190
+    - attack.command_and_control
+    - attack.t1071.001
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    selection_process:
+        Image|endswith:
+            - '\w3wp.exe'
+            - '\httpd.exe'
+            - '\tomcat.exe'
+            - '\tomcat9.exe'
+            - '\java.exe'
+            - '\javaw.exe'
+            - '\php.exe'
+            - '\php-cgi.exe'
+            - '\python.exe'
+            - '\node.exe'
+    selection_network:
+        Initiated: 'true'
+        DestinationPort:
+            - 80
+            - 443
+            - 8080
+            - 8443
+            - 4444
+            - 4445
+    filter_private:
+        DestinationIp|startswith:
+            - '10.'
+            - '172.16.'
+            - '172.17.'
+            - '172.18.'
+            - '172.19.'
+            - '172.20.'
+            - '172.21.'
+            - '172.22.'
+            - '172.23.'
+            - '172.24.'
+            - '172.25.'
+            - '172.26.'
+            - '172.27.'
+            - '172.28.'
+            - '172.29.'
+            - '172.30.'
+            - '172.31.'
+            - '192.168.'
+            - '127.'
+    condition: selection_process and selection_network and not filter_private
+falsepositives:
+    - Application health checks calling external monitoring services (Datadog, New Relic)
+    - License validation calls from server-side software
+    - Applications that legitimately proxy external requests
+    - Whitelist known-legitimate external endpoints per application in your environment
+level: high

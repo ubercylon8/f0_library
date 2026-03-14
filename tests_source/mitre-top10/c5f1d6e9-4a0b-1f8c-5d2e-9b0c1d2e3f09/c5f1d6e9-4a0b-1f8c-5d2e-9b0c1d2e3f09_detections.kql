@@ -1,0 +1,382 @@
+// ============================================================
+// Detection Rules: Webshell Post-Exploitation Simulation
+// Test ID: c5f1d6e9-4a0b-1f8c-5d2e-9b0c1d2e3f09
+// MITRE ATT&CK: T1190, T1059.003
+// Platform: Windows
+// ============================================================
+// These queries target the underlying attack technique behaviors:
+//   - Web server processes spawning command shells (T1190)
+//   - Sequential reconnaissance command execution (T1059.003)
+//   - Rapid discovery command chains from anomalous parents
+//   - Outbound HTTP POST beaconing from server processes
+// ============================================================
+
+
+// ============================================================
+// Query 1: Web Server Spawning Command Shell
+// Confidence: High
+// MITRE ATT&CK: T1190
+// ============================================================
+// Purpose: Detect web application processes (IIS, Apache, Tomcat, nginx workers)
+//          spawning cmd.exe or powershell.exe, a primary webshell execution indicator.
+// False Positives:
+//   - Legitimate deployment scripts triggered by CI/CD pipelines
+//   - IIS application pool recycle scripts
+//   - Tune by excluding known-good parent/child pairs in your environment
+// Threshold: Any single occurrence warrants investigation
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where InitiatingProcessFileName in~ (
+    "w3wp.exe",         // IIS worker process
+    "httpd.exe",        // Apache HTTP Server
+    "tomcat.exe",       // Apache Tomcat
+    "tomcat9.exe",
+    "nginx.exe",        // nginx
+    "java.exe",         // Java web containers (Tomcat, JBoss, WebLogic)
+    "javaw.exe",
+    "php.exe",          // PHP-FPM
+    "php-cgi.exe",
+    "python.exe",       // Django, Flask
+    "python3.exe",
+    "ruby.exe",         // Ruby on Rails
+    "node.exe"          // Node.js
+    )
+| where FileName in~ ("cmd.exe", "powershell.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "mshta.exe")
+| extend
+    Severity = "High",
+    ThreatType = "WebshellExecution",
+    MitreAttack = "T1190",
+    Description = "Web server process spawned a command interpreter - potential webshell execution"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    FileName,
+    ProcessCommandLine,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 2: Reconnaissance Command Chain from Web Server Context
+// Confidence: High
+// MITRE ATT&CK: T1059.003, T1190
+// ============================================================
+// Purpose: Detect the sequential execution of native Windows discovery tools
+//          (whoami, ipconfig, systeminfo, netstat, tasklist, hostname) when
+//          initiated by a web server process or when multiple commands appear
+//          within a short window on the same host.
+// False Positives:
+//   - Automated health-check scripts
+//   - IT operations tooling that collects system state
+//   - Tune by excluding known service accounts and scheduled task contexts
+// Threshold: 3 or more distinct discovery commands within 2 minutes from the same device
+// ============================================================
+let ReconCommands = dynamic(["whoami", "hostname", "ipconfig", "systeminfo", "netstat", "tasklist", "net", "arp", "route", "nltest", "dsquery"]);
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName in~ (ReconCommands) or ProcessCommandLine has_any (ReconCommands)
+| summarize
+    CommandCount = dcount(FileName),
+    CommandsExecuted = make_set(FileName),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    ParentProcesses = make_set(InitiatingProcessFileName),
+    AccountNames = make_set(AccountName)
+    by DeviceName, bin(TimeGenerated, 2m)
+| where CommandCount >= 3
+| extend
+    TimeWindowSeconds = datetime_diff('second', LastSeen, FirstSeen),
+    Severity = iff(CommandCount >= 5, "High", "Medium"),
+    ThreatType = "WebshellReconnaissance",
+    MitreAttack = "T1059.003",
+    Description = "Multiple reconnaissance commands executed in a short window - webshell discovery pattern"
+| project
+    TimeGenerated,
+    DeviceName,
+    CommandCount,
+    CommandsExecuted,
+    TimeWindowSeconds,
+    ParentProcesses,
+    AccountNames,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    Description
+
+
+// ============================================================
+// Query 3: Whoami with /all Flag - Privilege Enumeration
+// Confidence: High
+// MITRE ATT&CK: T1059.003
+// ============================================================
+// Purpose: Detect execution of whoami with the /all flag, which enumerates
+//          full user context including privileges and group memberships.
+//          Legitimate administrative use rarely includes /all from automated processes.
+// False Positives:
+//   - Security tooling and compliance scripts
+//   - Privilege escalation detection tools running whoami checks
+//   - Tune by excluding known administrator workstations and SIEM agent accounts
+// Threshold: Execution from non-interactive sessions or with suspicious parent processes
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName =~ "whoami.exe"
+| where ProcessCommandLine has "/all" or ProcessCommandLine has "/priv" or ProcessCommandLine has "/groups"
+| extend
+    IsWebServerParent = InitiatingProcessFileName in~ ("w3wp.exe", "httpd.exe", "tomcat.exe", "java.exe", "php.exe", "python.exe", "nginx.exe"),
+    IsShellParent = InitiatingProcessFileName in~ ("cmd.exe", "powershell.exe", "pwsh.exe"),
+    Severity = iff(InitiatingProcessFileName in~ ("w3wp.exe", "httpd.exe", "tomcat.exe", "java.exe", "php.exe"), "High", "Medium"),
+    ThreatType = "PrivilegeEnumeration",
+    MitreAttack = "T1059.003"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    AccountName,
+    IsWebServerParent,
+    IsShellParent,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 4: Rapid Sequential Discovery Commands (Temporal Chain)
+// Confidence: High
+// MITRE ATT&CK: T1059.003
+// ============================================================
+// Purpose: Detect the specific pattern of multiple distinct reconnaissance
+//          commands executed in rapid succession (within 60 seconds) - a
+//          hallmark of automated webshell post-exploitation scripts.
+// False Positives:
+//   - IT automation scripts (Ansible, Puppet, Chef running in sequence)
+//   - Incident response collection scripts
+//   - Tune by adding exclusions for known automation service accounts
+// Threshold: 4+ unique discovery commands within 60-second window
+// ============================================================
+let DiscoveryCommands = datatable(CmdName:string, CmdDesc:string)
+[
+    "whoami",    "User context",
+    "hostname",  "Host identification",
+    "ipconfig",  "Network config",
+    "systeminfo","System info",
+    "netstat",   "Network connections",
+    "tasklist",  "Process list",
+    "net",       "Network shares/users",
+    "arp",       "ARP table",
+    "route",     "Routing table"
+];
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| join kind=inner DiscoveryCommands on $left.FileName == $right.CmdName
+| summarize
+    UniqueCommands = dcount(FileName),
+    CommandList = make_set(FileName),
+    EarliestCmd = min(TimeGenerated),
+    LatestCmd = max(TimeGenerated),
+    ParentList = make_set(InitiatingProcessFileName)
+    by DeviceName, AccountName, bin(TimeGenerated, 1m)
+| where UniqueCommands >= 4
+| extend
+    SpanSeconds = datetime_diff('second', LatestCmd, EarliestCmd),
+    Severity = "High",
+    ThreatType = "WebshellReconnaissanceChain",
+    MitreAttack = "T1059.003",
+    Description = strcat("Webshell-like reconnaissance chain: ", tostring(UniqueCommands), " commands in ", tostring(datetime_diff('second', LatestCmd, EarliestCmd)), "s")
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    UniqueCommands,
+    CommandList,
+    SpanSeconds,
+    ParentList,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    Description
+
+
+// ============================================================
+// Query 5: Suspicious Outbound HTTP POST from Server Process
+// Confidence: High
+// MITRE ATT&CK: T1190
+// ============================================================
+// Purpose: Detect outbound HTTP/HTTPS connections from web server worker
+//          processes - a classic indicator of webshell C2 beaconing where
+//          the webshell uses the server process to exfiltrate data.
+// False Positives:
+//   - Application health checks calling external monitoring services
+//   - License validation calls from server-side software
+//   - Tune by whitelisting known legitimate external endpoints per application
+// Threshold: Any outbound connection from web server worker process to external IP
+// ============================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(24h)
+| where InitiatingProcessFileName in~ (
+    "w3wp.exe",
+    "httpd.exe",
+    "tomcat.exe",
+    "tomcat9.exe",
+    "java.exe",
+    "javaw.exe",
+    "php.exe",
+    "php-cgi.exe",
+    "python.exe",
+    "node.exe"
+    )
+| where RemotePort in (80, 443, 8080, 8443)
+| where not(ipv4_is_private(RemoteIP))
+| extend
+    Severity = "High",
+    ThreatType = "WebshellC2Callback",
+    MitreAttack = "T1190",
+    Description = "Web server worker process initiated outbound network connection - potential C2 callback"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    RemoteIP,
+    RemoteUrl,
+    RemotePort,
+    Protocol,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    Description
+
+
+// ============================================================
+// Query 6: Systeminfo Execution from Non-Interactive Context
+// Confidence: Medium
+// MITRE ATT&CK: T1059.003
+// ============================================================
+// Purpose: Flag systeminfo.exe execution from service or network logon contexts
+//          which is anomalous - legitimate admins run systeminfo from interactive sessions.
+// False Positives:
+//   - Endpoint management agents collecting inventory
+//   - SIEM log collection scripts
+//   - Tune by excluding known inventory management service accounts
+// Threshold: Execution under SYSTEM or network logon session
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName =~ "systeminfo.exe"
+| extend
+    IsServiceAccount = AccountName in~ ("SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE"),
+    IsWebServerParent = InitiatingProcessFileName in~ ("w3wp.exe", "httpd.exe", "tomcat.exe", "java.exe", "php-cgi.exe", "python.exe"),
+    IsScriptHost = InitiatingProcessFileName in~ ("wscript.exe", "cscript.exe", "mshta.exe")
+| where IsServiceAccount or IsWebServerParent or IsScriptHost
+| extend
+    Severity = iff(IsWebServerParent, "High", "Medium"),
+    ThreatType = "SuspiciousSystemInfoCollection",
+    MitreAttack = "T1059.003"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    IsWebServerParent,
+    IsScriptHost,
+    IsServiceAccount,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 7: Netstat Execution with -an Flags
+// Confidence: Medium
+// MITRE ATT&CK: T1059.003
+// ============================================================
+// Purpose: Detect netstat invoked with numeric flags to enumerate all active
+//          network connections, a common webshell reconnaissance step used
+//          to identify listening ports and lateral movement targets.
+// False Positives:
+//   - Network monitoring scripts
+//   - Security tools collecting connection state
+//   - Tune by excluding monitoring service accounts
+// Threshold: When combined with other discovery commands within the same session
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName =~ "netstat.exe"
+| where ProcessCommandLine has "-an" or ProcessCommandLine has "/an" or ProcessCommandLine has "-a" or ProcessCommandLine has "-n"
+| extend
+    IsWebServerParent = InitiatingProcessFileName in~ ("w3wp.exe", "httpd.exe", "tomcat.exe", "java.exe", "php.exe"),
+    HasAnFlag = ProcessCommandLine has "-an" or ProcessCommandLine has "/an",
+    Severity = iff(InitiatingProcessFileName in~ ("w3wp.exe", "httpd.exe", "tomcat.exe"), "High", "Low"),
+    ThreatType = "NetworkEnumeration",
+    MitreAttack = "T1059.003"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    IsWebServerParent,
+    HasAnFlag,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 8: Behavioral Correlation - Full Webshell Activity Pattern
+// Confidence: High (multi-indicator)
+// MITRE ATT&CK: T1190, T1059.003
+// ============================================================
+// Purpose: High-fidelity composite detection that correlates BOTH command execution
+//          AND outbound network activity originating from the same host within a
+//          short window - this tightly matches full webshell post-exploitation behavior
+//          (recon commands + C2 callback) and dramatically reduces false positives.
+// False Positives:
+//   - Very rare - requires both process execution pattern AND network beaconing
+//   - Possible with poorly written monitoring agents that run discovery + call home
+//   - Investigate all matches
+// Threshold: Any match warrants immediate investigation (Critical)
+// ============================================================
+let LookbackWindow = 10m;
+let ReconProcs = DeviceProcessEvents
+    | where TimeGenerated > ago(24h)
+    | where FileName in~ ("whoami", "hostname", "ipconfig", "systeminfo", "netstat", "tasklist")
+    | summarize ReconCount = dcount(FileName), ReconCmds = make_set(FileName), FirstRecon = min(TimeGenerated)
+        by DeviceName, bin(TimeGenerated, LookbackWindow);
+let NetworkCallbacks = DeviceNetworkEvents
+    | where TimeGenerated > ago(24h)
+    | where not(ipv4_is_private(RemoteIP))
+    | where RemotePort in (80, 443, 8080, 8443)
+    | summarize CallbackCount = count(), Destinations = make_set(RemoteUrl), FirstCallback = min(TimeGenerated)
+        by DeviceName, bin(TimeGenerated, LookbackWindow);
+ReconProcs
+| join kind=inner NetworkCallbacks on DeviceName, TimeGenerated
+| where ReconCount >= 3
+| extend
+    Severity = "Critical",
+    ThreatType = "WebshellPostExploitation",
+    MitreAttack = "T1190, T1059.003",
+    Description = strcat("CRITICAL: Webshell activity pattern - ", tostring(ReconCount), " recon commands + outbound callback to ", tostring(array_length(Destinations)), " destinations")
+| project
+    TimeGenerated,
+    DeviceName,
+    ReconCount,
+    ReconCmds,
+    FirstRecon,
+    CallbackCount,
+    Destinations,
+    FirstCallback,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    Description

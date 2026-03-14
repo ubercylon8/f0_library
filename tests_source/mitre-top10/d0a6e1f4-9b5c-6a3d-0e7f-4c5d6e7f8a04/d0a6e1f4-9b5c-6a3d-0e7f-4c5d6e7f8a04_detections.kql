@@ -1,0 +1,259 @@
+// ============================================================
+// Detection Suite: WMI Execution and Persistence
+// Test ID: d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04
+// MITRE ATT&CK: T1047 (Windows Management Instrumentation), T1546.003 (WMI Event Subscription)
+// Platform: Windows
+// ============================================================
+
+
+// ============================================================
+// Query 1: WMI Process Creation via Win32_Process::Create
+// Technique: T1047
+// Confidence: High
+// Purpose: Detects wmic.exe or any caller invoking Win32_Process::Create,
+//          the primary WMI execution primitive abused by attackers.
+// False Positives: Software deployment tools (SCCM, Ansible), admin scripts
+//                  that legitimately invoke Win32_Process::Create. Tune by
+//                  excluding known parent processes (e.g., sccmclnt.exe,
+//                  msiexec.exe) and known authorized user accounts.
+// Threshold: Alert on 1+ occurrences; consider raising to 3+ for noisy envs.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where (FileName =~ "wmic.exe" or InitiatingProcessFileName =~ "wmiprvse.exe")
+| where ProcessCommandLine has_all ("process", "call", "create")
+   or ProcessCommandLine has_all ("process", "call", "create")
+| extend
+    Severity = "High",
+    ThreatType = "WMI Process Execution",
+    MitreAttack = "T1047",
+    TestID = "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04"
+| project TimeGenerated, DeviceName, AccountName, FileName,
+          ProcessCommandLine, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 2: wmic.exe Invoked with Suspicious Arguments
+// Technique: T1047
+// Confidence: High
+// Purpose: Broad detection for wmic.exe command-line patterns that map to
+//          known attacker tradecraft: process creation, shadow copy queries,
+//          remote node operations, and namespace traversal.
+// False Positives: IT automation using wmic.exe for asset inventory or
+//                  patch management. Tune by excluding known management
+//                  host DeviceNames or process parent chains.
+// Threshold: Alert on 1+ matches; correlated with other WMI activity = Critical.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "wmic.exe"
+| where ProcessCommandLine has "process call create"
+   or ProcessCommandLine has "shadowcopy"
+   or ProcessCommandLine has "/node:"
+   or (ProcessCommandLine has "process" and ProcessCommandLine has "list")
+   or ProcessCommandLine has "os get"
+| extend
+    Severity = "High",
+    ThreatType = "WMI Suspicious Command",
+    MitreAttack = "T1047",
+    TestID = "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04"
+| project TimeGenerated, DeviceName, AccountName, FileName,
+          ProcessCommandLine, InitiatingProcessFileName,
+          InitiatingProcessId, ProcessId, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 3: WMI Provider Host (wmiprvse.exe) Spawning Child Processes
+// Technique: T1047
+// Confidence: High
+// Purpose: Detects wmiprvse.exe acting as a parent process to spawn arbitrary
+//          executables — the hallmark of WMI-based lateral execution and
+//          in-host execution pivoting. Legitimate WMI operations rarely spawn
+//          interactive child processes.
+// False Positives: mofcomp.exe (MOF compilation), wbemtest.exe (admin queries),
+//                  scrcons.exe (script consumers). Tune exclusion list to match
+//                  your environment's known-good WMI consumers.
+// Threshold: Any non-allowlisted child process warrants investigation.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where InitiatingProcessFileName =~ "wmiprvse.exe"
+| where FileName !in~ ("mofcomp.exe", "wbemtest.exe", "scrcons.exe",
+                        "WmiPrvSE.exe", "unsecapp.exe")
+| extend
+    Severity = "High",
+    ThreatType = "WMI Child Process Spawned",
+    MitreAttack = "T1047",
+    TestID = "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04"
+| project TimeGenerated, DeviceName, AccountName,
+          FileName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 4: Shadow Copy Enumeration via WMI
+// Technique: T1047
+// Confidence: High
+// Purpose: Shadow copy enumeration is a pre-ransomware reconnaissance step.
+//          Attackers use wmic shadowcopy to identify backup volumes before
+//          issuing deletion commands. Detecting enumeration early provides
+//          ransomware pre-cursor alerting.
+// False Positives: Backup software (Veeam, Windows Backup) may enumerate
+//                  shadow copies. Exclude known backup process parent chains.
+// Threshold: Alert immediately — shadow copy enumeration has very low
+//            legitimate user-driven incidence.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "wmic.exe"
+| where ProcessCommandLine has "shadowcopy"
+| extend
+    Severity = "High",
+    ThreatType = "Pre-Ransomware WMI Shadow Copy Recon",
+    MitreAttack = "T1047",
+    TestID = "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04"
+| project TimeGenerated, DeviceName, AccountName, FileName,
+          ProcessCommandLine, InitiatingProcessFileName,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 5: WMI Event Subscription Registry Key Access
+// Technique: T1546.003
+// Confidence: Medium
+// Purpose: Detects registry read/write access to WMI Event Subscription
+//          infrastructure keys (ESS, CIMOM). Persistence via WMI Event
+//          Subscription leaves artifacts in these paths. Attackers also
+//          query these keys during reconnaissance to find existing hooks.
+// False Positives: Legitimate WMI administration tools, Windows Update
+//                  MOF compilation, some AV products scanning WMI namespace.
+//                  Review the accessing process name before alerting.
+// Threshold: Any WRITE to these paths is Critical; READ by non-system
+//            processes warrants review.
+// ============================================================
+DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where RegistryKey has @"SOFTWARE\Microsoft\Wbem\ESS"
+   or RegistryKey has @"SOFTWARE\Microsoft\WBEM\CIMOM"
+   or RegistryKey has "EventConsumer"
+   or RegistryKey has "EventFilter"
+   or RegistryKey has "__FilterToConsumerBinding"
+| extend
+    Severity = case(
+        ActionType == "RegistryValueSet", "Critical",
+        ActionType == "RegistryKeyCreated", "High",
+        "Medium"),
+    ThreatType = "WMI Event Subscription Registry Activity",
+    MitreAttack = "T1546.003",
+    TestID = "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04"
+| project TimeGenerated, DeviceName, AccountName, ActionType,
+          RegistryKey, RegistryValueName, RegistryValueData,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 6: WMI Namespace Enumeration via reg.exe or PowerShell
+// Technique: T1546.003
+// Confidence: Medium
+// Purpose: Attackers performing WMI Event Subscription reconnaissance
+//          will query the WBEM registry namespace via reg.exe or
+//          Get-WmiObject/Get-CimInstance PowerShell calls.
+// False Positives: Administrative scripts, monitoring agents querying WMI
+//                  service status. Validate the calling process context.
+// Threshold: Correlate with Phase 2/3 process creation patterns for higher
+//            confidence alerting.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where (FileName =~ "reg.exe" and ProcessCommandLine has "Wbem")
+   or (FileName =~ "powershell.exe"
+       and (ProcessCommandLine has "Win32_Process"
+            or ProcessCommandLine has "Get-WmiObject"
+            or ProcessCommandLine has "Invoke-WmiMethod"
+            or ProcessCommandLine has "Get-CimInstance"
+            or ProcessCommandLine has "New-CimInstance"
+            or ProcessCommandLine has "Register-WmiEvent"
+            or ProcessCommandLine has "ActiveScriptEventConsumer"
+            or ProcessCommandLine has "CommandLineEventConsumer"))
+| extend
+    Severity = "Medium",
+    ThreatType = "WMI Namespace Enumeration or Persistence",
+    MitreAttack = "T1546.003",
+    TestID = "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04"
+| project TimeGenerated, DeviceName, AccountName, FileName,
+          ProcessCommandLine, InitiatingProcessFileName,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 7: DCE/RPC Network Traffic on Port 135 from Non-Admin Hosts
+// Technique: T1047
+// Confidence: Medium
+// Purpose: Remote WMI over DCOM initiates via TCP port 135 (Endpoint Mapper).
+//          Unexpected outbound connections to port 135 from workstations
+//          indicate lateral movement via WMI or wmiexec-style tooling.
+// False Positives: Domain Controllers, management hosts, and monitoring
+//                  agents legitimately use port 135. Build an allowlist of
+//                  known management source IP ranges and exclude them.
+// Threshold: Alert on any workstation (non-server, non-DC) initiating
+//            outbound 135/TCP connections.
+// ============================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemotePort == 135
+| where ActionType == "ConnectionSuccess"
+| join kind=leftouter (
+    DeviceInfo
+    | where TimeGenerated > ago(1d)
+    | summarize arg_max(TimeGenerated, DeviceType) by DeviceName
+) on DeviceName
+| where DeviceType =~ "Workstation" or DeviceType == ""
+| extend
+    Severity = "Medium",
+    ThreatType = "Remote WMI / DCOM Lateral Movement",
+    MitreAttack = "T1047",
+    TestID = "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04"
+| project TimeGenerated, DeviceName, LocalIP, RemoteIP, RemotePort,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 8: Behavioral Correlation — Multi-Step WMI Attack Chain
+// Technique: T1047, T1546.003
+// Confidence: High
+// Purpose: High-fidelity rule correlating sequential WMI behaviors:
+//          process enumeration followed by process creation on the same host
+//          within a short window. This pattern of recon-then-execute is
+//          strongly indicative of attacker activity rather than automation.
+// False Positives: Near zero — legitimate tools do not enumerate processes
+//                  via wmic and then immediately create processes via WMI.
+// Threshold: Any match is actionable; treat as High priority incident.
+// ============================================================
+let WmiEnum = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "wmic.exe"
+| where ProcessCommandLine has "process" and ProcessCommandLine has "list"
+| project EnumTime = TimeGenerated, DeviceName, AccountName,
+          EnumCmdLine = ProcessCommandLine;
+let WmiCreate = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where (FileName =~ "wmic.exe" and ProcessCommandLine has "process call create")
+   or (InitiatingProcessFileName =~ "wmiprvse.exe"
+       and FileName !in~ ("mofcomp.exe", "unsecapp.exe", "scrcons.exe"))
+| project CreateTime = TimeGenerated, DeviceName, AccountName,
+          CreateCmdLine = ProcessCommandLine, SpawnedProcess = FileName;
+WmiEnum
+| join kind=inner WmiCreate on DeviceName
+| where CreateTime between (EnumTime .. (EnumTime + 5min))
+| extend
+    Severity = "High",
+    ThreatType = "WMI Recon-Then-Execute Chain",
+    MitreAttack = "T1047",
+    TestID = "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04"
+| project EnumTime, CreateTime, DeviceName, AccountName,
+          EnumCmdLine, CreateCmdLine, SpawnedProcess,
+          Severity, ThreatType, MitreAttack

@@ -1,0 +1,250 @@
+# ============================================================
+# Sigma Rule Suite: RDP Lateral Movement
+# Test ID: c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03
+# MITRE ATT&CK: T1021.001, T1555.004
+# Platform: Windows
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+
+---
+
+title: RDP Service Status Reconnaissance via sc.exe
+id: a7f3c91e-2b84-4d56-98ae-1f2c3d4e5678
+status: experimental
+description: >
+  Detects use of sc.exe to query the TermService (Remote Desktop Services) status.
+  Attackers enumerate RDP service state as a prerequisite for lateral movement via RDP.
+  This behavior is inherent to T1021.001 reconnaissance regardless of the tooling used.
+references:
+  - https://attack.mitre.org/techniques/T1021/001/
+  - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/sc-query
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.lateral_movement
+  - attack.t1021.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_binary:
+    Image|endswith: '\sc.exe'
+  selection_args:
+    CommandLine|contains|all:
+      - 'TermService'
+  selection_action:
+    CommandLine|contains:
+      - 'query'
+      - 'qc'
+  condition: selection_binary and selection_args and selection_action
+falsepositives:
+  - IT monitoring tools and helpdesk scripts that check service states
+  - SCCM/Intune compliance scripts
+  - Legitimate system administrators diagnosing Remote Desktop Services
+fields:
+  - Image
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+  - User
+level: medium
+
+---
+
+title: RDP Registry Configuration Enumeration
+id: b8e4d02f-3c95-4e67-a9bf-2d3e4f5a6789
+status: experimental
+description: >
+  Detects reg.exe querying Terminal Server registry keys to enumerate RDP
+  configuration, including whether RDP is enabled (fDenyTSConnections), Network
+  Level Authentication (UserAuthentication), and the listening port (PortNumber).
+  Attackers perform this reconnaissance to identify accessible RDP endpoints and
+  verify configuration before lateral movement.
+references:
+  - https://attack.mitre.org/techniques/T1021/001/
+  - https://www.elastic.co/guide/en/security/current/rdp-enabled-via-registry.html
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.lateral_movement
+  - attack.discovery
+  - attack.t1021.001
+  - attack.t1012
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_binary:
+    Image|endswith: '\reg.exe'
+  selection_query:
+    CommandLine|contains: 'query'
+  selection_rdp_keys:
+    CommandLine|contains:
+      - 'Terminal Server'
+      - 'TerminalServer'
+      - 'RDP-Tcp'
+      - 'fDenyTSConnections'
+      - 'UserAuthentication'
+  condition: selection_binary and selection_query and selection_rdp_keys
+falsepositives:
+  - Group Policy processing and ADMX template evaluation
+  - Automated compliance scanning tools (CIS Benchmark, Nessus)
+  - IT provisioning scripts that configure Remote Desktop
+fields:
+  - Image
+  - CommandLine
+  - ParentImage
+  - User
+level: medium
+
+---
+
+title: RDP Session Enumeration via qwinsta
+id: c9a5e13d-4d06-5f78-bac0-3e4f5a6b789c
+status: experimental
+description: >
+  Detects execution of qwinsta.exe (Query Session), the built-in Windows utility
+  for listing active Remote Desktop sessions. This is a common attacker step to
+  identify active RDP sessions on target systems for hijacking or impersonation.
+  High-fidelity indicator when executed by non-administrative or unusual parent
+  processes. The query.exe alias is also covered.
+references:
+  - https://attack.mitre.org/techniques/T1021/001/
+  - https://attack.mitre.org/techniques/T1049/
+  - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/qwinsta
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.lateral_movement
+  - attack.discovery
+  - attack.t1021.001
+  - attack.t1049
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_qwinsta:
+    Image|endswith:
+      - '\qwinsta.exe'
+      - '\query.exe'
+  selection_query_alias:
+    Image|endswith: '\query.exe'
+    CommandLine|contains: 'session'
+  filter_known_admin:
+    ParentImage|endswith:
+      - '\mmc.exe'
+      - '\tsadmin.exe'
+      - '\rdcman.exe'
+  condition: (selection_qwinsta or selection_query_alias) and not filter_known_admin
+falsepositives:
+  - Terminal Server administrators using qwinsta for session management
+  - Remote Desktop connection managers (RDCMan, mRemoteNG) enumerating sessions
+  - IT helpdesk tools performing session inventory
+fields:
+  - Image
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+  - User
+level: high
+
+---
+
+title: Windows Credential Manager Manipulation via cmdkey
+id: da6b24e4-5e17-6a89-cbd1-4f5a6b7c8d90
+status: experimental
+description: >
+  Detects cmdkey.exe being used to add or list credentials stored in Windows
+  Credential Manager. Attackers use cmdkey /add to pre-stage credentials (username
+  and password) for target systems before initiating RDP or SMB connections,
+  effectively bypassing interactive authentication prompts. This directly
+  corresponds to T1555.004 (Credentials from Password Stores: Windows Credential
+  Manager).
+references:
+  - https://attack.mitre.org/techniques/T1555/004/
+  - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/cmdkey
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.credential_access
+  - attack.t1555.004
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_binary:
+    Image|endswith: '\cmdkey.exe'
+  selection_add:
+    CommandLine|contains:
+      - '/add:'
+      - '-add:'
+  selection_list:
+    CommandLine|contains:
+      - '/list'
+      - '-list'
+  selection_with_credentials:
+    CommandLine|contains|all:
+      - '/user:'
+      - '/pass:'
+  condition: selection_binary and (selection_add or selection_list or selection_with_credentials)
+falsepositives:
+  - Legitimate helpdesk tooling storing service account credentials for automated tasks
+  - Deployment scripts that pre-configure RDP credentials for managed endpoints
+  - Windows 365 / Azure Virtual Desktop onboarding scripts
+fields:
+  - Image
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+  - User
+level: high
+
+---
+
+title: RDP Enabled via Registry Modification
+id: eb7c35f5-6f28-7b9a-dce2-5a6b7c8d9e0f
+status: experimental
+description: >
+  Detects registry modifications that enable Remote Desktop Protocol by setting
+  the fDenyTSConnections value to 0, or that weaken RDP security by disabling
+  Network Level Authentication (UserAuthentication = 0). Attackers enable RDP on
+  compromised hosts to establish persistent remote access channels.
+references:
+  - https://attack.mitre.org/techniques/T1021/001/
+  - https://www.elastic.co/guide/en/security/current/rdp-enabled-via-registry.html
+  - https://attack.mitre.org/techniques/T1112/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+  - attack.lateral_movement
+  - attack.defense_evasion
+  - attack.t1021.001
+  - attack.t1112
+logsource:
+  category: registry_event
+  product: windows
+detection:
+  selection_rdp_enable:
+    TargetObject|contains: '\Control\Terminal Server'
+    TargetObject|endswith: '\fDenyTSConnections'
+    Details: 'DWORD (0x00000000)'
+  selection_nla_disable:
+    TargetObject|contains: '\Control\Terminal Server\WinStations\RDP-Tcp'
+    TargetObject|endswith: '\UserAuthentication'
+    Details: 'DWORD (0x00000000)'
+  filter_gpo:
+    Image|endswith:
+      - '\svchost.exe'
+      - '\lsass.exe'
+  condition: (selection_rdp_enable or selection_nla_disable) and not filter_gpo
+falsepositives:
+  - Group Policy applying RDP configuration changes on domain-joined systems
+  - VDI provisioning workflows enabling RDP on fresh VM images
+  - System administrators enabling RDP via registry for management purposes
+fields:
+  - TargetObject
+  - Details
+  - Image
+  - User
+level: high

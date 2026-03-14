@@ -1,0 +1,251 @@
+# ============================================================
+# Sigma Rules: WMI Execution and Persistence
+# Test ID: d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04
+# MITRE ATT&CK: T1047 (WMI), T1546.003 (WMI Event Subscription)
+# Platform: Windows
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+---
+
+# ============================================================
+# Rule 1: WMI Process Creation via wmic.exe
+# ============================================================
+title: WMI Process Creation via wmic.exe
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+status: experimental
+description: >
+    Detects wmic.exe invoked with "process call create" arguments, the
+    command-line equivalent of Win32_Process::Create. This pattern is used
+    by attackers to spawn processes through WMI to evade parent-child process
+    chain detections and bypass application whitelisting controls that do not
+    monitor WMI execution paths.
+references:
+    - https://attack.mitre.org/techniques/T1047/
+    - https://redcanary.com/threat-detection-report/techniques/windows-management-instrumentation/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.t1047
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains|all:
+            - 'process'
+            - 'call'
+            - 'create'
+    condition: selection
+falsepositives:
+    - Software deployment systems (SCCM, Puppet, Ansible) invoking wmic for managed installs
+    - Administrative scripts performing legitimate process automation
+    - IT asset management tooling
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+    - ParentCommandLine
+    - User
+level: high
+
+---
+
+# ============================================================
+# Rule 2: wmiprvse.exe Spawning Suspicious Child Processes
+# ============================================================
+title: WMI Provider Host Spawning Unexpected Child Process
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+status: experimental
+description: >
+    Detects the WMI Provider Host process (wmiprvse.exe) spawning child processes
+    that are not part of normal WMI administrative operations. When an attacker
+    uses WMI to execute commands (via Win32_Process::Create or WMI event subscription
+    consumers), wmiprvse.exe becomes the parent of the spawned process. This parent-child
+    relationship is an OS-level artifact that cannot be spoofed regardless of the tool used.
+references:
+    - https://attack.mitre.org/techniques/T1047/
+    - https://www.sans.org/blog/detecting-wmi-abuse/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.t1047
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        ParentImage|endswith: '\wmiprvse.exe'
+    filter_legitimate:
+        Image|endswith:
+            - '\mofcomp.exe'
+            - '\unsecapp.exe'
+            - '\scrcons.exe'
+            - '\wbemtest.exe'
+            - '\wmiprvse.exe'
+    condition: selection and not filter_legitimate
+falsepositives:
+    - Legitimate WMI-based management software (monitoring agents, backup tools)
+    - Windows Defender and other AV products that trigger WMI event consumers
+    - Some Windows Update operations during patching
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+    - ParentCommandLine
+    - User
+level: high
+
+---
+
+# ============================================================
+# Rule 3: WMI Shadow Copy Enumeration (Pre-Ransomware Indicator)
+# ============================================================
+title: WMI Shadow Copy Enumeration via wmic.exe
+id: c3d4e5f6-a7b8-9012-cdef-123456789012
+status: experimental
+description: >
+    Detects wmic.exe querying shadow copy information via the Win32_ShadowCopy WMI
+    class. Shadow copy enumeration is a well-established pre-ransomware reconnaissance
+    step performed by most ransomware families (Ryuk, Conti, LockBit, BlackCat) before
+    deleting backups. Detecting enumeration provides an early warning before the
+    destructive deletion phase begins.
+references:
+    - https://attack.mitre.org/techniques/T1047/
+    - https://attack.mitre.org/techniques/T1490/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.t1047
+    - attack.impact
+    - attack.t1490
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains: 'shadowcopy'
+    condition: selection
+falsepositives:
+    - Backup software (Veeam, Windows Backup, Acronis) enumerating shadow copies
+    - Storage administrators performing capacity planning
+    - System health monitoring scripts
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+    - User
+level: high
+
+---
+
+# ============================================================
+# Rule 4: WMI Event Subscription Persistence Creation
+# ============================================================
+title: WMI Event Subscription Persistence Registration
+id: d4e5f6a7-b8c9-0123-defa-234567890123
+status: experimental
+description: >
+    Detects creation of WMI event subscription persistence components: EventFilter,
+    EventConsumer (CommandLineEventConsumer or ActiveScriptEventConsumer), and
+    FilterToConsumerBinding. These three objects together form a complete WMI persistence
+    mechanism that survives reboots and operates entirely within the WMI repository without
+    touching the filesystem. This technique is used by APT29, MuddyWater, and numerous
+    other threat actors for stealthy persistence.
+references:
+    - https://attack.mitre.org/techniques/T1546/003/
+    - https://in.security/apt-simulator/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.persistence
+    - attack.t1546.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    # PowerShell-based WMI subscription creation
+    selection_ps:
+        Image|endswith: '\powershell.exe'
+        CommandLine|contains:
+            - '__EventFilter'
+            - 'CommandLineEventConsumer'
+            - 'ActiveScriptEventConsumer'
+            - '__FilterToConsumerBinding'
+            - 'Register-WmiEvent'
+    # mofcomp.exe compiling a MOF file with subscription data
+    selection_mof:
+        Image|endswith: '\mofcomp.exe'
+        CommandLine|contains:
+            - '.mof'
+    # WMI command-line tool registering subscriptions
+    selection_wmic:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains:
+            - 'subscription'
+    condition: selection_ps or selection_mof or selection_wmic
+falsepositives:
+    - Legitimate WMI event consumers registered by monitoring products (Zabbix, SCOM)
+    - Windows Management Framework updates compiling MOF files
+    - Enterprise management solutions that use WMI eventing
+fields:
+    - Image
+    - CommandLine
+    - ParentImage
+    - User
+level: high
+
+---
+
+# ============================================================
+# Rule 5: Remote WMI Execution via DCOM (Outbound Port 135)
+# ============================================================
+title: Outbound DCE/RPC Connection for Remote WMI Execution
+id: e5f6a7b8-c9d0-1234-efab-345678901234
+status: experimental
+description: >
+    Detects workstation processes initiating outbound TCP connections to port 135
+    (DCE/RPC Endpoint Mapper), which is the initiation protocol for remote WMI over
+    DCOM. Remote WMI execution tools (Impacket wmiexec, wmiexec-Pro, CrackMapExec,
+    Metasploit) all initiate connections on this port before spawning processes on
+    remote targets. Legitimate workstation-to-workstation port 135 connections are
+    rare in most enterprise environments.
+references:
+    - https://attack.mitre.org/techniques/T1047/
+    - https://github.com/XiaoliChan/wmiexec-Pro
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.execution
+    - attack.lateral_movement
+    - attack.t1047
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    selection:
+        DestinationPort: 135
+        Initiated: 'true'
+    filter_system:
+        Image|endswith:
+            - '\svchost.exe'
+            - '\services.exe'
+            - '\lsass.exe'
+            - '\spoolsv.exe'
+    condition: selection and not filter_system
+falsepositives:
+    - Domain controllers and management servers legitimately making DCOM/RPC calls
+    - Windows Update and patch management infrastructure
+    - Monitoring agents using WMI for remote data collection
+    - Network printing operations
+fields:
+    - Image
+    - DestinationIp
+    - DestinationPort
+    - User
+level: medium

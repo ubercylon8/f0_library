@@ -1,0 +1,284 @@
+// ============================================================
+// Detection Suite: RDP Lateral Movement
+// Test ID: c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03
+// MITRE ATT&CK: T1021.001, T1555.004
+// Platform: Windows
+// ============================================================
+// Coverage:
+//   1. RDP service status reconnaissance (sc query TermService)
+//   2. RDP registry configuration enumeration (reg query)
+//   3. RDP session enumeration (qwinsta)
+//   4. Windows Credential Manager manipulation via cmdkey
+//   5. SharpRDP headless tool execution
+//   6. RDP service enabled via registry modification
+//   7. Network-level RDP access patterns
+//   8. Behavioral correlation: multi-step RDP recon chain
+// ============================================================
+
+
+// ============================================================
+// Query 1: RDP Service Status Reconnaissance
+// Technique: T1021.001 (Remote Services: RDP)
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect processes querying the TermService (Remote Desktop) service
+//          status via sc.exe, a common attacker recon step before RDP abuse.
+// False Positives: Helpdesk scripts, IT monitoring tools (SCCM, Qualys),
+//                  sysadmin diagnostics. Tune by excluding known IT parent processes.
+// Threshold: Alert on 2+ occurrences from same host within 10 minutes if
+//            parent process is not a known management binary.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has_any ("TermService", "termservice", "Remote Desktop Services")
+| where ProcessCommandLine has_any ("query", "qc", "start", "stop", "config")
+| extend
+    Severity = "Medium",
+    ThreatType = "RDP-Reconnaissance",
+    MitreAttack = "T1021.001",
+    TestID = "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, ProcessCommandLine, FileName,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 2: RDP Registry Configuration Enumeration
+// Technique: T1021.001 (Remote Services: RDP)
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect reg.exe querying Terminal Server registry keys to enumerate
+//          RDP configuration (enabled/disabled, NLA, port). Attackers use this
+//          to verify RDP is accessible before lateral movement.
+// False Positives: Group Policy processing, Windows configuration auditing tools,
+//                  automated compliance scanning.
+// Threshold: Single occurrence outside business hours from non-admin accounts
+//            warrants investigation.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "reg.exe"
+| where ProcessCommandLine has "query"
+| where ProcessCommandLine has_any (
+    "Terminal Server",
+    "TerminalServer",
+    "RDP-Tcp",
+    "fDenyTSConnections",
+    "UserAuthentication",
+    @"Control\Terminal"
+  )
+| extend
+    Severity = "Medium",
+    ThreatType = "RDP-Reconnaissance",
+    MitreAttack = "T1021.001",
+    TestID = "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, FileName,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 3: RDP Session Enumeration via qwinsta
+// Technique: T1021.001 (Remote Services: RDP)
+// Confidence: High
+// ============================================================
+// Purpose: Detect execution of qwinsta.exe (query session), a built-in Windows
+//          tool for listing active Remote Desktop sessions. High-fidelity indicator
+//          of RDP reconnaissance, particularly when run by non-admin users or
+//          unusual parent processes.
+// False Positives: IT administrators performing routine session management,
+//                  terminal server capacity monitoring scripts.
+// Threshold: High confidence when qwinsta is spawned by a non-standard parent
+//            (not explorer.exe, mmc.exe, or known management tools).
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "qwinsta.exe"
+| extend
+    SuspiciousParent = InitiatingProcessFileName !in~ (
+        "explorer.exe", "mmc.exe", "tsadmin.exe",
+        "svchost.exe", "cmd.exe", "powershell.exe"
+    )
+| extend
+    Severity = case(SuspiciousParent, "High", "Medium"),
+    ThreatType = "RDP-Session-Enumeration",
+    MitreAttack = "T1021.001",
+    TestID = "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, ProcessCommandLine, FileName,
+          SuspiciousParent, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 4: Windows Credential Manager Manipulation via cmdkey
+// Technique: T1555.004 (Credentials from Password Stores: Windows Credential Manager)
+// Confidence: High
+// ============================================================
+// Purpose: Detect cmdkey.exe invocations that add, list, or delete stored
+//          credentials. Attackers use cmdkey /add to store credentials for
+//          subsequent RDP or SMB connections, and /list to harvest existing
+//          stored credentials.
+// False Positives: Legitimate helpdesk scripts storing service account credentials,
+//                  automated deployment tooling. /list is lower fidelity than /add.
+// Threshold: cmdkey /add with explicit username and password arguments is
+//            high-confidence malicious activity.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "cmdkey.exe"
+| where ProcessCommandLine has_any ("/add", "/list", "/delete", "-add", "-list")
+| extend
+    IsCredentialAdd = ProcessCommandLine has "/add",
+    IsCredentialList = ProcessCommandLine has "/list",
+    HasExplicitPassword = ProcessCommandLine has "/pass"
+| extend
+    Severity = case(
+        IsCredentialAdd and HasExplicitPassword, "High",
+        IsCredentialAdd, "High",
+        IsCredentialList, "Medium",
+        "Low"
+    ),
+    ThreatType = "Credential-Manager-Manipulation",
+    MitreAttack = "T1555.004",
+    TestID = "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, FileName, IsCredentialAdd, IsCredentialList,
+          HasExplicitPassword, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 5: SharpRDP Headless RDP Tool Execution
+// Technique: T1021.001 (Remote Services: RDP)
+// Confidence: High
+// ============================================================
+// Purpose: Detect the execution of SharpRDP, an offensive .NET tool that
+//          performs headless RDP command execution without spawning a graphical
+//          session. The "computername=" argument syntax is characteristic of
+//          this tool's command-line interface.
+// False Positives: Legitimate red team exercises (coordinate with blue team).
+//                  Almost no legitimate administrative use case.
+// Threshold: Any single execution warrants immediate investigation.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "SharpRDP.exe"
+    or ProcessCommandLine has_any ("computername=", "restricted=true", "exec=powershell")
+| extend
+    Severity = "Critical",
+    ThreatType = "RDP-Offensive-Tool",
+    MitreAttack = "T1021.001",
+    TestID = "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, FileName,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 6: RDP Enabled via Registry Modification
+// Technique: T1021.001 (Remote Services: RDP)
+// Confidence: High
+// ============================================================
+// Purpose: Detect registry modifications that enable RDP by setting
+//          fDenyTSConnections to 0 or disabling Network Level Authentication.
+//          Attackers commonly enable RDP to establish persistent remote access
+//          on compromised hosts where it is initially disabled.
+// False Positives: System administrators enabling RDP via GPO or scripts,
+//                  VDI provisioning workflows.
+// Threshold: Single occurrence outside documented change windows is high-priority.
+// ============================================================
+DeviceRegistryEvents
+| where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
+| where RegistryKey has_any (
+    @"SYSTEM\CurrentControlSet\Control\Terminal Server",
+    @"Control\Terminal Server\WinStations\RDP-Tcp"
+  )
+| where RegistryValueName in~ ("fDenyTSConnections", "UserAuthentication", "PortNumber")
+| extend
+    IsRDPEnable = RegistryValueName =~ "fDenyTSConnections" and RegistryValueData == "0",
+    IsNLADisable = RegistryValueName =~ "UserAuthentication" and RegistryValueData == "0"
+| extend
+    Severity = case(IsRDPEnable, "High", IsNLADisable, "High", "Medium"),
+    ThreatType = "RDP-Configuration-Change",
+    MitreAttack = "T1021.001",
+    TestID = "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          RegistryKey, RegistryValueName, RegistryValueData,
+          IsRDPEnable, IsNLADisable, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 7: Inbound RDP Network Connection (Port 3389)
+// Technique: T1021.001 (Remote Services: RDP)
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect inbound network connections on the default RDP port (3389)
+//          or non-standard RDP ports discovered during registry enumeration.
+//          Correlates network activity with host-based reconnaissance.
+// False Positives: Legitimate remote administration by IT staff, jump server
+//                  environments, VDI environments. High false positive rate
+//                  without additional context filtering.
+// Threshold: Correlate with preceding RDP recon activity (Queries 1-4) from
+//            same source IP for higher confidence.
+// ============================================================
+DeviceNetworkEvents
+| where ActionType == "InboundConnectionAccepted"
+| where LocalPort == 3389
+    or (LocalPort > 1024 and ProcessId != 0
+        and InitiatingProcessFileName =~ "svchost.exe")
+| extend
+    Severity = "Medium",
+    ThreatType = "RDP-Network-Activity",
+    MitreAttack = "T1021.001",
+    TestID = "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03"
+| project TimeGenerated, DeviceName, LocalIP, LocalPort, RemoteIP, RemotePort,
+          InitiatingProcessFileName, ActionType,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Query 8: Behavioral Correlation — Multi-Step RDP Recon Chain
+// Techniques: T1021.001, T1555.004
+// Confidence: High
+// ============================================================
+// Purpose: High-confidence detection correlating multiple RDP-related behaviors
+//          within a 30-minute window from the same host. The sequential execution
+//          of sc.exe (TermService query) + reg.exe (Terminal Server keys) +
+//          qwinsta + cmdkey is a strong indicator of RDP lateral movement
+//          preparation, regardless of the initiating process.
+// False Positives: Rare. May occur during automated IT audits. Exclude known
+//                  audit tool hashes from InitiatingProcessSHA256.
+// Threshold: 3+ distinct indicators from the list within 30 minutes on the
+//            same device warrants immediate triage.
+// ============================================================
+let RDPReconWindow = 30min;
+let RDPReconEvents =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(1h)
+    | where (FileName =~ "sc.exe" and ProcessCommandLine has "TermService")
+        or (FileName =~ "reg.exe" and ProcessCommandLine has_any ("Terminal Server", "RDP-Tcp", "fDenyTSConnections"))
+        or (FileName =~ "qwinsta.exe")
+        or (FileName =~ "cmdkey.exe" and ProcessCommandLine has_any ("/add", "/list"))
+        or (FileName =~ "SharpRDP.exe")
+    | extend IndicatorType = case(
+        FileName =~ "sc.exe", "RDP-Service-Query",
+        FileName =~ "reg.exe", "RDP-Registry-Query",
+        FileName =~ "qwinsta.exe", "RDP-Session-Enum",
+        FileName =~ "cmdkey.exe", "Credential-Manager-Abuse",
+        FileName =~ "SharpRDP.exe", "RDP-Offensive-Tool",
+        "Unknown"
+      );
+RDPReconEvents
+| summarize
+    DistinctIndicators = dcount(IndicatorType),
+    IndicatorList = make_set(IndicatorType),
+    EventCount = count(),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    Accounts = make_set(AccountName),
+    CommandLines = make_set(ProcessCommandLine)
+  by DeviceName, bin(TimeGenerated, RDPReconWindow)
+| where DistinctIndicators >= 2
+| extend
+    Severity = case(DistinctIndicators >= 4, "Critical", DistinctIndicators >= 3, "High", "Medium"),
+    ThreatType = "RDP-LateralMovement-Chain",
+    MitreAttack = "T1021.001, T1555.004",
+    TestID = "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03"
+| project FirstSeen, LastSeen, DeviceName, DistinctIndicators, IndicatorList,
+          EventCount, Accounts, CommandLines,
+          Severity, ThreatType, MitreAttack

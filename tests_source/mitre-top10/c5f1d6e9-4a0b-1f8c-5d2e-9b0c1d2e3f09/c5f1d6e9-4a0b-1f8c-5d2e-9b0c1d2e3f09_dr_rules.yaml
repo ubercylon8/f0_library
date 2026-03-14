@@ -1,0 +1,377 @@
+# ============================================================
+# LimaCharlie D&R Rules: Webshell Post-Exploitation Simulation
+# Test ID: c5f1d6e9-4a0b-1f8c-5d2e-9b0c1d2e3f09
+# MITRE ATT&CK: T1190, T1059.003
+# Platform: Windows
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# Format: FILE FORMAT (for use with `limacharlie dr add`)
+# ============================================================
+# These rules target underlying attack technique behaviors:
+#   - Web server processes spawning command interpreters (T1190)
+#   - Native reconnaissance commands with characteristic flags (T1059.003)
+#   - Outbound C2 network connections from server processes (T1190)
+#   - Multi-indicator correlation of full webshell activity pattern
+# ============================================================
+
+
+rules:
+
+  # ============================================================
+  # Rule 1: Web Server Process Spawning Command Shell
+  # Confidence: High
+  # MITRE ATT&CK: T1190
+  # Description: Detects IIS (w3wp.exe), Apache (httpd.exe), Tomcat,
+  #              Java web containers, PHP, and Python WSGI servers
+  #              spawning cmd.exe or PowerShell. This is the primary
+  #              webshell execution indicator - web processes should
+  #              not spawn interactive shells.
+  # ============================================================
+  webshell-web-server-spawns-cmd-shell:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "w3wp.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "httpd.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "tomcat.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "tomcat9.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "nginx.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "java.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "javaw.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "php.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "php-cgi.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "python.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "python3.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "node.exe"
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "cmd.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "powershell.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "pwsh.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "wscript.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "cscript.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "mshta.exe"
+
+    respond:
+      - action: report
+        name: WEBSHELL - Web Server Process Spawned Command Shell
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre_technique: T1190
+          mitre_tactic: initial-access
+          confidence: high
+          severity: high
+          description: >
+            A web application server process spawned a command interpreter.
+            This is a primary indicator of webshell execution following
+            exploitation of a public-facing application (T1190).
+
+
+  # ============================================================
+  # Rule 2: Discovery Commands Spawned by Web Server
+  # Confidence: High
+  # MITRE ATT&CK: T1059.003, T1082, T1049, T1057
+  # Description: Detects native Windows reconnaissance tools executed
+  #              when their parent is a web application server process.
+  #              Webshells run whoami, ipconfig, systeminfo, netstat,
+  #              and tasklist to enumerate the compromised environment.
+  # ============================================================
+  webshell-recon-commands-from-web-server:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "w3wp.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "httpd.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "tomcat.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "tomcat9.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "java.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "php.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "php-cgi.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "python.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "nginx.exe"
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "whoami.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "hostname.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "ipconfig.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "systeminfo.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "netstat.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "tasklist.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "nltest.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "arp.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "route.exe"
+
+    respond:
+      - action: report
+        name: WEBSHELL - Reconnaissance Command Spawned by Web Server Process
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre_technique: T1059.003
+          mitre_tactic: execution
+          confidence: high
+          severity: high
+          description: >
+            A native Windows reconnaissance command was spawned by a web
+            application server process. This matches the post-exploitation
+            reconnaissance phase of webshell activity (T1059.003).
+
+
+  # ============================================================
+  # Rule 3: Whoami with Privilege Enumeration Flags
+  # Confidence: High
+  # MITRE ATT&CK: T1059.003, T1033
+  # Description: Detects whoami.exe executed with /all or /priv flags.
+  #              These flags enumerate full user context including all
+  #              privileges and group memberships, which attackers use
+  #              to identify escalation paths post-initial-access.
+  # ============================================================
+  webshell-whoami-privilege-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "whoami.exe"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/all"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/priv"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/groups"
+
+    respond:
+      - action: report
+        name: WEBSHELL - Whoami Privilege and Group Enumeration
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre_technique: T1059.003
+          mitre_tactic: execution
+          confidence: high
+          severity: medium
+          description: >
+            whoami.exe was executed with full privilege enumeration flags.
+            This is used by attackers post-initial-access to determine
+            available escalation paths and group memberships (T1033).
+
+
+  # ============================================================
+  # Rule 4: Outbound Connection from Web Server Worker Process
+  # Confidence: High
+  # MITRE ATT&CK: T1190, T1071.001
+  # Description: Detects web application worker processes initiating
+  #              outbound TCP connections. Web server processes should
+  #              accept inbound connections; outbound connections to
+  #              external hosts indicate webshell C2 callback activity.
+  # ============================================================
+  webshell-c2-callback-from-web-server:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "w3wp.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "httpd.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "tomcat.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "tomcat9.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "java.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "javaw.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "php.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "php-cgi.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "python.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "node.exe"
+        - op: is
+          path: event/IS_OUTGOING
+          value: true
+        - op: or
+          rules:
+            - op: is
+              path: event/DST_PORT
+              value: 80
+            - op: is
+              path: event/DST_PORT
+              value: 443
+            - op: is
+              path: event/DST_PORT
+              value: 8080
+            - op: is
+              path: event/DST_PORT
+              value: 8443
+            - op: is
+              path: event/DST_PORT
+              value: 4444
+
+    respond:
+      - action: report
+        name: WEBSHELL - Outbound C2 Callback from Web Server Process
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre_technique: T1190
+          mitre_tactic: initial-access
+          confidence: high
+          severity: high
+          description: >
+            A web application worker process initiated an outbound network
+            connection. Web servers should not initiate outbound connections
+            to arbitrary external hosts. This matches the C2 callback behavior
+            of webshells exfiltrating reconnaissance data (T1071.001).
+
+
+  # ============================================================
+  # Rule 5: Netstat Network Enumeration with Numeric Flags
+  # Confidence: Medium
+  # MITRE ATT&CK: T1059.003, T1049
+  # Description: Detects netstat.exe executed with -an or -ano flags,
+  #              which enumerate all network connections with numeric
+  #              addresses (no DNS resolution). This is a common webshell
+  #              reconnaissance step to identify active connections and
+  #              potential lateral movement targets.
+  # ============================================================
+  webshell-netstat-numeric-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "netstat.exe"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-an"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/an"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-ano"
+
+    respond:
+      - action: report
+        name: WEBSHELL - Netstat Network Connection Enumeration
+        publish: true
+        metadata:
+          author: F0RT1KA Detection Rules Generator
+          mitre_technique: T1049
+          mitre_tactic: discovery
+          confidence: medium
+          severity: low
+          description: >
+            netstat.exe was executed with numeric enumeration flags (-an/-ano).
+            This is used by webshell operators to enumerate all active network
+            connections and identify lateral movement targets (T1049).
+            Correlate with other reconnaissance commands on the same host.

@@ -1,0 +1,288 @@
+# ============================================================
+# LimaCharlie D&R Rules: WMI Execution and Persistence
+# Test ID: d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04
+# MITRE ATT&CK: T1047 (WMI), T1546.003 (WMI Event Subscription)
+# Platform: Windows
+# Format: FILE FORMAT for `limacharlie dr add`
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+
+
+rules:
+
+  # ============================================================
+  # Rule 1: WMI Process Creation via wmic.exe
+  # Technique: T1047
+  # Confidence: High
+  # Description: Detects wmic.exe spawned with "process call create"
+  #              arguments. This is the command-line WMI process execution
+  #              primitive used by attackers to spawn arbitrary processes
+  #              through the WMI interface, which may evade process
+  #              creation monitoring that only watches CreateProcess.
+  # ============================================================
+  wmi-process-creation-via-wmic:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "wmic.exe"
+          case sensitive: false
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "process"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "call"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "create"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: WMI Process Creation via wmic.exe
+        publish: true
+        metadata:
+          severity: high
+          mitre_tactic: execution
+          mitre_technique: T1047
+          confidence: high
+          description: >
+            wmic.exe invoked with process call create arguments. This pattern
+            is used by attackers to execute arbitrary commands through WMI,
+            bypassing conventional process creation monitoring. Investigate
+            the spawned command and the parent process chain.
+          false_positives:
+            - Software deployment tools (SCCM, Ansible)
+            - Legitimate administrative scripts
+
+
+  # ============================================================
+  # Rule 2: wmiprvse.exe Spawning Unexpected Child Process
+  # Technique: T1047
+  # Confidence: High
+  # Description: Detects any process spawned by wmiprvse.exe that is
+  #              not a known-legitimate WMI administrative process.
+  #              The OS always sets wmiprvse.exe as the parent when
+  #              WMI is used for execution, regardless of the tool.
+  # ============================================================
+  wmi-provider-host-suspicious-child:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/PARENT/FILE_PATH
+          value: "wmiprvse.exe"
+          case sensitive: false
+        - op: and
+          rules:
+            - op: not ends with
+              path: event/FILE_PATH
+              value: "mofcomp.exe"
+              case sensitive: false
+            - op: not ends with
+              path: event/FILE_PATH
+              value: "unsecapp.exe"
+              case sensitive: false
+            - op: not ends with
+              path: event/FILE_PATH
+              value: "scrcons.exe"
+              case sensitive: false
+            - op: not ends with
+              path: event/FILE_PATH
+              value: "wbemtest.exe"
+              case sensitive: false
+            - op: not ends with
+              path: event/FILE_PATH
+              value: "wmiprvse.exe"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: WMI Provider Host Spawning Unexpected Child Process
+        publish: true
+        metadata:
+          severity: high
+          mitre_tactic: execution
+          mitre_technique: T1047
+          confidence: high
+          description: >
+            wmiprvse.exe has spawned a process that is not a known WMI
+            administrative binary. This OS-level parent-child relationship
+            is created whenever WMI is used for process execution, regardless
+            of the attacking tool. Investigate the spawned process immediately.
+          false_positives:
+            - Legitimate WMI-based monitoring agents
+            - Some antivirus products that register WMI event consumers
+            - Windows Update MOF compilation operations
+
+
+  # ============================================================
+  # Rule 3: WMI Shadow Copy Enumeration
+  # Technique: T1047
+  # Confidence: High
+  # Description: Detects wmic.exe querying shadow copy information.
+  #              Shadow copy enumeration is a standard pre-ransomware
+  #              reconnaissance step. Most ransomware families perform
+  #              this query before deleting backups. Early detection
+  #              provides response time before the destructive phase.
+  # ============================================================
+  wmi-shadow-copy-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "wmic.exe"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "shadowcopy"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: WMI Shadow Copy Enumeration - Pre-Ransomware Indicator
+        publish: true
+        metadata:
+          severity: high
+          mitre_tactic: execution
+          mitre_technique: T1047
+          confidence: high
+          also_maps_to: T1490
+          description: >
+            wmic.exe used to enumerate shadow copies. This is a reliable
+            pre-ransomware indicator observed in Ryuk, Conti, LockBit, and
+            BlackCat campaigns before backup deletion. Treat as a high-priority
+            incident requiring immediate investigation.
+          false_positives:
+            - Backup software (Veeam, Acronis, Windows Backup)
+            - Storage capacity monitoring scripts
+
+
+  # ============================================================
+  # Rule 4: PowerShell WMI Event Subscription Persistence
+  # Technique: T1546.003
+  # Confidence: High
+  # Description: Detects PowerShell invoking WMI event subscription
+  #              cmdlets or class names used to create persistence objects.
+  #              WMI event subscriptions survive reboots and leave no
+  #              filesystem artifacts, making them highly stealthy.
+  # ============================================================
+  wmi-event-subscription-persistence-powershell:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "powershell.exe"
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "__EventFilter"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "CommandLineEventConsumer"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "ActiveScriptEventConsumer"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "__FilterToConsumerBinding"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Register-WmiEvent"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: WMI Event Subscription Persistence via PowerShell
+        publish: true
+        metadata:
+          severity: critical
+          mitre_tactic: persistence
+          mitre_technique: T1546.003
+          confidence: high
+          description: >
+            PowerShell is creating WMI event subscription persistence objects.
+            This technique (used by APT29, MuddyWater, and others) establishes
+            persistence that survives reboots without any filesystem artifacts.
+            Treat as critical — this is an active persistence installation attempt.
+          false_positives:
+            - Legitimate monitoring products registering WMI event consumers
+            - Windows Management Framework setup scripts
+            - Enterprise management solutions using WMI eventing (SCOM, Zabbix)
+
+
+  # ============================================================
+  # Rule 5: Remote WMI / DCOM Connection Initiated
+  # Technique: T1047
+  # Confidence: Medium
+  # Description: Detects outbound TCP connections to port 135 (DCE/RPC
+  #              Endpoint Mapper) initiated by non-system processes. All
+  #              remote WMI tools (wmiexec, wmiexec-Pro, CrackMapExec)
+  #              connect to this port to initiate remote WMI sessions.
+  # ============================================================
+  wmi-remote-dcom-connection:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        - op: is
+          path: event/DESTINATION_PORT
+          value: 135
+        - op: and
+          rules:
+            - op: not ends with
+              path: event/PROCESS/FILE_PATH
+              value: "svchost.exe"
+              case sensitive: false
+            - op: not ends with
+              path: event/PROCESS/FILE_PATH
+              value: "services.exe"
+              case sensitive: false
+            - op: not ends with
+              path: event/PROCESS/FILE_PATH
+              value: "lsass.exe"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Remote WMI DCOM Endpoint Mapper Connection
+        publish: true
+        metadata:
+          severity: medium
+          mitre_tactic: execution
+          mitre_technique: T1047
+          confidence: medium
+          description: >
+            A non-system process initiated an outbound connection to TCP port 135
+            (DCE/RPC Endpoint Mapper). This port is required to initiate remote WMI
+            sessions via DCOM and is used by tools such as wmiexec, wmiexec-Pro,
+            and CrackMapExec. Investigate whether this connection targets an internal
+            host and whether it is part of a lateral movement chain.
+          false_positives:
+            - Domain controllers and management servers making legitimate DCOM calls
+            - Remote desktop applications using DCOM components
+            - Windows Update and patch management infrastructure

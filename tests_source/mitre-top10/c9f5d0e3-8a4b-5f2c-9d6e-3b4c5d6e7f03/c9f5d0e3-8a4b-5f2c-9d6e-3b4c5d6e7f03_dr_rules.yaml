@@ -1,0 +1,213 @@
+# ============================================================
+# LimaCharlie D&R Rule Suite: RDP Lateral Movement
+# Test ID: c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03
+# MITRE ATT&CK: T1021.001, T1555.004
+# Platform: Windows
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# Format: FILE FORMAT (for `limacharlie dr add --rule-file <file>`)
+# ============================================================
+# Coverage:
+#   1. RDP service status reconnaissance (sc query TermService)
+#   2. RDP registry configuration enumeration (reg query Terminal Server keys)
+#   3. RDP session enumeration via qwinsta
+#   4. Windows Credential Manager manipulation via cmdkey /add
+#   5. Behavioral correlation: RDP recon followed by credential staging
+# ============================================================
+
+
+rules:
+
+  # ============================================================
+  # Rule 1: RDP Service Status Reconnaissance
+  # Technique: T1021.001 — Remote Services: Remote Desktop Protocol
+  # Confidence: Medium
+  # Description: Detects sc.exe querying TermService status as an attacker
+  #              reconnaissance step to verify RDP availability before lateral
+  #              movement. Any process executing this query warrants review.
+  # ============================================================
+  rdp-service-status-recon:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \sc.exe
+        - op: contains
+          path: event/COMMAND_LINE
+          value: TermService
+        - op: contains
+          path: event/COMMAND_LINE
+          value: query
+
+    respond:
+      - action: report
+        name: rdp-service-status-recon
+        metadata:
+          author: F0RT1KA
+          mitre: T1021.001
+          severity: medium
+          description: sc.exe query of TermService - RDP availability reconnaissance
+          test_id: c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03
+
+
+  # ============================================================
+  # Rule 2: RDP Registry Configuration Enumeration
+  # Technique: T1021.001 — Remote Services: Remote Desktop Protocol
+  # Confidence: Medium
+  # Description: Detects reg.exe querying Terminal Server registry keys.
+  #              Attackers query fDenyTSConnections to check if RDP is enabled
+  #              and UserAuthentication to check NLA requirements.
+  # ============================================================
+  rdp-registry-config-enum:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \reg.exe
+        - op: contains
+          path: event/COMMAND_LINE
+          value: query
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: Terminal Server
+            - op: contains
+              path: event/COMMAND_LINE
+              value: RDP-Tcp
+            - op: contains
+              path: event/COMMAND_LINE
+              value: fDenyTSConnections
+            - op: contains
+              path: event/COMMAND_LINE
+              value: UserAuthentication
+
+    respond:
+      - action: report
+        name: rdp-registry-config-enum
+        metadata:
+          author: F0RT1KA
+          mitre: T1021.001
+          severity: medium
+          description: reg.exe querying Terminal Server registry keys - RDP configuration reconnaissance
+          test_id: c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03
+
+
+  # ============================================================
+  # Rule 3: RDP Session Enumeration via qwinsta
+  # Technique: T1021.001 — Remote Services: Remote Desktop Protocol
+  # Confidence: High
+  # Description: Detects qwinsta.exe execution to enumerate active RDP sessions.
+  #              High-fidelity indicator of lateral movement reconnaissance.
+  #              Attackers identify active sessions for hijacking or confirm
+  #              RDP is active on target systems.
+  # ============================================================
+  rdp-session-enumeration-qwinsta:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \qwinsta.exe
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \query.exe
+            - op: contains
+              path: event/COMMAND_LINE
+              value: session
+
+    respond:
+      - action: report
+        name: rdp-session-enumeration-qwinsta
+        metadata:
+          author: F0RT1KA
+          mitre: T1021.001
+          severity: high
+          description: qwinsta.exe executed - active RDP session enumeration detected
+          test_id: c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03
+
+
+  # ============================================================
+  # Rule 4: Windows Credential Manager Manipulation via cmdkey
+  # Technique: T1555.004 — Credentials from Password Stores: Windows Credential Manager
+  # Confidence: High
+  # Description: Detects cmdkey.exe adding credentials to Windows Credential Manager.
+  #              Attackers use cmdkey /add to pre-stage credentials for a target
+  #              server, enabling subsequent RDP or SMB connections without
+  #              interactive authentication prompts.
+  # ============================================================
+  credential-manager-manipulation-cmdkey:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \cmdkey.exe
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: /add:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: -add:
+
+    respond:
+      - action: report
+        name: credential-manager-manipulation-cmdkey
+        metadata:
+          author: F0RT1KA
+          mitre: T1555.004
+          severity: high
+          description: cmdkey /add detected - credential staging for lateral movement
+          test_id: c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03
+
+
+  # ============================================================
+  # Rule 5: Credential Harvesting via cmdkey /list
+  # Technique: T1555.004 — Credentials from Password Stores: Windows Credential Manager
+  # Confidence: Medium
+  # Description: Detects cmdkey.exe listing stored credentials. While lower
+  #              fidelity than /add, attackers use cmdkey /list to harvest
+  #              existing stored RDP and network credentials from the Credential
+  #              Manager without calling Win32 APIs directly.
+  # ============================================================
+  credential-manager-harvest-cmdkey-list:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \cmdkey.exe
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: /list
+            - op: contains
+              path: event/COMMAND_LINE
+              value: -list
+
+    respond:
+      - action: report
+        name: credential-manager-harvest-cmdkey-list
+        metadata:
+          author: F0RT1KA
+          mitre: T1555.004
+          severity: medium
+          description: cmdkey /list detected - credential enumeration from Windows Credential Manager
+          test_id: c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03
