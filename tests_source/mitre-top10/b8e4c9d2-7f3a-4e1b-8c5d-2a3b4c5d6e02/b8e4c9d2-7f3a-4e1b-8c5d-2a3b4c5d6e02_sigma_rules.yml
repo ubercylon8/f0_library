@@ -1,0 +1,223 @@
+# ============================================================
+# Sigma Rule Set: Local Account Enumeration & Kerberoasting
+# Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+# MITRE ATT&CK: T1078.003, T1087.001, T1558.003
+# ============================================================
+
+---
+title: Local Account Enumeration via Net.exe
+id: 3f1a9e72-bc44-4d8b-a5e3-901c2f4b7d8e
+status: experimental
+description: >
+    Detects use of net.exe or net1.exe to enumerate local user accounts and group
+    memberships. Adversaries routinely run 'net user' and 'net localgroup administrators'
+    immediately after gaining initial access to understand the account landscape
+    before performing privilege escalation or lateral movement.
+references:
+    - https://attack.mitre.org/techniques/T1087/001/
+    - https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/event.aspx?eventID=4688
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.discovery
+    - attack.t1087.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_binary:
+        Image|endswith:
+            - '\net.exe'
+            - '\net1.exe'
+    selection_args:
+        CommandLine|contains:
+            - 'user'
+            - 'localgroup'
+    filter_modifications:
+        CommandLine|contains:
+            - '/add'
+            - '/delete'
+            - '/passwordchg'
+            - '/domain'
+    condition: selection_binary and selection_args and not filter_modifications
+falsepositives:
+    - IT helpdesk scripts performing account inventory
+    - Domain administration tooling and RMM agents (Tanium, BigFix, SCCM)
+    - Automated system health checks
+    - Security awareness training simulations
+level: medium
+
+
+---
+title: WMI User Account Enumeration
+id: 8c2d4f91-e7a5-4b63-9d1e-5f3a8b2c7e94
+status: experimental
+description: >
+    Detects wmic.exe or PowerShell querying the Win32_UserAccount WMI class for
+    account enumeration. WMI-based enumeration is commonly preferred by adversaries
+    over net.exe because it may bypass simple command-line monitoring policies.
+    Also detects PowerShell cmdlets Get-LocalUser and Get-LocalGroupMember.
+references:
+    - https://attack.mitre.org/techniques/T1087/001/
+    - https://docs.microsoft.com/en-us/windows/win32/cimwin32prov/win32-useraccount
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.discovery
+    - attack.t1087.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_wmic:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains:
+            - 'useraccount'
+            - 'Win32_UserAccount'
+            - 'Win32_Group'
+    selection_powershell:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|contains:
+            - 'Get-LocalUser'
+            - 'Get-LocalGroupMember'
+            - 'Get-LocalGroup'
+            - 'Get-WmiObject Win32_UserAccount'
+            - 'Get-CimInstance Win32_UserAccount'
+    condition: 1 of selection_*
+falsepositives:
+    - Endpoint management platforms (SCCM, Intune, Ansible)
+    - IT asset inventory scripts
+    - SIEM connector agents querying system information
+    - Legitimate PowerShell administration modules
+level: medium
+
+
+---
+title: Whoami Full Privilege and Group Enumeration
+id: a4e7b381-d92c-4f5e-8b2d-1c6f3a9d7e25
+status: experimental
+description: >
+    Detects whoami.exe executed with /all, /priv, or /groups flags. This command
+    reveals the full security context of the current process token, including
+    all group memberships, privilege assignments, and SID information. Adversaries
+    use this to confirm privilege levels immediately after initial access and before
+    deciding on privilege escalation paths.
+references:
+    - https://attack.mitre.org/techniques/T1078/003/
+    - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/whoami
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.discovery
+    - attack.defense_evasion
+    - attack.t1078.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\whoami.exe'
+        CommandLine|contains:
+            - '/all'
+            - '/priv'
+            - '/groups'
+    filter_interactive_shells:
+        # Reduce noise from interactive terminal sessions
+        ParentImage|endswith:
+            - '\explorer.exe'
+    condition: selection and not filter_interactive_shells
+falsepositives:
+    - Developers running whoami /all in terminals during debugging
+    - CI/CD pipeline initialization scripts
+    - IT audit scripts confirming service account privileges
+level: low
+
+
+---
+title: Kerberoasting Attack via Suspicious Kerberos TGS Request (RC4 Encryption)
+id: f1b8c4d7-2e9a-4c6f-b3d8-7a1e5c9f2b04
+status: experimental
+description: >
+    Detects Kerberos Service Ticket (TGS-REQ) requests using RC4 (etype 0x17/23)
+    or DES encryption, which is the primary indicator of Kerberoasting attacks.
+    Modern Active Directory environments default to AES encryption; RC4 requests
+    indicate a downgrade attack used to obtain crackable ciphertext for offline
+    dictionary attacks against service account credentials.
+references:
+    - https://attack.mitre.org/techniques/T1558/003/
+    - https://adsecurity.org/?p=2293
+    - https://www.harmj0y.net/blog/powershell/kerberoasting-without-mimikatz/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.credential_access
+    - attack.t1558.003
+logsource:
+    category: security
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4769
+        TicketEncryptionType:
+            - '0x17'
+            - '0x18'
+            - '0x3'
+    filter_machine_accounts:
+        # Machine accounts (ending in $) generate legitimate RC4 TGS requests
+        ServiceName|endswith: '$'
+    filter_krbtgt:
+        ServiceName: 'krbtgt'
+    condition: selection and not 1 of filter_*
+falsepositives:
+    - Legacy applications that only support RC4 Kerberos (older scanners, printers, custom apps)
+    - Some older .NET Framework versions default to RC4 for Kerberos
+    - Non-Windows Kerberos clients (MIT Kerberos, old UNIX Samba)
+    - Establish a baseline of legitimate RC4 requestors and suppress known benign sources
+level: high
+
+
+---
+title: AS-REP Roasting - Kerberos Pre-Authentication Not Required
+id: 7d3c5e18-a4b9-4f2d-c7e1-9b6a4d8f3c51
+status: experimental
+description: >
+    Detects Kerberos Authentication Service (AS-REQ) requests where pre-authentication
+    data is absent (PA-DATA missing), indicating an AS-REP Roasting attack. Attackers
+    target domain accounts configured with "Do not require Kerberos preauthentication"
+    to obtain an encrypted AS-REP blob that can be cracked offline without domain
+    credentials. This is commonly performed using Rubeus asreproast or Impacket GetNPUsers.
+references:
+    - https://attack.mitre.org/techniques/T1558/003/
+    - https://www.harmj0y.net/blog/activedirectory/roasting-as-reps/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.credential_access
+    - attack.t1558.003
+logsource:
+    category: security
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4768
+        PreAuthType:
+            - '0'
+            - ''
+        Status:
+            - '0x0'
+            - '0x6'
+    filter_machine_accounts:
+        TargetUserName|endswith: '$'
+    filter_krbtgt:
+        TargetUserName: 'krbtgt'
+    condition: selection and not 1 of filter_*
+falsepositives:
+    - Older UNIX/Linux Kerberos clients that do not send pre-authentication by default
+    - Legacy MIT Kerberos implementations
+    - Applications using older Kerberos libraries without pre-auth support
+    - Recommended: correlate with LDAP queries for DONT_REQUIRE_PREAUTH UAC flag to identify and suppress legitimate no-preauth accounts
+level: high

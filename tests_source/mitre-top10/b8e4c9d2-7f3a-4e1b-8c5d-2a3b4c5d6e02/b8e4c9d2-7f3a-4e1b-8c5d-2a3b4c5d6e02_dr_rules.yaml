@@ -1,0 +1,287 @@
+# ============================================================
+# LimaCharlie Detection & Response Rules
+# Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+# Test Name: Local Account Enumeration
+# MITRE ATT&CK: T1078.003, T1087.001, T1558.003
+# Format: LC File Format (for `limacharlie dr add`)
+# ============================================================
+# NOTE: These rules target ATTACK TECHNIQUE behaviors.
+# They will fire on any attacker using these same techniques,
+# regardless of what tooling they use to execute them.
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: Local Account Enumeration via Net.exe
+  # MITRE ATT&CK: T1087.001
+  # Confidence: High
+  # Description: Detects net.exe and net1.exe invoked with user or
+  #              localgroup arguments to enumerate local accounts and
+  #              group memberships. This covers direct execution as well
+  #              as execution from child processes (cmd.exe, powershell.exe).
+  # ============================================================
+  local-account-enum-net-exe:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\net.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\net1.exe"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: " user"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: " localgroup"
+        # Exclude modification operations to reduce false positives
+        - op: and
+          rules:
+            - op: not contains
+              path: event/COMMAND_LINE
+              value: "/add"
+            - op: not contains
+              path: event/COMMAND_LINE
+              value: "/delete"
+            - op: not contains
+              path: event/COMMAND_LINE
+              value: "/passwordchg"
+
+    respond:
+      - action: report
+        name: local-account-enum-net-exe
+        publish: true
+        metadata:
+          author: "F0RT1KA"
+          test_id: "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+          mitre_attack: "T1087.001"
+          severity: medium
+          description: "net.exe executed for local user or group enumeration"
+          false_positives:
+            - "IT helpdesk scripts"
+            - "RMM agent inventory"
+            - "Automated health checks"
+
+
+  # ============================================================
+  # Rule 2: WMI-Based Local Account Enumeration
+  # MITRE ATT&CK: T1087.001
+  # Confidence: High
+  # Description: Detects wmic.exe querying Win32_UserAccount class or
+  #              PowerShell Get-LocalUser/Get-LocalGroupMember cmdlets.
+  #              WMI-based enumeration is used as a net.exe alternative
+  #              to evade simple command-line detection policies.
+  # ============================================================
+  local-account-enum-wmi:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: and
+              rules:
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: "\\wmic.exe"
+                - op: or
+                  rules:
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "useraccount"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Win32_UserAccount"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Win32_Group"
+            - op: and
+              rules:
+                - op: or
+                  rules:
+                    - op: ends with
+                      path: event/FILE_PATH
+                      value: "\\powershell.exe"
+                    - op: ends with
+                      path: event/FILE_PATH
+                      value: "\\pwsh.exe"
+                - op: or
+                  rules:
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Get-LocalUser"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Get-LocalGroupMember"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Win32_UserAccount"
+
+    respond:
+      - action: report
+        name: local-account-enum-wmi
+        publish: true
+        metadata:
+          author: "F0RT1KA"
+          test_id: "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+          mitre_attack: "T1087.001"
+          severity: medium
+          description: "WMI or PowerShell used for local account enumeration"
+          false_positives:
+            - "SCCM/Intune management agents"
+            - "IT asset inventory scripts"
+            - "PowerShell DSC modules"
+
+
+  # ============================================================
+  # Rule 3: Kerberoasting via Rubeus or Compatible Tooling
+  # MITRE ATT&CK: T1558.003
+  # Confidence: High
+  # Description: Detects process command line arguments exclusive to
+  #              Kerberoasting and AS-REP Roasting operations. These
+  #              argument patterns appear in Rubeus, Impacket, and any
+  #              other Kerberoasting tool. The /format:hashcat, /opsec,
+  #              and kerberoast/asreproast argument strings have no
+  #              legitimate administrative use.
+  # ============================================================
+  kerberoasting-offensive-args:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "kerberoast"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "asreproast"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/format:hashcat"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/format:john"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "$krb5tgs$"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "$krb5asrep$"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "tgtdeleg"
+
+    respond:
+      - action: report
+        name: kerberoasting-offensive-args
+        publish: true
+        metadata:
+          author: "F0RT1KA"
+          test_id: "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+          mitre_attack: "T1558.003"
+          severity: critical
+          description: "Kerberoasting or AS-REP Roasting command line arguments detected"
+          false_positives:
+            - "Authorized penetration testing only"
+            - "Validate against active engagement windows"
+      - action: task
+        command: os_processes
+        investigation: "kerberoasting-process-context"
+
+
+  # ============================================================
+  # Rule 4: Kerberos Hash Output File Creation
+  # MITRE ATT&CK: T1558.003
+  # Confidence: High
+  # Description: Detects creation of files containing Kerberoasted
+  #              TGS hash format strings ($krb5tgs$ or $krb5asrep$).
+  #              These strings are written to disk by any Kerberoasting
+  #              tool when using /outfile or similar arguments.
+  #              File creation of Kerberos hashes is always malicious.
+  # ============================================================
+  kerberoast-hash-file-creation:
+    detect:
+      target: edr
+      event: SENSITIVE_PROCESS_ACCESS
+      op: or
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "hashes.txt"
+        - op: contains
+          path: event/FILE_PATH
+          value: "kerberoast"
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".kirbi"
+
+    respond:
+      - action: report
+        name: kerberoast-hash-file-creation
+        publish: true
+        metadata:
+          author: "F0RT1KA"
+          test_id: "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+          mitre_attack: "T1558.003"
+          severity: high
+          description: "Kerberos ticket hash or credential file written to disk"
+          false_positives:
+            - "Authorized red team operations"
+
+
+  # ============================================================
+  # Rule 5: Whoami Full Privilege Enumeration
+  # MITRE ATT&CK: T1078.003
+  # Confidence: Medium
+  # Description: Detects whoami.exe invoked with /all or /priv flags
+  #              to enumerate the complete security token context.
+  #              While this command has some legitimate uses, execution
+  #              in combination with other discovery commands (via
+  #              response investigation tagging) elevates confidence.
+  # ============================================================
+  whoami-full-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\whoami.exe"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/all"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/priv"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/groups"
+
+    respond:
+      - action: report
+        name: whoami-full-enumeration
+        publish: true
+        metadata:
+          author: "F0RT1KA"
+          test_id: "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+          mitre_attack: "T1078.003"
+          severity: low
+          description: "whoami.exe used for full privilege and group membership enumeration"
+          false_positives:
+            - "Developer terminal sessions"
+            - "CI/CD pipeline initialization"
+            - "IT audit scripts"

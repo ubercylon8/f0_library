@@ -1,0 +1,299 @@
+# ============================================================
+# LimaCharlie D&R Rules: Pre-Encryption File Enumeration Behaviors
+# Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+# MITRE ATT&CK: T1083, T1119, T1082
+# Format: FILE FORMAT (for `limacharlie dr add`)
+# ============================================================
+# These rules detect technique-level pre-ransomware reconnaissance
+# behaviors: recursive file enumeration, extension-based filtering,
+# Seatbelt host recon tool execution, and credential store access.
+# ============================================================
+
+rules:
+
+  # ----------------------------------------------------------
+  # Rule 1: Recursive Directory Enumeration (dir /s /b Pattern)
+  # MITRE ATT&CK: T1083 - File and Directory Discovery
+  # Confidence: High
+  # ----------------------------------------------------------
+  # Detects cmd.exe launched with both /s and /b arguments in a
+  # dir command — the bare recursive listing pattern used by
+  # ransomware operators for pre-encryption file system enumeration.
+  # Any attacker using this native Windows technique triggers this rule.
+  # ----------------------------------------------------------
+  pre-encryption-recursive-dir-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\cmd.exe"
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/s"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/b"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "dir"
+
+    respond:
+      - action: report
+        name: pre-encryption-recursive-dir-enumeration
+        priority: 2
+        metadata:
+          description: "cmd.exe invoked with /s /b recursive bare listing — pre-ransomware file system enumeration pattern (T1083)"
+          mitre_attack: "T1083"
+          confidence: high
+          false_positives: "Software installers, IT inventory scripts, backup agents"
+
+  # ----------------------------------------------------------
+  # Rule 2: Seatbelt Host Reconnaissance Tool Execution
+  # MITRE ATT&CK: T1082, T1083 - System/File Discovery
+  # Confidence: Critical
+  # ----------------------------------------------------------
+  # Detects execution of Seatbelt (GhostPack) by binary name or by
+  # the presence of its characteristic arguments. Seatbelt performs
+  # 60+ host checks including credential stores, running processes,
+  # services, and network state. Used by APT groups and ransomware
+  # operators. Zero tolerance — alert on every occurrence.
+  # ----------------------------------------------------------
+  seatbelt-host-recon-tool-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\Seatbelt.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "-group=all"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "-group=system"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "-group=user"
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "WindowsCredentialFiles"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "WindowsVault"
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "WindowsVault"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "InterestingFiles"
+
+    respond:
+      - action: report
+        name: seatbelt-host-recon-tool-execution
+        priority: 1
+        metadata:
+          description: "Seatbelt (GhostPack) offensive host enumeration tool detected — performs 60+ security checks including credential stores, processes, services (T1082, T1083)"
+          mitre_attack: "T1082, T1083"
+          confidence: critical
+          false_positives: "Authorized red team or penetration testing engagements"
+
+  # ----------------------------------------------------------
+  # Rule 3: Extension-Based File Filtering (Ransomware Target Profiling)
+  # MITRE ATT&CK: T1083 - File and Directory Discovery
+  # Confidence: High
+  # ----------------------------------------------------------
+  # Detects cmd.exe filtering for document, spreadsheet, and database
+  # extensions commonly targeted by ransomware. Ransomware operators
+  # build extension-specific queries to enumerate all high-value files
+  # before prioritizing encryption. Matches the technique regardless
+  # of the specific tool or script driving the commands.
+  # ----------------------------------------------------------
+  ransomware-extension-based-file-filtering:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\cmd.exe"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "*.docx"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "*.xlsx"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "*.pdf"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "*.sql"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "*.bak"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "*.mdb"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "*.accdb"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/s"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "dir"
+
+    respond:
+      - action: report
+        name: ransomware-extension-based-file-filtering
+        priority: 2
+        metadata:
+          description: "cmd.exe filtering files by ransomware-targeted extensions (.docx, .xlsx, .pdf, .sql, .bak) — pre-encryption target profiling (T1083)"
+          mitre_attack: "T1083"
+          confidence: high
+          false_positives: "DLP agents, compliance auditing tools, backup software"
+
+  # ----------------------------------------------------------
+  # Rule 4: Credential Store File Access by Untrusted Process
+  # MITRE ATT&CK: T1082 - System Information Discovery
+  # Confidence: High
+  # ----------------------------------------------------------
+  # Detects file open/read events targeting Windows Credential Manager
+  # storage directories. These directories contain DPAPI-protected
+  # credential blobs and vault entries. Access by non-system processes
+  # indicates credential harvesting reconnaissance as performed by
+  # Seatbelt's WindowsCredentialFiles and WindowsVault checks, or any
+  # equivalent tool or manual technique.
+  # ----------------------------------------------------------
+  credential-store-enumeration-file-access:
+    detect:
+      target: edr
+      event: SENSITIVE_PROCESS_ACCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/TARGET/FILE_PATH
+              value: "\\Microsoft\\Credentials\\"
+            - op: contains
+              path: event/TARGET/FILE_PATH
+              value: "\\Microsoft\\Protect\\"
+            - op: contains
+              path: event/TARGET/FILE_PATH
+              value: "\\Microsoft\\Vault\\"
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\lsass.exe"
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\svchost.exe"
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\taskhostw.exe"
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\CredentialUIBroker.exe"
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\consent.exe"
+
+    respond:
+      - action: report
+        name: credential-store-enumeration-file-access
+        priority: 1
+        metadata:
+          description: "Non-system process accessed Windows Credential Manager or Vault storage paths — credential store enumeration matching Seatbelt WindowsCredentialFiles/WindowsVault technique (T1082)"
+          mitre_attack: "T1082"
+          confidence: high
+          false_positives: "Password managers, RDP clients accessing saved credentials, Office credential helpers"
+
+  # ----------------------------------------------------------
+  # Rule 5: WMI System Survey Queries (Bulk System Information Discovery)
+  # MITRE ATT&CK: T1082 - System Information Discovery
+  # Confidence: Medium
+  # ----------------------------------------------------------
+  # Detects wmic.exe or PowerShell invoking WMI classes used for
+  # comprehensive system profiling — matching Seatbelt's OSInfo,
+  # Processes, Services, and EnvironmentVariables checks. Attackers
+  # query these classes to understand the target environment before
+  # choosing appropriate attack paths or lateral movement techniques.
+  # ----------------------------------------------------------
+  wmi-bulk-system-information-discovery:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\wmic.exe"
+            - op: and
+              rules:
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: "\\powershell.exe"
+                - op: or
+                  rules:
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Get-WmiObject"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Get-CimInstance"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "gwmi"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Win32_OperatingSystem"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Win32_ComputerSystem"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Win32_Service"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Win32_Process"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Win32_NetworkAdapter"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Win32_DiskDrive"
+
+    respond:
+      - action: report
+        name: wmi-bulk-system-information-discovery
+        priority: 3
+        metadata:
+          description: "WMI system class queries consistent with bulk host profiling — matches system survey checks performed by reconnaissance tools targeting OS, processes, services, and network configuration (T1082)"
+          mitre_attack: "T1082"
+          confidence: medium
+          false_positives: "Monitoring agents (Datadog, New Relic), SCCM/Intune management, asset inventory tools, help desk remote support"

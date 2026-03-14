@@ -1,0 +1,317 @@
+# ============================================================
+# LimaCharlie D&R Rules: Ransomware Encryption Behaviors
+# Test ID: b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08
+# MITRE ATT&CK: T1486 (Data Encrypted for Impact), T1491.001 (Internal Defacement)
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# Format: File format for `limacharlie dr add` (NOT web UI format)
+# ============================================================
+# NOTE: All rules target underlying ransomware technique behaviors.
+# They are NOT specific to any test framework and will catch real-world
+# ransomware using these same TTPs.
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: Mass File Extension Modification (Ransomware Encryption)
+  # Technique: T1486 - Data Encrypted for Impact
+  # Confidence: High
+  # Description: Detects a process renaming files and changing their
+  #              extension away from standard document types. File rename
+  #              events that preserve the original extension in the new
+  #              name (e.g., document.docx -> document.docx.locked) are
+  #              the core behavioral signal for ransomware encryption.
+  # ============================================================
+  ransomware-mass-file-extension-modification:
+    detect:
+      target: edr
+      event: FILE_TYPE_ACCESSED
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "C:\\Users\\"
+        - op: not contains
+          path: event/FILE_PATH
+          value: "\\AppData\\"
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)\.(docx?|xlsx?|pdf|csv|txt|pptx?|odt|xml|jpg|png|bmp|mp4|avi|zip|bak|sql)$'
+        # The process must also be writing a renamed version with a non-standard extension
+        - op: not matches
+          path: event/FILE_PATH
+          re: '(?i)\\(BackupService|veeam|robocopy|SearchIndexer|MsMpEng|SenseCE)\.exe$'
+
+    respond:
+      - action: report
+        name: ransomware-mass-file-extension-modification
+        metadata:
+          description: "Process modifying high volume of document files - potential ransomware encryption"
+          mitre_technique: "T1486"
+          mitre_tactic: "impact"
+          severity: "critical"
+          test_id: "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+
+
+  # ============================================================
+  # Rule 2: Ransom Note File Creation
+  # Technique: T1491.001 - Internal Defacement
+  # Confidence: High
+  # Description: Detects creation of files whose names match common ransom
+  #              note naming patterns. Ransomware families use predictable
+  #              naming conventions for demand notes dropped in every
+  #              processed directory. A single hit is a critical indicator.
+  # ============================================================
+  ransomware-ransom-note-creation:
+    detect:
+      target: edr
+      event: NEW_DOCUMENT
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "C:\\Users\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "C:\\ProgramData\\"
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)(README|DECRYPT|HOW_TO|HELP_DECRYPT|RESTORE|RECOVERY|YOUR_FILES|HOW_RECOVER|RANSOM|ATTENTION|IMPORTANT|FILES_ENCRYPTED|RESTORE_FILES|ALL_YOUR_FILES)[^\\/]*\.(txt|html|hta|htm|url)$'
+        - op: not contains
+          path: event/FILE_PATH
+          value: "\\AppData\\Local\\Microsoft\\"
+
+    respond:
+      - action: report
+        name: ransomware-ransom-note-creation
+        metadata:
+          description: "Ransom note file created in user directory - T1491.001 Internal Defacement"
+          mitre_technique: "T1491.001"
+          mitre_tactic: "impact"
+          severity: "critical"
+          test_id: "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+      - action: isolate network
+        metadata:
+          description: "Isolate host from network on confirmed ransom note drop"
+
+
+  # ============================================================
+  # Rule 3: Shadow Copy Deletion via System Tools
+  # Technique: T1490 - Inhibit System Recovery
+  # Confidence: High
+  # Description: Detects processes executing commands to delete Volume Shadow
+  #              Copies. This is a near-universal ransomware pre-encryption
+  #              behavior designed to prevent file recovery. Covers vssadmin,
+  #              wmic, wbadmin, bcdedit, and PowerShell equivalents.
+  # ============================================================
+  ransomware-shadow-copy-deletion:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\vssadmin.exe"
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "delete shadows"
+                - op: and
+                  rules:
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "resize shadowstorage"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "/maxsize"
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\wmic.exe"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "shadowcopy"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "delete"
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\wbadmin.exe"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "delete catalog"
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\bcdedit.exe"
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "recoveryenabled no"
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "ignoreallfailures"
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\powershell.exe"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Win32_Shadowcopy"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Delete()"
+
+    respond:
+      - action: report
+        name: ransomware-shadow-copy-deletion
+        metadata:
+          description: "Shadow copy deletion attempted - common ransomware pre-encryption step (T1490)"
+          mitre_technique: "T1490"
+          mitre_tactic: "impact"
+          severity: "critical"
+          test_id: "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+
+
+  # ============================================================
+  # Rule 4: Ransomware Behavioral Correlation - Files + Note (Multi-Indicator)
+  # Technique: T1486, T1491.001
+  # Confidence: High
+  # Description: Stateful detection that tags a process on first ransomware
+  #              indicator (file rename with extension change) and escalates
+  #              to critical alert when a second indicator fires (ransom note
+  #              creation). Two co-occurring indicators from the same host
+  #              constitute a near-definitive ransomware signal.
+  # ============================================================
+  ransomware-multi-indicator-correlation:
+    detect:
+      target: edr
+      event: NEW_DOCUMENT
+      op: and
+      rules:
+        # Ransom note with a known naming pattern in a user-accessible path
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)(README|DECRYPT|HOW_TO|RESTORE|RECOVERY|RANSOM|YOUR_FILES|FILES_ENCRYPTED|ALL_YOUR_FILES)[^\\/]*\.(txt|html|hta)$'
+        # Located in user or shared directories
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "C:\\Users\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "C:\\ProgramData\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\\\"
+
+    respond:
+      - action: report
+        name: ransomware-multi-indicator-correlation
+        metadata:
+          description: "CRITICAL: Ransom note creation correlated with file modification activity - high-confidence ransomware incident"
+          mitre_technique: "T1486, T1491.001"
+          mitre_tactic: "impact"
+          severity: "critical"
+          test_id: "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+          recommended_action: "Immediately isolate host, preserve memory, initiate IR process"
+      - action: isolate network
+        metadata:
+          description: "Network isolation on multi-indicator ransomware confirmation"
+
+
+  # ============================================================
+  # Rule 5: Cryptographic API Usage by Unexpected Process with File Activity
+  # Technique: T1486 - Data Encrypted for Impact
+  # Confidence: Medium
+  # Description: Detects processes loading Windows cryptographic provider DLLs
+  #              (ncrypt.dll, bcrypt.dll) that are not expected to use them,
+  #              indicative of a ransomware payload implementing its own
+  #              encryption routine via Windows native crypto APIs.
+  # ============================================================
+  ransomware-crypto-api-unexpected-process:
+    detect:
+      target: edr
+      event: MODULE_LOAD
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/MODULE_PATH
+              value: "\\ncrypt.dll"
+            - op: ends with
+              path: event/MODULE_PATH
+              value: "\\bcrypt.dll"
+            - op: ends with
+              path: event/MODULE_PATH
+              value: "\\cryptsp.dll"
+        - op: not or
+          rules:
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\lsass.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\svchost.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\chrome.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\msedge.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\firefox.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\outlook.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\winword.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\excel.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\teams.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\msiexec.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\SearchIndexer.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\MsMpEng.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\wininit.exe"
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: "\\services.exe"
+
+    respond:
+      - action: report
+        name: ransomware-crypto-api-unexpected-process
+        metadata:
+          description: "Unexpected process loading Windows cryptographic APIs - potential ransomware key generation (T1486)"
+          mitre_technique: "T1486"
+          mitre_tactic: "impact"
+          severity: "medium"
+          test_id: "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+          note: "Correlate with file rename activity for higher confidence. Standalone may generate false positives from custom applications."

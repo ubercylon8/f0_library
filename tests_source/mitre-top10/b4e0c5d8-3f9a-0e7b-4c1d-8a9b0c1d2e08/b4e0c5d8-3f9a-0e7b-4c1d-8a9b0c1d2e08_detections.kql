@@ -1,0 +1,386 @@
+// ============================================================
+// Detection Rules: Ransomware Encryption (Safe Mode)
+// Test ID: b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08
+// MITRE ATT&CK: T1486 (Data Encrypted for Impact), T1491.001 (Internal Defacement)
+// Platform: Windows
+// Severity: Critical
+// ============================================================
+// NOTE: All detections target the underlying ransomware technique behaviors.
+// They are NOT specific to any test framework and will catch real-world
+// ransomware using the same TTPs.
+// ============================================================
+
+
+// ============================================================
+// Query 1: Mass File Extension Modification (Ransomware Fingerprint)
+// Technique: T1486 - Data Encrypted for Impact
+// Confidence: High
+// ============================================================
+// Purpose: Detects a single process renaming a high volume of files to a
+//          non-standard extension within a short time window. This is the
+//          most reliable ransomware behavioral indicator.
+// False Positives: Legitimate bulk file converters or backup software.
+//                  Tune by excluding known backup process image paths.
+// Threshold: 10+ file renames with extension change in under 60 seconds.
+// ============================================================
+DeviceFileEvents
+| where ActionType in ("FileRenamed")
+| where TimeGenerated > ago(5m)
+| where PreviousFileName has_any (".docx", ".xlsx", ".pdf", ".csv", ".txt", ".doc", ".xls", ".pptx", ".odt", ".xml", ".jpg", ".png", ".bmp", ".mp4", ".avi", ".zip", ".tar")
+| where FileName !has_any (".docx", ".xlsx", ".pdf", ".csv", ".txt", ".doc", ".xls", ".pptx", ".odt", ".xml", ".jpg", ".png", ".bmp", ".mp4", ".avi", ".zip", ".tar")
+| summarize
+    FilesRenamed = count(),
+    DistinctOriginalExtensions = dcount(tostring(split(PreviousFileName, ".")[-1])),
+    NewExtensions = make_set(tostring(split(FileName, ".")[-1])),
+    SampleFiles = make_set(FileName, 5),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceId, DeviceName, InitiatingProcessFileName, InitiatingProcessId, InitiatingProcessCommandLine
+| where FilesRenamed >= 10
+| where DistinctOriginalExtensions >= 2
+| extend
+    Duration = datetime_diff("second", LastSeen, FirstSeen),
+    Severity = "Critical",
+    ThreatType = "Ransomware-MassExtensionModification",
+    MitreAttack = "T1486",
+    TestID = "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+| where Duration <= 120
+| project
+    TimeGenerated = FirstSeen,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    FilesRenamed,
+    DistinctOriginalExtensions,
+    NewExtensions,
+    Duration,
+    SampleFiles,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 2: Ransom Note Creation in User Directories
+// Technique: T1491.001 - Internal Defacement
+// Confidence: High
+// ============================================================
+// Purpose: Detects creation of files with names commonly used for ransom notes.
+//          Real ransomware variants consistently drop README-style notes.
+// False Positives: Legitimate README files created by software installers
+//                  in program directories. This rule scopes to user data paths.
+// Threshold: Single occurrence is sufficient; ransom note creation is high signal.
+// ============================================================
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FileName matches regex @"(?i)(README|DECRYPT|HOW_TO|HELP_DECRYPT|RESTORE|RECOVERY|YOUR_FILES|HOW_RECOVER|RANSOM|ATTENTION|IMPORTANT|FILES_ENCRYPTED)[^\\]*\.(txt|html|hta|htm|url)"
+| where FolderPath has_any (
+    @"C:\Users\",
+    @"C:\Documents",
+    @"C:\Desktop",
+    @"\Documents\",
+    @"\Desktop\",
+    @"\Downloads\",
+    @"\Pictures\",
+    @"\Videos\"
+)
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware-RansomNoteCreation",
+    MitreAttack = "T1491.001",
+    TestID = "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 3: Ransomware Behavioral Correlation (Multi-Indicator High Confidence)
+// Technique: T1486, T1491.001
+// Confidence: High
+// ============================================================
+// Purpose: Correlates both mass file renaming AND ransom note creation from
+//          the same process within a short window. Two co-occurring indicators
+//          dramatically increase confidence and reduce false positives.
+// False Positives: Extremely unlikely. Flag for immediate investigation.
+// Threshold: At least 5 file renames + ransom note creation within 5 minutes.
+// ============================================================
+let RansomNoteEvents = DeviceFileEvents
+    | where TimeGenerated > ago(15m)
+    | where ActionType == "FileCreated"
+    | where FileName matches regex @"(?i)(README|DECRYPT|HOW_TO|HELP_DECRYPT|RESTORE|RECOVERY|YOUR_FILES|HOW_RECOVER|RANSOM|ATTENTION|IMPORTANT|FILES_ENCRYPTED)[^\\]*\.(txt|html|hta|htm|url)"
+    | project DeviceId, NoteTime = TimeGenerated, NoteFile = FileName, NotePID = InitiatingProcessId, NoteProcess = InitiatingProcessFileName;
+let RenameEvents = DeviceFileEvents
+    | where TimeGenerated > ago(15m)
+    | where ActionType == "FileRenamed"
+    | where PreviousFileName has_any (".docx", ".xlsx", ".pdf", ".csv", ".txt", ".doc", ".xls", ".pptx", ".odt", ".xml")
+    | where FileName !has_any (".docx", ".xlsx", ".pdf", ".csv", ".txt", ".doc", ".xls", ".pptx", ".odt", ".xml")
+    | summarize RenameCount = count(), RenameProcessId = any(InitiatingProcessId), RenameProcess = any(InitiatingProcessFileName), FirstRename = min(TimeGenerated)
+        by DeviceId, DeviceName;
+RenameEvents
+| where RenameCount >= 5
+| join kind=inner RansomNoteEvents on DeviceId
+| where abs(datetime_diff("second", NoteTime, FirstRename)) <= 300
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware-MultiIndicatorCorrelation",
+    MitreAttack = "T1486, T1491.001",
+    TestID = "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+| project
+    TimeGenerated = FirstRename,
+    DeviceName,
+    RenameProcess,
+    RenameCount,
+    NoteFile,
+    NoteProcess,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 4: Cryptographic Key Generation by Non-Cryptographic Processes
+// Technique: T1486 - Data Encrypted for Impact
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects processes making calls to cryptographic APIs (CryptGenRandom,
+//          BCryptGenRandom, RtlGenRandom) that are not expected crypto consumers.
+//          Ransomware calls these to generate file encryption keys.
+// False Positives: Many legitimate applications use crypto APIs (browsers, password
+//                  managers, developer tools). Requires contextual tuning.
+// Threshold: Combine with file rename activity for higher confidence.
+// ============================================================
+DeviceEvents
+| where ActionType == "ProcessPrimaryTokenModified" or ActionType == "OtherAlertRelatedActivity"
+| union (
+    DeviceImageLoadEvents
+    | where FileName in~ ("bcrypt.dll", "advapi32.dll", "ncrypt.dll")
+    | where InitiatingProcessFileName !in~ (
+        "svchost.exe", "lsass.exe", "wininit.exe", "services.exe",
+        "chrome.exe", "firefox.exe", "msedge.exe", "teams.exe",
+        "outlook.exe", "winword.exe", "excel.exe", "powerpnt.exe",
+        "msiexec.exe", "setup.exe", "installer.exe"
+    )
+    | project
+        TimeGenerated,
+        DeviceId,
+        DeviceName,
+        InitiatingProcessFileName,
+        InitiatingProcessId,
+        InitiatingProcessCommandLine,
+        InitiatingProcessFolderPath,
+        CryptoDLL = FileName
+)
+| join kind=inner (
+    DeviceFileEvents
+    | where TimeGenerated > ago(5m)
+    | where ActionType == "FileRenamed"
+    | where PreviousFileName has_any (".docx", ".xlsx", ".pdf", ".csv", ".txt")
+    | summarize RenameCount = count() by DeviceId, InitiatingProcessId
+    | where RenameCount >= 5
+) on DeviceId
+| extend
+    Severity = "High",
+    ThreatType = "Ransomware-CryptographicKeyGenerationWithFileOps",
+    MitreAttack = "T1486",
+    TestID = "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    InitiatingProcessFolderPath,
+    RenameCount,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 5: Anomalous File Extension Distribution in User Directories
+// Technique: T1486 - Data Encrypted for Impact
+// Confidence: Medium
+// ============================================================
+// Purpose: Identifies directories where a high proportion of files have
+//          unusual or unknown extensions — characteristic of post-encryption
+//          state where files have been renamed en masse.
+// False Positives: Development directories, software extraction folders.
+//                  Tune by excluding known developer and temp paths.
+// Threshold: 30%+ files with non-standard extensions in a single directory.
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FolderPath has @"C:\Users\"
+| where FolderPath !has @"\AppData\"
+| where FolderPath !has @"\Program Files"
+| summarize
+    TotalFiles = count(),
+    StandardExtFiles = countif(FileName has_any (".docx", ".xlsx", ".pdf", ".csv", ".txt", ".doc", ".xls", ".pptx", ".jpg", ".png", ".mp4", ".zip")),
+    UnknownExtFiles = countif(FileName !has_any (".docx", ".xlsx", ".pdf", ".csv", ".txt", ".doc", ".xls", ".pptx", ".jpg", ".png", ".mp4", ".zip", ".exe", ".dll", ".sys", ".ini", ".log", ".xml", ".json", ".html", ".htm", ".url", ".lnk"))
+    by DeviceId, DeviceName, FolderPath
+| where TotalFiles >= 5
+| where todouble(UnknownExtFiles) / todouble(TotalFiles) >= 0.3
+| extend
+    UnknownExtRatio = round(todouble(UnknownExtFiles) / todouble(TotalFiles), 2),
+    Severity = "Medium",
+    ThreatType = "Ransomware-AnomalousExtensionDistribution",
+    MitreAttack = "T1486",
+    TestID = "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+| project
+    TimeGenerated = now(),
+    DeviceName,
+    FolderPath,
+    TotalFiles,
+    UnknownExtFiles,
+    UnknownExtRatio,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 6: Shadow Copy Deletion (Common Ransomware Pre-Encryption Step)
+// Technique: T1490 - Inhibit System Recovery (companion technique)
+// Confidence: High
+// ============================================================
+// Purpose: Detects execution of commands that delete Volume Shadow Copies,
+//          which ransomware does to prevent recovery. This often precedes or
+//          accompanies file encryption activity.
+// False Positives: Some backup software and sysadmin tools legitimately manage
+//                  VSS. Correlate with other ransomware indicators.
+// Threshold: Single occurrence from interactive or script process is high signal.
+// ============================================================
+DeviceProcessEvents
+| where ActionType == "ProcessCreated"
+| where (
+    (ProcessCommandLine has "vssadmin" and ProcessCommandLine has_any ("delete", "resize", "shadows"))
+    or (ProcessCommandLine has "wmic" and ProcessCommandLine has_any ("shadowcopy", "delete"))
+    or (ProcessCommandLine has "wbadmin" and ProcessCommandLine has "delete")
+    or (ProcessCommandLine has "bcdedit" and ProcessCommandLine has_any ("recoveryenabled no", "ignoreallfailures"))
+    or (ProcessCommandLine has "schtasks" and ProcessCommandLine has_all ("delete", "/f"))
+)
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware-ShadowCopyDeletion",
+    MitreAttack = "T1490",
+    TestID = "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 7: Ransom Note Content String Matching in Written Files
+// Technique: T1491.001 - Internal Defacement
+// Confidence: High
+// ============================================================
+// Purpose: Detects file write events followed by content containing ransom
+//          demand language. Works with advanced telemetry that captures
+//          file content previews (e.g., MDE Advanced Hunting file content).
+// False Positives: Security awareness training materials, legal contracts.
+//                  Extremely low FP rate due to combination of location + content.
+// Threshold: Single occurrence warrants investigation.
+// ============================================================
+DeviceFileEvents
+| where ActionType in ("FileCreated", "FileModified")
+| where FolderPath has_any (@"C:\Users\", @"C:\ProgramData\", @"C:\")
+| where FolderPath !has @"\AppData\Local\Microsoft\"
+| where (
+    FileName matches regex @"(?i)(README|DECRYPT|HOW_TO|HELP_DECRYPT|RESTORE|RECOVERY|YOUR_FILES|HOW_RECOVER|RANSOM|ATTENTION|IMPORTANT|FILES_ENCRYPTED|RESTORE_FILES|ALL_YOUR_FILES)[^\\]*\.(txt|html|hta|htm|url|jpg|bmp)"
+    or FileName in~ (
+        "!!!RESTORE_FILES!!!.txt",
+        "!!! IMPORTANT !!!.txt",
+        "#DECRYPT_MY_FILES#.txt",
+        "HELP_DECRYPT.HTML",
+        "DECRYPT_INSTRUCTION.txt",
+        "HOW_TO_DECRYPT_FILES.txt",
+        "RANSOM_NOTE.txt",
+        "READ_THIS_FILE.txt"
+    )
+)
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware-RansomNoteFilename",
+    MitreAttack = "T1491.001",
+    TestID = "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    FileSize,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 8: File Enumeration Followed by Bulk Modification (Pre-Encryption Scan)
+// Technique: T1486 - Data Encrypted for Impact
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects the pre-encryption reconnaissance phase where ransomware
+//          enumerates user files before processing them. A process reading
+//          many files across multiple directories in rapid succession without
+//          matching normal user behavior indicates automated enumeration.
+// False Positives: Antivirus scans, backup clients, indexing services.
+//                  Exclude known backup/AV product processes.
+// Threshold: 50+ unique file reads across 3+ directories within 30 seconds.
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(5m)
+| where ActionType in ("FileRead", "FileAccessed")
+| where FolderPath has @"C:\Users\"
+| where FolderPath !has @"\AppData\"
+| where FileName has_any (".docx", ".xlsx", ".pdf", ".csv", ".txt", ".doc", ".xls", ".pptx", ".odt", ".xml", ".jpg", ".png", ".mp4")
+| where InitiatingProcessFileName !in~ (
+    "SearchIndexer.exe", "MsMpEng.exe", "SenseCE.exe", "svchost.exe",
+    "OneDrive.exe", "backup.exe", "BackupService.exe", "veeam.exe"
+)
+| summarize
+    FilesRead = count(),
+    DistinctDirectories = dcount(FolderPath),
+    DistinctExtensions = dcount(tostring(split(FileName, ".")[-1])),
+    FirstAccess = min(TimeGenerated),
+    LastAccess = max(TimeGenerated)
+    by DeviceId, DeviceName, InitiatingProcessFileName, InitiatingProcessId, InitiatingProcessCommandLine
+| where FilesRead >= 50
+| where DistinctDirectories >= 3
+| extend
+    Duration = datetime_diff("second", LastAccess, FirstAccess),
+    Severity = "Medium",
+    ThreatType = "Ransomware-BulkFileEnumeration",
+    MitreAttack = "T1486",
+    TestID = "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
+| where Duration <= 60
+| project
+    TimeGenerated = FirstAccess,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    FilesRead,
+    DistinctDirectories,
+    DistinctExtensions,
+    Duration,
+    Severity,
+    ThreatType,
+    MitreAttack

@@ -1,0 +1,293 @@
+// ============================================================
+// Detection: Local Account Enumeration via Native Windows Commands
+// Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+// MITRE ATT&CK: T1087.001 - Account Discovery: Local Account
+// Confidence: High
+// ============================================================
+// Purpose: Detects use of net.exe with user or localgroup arguments,
+//          which adversaries use to enumerate local accounts and group memberships.
+//          This pattern is observed in nearly every post-compromise enumeration phase.
+// False Positives: IT helpdesk scripts, domain admin tooling, scheduled inventory jobs.
+//                  Tune by excluding known management hosts or authorized parent processes
+//                  (e.g., parent process = sccm.exe, managementservice.exe).
+// Threshold: Alert on >= 2 distinct net.exe enumeration variants within 5 minutes from same host.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "net.exe" or FileName =~ "net1.exe"
+| where ProcessCommandLine has_any ("user", "localgroup")
+| where ProcessCommandLine !has "/add" and ProcessCommandLine !has "/delete"
+    and ProcessCommandLine !has "/passwordchg" and ProcessCommandLine !has "/domain"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    ProcessCommandLine,
+    ProcessId,
+    InitiatingProcessId
+| extend
+    Severity       = "Medium",
+    ThreatType     = "Account Discovery",
+    MitreAttack    = "T1087.001",
+    TestID         = "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: Whoami with Full Privilege Enumeration
+// Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+// MITRE ATT&CK: T1078.003 - Valid Accounts: Local Accounts
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects whoami.exe executed with /all, /priv, or /groups flags.
+//          Adversaries use this to understand current account context, privileges,
+//          and group memberships immediately after gaining initial access.
+// False Positives: Developer tooling, CI/CD pipelines, legitimate diagnostics.
+//                  Tune by whitelisting specific parent processes (IDE.exe, devenv.exe)
+//                  or low-risk user accounts running automated pipelines.
+// Threshold: Alert if whoami /all is seen from a non-interactive session or
+//            in combination with other enumeration commands within 2 minutes.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "whoami.exe"
+| where ProcessCommandLine has_any ("/all", "/priv", "/groups", "/fo", "/user")
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    ProcessCommandLine,
+    ProcessId
+| extend
+    Severity    = "Low",
+    ThreatType  = "Privilege Discovery",
+    MitreAttack = "T1078.003",
+    TestID      = "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: WMI User Account Enumeration
+// Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+// MITRE ATT&CK: T1087.001 - Account Discovery: Local Account
+// Confidence: High
+// ============================================================
+// Purpose: Detects wmic.exe querying the Win32_UserAccount or useraccount WMI class.
+//          WMI-based enumeration is preferred by adversaries over net.exe because it
+//          generates less noisy audit logs and bypasses some command-line monitoring.
+// False Positives: Endpoint management agents (Tanium, BigFix), inventory scripts,
+//                  SCCM. Tune by excluding processes signed by known management vendors.
+// Threshold: Single execution is noteworthy; alert immediately.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "wmic.exe"
+| where ProcessCommandLine has_any ("useraccount", "Win32_UserAccount", "Win32_Group",
+                                    "Win32_GroupUser", "localgroup")
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    ProcessCommandLine,
+    ProcessId
+| extend
+    Severity    = "Medium",
+    ThreatType  = "Account Discovery via WMI",
+    MitreAttack = "T1087.001",
+    TestID      = "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ProcessCommandLine, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: Rubeus Kerberos Abuse Tool Execution
+// Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+// MITRE ATT&CK: T1558.003 - Kerberoasting
+// Confidence: High
+// ============================================================
+// Purpose: Detects execution of Rubeus (GhostPack Kerberos toolset) via process
+//          command line arguments. Rubeus is exclusively an offensive tool; any
+//          execution in a production environment is high-confidence malicious.
+// False Positives: Authorized penetration testing engagements only.
+//                  Validate against change window/engagement calendar before suppressing.
+// Threshold: Zero tolerance — alert on every execution.
+// ============================================================
+DeviceProcessEvents
+| where ProcessCommandLine has_any (
+    "kerberoast", "asreproast", "asktgt", "asktgs", "s4u",
+    "ptt", "tgtdeleg", "dump /luid", "harvest", "monitor /interval",
+    "/format:hashcat", "/format:john", "/outfile:hashes", "/opsec",
+    "/nowrap", "/domain:", "/spn:", "/aes256:", "/rc4:"
+  )
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    ProcessCommandLine,
+    ProcessId,
+    SHA256
+| extend
+    Severity    = "Critical",
+    ThreatType  = "Kerberos Abuse / Offensive Tool",
+    MitreAttack = "T1558.003",
+    TestID      = "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
+          SHA256, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: Anomalous Kerberos TGS-REQ Requests (Kerberoasting Pattern)
+// Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+// MITRE ATT&CK: T1558.003 - Kerberoasting
+// Confidence: High
+// ============================================================
+// Purpose: Detects Windows Security Event 4769 where Kerberos service tickets
+//          are requested using RC4 (0x17) or DES encryption types — a hallmark of
+//          Kerberoasting. Modern AD environments using AES will see attackers
+//          downgrading to RC4 to enable offline cracking.
+// False Positives: Legacy applications requiring RC4 Kerberos (old printers, scanners,
+//                  .NET 3.5 apps). Build a baseline of legitimate RC4 requestors and
+//                  exclude known service accounts and device names.
+// Threshold: >= 3 RC4 TGS requests within 10 minutes from the same source account.
+// ============================================================
+SecurityEvent
+| where EventID == 4769
+| where TicketEncryptionType =~ "0x17" or TicketEncryptionType =~ "0x18"
+    or TicketEncryptionType =~ "0x3"
+| where TicketOptions !has "0x40810000"  // Exclude renewable ticket requests typical of normal logon
+| where ServiceName !has "$"             // Exclude machine account TGS requests
+| summarize
+    RequestCount      = count(),
+    UniqueServices    = dcount(ServiceName),
+    ServiceList       = make_set(ServiceName, 20),
+    FirstSeen         = min(TimeGenerated),
+    LastSeen          = max(TimeGenerated)
+  by SubjectUserName, IpAddress, Computer
+| where RequestCount >= 3 or UniqueServices >= 3
+| extend
+    Severity    = "High",
+    ThreatType  = "Kerberoasting - RC4 TGS Requests",
+    MitreAttack = "T1558.003",
+    TestID      = "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+| project FirstSeen, LastSeen, Computer, SubjectUserName, IpAddress,
+          RequestCount, UniqueServices, ServiceList, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: AS-REP Roasting - Kerberos Pre-Authentication Failure Harvest
+// Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+// MITRE ATT&CK: T1558.003 - Kerberoasting (AS-REP Roasting variant)
+// Confidence: High
+// ============================================================
+// Purpose: Detects Windows Security Event 4768 where AS-REQ is submitted without
+//          pre-authentication data (PA-DATA), indicating AS-REP roasting attempts
+//          against accounts with "Do not require Kerberos preauthentication" set.
+// False Positives: Older UNIX/Linux Kerberos clients that do not perform pre-auth
+//                  by default. Correlate with LDAP queries for accounts with
+//                  DONT_REQUIRE_PREAUTH attribute to identify legitimate accounts.
+// Threshold: Any single occurrence is noteworthy; >= 5 within 5 min from same source is critical.
+// ============================================================
+SecurityEvent
+| where EventID == 4768
+| where PreAuthType == "0" or PreAuthType == ""
+| where Status =~ "0x0" or Status =~ "0x6"
+| summarize
+    RequestCount = count(),
+    TargetAccounts = make_set(TargetUserName, 20),
+    FirstSeen    = min(TimeGenerated),
+    LastSeen     = max(TimeGenerated)
+  by IpAddress, Computer
+| where RequestCount >= 1
+| extend
+    Severity    = "High",
+    ThreatType  = "AS-REP Roasting",
+    MitreAttack = "T1558.003",
+    TestID      = "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+| project FirstSeen, LastSeen, Computer, IpAddress,
+          RequestCount, TargetAccounts, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: Multi-Method Account Enumeration Burst (Behavioral Correlation)
+// Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+// MITRE ATT&CK: T1087.001, T1078.003
+// Confidence: High
+// ============================================================
+// Purpose: Correlates multiple distinct account enumeration methods from the same
+//          host and user within a short window. A real attacker performing
+//          post-compromise recon will chain net.exe, whoami, and wmic together.
+//          Single tool use has high FP rate; chaining has very low FP rate.
+// False Positives: Automated server builds running health-check scripts.
+//                  Tune by excluding known server provisioning accounts and
+//                  the first 30 minutes of a machine's lifecycle.
+// Threshold: >= 3 distinct enumeration tools from the same host within 5 minutes.
+// ============================================================
+let EnumerationCommands = DeviceProcessEvents
+| where FileName in~ ("net.exe", "net1.exe", "whoami.exe", "wmic.exe",
+                       "nltest.exe", "dsquery.exe", "cmdkey.exe")
+| where ProcessCommandLine has_any (
+      "user", "localgroup", "/all", "/priv", "/groups",
+      "useraccount", "Win32_UserAccount", "/dclist", "/trusted_domains"
+  )
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine;
+EnumerationCommands
+| summarize
+    ToolsUsed       = make_set(FileName),
+    DistinctTools   = dcount(FileName),
+    CommandsSeen    = make_set(ProcessCommandLine, 10),
+    CommandCount    = count(),
+    FirstEvent      = min(TimeGenerated),
+    LastEvent       = max(TimeGenerated)
+  by DeviceName, AccountName, bin(TimeGenerated, 5m)
+| where DistinctTools >= 2
+| extend
+    Severity    = "High",
+    ThreatType  = "Multi-Method Enumeration Burst",
+    MitreAttack = "T1087.001, T1078.003",
+    TestID      = "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+| project FirstEvent, LastEvent, DeviceName, AccountName,
+          DistinctTools, ToolsUsed, CommandCount, CommandsSeen,
+          Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection: Kerberoasting + Local Enumeration Combined Attack Chain
+// Test ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
+// MITRE ATT&CK: T1087.001, T1558.003
+// Confidence: High
+// ============================================================
+// Purpose: High-fidelity detection that correlates local account enumeration
+//          (net/wmic/whoami) with subsequent Kerberos RC4 ticket requests from
+//          the same host — a classic attacker pattern of "enumerate then exploit".
+// False Positives: Very low. Legitimate management software rarely combines
+//                  local user enumeration with Kerberos ticket requests.
+// Threshold: Both legs must appear within 15 minutes from the same host.
+// ============================================================
+let EnumWindow = 15m;
+let LocalEnum = DeviceProcessEvents
+| where FileName in~ ("net.exe", "net1.exe", "whoami.exe", "wmic.exe")
+| where ProcessCommandLine has_any ("user", "localgroup", "/all", "useraccount")
+| project EnumTime = TimeGenerated, DeviceName, AccountName, EnumCmd = ProcessCommandLine;
+let KerbAbuse = SecurityEvent
+| where EventID == 4769
+| where TicketEncryptionType =~ "0x17"
+| where ServiceName !has "$"
+| project KerbTime = TimeGenerated, Computer, KerbUser = SubjectUserName, ServiceName;
+LocalEnum
+| join kind=inner (KerbAbuse) on $left.DeviceName == $right.Computer
+| where KerbTime between (EnumTime .. (EnumTime + EnumWindow))
+| extend
+    Severity    = "Critical",
+    ThreatType  = "Enumeration + Kerberoasting Attack Chain",
+    MitreAttack = "T1087.001, T1558.003",
+    TestID      = "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
+| project EnumTime, KerbTime, DeviceName, AccountName, EnumCmd, KerbUser,
+          ServiceName, Severity, ThreatType, MitreAttack

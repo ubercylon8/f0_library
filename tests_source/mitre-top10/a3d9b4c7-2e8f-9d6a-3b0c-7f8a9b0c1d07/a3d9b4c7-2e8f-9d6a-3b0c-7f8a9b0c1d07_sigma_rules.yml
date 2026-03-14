@@ -1,0 +1,229 @@
+# ============================================================
+# Sigma Rules: Pre-Encryption File Enumeration Behaviors
+# Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+# MITRE ATT&CK: T1083, T1119, T1082
+# ============================================================
+
+---
+title: Recursive Directory Enumeration via cmd.exe (Pre-Ransomware Recon)
+id: b2f4e8a1-3c9d-4f7b-a6e2-8d1c0f5b9e34
+status: experimental
+description: >
+  Detects cmd.exe invoked with both /s (recurse subdirectories) and /b (bare format)
+  flags in a dir command. This exact combination is used by ransomware operators and
+  red team tooling to enumerate file system contents prior to encryption or exfiltration.
+  The /b flag suppresses all output except file paths, which is characteristic of
+  automated (non-interactive) enumeration.
+references:
+    - https://attack.mitre.org/techniques/T1083/
+    - https://www.cisa.gov/stopransomware
+    - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/dir
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.discovery
+    - attack.t1083
+    - attack.collection
+    - attack.t1119
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_cmd:
+        Image|endswith: '\cmd.exe'
+        CommandLine|contains|all:
+            - 'dir'
+            - '/s'
+            - '/b'
+    filter_known_legit:
+        # Common legitimate automation that uses dir /s /b
+        ParentImage|endswith:
+            - '\msiexec.exe'
+            - '\setup.exe'
+            - '\install.exe'
+    condition: selection_cmd and not filter_known_legit
+falsepositives:
+    - Software installation scripts that scan for dependency files
+    - Legitimate IT inventory or compliance scripts
+    - Developer tooling performing project file listing
+    - Backup agents using Windows shell commands
+level: medium
+
+---
+title: Rapid Multi-Extension File Search Pattern (Ransomware Target Profiling)
+id: d7a2c591-4e8f-4b3a-9c1d-2f6e0b7a4c83
+status: experimental
+description: >
+  Detects cmd.exe being used to execute multiple dir commands that filter for
+  document, spreadsheet, database, and backup file extensions — the canonical
+  ransomware pre-encryption target profiling pattern. Attackers issue one dir
+  command per extension to enumerate all files of interest across the file system.
+  The combination of multiple targeted extensions within a short timespan
+  strongly indicates automated reconnaissance.
+references:
+    - https://attack.mitre.org/techniques/T1083/
+    - https://www.cisa.gov/uscert/ncas/alerts/aa21-265a
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.discovery
+    - attack.t1083
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_extension_search:
+        Image|endswith: '\cmd.exe'
+        CommandLine|re: '(?i)dir\s+.*/[sb].*\*\.(docx?|xlsx?|pptx?|pdf|csv|db|sql|bak|mdb|accdb|sqlite|json|xml)'
+    filter_interactive_shell:
+        # Typing a single extension search interactively is not suspicious
+        ParentImage|endswith: '\conhost.exe'
+        CommandLine|contains: '/c'
+    condition: selection_extension_search and not filter_interactive_shell
+falsepositives:
+    - Antivirus or compliance scan scripts performing targeted file audits
+    - Data loss prevention (DLP) agents enumerating sensitive file types
+    - Legitimate archival or backup tooling
+level: medium
+
+---
+title: Seatbelt GhostPack Recon Tool Execution
+id: e3b5f9c2-7d1a-4e6f-b8c0-3a2d1e4f9b67
+status: stable
+description: >
+  Detects execution of the Seatbelt offensive reconnaissance tool from the
+  GhostPack toolkit. Seatbelt performs 60+ host security checks covering
+  credentials (WindowsCredentialFiles, WindowsVault, DPAPI master keys),
+  system configuration, running processes, services, browser history, and
+  network state. It is commonly used by threat actors and red teams for
+  pre-attack host profiling. The -group=all argument triggers comprehensive
+  enumeration across all check categories simultaneously.
+references:
+    - https://attack.mitre.org/techniques/T1082/
+    - https://attack.mitre.org/techniques/T1083/
+    - https://github.com/GhostPack/Seatbelt
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.discovery
+    - attack.t1082
+    - attack.t1083
+    - attack.collection
+    - attack.t1119
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_by_name:
+        Image|endswith: '\Seatbelt.exe'
+    selection_by_args:
+        CommandLine|contains:
+            - '-group=all'
+            - '-group=system'
+            - '-group=user'
+            - '-group=misc'
+    selection_credential_checks:
+        CommandLine|contains:
+            - 'WindowsCredentialFiles'
+            - 'WindowsVault'
+            - 'DPAPIMasterKeys'
+            - 'InterestingFiles'
+    condition: selection_by_name or selection_by_args or (selection_credential_checks)
+falsepositives:
+    - Authorized red team or penetration testing activities
+    - Security assessment tools using similar argument patterns
+level: high
+
+---
+title: Windows Credential Store Enumeration by Non-System Process
+id: f6c8a2d4-1b3e-5f9a-7c4d-8e0b2a6f1c45
+status: experimental
+description: >
+  Detects non-system processes accessing Windows Credential Manager storage
+  directories (AppData\Microsoft\Credentials, Vault, Protect) in a manner
+  consistent with credential harvesting recon. Legitimate access to these paths
+  by user applications is rare outside of system processes and the OS credential
+  subsystem. Matches both Seatbelt's WindowsCredentialFiles/WindowsVault checks
+  and any other tool performing the same technique.
+references:
+    - https://attack.mitre.org/techniques/T1082/
+    - https://docs.microsoft.com/en-us/windows/win32/api/wincred/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.discovery
+    - attack.t1082
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_credential_paths:
+        TargetFilename|contains:
+            - '\AppData\Local\Microsoft\Credentials'
+            - '\AppData\Roaming\Microsoft\Credentials'
+            - '\AppData\Local\Microsoft\Protect'
+            - '\AppData\Roaming\Microsoft\Protect'
+            - '\AppData\Local\Microsoft\Vault'
+            - '\AppData\Roaming\Microsoft\Vault'
+    filter_system_processes:
+        Image|endswith:
+            - '\lsass.exe'
+            - '\svchost.exe'
+            - '\taskhostw.exe'
+            - '\RuntimeBroker.exe'
+            - '\CredentialUIBroker.exe'
+            - '\consent.exe'
+            - '\MicrosoftEdge.exe'
+    condition: selection_credential_paths and not filter_system_processes
+falsepositives:
+    - Password manager applications (1Password, Bitwarden helper)
+    - Remote Desktop applications reading saved credentials
+    - Microsoft Office accessing stored authentication tokens
+level: high
+
+---
+title: Automated File Collection with Target List Generation
+id: a8d1f3e5-9b2c-4a7d-c6f0-1e5b8d3a7f92
+status: experimental
+description: >
+  Detects creation of text files containing enumerated file paths following
+  a recursive directory enumeration activity on the same host within a short
+  window. This sequence — enumerate files, write results to disk — is the
+  canonical ransomware pre-encryption reconnaissance workflow, and also
+  matches data staging for exfiltration. The combination of both activities
+  is significantly more suspicious than either alone.
+references:
+    - https://attack.mitre.org/techniques/T1119/
+    - https://attack.mitre.org/techniques/T1083/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.collection
+    - attack.t1119
+    - attack.discovery
+    - attack.t1083
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_target_list_creation:
+        EventType: 'FileCreate'
+        TargetFilename|endswith:
+            - '\target_list.txt'
+            - '\file_list.txt'
+            - '\targets.txt'
+            - '\encrypt_targets.txt'
+            - '\filelist.txt'
+    filter_editor_creation:
+        Image|endswith:
+            - '\notepad.exe'
+            - '\wordpad.exe'
+            - '\code.exe'
+            - '\vim.exe'
+            - '\nano.exe'
+    condition: selection_target_list_creation and not filter_editor_creation
+falsepositives:
+    - IT asset management tools writing inventory output files
+    - Custom deduplication or backup scripts
+    - Developer automation generating project file manifests
+level: medium

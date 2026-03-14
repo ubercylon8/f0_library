@@ -1,0 +1,263 @@
+# ============================================================
+# Sigma Rules: Ransomware Encryption Behaviors
+# Test ID: b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08
+# MITRE ATT&CK: T1486 (Data Encrypted for Impact), T1491.001 (Internal Defacement)
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-03-14
+# ============================================================
+# NOTE: All rules target the underlying ransomware technique behaviors.
+# They are NOT specific to any test framework.
+# ============================================================
+
+---
+title: Mass File Extension Modification by Single Process
+id: a3f8c2e1-d74b-4c91-8f2e-1a3b4c5d6e7f
+status: experimental
+description: >
+    Detects a single process performing a high volume of file rename operations
+    that change file extensions away from standard document types. This is the
+    primary behavioral fingerprint of ransomware during the encryption phase,
+    where documents, spreadsheets, and other user files are renamed to a
+    ransomware-specific extension.
+references:
+    - https://attack.mitre.org/techniques/T1486/
+    - https://www.cisa.gov/stopransomware
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1486
+logsource:
+    category: file_rename
+    product: windows
+detection:
+    selection_original_extensions:
+        OldTargetFilename|endswith:
+            - '.docx'
+            - '.xlsx'
+            - '.pdf'
+            - '.csv'
+            - '.txt'
+            - '.doc'
+            - '.xls'
+            - '.pptx'
+            - '.odt'
+            - '.xml'
+            - '.jpg'
+            - '.png'
+            - '.bmp'
+            - '.mp4'
+            - '.avi'
+            - '.zip'
+            - '.bak'
+            - '.sql'
+            - '.mdb'
+    filter_known_extensions:
+        TargetFilename|endswith:
+            - '.docx'
+            - '.xlsx'
+            - '.pdf'
+            - '.csv'
+            - '.txt'
+            - '.doc'
+            - '.xls'
+            - '.pptx'
+            - '.odt'
+            - '.xml'
+            - '.jpg'
+            - '.png'
+            - '.bmp'
+            - '.mp4'
+            - '.avi'
+            - '.zip'
+            - '.bak'
+            - '.sql'
+            - '.mdb'
+    filter_legitimate_tools:
+        Image|endswith:
+            - '\BackupService.exe'
+            - '\veeam.exe'
+            - '\robocopy.exe'
+    condition: selection_original_extensions and not filter_known_extensions and not filter_legitimate_tools
+falsepositives:
+    - Bulk file conversion software renaming files to custom output formats
+    - Backup software with unusual extension conventions
+    - File management tools performing batch operations
+level: high
+---
+title: Ransom Note File Creation in User Directories
+id: b5e9d3f2-e85c-5d02-9g3f-2b4c5d6e7f80
+status: experimental
+description: >
+    Detects creation of files with names commonly used by ransomware for
+    ransom demand notes. Ransomware families consistently drop text or HTML
+    files with recognizable naming patterns into user directories to instruct
+    victims on payment. This constitutes Internal Defacement under T1491.001.
+references:
+    - https://attack.mitre.org/techniques/T1491/001/
+    - https://www.microsoft.com/security/blog/2020/03/05/human-operated-ransomware-attacks-a-preventable-disaster/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1491.001
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_note_names:
+        TargetFilename|re: '(?i)(README|DECRYPT|HOW_TO|HELP_DECRYPT|RESTORE|RECOVERY|YOUR_FILES|HOW_RECOVER|RANSOM|ATTENTION|IMPORTANT|FILES_ENCRYPTED|RESTORE_FILES|ALL_YOUR_FILES)[^\\/]*\.(txt|html|hta|htm|url)'
+    selection_user_paths:
+        TargetFilename|startswith:
+            - 'C:\Users\'
+            - 'C:\ProgramData\'
+            - 'C:\Documents and Settings\'
+    filter_system_paths:
+        TargetFilename|contains:
+            - '\AppData\Local\Microsoft\'
+            - '\AppData\Roaming\Microsoft\'
+            - '\Windows\System32\'
+            - '\Program Files\'
+    condition: selection_note_names and selection_user_paths and not filter_system_paths
+falsepositives:
+    - Security awareness training materials placed in user directories
+    - Software installers creating README.txt in user data locations
+    - Legitimate DECRYPT instruction documents from IT departments
+level: critical
+---
+title: Shadow Copy Deletion via Command Line Tools
+id: c6f0e4g3-f96d-6e13-0h4g-3c5d6e7f8091
+status: stable
+description: >
+    Detects execution of command line tools used to delete Volume Shadow Copies
+    (VSS). Ransomware commonly deletes shadow copies immediately before or during
+    the encryption phase to prevent victims from restoring files without paying.
+    This is a near-universal behavior across ransomware families.
+references:
+    - https://attack.mitre.org/techniques/T1490/
+    - https://thedfirreport.com/2021/11/15/exchange-exploit-leads-to-domain-wide-ransomware/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1490
+    - attack.t1486
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_vssadmin:
+        Image|endswith: '\vssadmin.exe'
+        CommandLine|contains:
+            - 'delete shadows'
+            - 'resize shadowstorage'
+    selection_wmic_shadow:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains|all:
+            - 'shadowcopy'
+            - 'delete'
+    selection_wbadmin:
+        Image|endswith: '\wbadmin.exe'
+        CommandLine|contains:
+            - 'delete catalog'
+            - 'delete systemstatebackup'
+    selection_bcdedit:
+        Image|endswith: '\bcdedit.exe'
+        CommandLine|contains:
+            - 'recoveryenabled no'
+            - 'ignoreallfailures'
+    condition: 1 of selection_*
+falsepositives:
+    - System administrators performing VSS maintenance
+    - Backup software managing snapshot storage allocation
+    - Automated maintenance scripts with documented purpose
+level: high
+---
+title: Process Performing Bulk File Rename with Cryptographic Library Load
+id: d7g1f5h4-g07e-7f24-1i5h-4d6e7f8g9012
+status: experimental
+description: >
+    Detects a process that loads cryptographic libraries (bcrypt.dll, advapi32.dll
+    for crypto functions) while also performing mass file rename operations on
+    document files. This combination is strongly indicative of ransomware preparing
+    encryption keys and then applying them to user files.
+references:
+    - https://attack.mitre.org/techniques/T1486/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1486
+logsource:
+    category: image_load
+    product: windows
+detection:
+    selection_crypto_dll:
+        ImageLoaded|endswith:
+            - '\bcrypt.dll'
+            - '\ncrypt.dll'
+    filter_expected_loaders:
+        Image|endswith:
+            - '\lsass.exe'
+            - '\svchost.exe'
+            - '\wininit.exe'
+            - '\services.exe'
+            - '\chrome.exe'
+            - '\msedge.exe'
+            - '\firefox.exe'
+            - '\winword.exe'
+            - '\excel.exe'
+            - '\outlook.exe'
+            - '\teams.exe'
+            - '\msiexec.exe'
+            - '\SearchIndexer.exe'
+    condition: selection_crypto_dll and not filter_expected_loaders
+falsepositives:
+    - Custom business applications using Windows cryptographic APIs
+    - Development tools and runtimes loading crypto libraries
+    - Security software using crypto libraries for hash computation
+level: medium
+---
+title: Suspicious File Creation in Multiple User Directories Simultaneously
+id: e8h2g6i5-h18f-8g35-2j6i-5e7f8g9h0123
+status: experimental
+description: >
+    Detects a single process creating or writing files across multiple distinct
+    user directories in rapid succession. Ransomware drops copies of its ransom
+    note into every directory it processes, resulting in a distinctive pattern
+    of a single process creating identical or similarly-named files across
+    many folders within a short window.
+references:
+    - https://attack.mitre.org/techniques/T1491/001/
+    - https://www.bleepingcomputer.com/news/security/ransomware-how-it-works-detection-and-prevention/
+author: F0RT1KA Detection Rules Generator
+date: 2026-03-14
+tags:
+    - attack.impact
+    - attack.t1486
+    - attack.t1491.001
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        EventType: 'FileCreate'
+        TargetFilename|startswith: 'C:\Users\'
+        TargetFilename|endswith:
+            - '.txt'
+            - '.html'
+            - '.hta'
+            - '.htm'
+    filter_standard_apps:
+        Image|endswith:
+            - '\notepad.exe'
+            - '\wordpad.exe'
+            - '\winword.exe'
+            - '\code.exe'
+            - '\notepad++.exe'
+    condition: selection and not filter_standard_apps
+falsepositives:
+    - Backup applications creating index or manifest files
+    - Software deployment tools creating config files in user directories
+    - Custom scripts with legitimate multi-directory write operations
+level: medium

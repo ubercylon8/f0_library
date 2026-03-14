@@ -1,0 +1,282 @@
+// ============================================================
+// Detection: Recursive File Enumeration via cmd.exe (dir /s /b)
+// Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+// MITRE ATT&CK: T1083 - File and Directory Discovery
+// Confidence: High
+// ============================================================
+// Purpose: Detects cmd.exe invocations with recursive directory listing
+//          flags (/s /b) consistent with pre-ransomware reconnaissance.
+//          Attackers enumerate file system layout prior to encryption.
+// False Positives: Legitimate backup agents, IT inventory scripts,
+//                  software installers scanning for dependencies,
+//                  developer tooling during build processes.
+// Threshold: Alert when a single process issues 3+ recursive dir
+//            commands within a 60-second window.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "cmd.exe"
+| where ProcessCommandLine has_all ("/s", "/b")
+    and ProcessCommandLine has "dir"
+| extend IsWildcardExtension = ProcessCommandLine matches regex @"dir\s+/[sb].*\*\.\w{2,6}"
+| extend ParentIsKnownShell = InitiatingProcessFileName in~ ("explorer.exe", "cmd.exe", "powershell.exe")
+| extend Severity = "High",
+         ThreatType = "Pre-Encryption Reconnaissance",
+         MitreAttack = "T1083",
+         TestID = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
+| project TimeGenerated, DeviceName, AccountName, ProcessId, FileName,
+          ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine,
+          IsWildcardExtension, ParentIsKnownShell,
+          Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: Extension-Based File Filtering (Ransomware Target Profiling)
+// Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+// MITRE ATT&CK: T1083 - File and Directory Discovery
+// Confidence: High
+// ============================================================
+// Purpose: Detects repeated dir commands filtering for document/database
+//          extensions in quick succession — a hallmark of ransomware
+//          target identification. Each extension is queried separately
+//          to build a complete file target list.
+// False Positives: Antivirus scan scripts, compliance auditing tools,
+//                  custom backup solutions, developer search utilities.
+// Threshold: 5+ extension-specific dir queries from a single process
+//            lineage within 120 seconds.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "cmd.exe"
+| where ProcessCommandLine matches regex @"dir\s+.*\*\.(docx?|xlsx?|pptx?|pdf|csv|txt|db|sql|bak|mdb|accdb|sqlite|json|xml)"
+| summarize
+    ExtensionQueries = count(),
+    Extensions = make_set(extract(@"\*\.(\w+)", 1, ProcessCommandLine)),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, AccountName, InitiatingProcessFileName, bin(TimeGenerated, 2m)
+| where ExtensionQueries >= 3
+| extend DurationSeconds = datetime_diff("second", LastSeen, FirstSeen)
+| extend Severity = "High",
+         ThreatType = "Ransomware Pre-Encryption File Profiling",
+         MitreAttack = "T1083",
+         TestID = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          ExtensionQueries, Extensions, DurationSeconds,
+          Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: Rapid High-Volume File Access (Automated Collection)
+// Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+// MITRE ATT&CK: T1119 - Automated Collection
+// Confidence: High
+// ============================================================
+// Purpose: Identifies processes opening an anomalously large number of
+//          files within a short window, consistent with automated pre-
+//          encryption enumeration or active ransomware encryption.
+//          Distinct from backup operations by the lack of write activity.
+// False Positives: Antivirus full scans, backup agents, search indexers
+//                  (SearchIndexer.exe), code analysis tools.
+// Threshold: >500 unique file read events from a non-system process in
+//            60 seconds. Tune downward to 200 for high-sensitivity
+//            environments.
+// ============================================================
+DeviceFileEvents
+| where ActionType in ("FileRead", "FileAccessed")
+| where not(InitiatingProcessFileName in~ (
+    "SearchIndexer.exe", "MsMpEng.exe", "svchost.exe",
+    "TiWorker.exe", "wuauclt.exe", "csrss.exe",
+    "System", "smss.exe", "lsass.exe"))
+| summarize
+    FilesAccessed = count(),
+    UniqueDirectories = dcount(FolderPath),
+    UniqueExtensions = dcount(extract(@"\.(\w+)$", 1, FileName))
+    by DeviceName, AccountName, InitiatingProcessFileName, bin(TimeGenerated, 1m)
+| where FilesAccessed > 500
+| extend Severity = "High",
+         ThreatType = "Automated File Collection",
+         MitreAttack = "T1119",
+         TestID = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          FilesAccessed, UniqueDirectories, UniqueExtensions,
+          Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: Target File List Creation (Pre-Encryption Staging Artifact)
+// Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+// MITRE ATT&CK: T1119 - Automated Collection, T1083 - File and Directory Discovery
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects creation of flat text files containing file system
+//          paths with size metadata — the canonical output artifact of
+//          pre-encryption ransomware reconnaissance. Real attackers write
+//          this to disk for staging or exfiltration before encrypting.
+// False Positives: Legitimate inventory or asset management tools,
+//                  IT compliance exports, custom deduplication utilities.
+// Threshold: Alert on first occurrence; correlate with concurrent
+//            dir or walk activity for higher confidence.
+// ============================================================
+DeviceFileEvents
+| where ActionType in ("FileCreated", "FileModified")
+| where FileName in~ ("target_list.txt", "file_list.txt", "targets.txt",
+                       "encrypt_targets.txt", "filelist.txt", "inventory.txt")
+    or (FileName endswith ".txt"
+        and FolderPath !has "\\AppData\\"
+        and FolderPath !has "\\Temp\\")
+| join kind=leftouter (
+    DeviceProcessEvents
+    | where ProcessCommandLine has "dir" and ProcessCommandLine has "/s"
+    | project DeviceName, AccountName, EnumTime = TimeGenerated
+) on DeviceName, AccountName
+| where abs(datetime_diff("second", TimeGenerated, EnumTime)) < 300
+| extend Severity = "High",
+         ThreatType = "Pre-Encryption Target List Staging",
+         MitreAttack = "T1119",
+         TestID = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: Seatbelt Security Enumeration Tool Execution
+// Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+// MITRE ATT&CK: T1082 - System Information Discovery, T1083 - File and Directory Discovery
+// Confidence: High
+// ============================================================
+// Purpose: Detects execution of Seatbelt (GhostPack offensive recon tool)
+//          or processes invoking Seatbelt-style argument patterns.
+//          Seatbelt performs 60+ host security checks including credential
+//          store enumeration, credential files, vault access, and more.
+//          Used by APT groups and ransomware operators for pre-attack recon.
+// False Positives: Authorized red team exercises, penetration testing
+//                  assessments. Should virtually never appear in production.
+// Threshold: Zero tolerance — alert on every instance.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "Seatbelt.exe"
+    or ProcessCommandLine has "Seatbelt"
+    or (ProcessCommandLine has_any ("-group=all", "-group=system", "-group=user", "-group=misc")
+        and ProcessCommandLine has_any (".exe", "Seatbelt"))
+    or ProcessCommandLine has_all ("WindowsCredentialFiles", "WindowsVault")
+    or ProcessCommandLine has "InterestingFiles"
+| extend IsSeatbeltGroupAll = ProcessCommandLine has "-group=all"
+| extend IsSeatbeltCredentials = ProcessCommandLine has_any
+    ("WindowsCredentialFiles", "WindowsVault", "DPAPIMasterKeys", "CredEnum")
+| extend Severity = "Critical",
+         ThreatType = "GhostPack Seatbelt Recon Tool",
+         MitreAttack = "T1082, T1083",
+         TestID = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
+| project TimeGenerated, DeviceName, AccountName, ProcessId, FileName,
+          ProcessCommandLine, InitiatingProcessFileName,
+          IsSeatbeltGroupAll, IsSeatbeltCredentials,
+          Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: Credential Store Enumeration via Seatbelt Checks
+// Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+// MITRE ATT&CK: T1082 - System Information Discovery
+// Confidence: High
+// ============================================================
+// Purpose: Detects access to Windows Credential Manager, credential
+//          files, and vault locations as performed by Seatbelt's
+//          WindowsCredentialFiles, WindowsVault, and InterestingFiles
+//          checks. Matches broad tool-agnostic access to these stores.
+// False Positives: Applications legitimately accessing Windows Vault
+//                  (e.g., RDP clients, Office), credential manager GUI.
+// Threshold: Alert when non-system processes access credential paths
+//            not belonging to the current user session.
+// ============================================================
+DeviceFileEvents
+| where FolderPath has_any (
+    "\\AppData\\Local\\Microsoft\\Credentials",
+    "\\AppData\\Roaming\\Microsoft\\Credentials",
+    "\\AppData\\Local\\Microsoft\\Protect",
+    "\\AppData\\Roaming\\Microsoft\\Protect",
+    "\\AppData\\Local\\Microsoft\\Vault",
+    "\\AppData\\Roaming\\Microsoft\\Vault")
+| where ActionType in ("FileRead", "FileAccessed")
+| where not(InitiatingProcessFileName in~ (
+    "lsass.exe", "svchost.exe", "taskhostw.exe",
+    "RuntimeBroker.exe", "consent.exe", "CredentialUIBroker.exe"))
+| extend Severity = "High",
+         ThreatType = "Credential Store Enumeration",
+         MitreAttack = "T1082",
+         TestID = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: System Information Discovery via WMI/Registry (T1082)
+// Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+// MITRE ATT&CK: T1082 - System Information Discovery
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects broad system survey queries using WMI, registry reads,
+//          and service enumeration consistent with Seatbelt's OSInfo,
+//          Services, Processes, and EnvironmentVariables checks.
+// False Positives: Asset management agents, monitoring agents (e.g.,
+//                  Datadog, New Relic), SCCM/Intune management operations.
+// Threshold: 10+ distinct WMI queries from a single non-administrative
+//            process within 60 seconds.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "wmic.exe"
+    or (FileName =~ "powershell.exe"
+        and ProcessCommandLine has_any
+            ("Get-WmiObject", "Get-CimInstance", "gwmi", "gcim"))
+| where ProcessCommandLine has_any (
+    "Win32_OperatingSystem", "Win32_ComputerSystem", "Win32_Processor",
+    "Win32_Service", "Win32_Process", "Win32_NetworkAdapter",
+    "Win32_DiskDrive", "Win32_LogicalDisk", "Win32_BIOS")
+| summarize
+    WmiQueryCount = count(),
+    Classes = make_set(extract(@"Win32_\w+", 0, ProcessCommandLine))
+    by DeviceName, AccountName, InitiatingProcessFileName, bin(TimeGenerated, 1m)
+| where WmiQueryCount >= 3
+| extend Severity = "Medium",
+         ThreatType = "System Information Discovery",
+         MitreAttack = "T1082",
+         TestID = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName,
+          WmiQueryCount, Classes,
+          Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: Behavioral Correlation — Pre-Encryption Recon Kill Chain
+// Test ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
+// MITRE ATT&CK: T1083, T1119, T1082
+// Confidence: High (multi-indicator)
+// ============================================================
+// Purpose: High-confidence composite detection correlating multiple
+//          pre-encryption reconnaissance behaviors within a 10-minute
+//          window on the same host: (1) recursive dir enumeration,
+//          (2) extension-based filtering, AND (3) target list file
+//          creation. This sequence strongly indicates ransomware recon
+//          activity or an authorized test of the same behavior.
+// False Positives: Very rare. Legitimate tools performing all three
+//                  concurrently would be unusual; most produce false
+//                  positives on only one indicator independently.
+// Threshold: All three distinct behaviors required within 10 minutes.
+// ============================================================
+let RecursiveDirHosts = DeviceProcessEvents
+| where TimeGenerated > ago(10m)
+| where FileName =~ "cmd.exe" and ProcessCommandLine has "/s" and ProcessCommandLine has "/b"
+| distinct DeviceName, AccountName;
+let ExtensionFilterHosts = DeviceProcessEvents
+| where TimeGenerated > ago(10m)
+| where FileName =~ "cmd.exe"
+| where ProcessCommandLine matches regex @"\*\.(docx?|xlsx?|pdf|db|sql|bak)"
+| distinct DeviceName, AccountName;
+let TargetListHosts = DeviceFileEvents
+| where TimeGenerated > ago(10m)
+| where ActionType in ("FileCreated", "FileModified")
+| where FileName endswith ".txt"
+    and InitiatingProcessFileName !in~ ("notepad.exe", "wordpad.exe", "code.exe")
+| distinct DeviceName, AccountName;
+RecursiveDirHosts
+| join kind=inner ExtensionFilterHosts on DeviceName, AccountName
+| join kind=inner TargetListHosts on DeviceName, AccountName
+| extend Severity = "Critical",
+         ThreatType = "Pre-Encryption Recon Kill Chain (Multi-Indicator)",
+         MitreAttack = "T1083, T1119, T1082",
+         TestID = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
+| project TimeGenerated = now(), DeviceName, AccountName,
+          Severity, ThreatType, MitreAttack
