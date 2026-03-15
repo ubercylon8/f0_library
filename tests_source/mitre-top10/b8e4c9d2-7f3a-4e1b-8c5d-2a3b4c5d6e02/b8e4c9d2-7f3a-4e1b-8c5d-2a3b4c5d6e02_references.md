@@ -10,7 +10,7 @@
 | **Author/Organization** | Security Research |
 | **Date Published** | 2026-01-11 |
 | **Document Type** | blog-post |
-| **URL** | https://www.harmj0y.net/blog/activedirectory/roasting-as-reps/ |
+| **URL** | https://blog.harmj0y.net/activedirectory/roasting-as-reps/ |
 
 ## Supporting Resources
 

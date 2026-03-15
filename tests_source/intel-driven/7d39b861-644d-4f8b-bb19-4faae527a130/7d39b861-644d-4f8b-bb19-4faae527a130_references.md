@@ -19,7 +19,7 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 | # | Title | Type | URL |
 |---|-------|------|-----|
 | 1 | Anomali - Agrius Wiper Campaigns Against Israeli Financial Sector (March 2026) | Reference | https://www.anomali.com |
-| 2 | Microsoft - Pink Sandstorm Threat Actor Profile | Blog Post | https://www.microsoft.com/en-us/security/blog/tag/pink-sandstorm/ |
+| 2 | Microsoft - Pink Sandstorm Threat Actor Profile | Blog Post | https://attack.mitre.org/groups/G1030/ |
 
 ## MITRE ATT&CK References
 

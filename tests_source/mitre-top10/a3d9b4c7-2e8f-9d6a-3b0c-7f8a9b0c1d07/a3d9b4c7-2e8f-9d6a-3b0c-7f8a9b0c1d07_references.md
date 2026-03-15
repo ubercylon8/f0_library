@@ -19,7 +19,7 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 | # | Title | Type | URL |
 |---|-------|------|-----|
 | 1 | GhostPack Seatbelt Repository | Tool Repository | https://github.com/GhostPack/Seatbelt |
-| 2 | Conti Ransomware TTPs | Government Advisory | https://www.cisa.gov/uscert/ncas/alerts/aa21-265a |
+| 2 | Conti Ransomware TTPs | Government Advisory | https://www.cisa.gov/news-events/news/updated-conti-ransomware |
 | 3 | BlackCat/ALPHV Ransomware Analysis | Blog Post | https://www.microsoft.com/en-us/security/blog/2022/06/13/the-many-lives-of-blackcat-ransomware/ |
 
 ## MITRE ATT&CK References
@@ -33,4 +33,4 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 ## Related Advisories & News
 
 - [CISA Ransomware Guide](https://www.cisa.gov/stopransomware)
-- [Conti Ransomware TTPs](https://www.cisa.gov/uscert/ncas/alerts/aa21-265a)
+- [Conti Ransomware TTPs](https://www.cisa.gov/news-events/news/updated-conti-ransomware)

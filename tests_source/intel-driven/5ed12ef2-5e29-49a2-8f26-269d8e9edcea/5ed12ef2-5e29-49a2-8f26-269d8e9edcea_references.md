@@ -19,7 +19,7 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 | # | Title | Type | URL |
 |---|-------|------|-----|
 | 1 | Microsoft: Ransomware Protection in Windows Defender | Documentation | https://docs.microsoft.com/en-us/microsoft-365/security/defender-endpoint/customize-controlled-folders |
-| 2 | NIST: Ransomware Risk Management | Reference | https://www.nist.gov/itl/applied-cybersecurity/nist-cybersecurity-insights/ransomware-risk-management |
+| 2 | NIST: Ransomware Risk Management | Reference | https://csrc.nist.gov/pubs/ir/8374/final |
 | 3 | Conti Ransomware**: Token manipulation, rapid encryption, ransom note deployment | Reference | Not available |
 | 4 | LockBit 3.0**: Multi-stage execution, privilege escalation, aggressive file discovery | Reference | Not available |
 | 5 | BlackCat/ALPHV**: AES-256 encryption, multiple ransom note locations, wallpaper modification | Reference | Not available |

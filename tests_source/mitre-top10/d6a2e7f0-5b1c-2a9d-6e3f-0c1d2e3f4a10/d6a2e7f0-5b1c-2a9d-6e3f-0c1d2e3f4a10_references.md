@@ -20,7 +20,7 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 |---|-------|------|-----|
 | 1 | NetExec GitHub Repository | Tool Repository | https://github.com/Pennyw0rth/NetExec |
 | 2 | Microsoft sc.exe Documentation | Documentation | https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/sc-query |
-| 3 | Conti Ransomware TTP Analysis | Government Advisory | https://www.cisa.gov/news-events/cybersecurity-advisories/aa21-265a |
+| 3 | Conti Ransomware TTP Analysis | Government Advisory | https://www.cisa.gov/news-events/news/updated-conti-ransomware |
 
 ## MITRE ATT&CK References
 
@@ -32,4 +32,4 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 ## Related Advisories & News
 
 - [LockBit Ransomware Analysis](https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-165a)
-- [Conti Ransomware TTP Analysis](https://www.cisa.gov/news-events/cybersecurity-advisories/aa21-265a)
+- [Conti Ransomware TTP Analysis](https://www.cisa.gov/news-events/news/updated-conti-ransomware)

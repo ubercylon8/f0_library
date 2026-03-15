@@ -10,7 +10,7 @@
 | **Author/Organization** | Security Research |
 | **Date Published** | 2026-03-07 |
 | **Document Type** | blog-post |
-| **URL** | https://www.aquasec.com/blog/perfctl-malware/ |
+| **URL** | https://www.aquasec.com/blog/perfctl-a-stealthy-malware-targeting-millions-of-linux-servers/ |
 
 ## Supporting Resources
 
@@ -18,7 +18,7 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 
 | # | Title | Type | URL |
 |---|-------|------|-----|
-| 1 | FortiGuard Labs - Symbiote 2025 Variants (December 2025) | Reference | https://www.fortiguard.com/threat-signal-report/ |
+| 1 | FortiGuard Labs - Symbiote 2025 Variants (December 2025) | Reference | https://www.fortinet.com/blog/threat-research |
 | 2 | Unit 42 - Auto-Color Malware (February 2025) | Reference | https://unit42.paloaltonetworks.com/ |
 | 3 | ESET - WolfsBane Backdoor (November 2024) | Reference | https://www.welivesecurity.com/ |
 | 4 | GTFOBins - Unix Binaries SUID Abuse | Reference | https://gtfobins.github.io/ |

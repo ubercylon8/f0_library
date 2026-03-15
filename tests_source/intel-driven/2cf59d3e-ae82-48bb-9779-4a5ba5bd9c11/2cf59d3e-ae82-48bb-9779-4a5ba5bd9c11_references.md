@@ -10,7 +10,7 @@
 | **Author/Organization** | Secureworks |
 | **Date Published** | 2025-07-30 |
 | **Document Type** | threat-intelligence |
-| **URL** | https://www.secureworks.com/research/safepay-malware |
+| **URL** | https://businessinsights.bitdefender.com/safepay-ransomware-attacks-ttps |
 
 ## Supporting Resources
 
@@ -18,7 +18,7 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 
 | # | Title | Type | URL |
 |---|-------|------|-----|
-| 1 | CMSTPLUA UAC Bypass Documentation | Documentation | https://www.activecyber.us/activelabs/windows-uac-bypass |
+| 1 | CMSTPLUA UAC Bypass Documentation | Documentation | https://attack.mitre.org/techniques/T1548/002/ |
 | 2 | SafePay Technical Report | Threat Intelligence | ../../../tech-reports/SafePay-Technical-Report.md |
 
 ## MITRE ATT&CK References

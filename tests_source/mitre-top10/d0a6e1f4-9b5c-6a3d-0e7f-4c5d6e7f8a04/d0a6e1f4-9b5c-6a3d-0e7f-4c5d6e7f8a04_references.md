@@ -10,7 +10,7 @@
 | **Author/Organization** | Security Research |
 | **Date Published** | 2026-01-11 |
 | **Document Type** | blog-post |
-| **URL** | https://www.sans.org/blog/detecting-wmi-abuse/ |
+| **URL** | https://www.sans.org/blog/investigating-wmi-attacks |
 
 ## Supporting Resources
 

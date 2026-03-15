@@ -18,7 +18,7 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 
 | # | Title | Type | URL |
 |---|-------|------|-----|
-| 1 | Windows Defender Registry Keys Documentation | Documentation | https://docs.microsoft.com/en-us/windows/security/threat-protection/microsoft-defender-antivirus/ |
+| 1 | Windows Defender Registry Keys Documentation | Documentation | https://learn.microsoft.com/en-us/defender-endpoint/microsoft-defender-antivirus-windows |
 | 2 | PowerShell Security Best Practices | Documentation | https://docs.microsoft.com/en-us/powershell/scripting/security/overview |
 
 ## MITRE ATT&CK References

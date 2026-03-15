@@ -10,7 +10,7 @@
 | **Author/Organization** | Microsoft |
 | **Date Published** | 2026-03-08 |
 | **Document Type** | blog-post |
-| **URL** | https://www.microsoft.com/security/blog/tag/peach-sandstorm/ |
+| **URL** | https://www.microsoft.com/en-us/security/blog/2024/08/28/peach-sandstorm-deploys-new-custom-tickler-malware-in-long-running-intelligence-gathering-operations/ |
 
 ## Supporting Resources
 

@@ -20,7 +20,7 @@ Additional threat intelligence, incident reports, and TTP analyses referenced du
 |---|-------|------|-----|
 | 1 | Jamf Threat Labs - RustBucket Analysis | Blog Post | https://www.jamf.com/blog/bluenoroff-apt-targets-macos-rustbucket-malware/ |
 | 2 | Elastic Security Labs - KANDYKORN Analysis | Threat Intelligence | https://www.elastic.co/security-labs/elastic-catches-dprk-passing-out-kandykorn |
-| 3 | Unit 42 - BeaverTail and InvisibleFerret | Reference | https://unit42.paloaltonetworks.com/north-korean-threat-actors-luring-tech-job-seekers-as-fake-recruiters/ |
+| 3 | Unit 42 - BeaverTail and InvisibleFerret | Reference | https://unit42.paloaltonetworks.com/north-korean-threat-actors-lure-tech-job-seekers-as-fake-recruiters/ |
 
 ## MITRE ATT&CK References
 
