@@ -56,6 +56,7 @@ class TestMetadataExtractor:
         "tactics": [],
         "author": None,
         "created": None,
+        "source_url": None,
     }
 
     def __init__(self, tests_source_dir: Path):
@@ -168,6 +169,13 @@ class TestMetadataExtractor:
             if created_match:
                 result["created"] = created_match.group(1)
 
+            # Extract SOURCE_URL (optional - primary threat intel source)
+            source_url_match = re.search(r'^SOURCE_URL:\s*(.+)$', content, re.MULTILINE)
+            if source_url_match:
+                value = source_url_match.group(1).strip()
+                if value.lower() not in ["n/a", "none", ""]:
+                    result["source_url"] = value
+
         except Exception as e:
             print(f"  Warning: Error reading {go_file}: {e}")
 
@@ -211,7 +219,7 @@ class TestMetadataExtractor:
         # Clean up None values for cleaner output (keep empty lists)
         cleaned = {}
         for key, value in metadata.items():
-            if value is None and key not in ["test_name", "threat_actor", "subcategory", "author", "created"]:
+            if value is None and key not in ["test_name", "threat_actor", "subcategory", "author", "created", "source_url"]:
                 continue
             cleaned[key] = value
 
@@ -280,7 +288,8 @@ class ElasticsearchSync:
                         "tags": {"type": "keyword"},
                         "score": {"type": "float"},
                         "created": {"type": "date", "format": "yyyy-MM-dd"},
-                        "author": {"type": "keyword"}
+                        "author": {"type": "keyword"},
+                        "source_url": {"type": "keyword"}
                     }
                 }
             }
@@ -396,6 +405,7 @@ def main():
                 print(f"    Complexity: {metadata.get('complexity', 'N/A')}")
                 print(f"    Threat Actor: {metadata.get('threat_actor', 'N/A')}")
                 print(f"    Tags: {metadata.get('tags', [])}")
+                print(f"    Source URL: {metadata.get('source_url', 'N/A')}")
                 print(f"    Score: {score}")
                 print()
             else:

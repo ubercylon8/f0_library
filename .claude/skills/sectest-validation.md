@@ -44,6 +44,14 @@ Kill chain diagrams are required for multi-stage tests that simulate real attack
 |------|-----------|---------|
 | `kill_chain.html` | kill-chain-diagram-builder agent | Kill chain visualization (attack tests only) |
 
+### Required Files (intel-driven and mitre-top10 tests only)
+
+| File | Created By | Purpose |
+|------|-----------|---------|
+| `<uuid>_references.md` | sectest-documentation agent | Source provenance & references |
+
+Not required for `cyber-hygiene/` tests (subcategories: `baseline`, `identity-tenant`, `identity-endpoint`) which derive from compliance frameworks rather than threat intelligence sources.
+
 ### Verification Procedure
 
 ```bash

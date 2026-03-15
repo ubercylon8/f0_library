@@ -213,7 +213,8 @@ Details: `docs/ARCHITECTURE.md`
 5. `README.md` - Brief overview
 6. `<uuid>_info.md` - Detailed information card
 7. `go.mod` - Module file with Prelude library dependencies
-8. `build_all.sh` - Build script for tests with embedded components (if needed)
+8. `<uuid>_references.md` - Source provenance and references (intel-driven/mitre-top10 only)
+9. `build_all.sh` - Build script for tests with embedded components (if needed)
 
 **Note**: Always copy `test_logger.go` and `org_resolver.go` from `sample_tests/` to ensure consistency.
 
@@ -237,6 +238,7 @@ COMPLEXITY: medium
 THREAT_ACTOR: APT29
 SUBCATEGORY: apt
 TAGS: powershell, credential-theft, memory-patching
+SOURCE_URL: https://www.microsoft.com/security/blog/2024/08/28/peach-sandstorm...
 UNIT: response
 CREATED: 2026-01-17
 AUTHOR: sectest-builder
@@ -257,6 +259,7 @@ AUTHOR: sectest-builder
 | `THREAT_ACTOR` | Yes | `APT29`, `Lazarus`, `SafePay`, `N/A` |
 | `SUBCATEGORY` | Yes | `ransomware`, `apt`, `c2`, `baseline`, `identity-tenant` |
 | `TAGS` | Yes | `powershell, defender-evasion` |
+| `SOURCE_URL` | No | URL of the primary threat intelligence source (or `N/A`) |
 | `AUTHOR` | Yes | `sectest-builder` |
 
 ### 2. Sync Catalog After Creating Test

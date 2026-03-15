@@ -126,6 +126,17 @@ Stage Details (multi-stage only):
 Key Implementation Details:
 <brief description of what the test does — attack phases, file operations,
  registry changes, network activity, process creation patterns>
+
+Source References:
+- Source Title: <title of the original threat intelligence document>
+- Source Author: <publishing organization or author>
+- Source Date: <YYYY-MM-DD>
+- Source URL: <url or "N/A" if not available>
+- Source Type: <threat-report|incident-report|security-advisory|blog-post|cve-advisory|conference-talk|tool-release|news-article|research-paper|verbal-briefing>
+- Supporting References:
+  - <title> | <url> | <type>
+  - <title> | <url> | <type>
+  - ...
 ```
 
 ### Agent Dispatch
@@ -135,7 +146,7 @@ Launch these agents in parallel:
 #### 1. Documentation Agent
 ```
 Agent: sectest-documentation
-Prompt: "Generate README.md and <uuid>_info.md for this test. Read the Go source files in <test_dir> to understand what the test does before scoring. [CONTEXT PAYLOAD]"
+Prompt: "Generate README.md, <uuid>_info.md, and <uuid>_references.md for this test. Read the Go source files in <test_dir> to understand what the test does before scoring. [CONTEXT PAYLOAD]"
 run_in_background: true
 ```
 
@@ -185,7 +196,7 @@ Wait for all Phase 2 agents to complete, then invoke:
 Invoke skill: `sectest-validation`
 
 This skill:
-- Verifies all Phase 2 output files exist (11 files + kill_chain.html for multi-stage)
+- Verifies all Phase 2 output files exist (12 files + kill_chain.html for multi-stage)
 - Validates score consistency between README.md and info.md
 - Checks detection rules for test artifact contamination
 - Syncs ES catalog
@@ -230,6 +241,7 @@ tests_source/<category>/<uuid>/
 ├── build_all.sh                    # Build script (multi-stage)
 ├── README.md                       # Overview + scoring
 ├── <uuid>_info.md                  # Detailed info card
+├── <uuid>_references.md            # Source provenance & references
 ├── <uuid>_detections.kql           # KQL (Microsoft Sentinel/Defender)
 ├── <uuid>_rules.yar                # YARA rules
 ├── <uuid>_elastic_rules.ndjson     # Elastic SIEM EQL rules
