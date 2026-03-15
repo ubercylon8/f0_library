@@ -3,28 +3,16 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-    
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: read
       id-token: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
@@ -33,46 +21,33 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@8a1c4371755898f67cd97006ba7c97702d5fc4bf # Version 1.0.16
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
-          
-          # Direct prompt for automated review (no @claude mention needed)
+          use_sticky_comment: true
+
           prompt: |
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
-            
-            Be constructive and helpful in your feedback.
+            Review this pull request for the F0RT1KA security testing framework. Focus on:
 
-          # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
-          # use_sticky_comment: true
-          
-          # Optional: Customize review based on file types
-          # direct_prompt: |
-          #   Review this PR focusing on:
-          #   - For TypeScript files: Type safety and proper interface usage
-          #   - For API endpoints: Security, input validation, and error handling
-          #   - For React components: Performance, accessibility, and best practices
-          #   - For tests: Coverage, edge cases, and test quality
-          
-          # Optional: Different prompts for different authors
-          # direct_prompt: |
-          #   ${{ github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' && 
-          #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
-          #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
-          
-          # Optional: Add specific tools for running tests or linting
-          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
-          
-          # Optional: Skip review for certain conditions
-          # if: |
-          #   !contains(github.event.pull_request.title, '[skip-review]') &&
-          #   !contains(github.event.pull_request.title, '[WIP]')
+            **Go Test Code (*.go)**:
+            - MITRE ATT&CK technique mapping accuracy
+            - Schema v2.0 compliance (TestMetadata + ExecutionContext in InitLogger)
+            - Exit code logic: 126=blocked, 101=unprotected, 999=error — never hardcoded
+            - Single-binary deployment (all deps embedded via go:embed)
+            - Artifacts drop to LOG_DIR (c:\F0 or /tmp/F0), simulations to ARTIFACT_DIR
+            - No blame keywords in fmt.Errorf() wrappers (causes false exit 126)
+            - Gzip compression for multi-stage embedded binaries (never UPX)
 
+            **Shell Scripts (*.sh)**:
+            - ShellCheck compliance
+            - Build sequence correctness for multi-stage tests
+
+            **Detection Rules (*.kql, *.yar, *.yml, *.ndjson, *.yaml)**:
+            - Rules target technique behaviors, not test artifacts (no c:\F0, no test UUIDs)
+
+            **Documentation (README.md, *_info.md)**:
+            - Score format: README uses `**Test Score**: **X.X/10**`, info uses `## Test Score: X.X/10`
+            - Metadata header completeness in Go files
+
+            Be specific and actionable. Flag blocking issues separately from suggestions.

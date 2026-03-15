@@ -11,8 +11,6 @@ A comprehensive security testing framework for evaluating endpoint detection and
 
 F0RT1KA is a professional, open-source security testing framework designed to assess the effectiveness of endpoint detection and response (EDR) solutions. By simulating real-world attack techniques mapped to the MITRE ATT&CK framework, it provides security teams with a standardized approach to validate their defensive capabilities.
 
-This repository serves as the main tools repository for testing execution frameworks and includes comprehensive documentation, automated testing, and security scanning to ensure code quality and safety.
-
 ## Purpose
 
 - **Security Validation**: Test and validate the detection and prevention capabilities of security solutions
@@ -23,66 +21,98 @@ This repository serves as the main tools repository for testing execution framew
 
 ## Key Features
 
-- **49 Security Tests**: Organized into 4 categories covering attack simulation and configuration validation
-- **Standardized Test Structure**: Consistent format with Schema v2.0 logging for analytics
+- **44 Security Tests** across 3 categories covering attack simulation and configuration validation
+- **Cross-Platform Support**: Windows (primary), Linux, and macOS test targets
+- **Agent-Driven Test Generation**: Orchestrator + specialized agents for automated test creation from threat intelligence
+- **5 Detection Rule Formats**: KQL, YARA, Sigma, Elastic EQL, and LimaCharlie D&R rules generated per test
+- **Defense Guidance**: Hardening scripts (Windows/Linux/macOS) and incident response playbooks
+- **Standardized Test Structure**: Schema v2.0 logging with Elasticsearch analytics
 - **Multi-Organization Support**: UUID-based organization tracking for enterprise deployments
 - **LimaCharlie Integration**: Infrastructure as Code for detection rules and certificate deployment
 - **Elasticsearch Analytics**: Pre-built dashboards and enrichment pipelines
-- **Binary Drop Testing**: Controlled testing of malicious binary detection
-- **Execution Prevention Testing**: Validate runtime protection mechanisms
-- **Result Code System**: Clear success/failure metrics (101, 105, 126, 999)
 - **Code Signing Support**: Integrated Windows executable signing with dual-signing for ASR bypass
+- **Test Provenance**: References tracking with `_references.md` files linking tests to source intelligence
 
 ## Test Categories
 
-F0RT1KA tests are organized into four categories:
-
 | Category | Tests | Description |
 |----------|-------|-------------|
-| [**intel-driven**](tests_source/intel-driven/) | 20 | Threat intelligence-based tests from APT reports, ransomware analysis, and CVE exploits |
-| [**cyber-hygiene**](tests_source/cyber-hygiene/) | 11 | Configuration validation tests for security hardening (LAPS, ASR, Defender, etc.) |
+| [**intel-driven**](tests_source/intel-driven/) | 26 | Threat intelligence-based tests from APT reports, ransomware analysis, and CVE exploits |
 | [**mitre-top10**](tests_source/mitre-top10/) | 10 | MITRE Top 10 Ransomware techniques test suite |
-| [**phase-aligned**](tests_source/phase-aligned/) | 8 | DORA/TIBER-EU pentest phase tests (credential access, lateral movement) |
+| [**cyber-hygiene**](tests_source/cyber-hygiene/) | 8 | Configuration validation tests for endpoint, identity, and tenant security |
+
+## Agent Architecture
+
+F0RT1KA uses a decomposed agent architecture to generate complete test packages from threat intelligence. The `sectest-builder` orchestrator coordinates specialized skills and sub-agents in a 4-phase execution model.
+
+### Execution Phases
+
+1. **Phase 1 — Sequential Skills** (shared context): Source analysis → Go implementation → Build & sign
+2. **Phase 2 — Parallel Agents** (independent): Documentation, detection rules, defense guidance, kill chain diagrams
+3. **Phase 3 — Validation** (shared context): File verification, score consistency, ES catalog sync, git commit
+4. **Phase 3b — Deployment** (shared context): SSH deploy to target endpoint, execute, capture results
+
+### Agent Selection
+
+| Need | Agent |
+|------|-------|
+| Create test from threat intel | `@sectest-builder` (orchestrates everything) |
+| Validate TIBER-EU phase readiness | `@pentest-readiness-builder` |
+| Visualize attack flow | `@attack-flow-diagram-builder` |
+| Visualize kill chain | `@kill-chain-diagram-builder` |
+| Generate detection rules | `@sectest-detection-rules` |
+| Generate defense guidance | `@sectest-defense-guidance` |
+| Deploy & execute test on endpoint | `@sectest-deploy-test` |
+
+For detailed architecture documentation, see [docs/SECTEST_BUILDER_ARCHITECTURE.md](docs/SECTEST_BUILDER_ARCHITECTURE.md).
 
 ## Project Structure
 
 ```
 f0_library/
-├── .github/                   # GitHub workflows and templates
-│   ├── ISSUE_TEMPLATE/       # Issue templates for bugs and features
-│   ├── workflows/            # CI/CD workflows (build, security)
+├── .claude/                      # Claude Code agent and skill definitions
+│   ├── agents/                  # 9 specialized agents (orchestrator + sub-agents)
+│   └── skills/                  # 6 skills (analysis, implementation, build, validation, deploy)
+├── .github/                      # GitHub workflows and templates
+│   ├── ISSUE_TEMPLATE/          # Issue templates for bugs and features
+│   ├── workflows/               # CI/CD workflows (build, security, Claude review)
 │   └── pull_request_template.md
-├── docs/                      # Documentation
-│   ├── ARCHITECTURE.md       # System architecture overview
-│   ├── DEVELOPMENT.md        # Developer setup guide
-│   └── windows-ssh-setup.md  # SSH configuration guide
-├── limacharlie-iac/           # LimaCharlie Infrastructure as Code
-│   ├── elasticsearch/        # Elasticsearch index templates
-│   ├── payloads/             # PowerShell scripts and payloads
-│   ├── rules/                # Detection & Response rules
-│   ├── scripts/              # Deployment automation
-│   └── README.md             # LimaCharlie deployment guide
-├── sample_tests/              # Reference test implementations
-│   └── multistage_template/  # Multi-stage test reference
-├── tests_source/              # Active test development directory
-│   ├── intel-driven/         # Threat intelligence-based tests (20)
-│   ├── cyber-hygiene/        # Configuration validation tests (11)
-│   ├── mitre-top10/          # MITRE Top 10 Ransomware tests (10)
-│   └── phase-aligned/        # DORA/TIBER-EU pentest tests (8)
-├── utils/                     # Build and signing utilities
-│   ├── gobuild               # Cross-platform test builder
-│   ├── codesign              # Code signing utility
+├── docs/                         # Documentation
+│   ├── ARCHITECTURE.md          # System architecture (multi-binary bundles)
+│   ├── CHANGELOG.md             # Version history
+│   ├── DEVELOPMENT.md           # Developer setup guide
+│   ├── DUAL_SIGNING_STRATEGY.md # Code signing details
+│   ├── MULTISTAGE_QUICK_REFERENCE.md  # Multi-stage build reference
+│   ├── SECTEST_BUILDER_ARCHITECTURE.md # Agent architecture
+│   ├── TEST_RESULTS_SCHEMA_GUIDE.md   # Schema v2.0 guide
+│   └── ...                      # Additional docs
+├── limacharlie-iac/              # LimaCharlie Infrastructure as Code
+│   ├── elasticsearch/           # Elasticsearch index templates
+│   ├── payloads/                # PowerShell scripts and payloads
+│   ├── rules/                   # Detection & Response rules
+│   ├── scripts/                 # Deployment automation
+│   └── README.md                # LimaCharlie deployment guide
+├── sample_tests/                 # Reference test implementations
+│   └── multistage_template/     # Multi-stage test reference
+├── tests_source/                 # Active test development directory
+│   ├── intel-driven/            # Threat intelligence-based tests (26)
+│   ├── mitre-top10/             # MITRE Top 10 Ransomware tests (10)
+│   └── cyber-hygiene/           # Configuration validation tests (8)
+├── utils/                        # Build and signing utilities
+│   ├── gobuild                  # Cross-platform test builder
+│   ├── codesign                 # Code signing utility
 │   ├── Check-DefenderProtection.ps1
-│   ├── validate_test_results.py  # Schema v2.0 validator
+│   ├── validate_test_results.py # Schema v2.0 validator
 │   ├── sync-test-catalog-to-elasticsearch.py
-│   └── README.md             # Utility documentation
-├── preludeorg-libraries/      # Prelude testing framework (setup required)
-├── CONTRIBUTING.md           # Contribution guidelines
-├── CODE_OF_CONDUCT.md        # Community standards
-├── SECURITY.md               # Security policy
-├── CHANGELOG.md              # Version history
-├── LICENSE                   # MIT License
-└── README.md                 # This file
+│   └── README.md                # Utility documentation
+├── rules/                        # Development guidelines
+├── signing-certs/                # Code signing certificates
+├── preludeorg-libraries/         # Prelude testing framework (setup required)
+├── CONTRIBUTING.md              # Contribution guidelines
+├── CODE_OF_CONDUCT.md           # Community standards
+├── SECURITY.md                  # Security policy
+├── LICENSE                      # MIT License
+└── README.md                    # This file
 ```
 
 ## Getting Started
@@ -90,8 +120,8 @@ f0_library/
 ### Prerequisites
 
 - **Go 1.21+**: Required for building tests
-- **Python 3.7+**: Required for security analysis tools
-- **Windows Environment**: Tests are designed for Windows systems
+- **Python 3.7+**: Required for utilities and ES sync scripts
+- **Supported platforms**: Windows (primary), Linux, macOS
 - **Prelude Libraries**: Must be configured in the `preludeorg-libraries/` directory
 - **Administrator Access**: Some tests require elevated privileges
 - **osslsigncode** (optional): For code signing Windows executables
@@ -104,17 +134,24 @@ git clone https://github.com/ubercylon8/f0_library.git
 cd f0_library
 ```
 
-2. **Read the documentation**:
+2. **Set up Python virtual environment** (for utilities):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt  # If present, or install elasticsearch, requests
+```
+
+3. **Read the documentation**:
    - [Development Guide](docs/DEVELOPMENT.md) - Complete setup instructions
    - [Architecture Overview](docs/ARCHITECTURE.md) - System design
    - [Contributing Guidelines](CONTRIBUTING.md) - How to contribute
 
-3. **Set up Prelude libraries** (required for test compilation):
+4. **Set up Prelude libraries** (required for test compilation):
 ```bash
 # Instructions for Prelude setup will be provided in future documentation
 ```
 
-4. **Install dependencies** (optional):
+5. **Install dependencies** (optional):
 ```bash
 # macOS
 brew install osslsigncode
@@ -146,6 +183,19 @@ done
 ./utils/gobuild list
 ```
 
+### Cross-Platform Builds
+
+```bash
+# Windows (default)
+GOOS=windows GOARCH=amd64 go build -o test.exe main.go test_logger.go test_logger_windows.go org_resolver.go
+
+# Linux
+GOOS=linux GOARCH=amd64 go build -o test main.go test_logger.go test_logger_linux.go org_resolver.go
+
+# macOS (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o test main.go test_logger.go test_logger_darwin.go org_resolver.go
+```
+
 ### Code Signing
 
 Sign Windows executables using the `codesign` utility:
@@ -166,7 +216,7 @@ Sign Windows executables using the `codesign` utility:
 
 ### Running Tests
 
-Deploy and execute tests on Windows targets:
+Deploy and execute tests on target systems:
 
 ```bash
 # Copy test binary to target
@@ -178,6 +228,41 @@ ssh user@target "c:/F0/<test-uuid>.exe"
 # Check results
 cat c:/F0/test_execution_log.json
 ```
+
+## Cross-Platform Support
+
+Tests can target Windows, Linux, or macOS. The platform is determined by the threat being simulated.
+
+| Platform | `LOG_DIR` | `ARTIFACT_DIR` | Binary Extension |
+|----------|-----------|----------------|-----------------|
+| Windows | `C:\F0` | `c:\Users\fortika-test` | `.exe` |
+| Linux | `/tmp/F0` | `/home/fortika-test` | (none) |
+| macOS | `/tmp/F0` | `/Users/fortika-test` | (none) |
+
+Platform-specific logger files (`test_logger_windows.go`, `test_logger_linux.go`, `test_logger_darwin.go`) define these constants. Copy the shared `test_logger.go` AND the appropriate platform file from `sample_tests/multistage_template/` when creating new tests.
+
+## Detection & Defense Artifacts
+
+Each test generates detection rules in 5 formats and comprehensive defense guidance:
+
+### Detection Rules
+
+| Format | File | Target Platform |
+|--------|------|-----------------|
+| KQL | `<uuid>_detections.kql` | Microsoft Sentinel / Defender |
+| YARA | `<uuid>_rules.yar` | File-based scanning |
+| Sigma | `<uuid>_sigma_rules.yml` | Vendor-agnostic SIEM |
+| Elastic EQL | `<uuid>_elastic_rules.ndjson` | Elastic SIEM |
+| LimaCharlie D&R | `<uuid>_dr_rules.yaml` | LimaCharlie |
+
+### Defense Guidance
+
+| Artifact | File | Purpose |
+|----------|------|---------|
+| Defense Guide | `<uuid>_DEFENSE_GUIDANCE.md` | Consolidated detection + hardening |
+| Windows Hardening | `<uuid>_hardening.ps1` | PowerShell hardening script |
+| Linux Hardening | `<uuid>_hardening_linux.sh` | Bash hardening script |
+| macOS Hardening | `<uuid>_hardening_macos.sh` | macOS hardening script |
 
 ## Test Development
 
@@ -229,19 +314,23 @@ InitLogger(testID, testName, metadata, executionContext)
 1. Generate a UUID for your test (lowercase format)
 2. Choose the appropriate category:
    - `intel-driven/` - For threat intelligence-based tests
+   - `mitre-top10/` - For MITRE ATT&CK top technique tests
    - `cyber-hygiene/` - For configuration validation tests
-   - `phase-aligned/` - For pentest phase tests
 3. Create the test directory structure:
 ```bash
 mkdir tests_source/<category>/<uuid>/
 ```
 4. Copy required files from `sample_tests/multistage_template/`:
    - `test_logger.go` - Schema v2.0 logging
+   - `test_logger_<platform>.go` - Platform constants
    - `org_resolver.go` - Organization UUID resolution
 5. Implement the test following the standard pattern
 6. Create documentation:
    - `README.md` - Brief test overview with score
    - `<uuid>_info.md` - Detailed information card
+   - `<uuid>_references.md` - Source provenance and references
+
+Or use the automated builder: `@sectest-builder <threat intelligence article>`
 
 ## LimaCharlie Integration
 
@@ -255,10 +344,28 @@ F0RT1KA includes Infrastructure as Code for LimaCharlie:
 limacharlie config push --config limacharlie-iac/f0rtika-org-template.yaml
 
 # Sync test catalog to Elasticsearch
+source .venv/bin/activate
 python3 utils/sync-test-catalog-to-elasticsearch.py
 ```
 
 See [limacharlie-iac/README.md](limacharlie-iac/README.md) for full deployment guide.
+
+## CI/CD & Automation
+
+### Continuous Integration
+
+- **Build Workflow**: Tests utilities on Ubuntu and macOS, validates Go compilation
+- **Security Workflow**: Gitleaks + TruffleHog secret scanning, ShellCheck, PSScriptAnalyzer
+- **Claude Code Review**: Automated PR reviews with domain-specific security test knowledge
+- **Claude Code Action**: Interactive issue/PR assistance via `@claude` mentions
+
+### Security Scanning
+
+- **Gitleaks**: Detects secrets and credentials in git history
+- **TruffleHog**: Verified secret detection with reduced false positives
+- **ShellCheck**: Static analysis for shell scripts
+- **PSScriptAnalyzer**: PowerShell script security analysis
+- **Weekly Scans**: Automated security checks every Monday
 
 ## Security Considerations
 
@@ -284,26 +391,17 @@ We welcome contributions from the security community! Please read our [Contribut
 5. Test thoroughly in isolated environments
 6. Submit pull requests using our [PR template](.github/pull_request_template.md)
 
-## CI/CD & Automation
-
-### Continuous Integration
-- **Build Workflow**: Tests utilities on Ubuntu and macOS
-- **Security Workflow**: Scans for vulnerabilities and secrets
-- **Code Quality**: Shell scripts validated with ShellCheck
-- **PowerShell Analysis**: PSScriptAnalyzer for Windows scripts
-
-### Security Scanning
-- **Shell Script Analysis**: Detects security issues in bash scripts
-- **Secret Detection**: Scans for hardcoded credentials
-- **Weekly Scans**: Automated security checks every Monday
-
 ## Documentation
 
-- [Architecture Overview](docs/ARCHITECTURE.md) - System design and components
+- [Architecture Overview](docs/ARCHITECTURE.md) - System design and multi-binary bundles
+- [Agent Architecture](docs/SECTEST_BUILDER_ARCHITECTURE.md) - Orchestrator and agent design
 - [Development Guide](docs/DEVELOPMENT.md) - Complete setup and development
+- [Schema v2.0 Guide](docs/TEST_RESULTS_SCHEMA_GUIDE.md) - Test results schema
+- [Multi-stage Reference](docs/MULTISTAGE_QUICK_REFERENCE.md) - Multi-stage build patterns
+- [Dual Signing Strategy](docs/DUAL_SIGNING_STRATEGY.md) - Code signing details
 - [Security Policy](SECURITY.md) - Vulnerability disclosure and best practices
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute effectively
-- [Changelog](CHANGELOG.md) - Version history and changes
+- [Changelog](docs/CHANGELOG.md) - Version history and changes
 - [LimaCharlie IaC](limacharlie-iac/README.md) - Detection infrastructure deployment
 
 ## License

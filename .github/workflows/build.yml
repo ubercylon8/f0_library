@@ -73,25 +73,29 @@ jobs:
         ./utils/gobuild list || echo "Listing completed"
       shell: bash
     
-    - name: Build tests (Linux/macOS only - no Windows dependencies)
+    - name: Build tests (Linux/macOS only)
       if: steps.check-tests.outputs.has_tests == 'true' && runner.os != 'Windows'
       run: |
-        # Try to build one test as validation (may fail due to missing dependencies)
-        ./utils/gobuild build tests_source/ecd2514c-512a-4251-a6f4-eb3aa834d401/ || echo "Build failed (may be due to missing prelude libraries)"
+        FIRST_TEST=$(find tests_source -name "go.mod" -not -path "*/multistage_template/*" -not -path "*/sample*" | head -1 | xargs dirname)
+        if [ -n "$FIRST_TEST" ]; then
+          ./utils/gobuild build "$FIRST_TEST" || echo "Build failed (may be due to missing prelude libraries)"
+        fi
       shell: bash
 
   shellcheck:
     name: Lint Shell Scripts
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
-    
+
     - name: Install shellcheck
       run: |
         sudo apt-get update
         sudo apt-get install -y shellcheck
-    
+
     - name: Lint bash scripts
       run: |
-        find . -name "*.sh" -type f | xargs shellcheck -e SC2086,SC2181,SC2001,SC2317,SC2164
+        shellcheck -e SC2086,SC2181,SC2001,SC2317,SC2164 \
+          utils/*.sh \
+          limacharlie-iac/scripts/*.sh

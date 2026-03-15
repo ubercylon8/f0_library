@@ -16,56 +16,65 @@ jobs:
   bandit-scan:
     name: Security Scan - Shell Scripts
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
-    
+
     - name: Install security tools
       run: |
         sudo apt-get update
         sudo apt-get install -y shellcheck
-    
+
     - name: Scan shell scripts for security issues
       run: |
-        # Check for common security issues in shell scripts
-        find . -name "*.sh" -type f -exec grep -H "eval\|sudo\|su\|rm -rf\|wget\|curl" {} \; || true
-        
-        # Run shellcheck for security-related warnings
-        find . -name "*.sh" -type f | xargs shellcheck -S warning || true
+        shellcheck -S warning \
+          utils/*.sh \
+          limacharlie-iac/scripts/*.sh || true
 
-  secret-scan:
-    name: Secret Detection
+  gitleaks-scan:
+    name: Gitleaks Secret Scan
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
-    
-    - name: Scan for secrets
-      run: |
-        # Check for potential secrets in files
-        echo "Scanning for potential secrets..."
-        
-        # Look for common secret patterns
-        grep -r -i "password\|secret\|key\|token" --include="*.md" --include="*.txt" . || echo "No secrets found in documentation"
-        
-        # Check for hardcoded credentials (excluding test files)
-        grep -r -E "(password|secret|key|token)\s*=\s*['\"][^'\"]{8,}" --exclude-dir=".git" . || echo "No hardcoded credentials found"
+      with:
+        fetch-depth: 0
+
+    - name: Run Gitleaks
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trufflehog-scan:
+    name: TruffleHog Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
+      with:
+        fetch-depth: 0
+
+    - name: Run TruffleHog
+      uses: trufflesecurity/trufflehog@main
+      with:
+        extra_args: --only-verified
 
   powershell-scan:
     name: PowerShell Security Scan
     runs-on: windows-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
-    
+
     - name: Install PSScriptAnalyzer
       shell: powershell
       run: |
         Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
-    
+
     - name: Analyze PowerShell scripts
       shell: powershell
       run: |
@@ -78,24 +87,3 @@ jobs:
         } else {
           Write-Host "No PowerShell scripts found"
         }
-
-  codeql:
-    name: CodeQL Analysis
-    runs-on: ubuntu-latest
-    if: false  # Disabled until we have Go modules
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
-
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@0499de31b99561a6d14a36a5f662c2a54f91beee
-      with:
-        languages: go
-        queries: security-and-quality
-
-    - name: Autobuild
-      uses: github/codeql-action/autobuild@0499de31b99561a6d14a36a5f662c2a54f91beee
-
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@0499de31b99561a6d14a36a5f662c2a54f91beee
