@@ -327,7 +327,7 @@ main_binary="${BUILD_DIR}/${TEST_UUID}.exe"
 
 GOOS=${GOOS} GOARCH=${GOARCH} go build \
     -o "${main_binary}" \
-    "${TEST_UUID}.go" orchestrator_utils.go test_logger.go org_resolver.go es_config.go
+    "${TEST_UUID}.go" orchestrator_utils.go test_logger.go test_logger_windows.go org_resolver.go es_config.go
 
 if [ ! -f "${main_binary}" ]; then
     print_error "Failed to build orchestrator"

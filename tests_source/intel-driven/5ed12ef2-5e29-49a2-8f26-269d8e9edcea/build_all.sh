@@ -34,27 +34,27 @@ echo ""
 echo "  Building Stage 1: T1204.002 (Initial Execution)..."
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" \
     -o ${TEST_UUID}-T1204.002.exe \
-    stage-T1204.002.go test_logger.go
+    stage-T1204.002.go test_logger.go test_logger_windows.go
 
 echo "  Building Stage 2: T1134.001 (Privilege Escalation)..."
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" \
     -o ${TEST_UUID}-T1134.001.exe \
-    stage-T1134.001.go test_logger.go
+    stage-T1134.001.go test_logger.go test_logger_windows.go
 
 echo "  Building Stage 3: T1083 (Discovery)..."
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" \
     -o ${TEST_UUID}-T1083.exe \
-    stage-T1083.go test_logger.go
+    stage-T1083.go test_logger.go test_logger_windows.go
 
 echo "  Building Stage 4: T1486 (Encryption)..."
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" \
     -o ${TEST_UUID}-T1486.exe \
-    stage-T1486.go test_logger.go
+    stage-T1486.go test_logger.go test_logger_windows.go
 
 echo "  Building Stage 5: T1491.001 (Ransom Note)..."
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" \
     -o ${TEST_UUID}-T1491.001.exe \
-    stage-T1491.001.go test_logger.go
+    stage-T1491.001.go test_logger.go test_logger_windows.go
 
 echo ""
 echo "[2/6] Signing stage binaries with F0RT1KA certificate..."
@@ -95,7 +95,7 @@ echo ""
 # Build main orchestrator with embedded signed stage binaries
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" \
     -o ${BUILD_DIR}/${TEST_UUID}.exe \
-    ${TEST_UUID}.go test_logger.go
+    ${TEST_UUID}.go test_logger.go test_logger_windows.go
 
 cd "${F0_ROOT}"
 

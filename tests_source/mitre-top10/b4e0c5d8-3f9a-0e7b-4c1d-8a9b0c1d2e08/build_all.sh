@@ -88,7 +88,7 @@ echo "[Step 2/4] Building test binary..."
 mkdir -p "${BUILD_DIR}"
 GOOS=windows GOARCH=amd64 go build -o "${BUILD_DIR}/${TEST_UUID}.exe" \
     "${TEST_UUID}.go" \
-    test_logger.go \
+    test_logger.go test_logger_windows.go \
     org_resolver.go \
     es_config.go
 

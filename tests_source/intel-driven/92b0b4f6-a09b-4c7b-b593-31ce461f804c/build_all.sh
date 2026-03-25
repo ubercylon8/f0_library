@@ -241,7 +241,7 @@ for stage in "${STAGES[@]}"; do
     echo "  Building ${technique} (${source}.go)..."
     GOOS=${GOOS} GOARCH=${GOARCH} go build \
         -o "${output_name}" \
-        "${source}.go" test_logger.go org_resolver.go
+        "${source}.go" test_logger.go test_logger_windows.go org_resolver.go
 
     if [ ! -f "${output_name}" ]; then
         print_error "Failed to build ${output_name}"
@@ -289,7 +289,7 @@ main_binary="${BUILD_DIR}/${TEST_UUID}.exe"
 
 GOOS=${GOOS} GOARCH=${GOARCH} go build \
     -o "${main_binary}" \
-    "${TEST_UUID}.go" test_logger.go org_resolver.go
+    "${TEST_UUID}.go" test_logger.go test_logger_windows.go org_resolver.go
 
 if [ ! -f "${main_binary}" ]; then
     print_error "Failed to build orchestrator"

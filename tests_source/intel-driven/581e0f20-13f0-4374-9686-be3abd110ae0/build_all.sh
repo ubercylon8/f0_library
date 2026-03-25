@@ -103,7 +103,7 @@ for stage in "${STAGES[@]}"; do
     output_name="${TEST_UUID}-${stage_name}.exe"
 
     echo "  Building ${stage_name} (${source}.go)..."
-    GOOS=windows GOARCH=amd64 go build -o "${output_name}" "${source}.go" test_logger.go org_resolver.go es_config.go
+    GOOS=windows GOARCH=amd64 go build -o "${output_name}" "${source}.go" test_logger.go test_logger_windows.go org_resolver.go es_config.go
 
     if [ ! -f "${output_name}" ]; then
         echo "ERROR: Failed to build ${output_name}"
@@ -194,7 +194,7 @@ mkdir -p "${BUILD_DIR}"
 
 echo "  Building ${TEST_UUID}.exe..."
 cd "${TEST_DIR}"
-GOOS=windows GOARCH=amd64 go build -o "../../${BUILD_DIR}/${TEST_UUID}.exe" "${TEST_UUID}.go" test_logger.go org_resolver.go es_config.go
+GOOS=windows GOARCH=amd64 go build -o "../../${BUILD_DIR}/${TEST_UUID}.exe" "${TEST_UUID}.go" test_logger.go test_logger_windows.go org_resolver.go es_config.go
 
 if [ ! -f "../../${BUILD_DIR}/${TEST_UUID}.exe" ]; then
     echo "ERROR: Failed to build main binary"

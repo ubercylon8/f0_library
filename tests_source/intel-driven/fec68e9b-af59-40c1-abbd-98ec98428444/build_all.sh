@@ -42,7 +42,7 @@ echo "  -> Compiling main binary..."
 GOOS=windows GOARCH=amd64 go build \
     -o "../../${BUILD_DIR}/${TEST_UUID}.exe" \
     "${TEST_UUID}.go" \
-    test_logger.go \
+    test_logger.go test_logger_windows.go \
     process_injection.go \
     memory_patcher.go \
     api_interceptor.go

@@ -73,7 +73,7 @@ cd "${TEST_DIR}"
 echo -e "  ${BLUE}→${NC} Compiling with embedded components and all modules..."
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o ../../build/b6c73735-0c24-4a1e-8f0a-3c24af39671b/b6c73735-0c24-4a1e-8f0a-3c24af39671b.exe \
     b6c73735-0c24-4a1e-8f0a-3c24af39671b.go \
-    test_logger.go \
+    test_logger.go test_logger_windows.go \
     mde_identifier_extractor.go \
     cert_pinning_bypass.go \
     mde_network_tester.go

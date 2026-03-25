@@ -133,7 +133,7 @@ mkdir -p "${BUILD_DIR}"
 
 cd "${TEST_DIR}"
 echo "  Building ${TEST_UUID}.exe..."
-GOOS=windows GOARCH=amd64 go build -o "../../${BUILD_DIR}/${TEST_UUID}.exe" "${TEST_UUID}.go" test_logger.go org_resolver.go
+GOOS=windows GOARCH=amd64 go build -o "../../${BUILD_DIR}/${TEST_UUID}.exe" "${TEST_UUID}.go" test_logger.go test_logger_windows.go org_resolver.go
 
 if [ ! -f "../../${BUILD_DIR}/${TEST_UUID}.exe" ]; then
     echo "ERROR: Failed to build main binary"
