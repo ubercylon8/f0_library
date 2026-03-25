@@ -1,0 +1,235 @@
+# ============================================================
+# UNK_RobotDreams Rust Backdoor Execution Chain - Sigma Rules
+# Test ID: 414a4c61-019f-48ba-934d-d5e91a29a878
+# MITRE ATT&CK: T1204.002, T1059.001, T1105, T1071.001, T1573.001, T1036.005
+# Threat Actor: UNK_RobotDreams (Pakistan-aligned)
+# Generated: 2026-03-24
+# ============================================================
+# FOCUS: Technique-level attack behaviors only.
+# Detections target the underlying attack patterns, NOT test framework artifacts.
+# ============================================================
+---
+title: Hidden PowerShell Window with Web Download Cradle
+id: 414a4c61-sigma-001
+status: stable
+description: |
+  Detects PowerShell execution with hidden window style combined with web
+  download cmdlets (Invoke-WebRequest, iwr, Net.WebClient). UNK_RobotDreams
+  uses this pattern to stage the Rust backdoor binary via Azure Front Door.
+  This behavior is technique-inherent and detected regardless of the specific
+  tool used.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1105/
+  - https://gbhackers.com/iran-war-bait/
+author: F0RT1KA sectest-builder
+date: 2026-03-24
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.command-and-control
+  - attack.t1105
+  - unk-robotdreams
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_process:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_hidden:
+    CommandLine|contains:
+      - '-w hidden'
+      - '-WindowStyle Hidden'
+      - '-windowstyle h'
+  selection_download:
+    CommandLine|contains:
+      - 'Invoke-WebRequest'
+      - 'iwr '
+      - 'Invoke-RestMethod'
+      - 'Net.WebClient'
+      - 'DownloadFile'
+      - 'DownloadString'
+      - 'Start-BitsTransfer'
+  condition: selection_process and selection_hidden and selection_download
+falsepositives:
+  - Legitimate software updaters using hidden PowerShell with web requests
+  - SCCM or Intune management scripts
+  - Enterprise deployment scripts with silent download patterns
+level: high
+
+---
+title: PowerShell ExecutionPolicy Bypass with File Download
+id: 414a4c61-sigma-002
+status: stable
+description: |
+  Detects PowerShell executions combining ExecutionPolicy Bypass with file
+  download cmdlets and output file parameters. UNK_RobotDreams uses this
+  combination to ensure the download cradle runs regardless of endpoint
+  policy restrictions.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1105/
+author: F0RT1KA sectest-builder
+date: 2026-03-24
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.defense-evasion
+  - unk-robotdreams
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_process:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_bypass:
+    CommandLine|contains:
+      - '-ExecutionPolicy Bypass'
+      - '-ep bypass'
+      - '-exec bypass'
+  selection_download:
+    CommandLine|contains:
+      - 'Invoke-WebRequest'
+      - 'iwr '
+      - '-OutFile'
+      - '-outf '
+      - 'DownloadFile'
+  condition: selection_process and selection_bypass and selection_download
+falsepositives:
+  - Package managers (Chocolatey, winget wrappers)
+  - IT automation scripts using ExecutionPolicy Bypass with downloads
+level: medium
+
+---
+title: Non-Browser Process Connecting to Azure Front Door CDN
+id: 414a4c61-sigma-003
+status: stable
+description: |
+  Detects non-browser processes making HTTPS connections to Azure Front Door
+  (azurefd.net) or Azure CDN (azureedge.net) domains. UNK_RobotDreams uses
+  Azure Front Door for domain fronting C2, making malicious traffic appear
+  as legitimate CDN requests. This detection flags unusual processes accessing
+  these CDN domains.
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+  - https://attack.mitre.org/techniques/T1036/005/
+  - https://gbhackers.com/iran-war-bait/
+author: F0RT1KA sectest-builder
+date: 2026-03-24
+tags:
+  - attack.command-and-control
+  - attack.t1071.001
+  - attack.defense-evasion
+  - attack.t1036.005
+  - unk-robotdreams
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection_destination:
+    DestinationHostname|contains:
+      - 'azurefd.net'
+      - 'azureedge.net'
+      - 'trafficmanager.net'
+  filter_browsers:
+    Image|endswith:
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\firefox.exe'
+      - '\iexplore.exe'
+  filter_microsoft:
+    Image|endswith:
+      - '\Teams.exe'
+      - '\OneDrive.exe'
+      - '\outlook.exe'
+      - '\svchost.exe'
+      - '\MicrosoftEdgeUpdate.exe'
+      - '\MsSense.exe'
+      - '\MsMpEng.exe'
+  condition: selection_destination and not filter_browsers and not filter_microsoft
+falsepositives:
+  - Legitimate Azure-integrated applications
+  - Azure CLI tools and SDKs
+  - Azure DevOps agents
+level: high
+
+---
+title: PDF File with Executable in Same User Directory
+id: 414a4c61-sigma-004
+status: stable
+description: |
+  Detects creation of PDF files alongside executable files in user-writable
+  directories outside of standard installation paths. This pattern is
+  characteristic of spearphishing lure delivery where a PDF lure is placed
+  alongside an executable loader, as used by UNK_RobotDreams.
+references:
+  - https://attack.mitre.org/techniques/T1204/002/
+author: F0RT1KA sectest-builder
+date: 2026-03-24
+tags:
+  - attack.execution
+  - attack.t1204.002
+  - attack.initial-access
+  - unk-robotdreams
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|endswith:
+      - '.exe'
+    TargetFilename|contains:
+      - '\Users\'
+  filter_standard:
+    TargetFilename|contains:
+      - '\Program Files'
+      - '\Windows\'
+      - '\AppData\Local\Microsoft'
+  condition: selection and not filter_standard
+falsepositives:
+  - Software installers downloaded to user directories
+  - Portable applications extracted to user folders
+level: medium
+
+---
+title: Executable Named as Adobe Update in Non-Standard Path
+id: 414a4c61-sigma-005
+status: stable
+description: |
+  Detects executables with Adobe-themed names (AdobeAcrobatUpdate, AdobeReader,
+  AdobeHelper) executing from user-writable directories outside standard Adobe
+  installation paths. UNK_RobotDreams names its loader AdobeAcrobatUpdate.exe
+  to blend with legitimate software updates.
+references:
+  - https://attack.mitre.org/techniques/T1036/005/
+  - https://attack.mitre.org/techniques/T1204/002/
+author: F0RT1KA sectest-builder
+date: 2026-03-24
+tags:
+  - attack.defense-evasion
+  - attack.t1036.005
+  - attack.execution
+  - attack.t1204.002
+  - unk-robotdreams
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\AdobeAcrobatUpdate.exe'
+      - '\AdobeReaderUpdate.exe'
+      - '\AdobeHelper.exe'
+      - '\AdobeUpdate.exe'
+  filter_legitimate:
+    Image|startswith:
+      - 'C:\Program Files'
+      - 'C:\Program Files (x86)'
+  condition: selection and not filter_legitimate
+falsepositives:
+  - Very unlikely - legitimate Adobe updaters run from Program Files
+level: high

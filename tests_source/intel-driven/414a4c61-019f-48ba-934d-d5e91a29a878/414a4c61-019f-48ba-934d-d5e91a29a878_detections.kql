@@ -1,0 +1,178 @@
+// ============================================================
+// Behavioral Detection Queries for UNK_RobotDreams Rust Backdoor Execution Chain
+// Test ID: 414a4c61-019f-48ba-934d-d5e91a29a878
+// MITRE ATT&CK: T1204.002, T1059.001, T1105, T1071.001, T1573.001, T1036.005
+// Threat Actor: UNK_RobotDreams (Pakistan-aligned)
+// Generated: 2026-03-24
+// ============================================================
+// FOCUS: Technique-level attack behaviors only.
+// All detections target the underlying attack technique, NOT test framework artifacts.
+// ============================================================
+
+
+// ============================================================
+// QUERY 1: Hidden PowerShell Window with Download Cradle (T1059.001 + T1105)
+// Confidence: High
+// Purpose: Detect PowerShell execution with hidden window flag combined
+//          with Invoke-WebRequest or similar download cmdlets. This is
+//          the exact pattern used by UNK_RobotDreams to stage the Rust
+//          backdoor binary. Any attacker using this pattern will be detected.
+// False Positives: Legitimate software updaters using hidden PowerShell
+//                  with Invoke-WebRequest, SCCM/Intune scripts.
+// Threshold: Any single match warrants investigation.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "powershell.exe" or FileName =~ "pwsh.exe"
+| where ProcessCommandLine has_any ("-w hidden", "-WindowStyle Hidden", "-windowstyle h")
+| where ProcessCommandLine has_any (
+    "Invoke-WebRequest", "iwr", "wget",
+    "Invoke-RestMethod", "irm",
+    "Start-BitsTransfer",
+    "Net.WebClient", "DownloadFile", "DownloadString",
+    "(New-Object System.Net.WebClient)"
+)
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, ProcessCommandLine, ProcessId,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "High",
+    ThreatType = "PowerShell Download Cradle with Hidden Window",
+    MitreAttack = "T1059.001, T1105",
+    Detection = "PowerShell hidden window with download cmdlet - possible payload staging"
+
+
+// ============================================================
+// QUERY 2: PowerShell ExecutionPolicy Bypass with Web Request (T1059.001)
+// Confidence: Medium
+// Purpose: Detect PowerShell executions that combine ExecutionPolicy Bypass
+//          with web requests. UNK_RobotDreams uses this combination to
+//          ensure the download cradle runs regardless of endpoint policy.
+// False Positives: IT automation scripts using -ExecutionPolicy Bypass,
+//                  package managers (chocolatey, winget scripts).
+// Threshold: Correlate with file creation events for higher confidence.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "powershell.exe" or FileName =~ "pwsh.exe"
+| where ProcessCommandLine has "-ExecutionPolicy Bypass"
+    or ProcessCommandLine has "-ep bypass"
+| where ProcessCommandLine has_any (
+    "Invoke-WebRequest", "iwr", "wget",
+    "Invoke-RestMethod", "irm",
+    "Net.WebClient", "DownloadFile",
+    "-outf", "-OutFile"
+)
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, ProcessCommandLine, ProcessId,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "Medium",
+    ThreatType = "PowerShell Bypass with Web Download",
+    MitreAttack = "T1059.001",
+    Detection = "PowerShell ExecutionPolicy Bypass combined with web download - possible payload delivery"
+
+
+// ============================================================
+// QUERY 3: HTTPS Traffic with Azure CDN Domain Fronting Indicators (T1071.001 + T1036.005)
+// Confidence: High
+// Purpose: Detect outbound HTTPS connections to Azure Front Door or
+//          Azure CDN domains from non-browser processes. UNK_RobotDreams
+//          uses domain fronting through Azure Front Door to mask C2
+//          traffic as legitimate CDN requests. This detects any process
+//          making HTTPS calls with Azure CDN Host headers.
+// False Positives: Legitimate Azure-integrated applications, Azure DevOps agents,
+//                  Azure CLI tools, Microsoft 365 sync clients.
+// Threshold: Correlate with process reputation and prior PowerShell activity.
+// ============================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemotePort in (443, 8443)
+| where RemoteUrl has_any ("azurefd.net", "azureedge.net", "trafficmanager.net", "azure-api.net")
+| where InitiatingProcessFileName !in~ (
+    "msedge.exe", "chrome.exe", "firefox.exe", "iexplore.exe",
+    "Teams.exe", "OneDrive.exe", "outlook.exe",
+    "svchost.exe", "MicrosoftEdgeUpdate.exe",
+    "MsSense.exe", "MsMpEng.exe"
+)
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    RemoteIP, RemotePort, RemoteUrl
+| extend
+    Severity = "High",
+    ThreatType = "Azure CDN Domain Fronting C2",
+    MitreAttack = "T1071.001, T1036.005",
+    Detection = "Non-browser process connecting to Azure CDN - possible domain fronting C2"
+
+
+// ============================================================
+// QUERY 4: PDF File Creation with Executable in Same Directory (T1204.002)
+// Confidence: Medium
+// Purpose: Detect creation of PDF files in close temporal proximity to
+//          executable files in the same directory. UNK_RobotDreams places
+//          the PDF lure alongside the executable loader. This pattern
+//          is characteristic of spearphishing delivery via file drops.
+// False Positives: PDF creation tools that bundle helper executables,
+//                  software installation with documentation.
+// Threshold: Correlate with user downloads or email attachment extraction.
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FileName endswith ".pdf"
+| where FolderPath !startswith "C:\\Program Files"
+    and FolderPath !startswith "C:\\Windows"
+| join kind=inner (
+    DeviceFileEvents
+    | where TimeGenerated > ago(1h)
+    | where FileName endswith ".exe"
+    | where FolderPath !startswith "C:\\Program Files"
+        and FolderPath !startswith "C:\\Windows"
+    | project ExeTime=TimeGenerated, DeviceName, ExeFileName=FileName, ExeFolderPath=FolderPath
+) on DeviceName
+| where ExeFolderPath == FolderPath
+| where abs(datetime_diff('second', TimeGenerated, ExeTime)) < 60
+| project TimeGenerated, DeviceName, PdfFileName=FileName, ExeFileName, FolderPath
+| extend
+    Severity = "Medium",
+    ThreatType = "PDF Lure with Co-located Executable",
+    MitreAttack = "T1204.002",
+    Detection = "PDF and executable created in same non-standard directory within 60 seconds"
+
+
+// ============================================================
+// QUERY 5: Combined Behavioral Correlation - UNK_RobotDreams Attack Chain
+// Confidence: Critical
+// Purpose: Correlate multiple UNK_RobotDreams indicators on the same
+//          device within a 30-minute window: hidden PowerShell execution,
+//          file download patterns, and outbound Azure CDN connections.
+//          This multi-signal correlation provides high-confidence detection
+//          of the complete attack chain.
+// False Positives: Very low - requires all three indicators on same host.
+// Threshold: Any match should trigger immediate investigation.
+// ============================================================
+let PowerShellDownloads = DeviceProcessEvents
+| where TimeGenerated > ago(30m)
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine has_any ("-w hidden", "-WindowStyle Hidden")
+| where ProcessCommandLine has_any ("Invoke-WebRequest", "iwr", "DownloadFile")
+| summarize PSTime=min(TimeGenerated) by DeviceName;
+let AzureCDNConnections = DeviceNetworkEvents
+| where TimeGenerated > ago(30m)
+| where RemoteUrl has_any ("azurefd.net", "azureedge.net")
+| where InitiatingProcessFileName !in~ ("msedge.exe", "chrome.exe", "firefox.exe", "svchost.exe")
+| summarize NetTime=min(TimeGenerated) by DeviceName;
+let SuspiciousFiles = DeviceFileEvents
+| where TimeGenerated > ago(30m)
+| where FileName endswith ".exe" or FileName endswith ".pdf"
+| where FolderPath has "Users" and FolderPath !has "Program Files"
+| summarize FileTime=min(TimeGenerated), FileCount=count() by DeviceName
+| where FileCount >= 2;
+PowerShellDownloads
+| join kind=inner AzureCDNConnections on DeviceName
+| join kind=inner SuspiciousFiles on DeviceName
+| project DeviceName, PSTime, NetTime, FileTime, FileCount
+| extend
+    Severity = "Critical",
+    ThreatType = "UNK_RobotDreams Multi-Stage Attack Chain",
+    MitreAttack = "T1204.002, T1059.001, T1105, T1071.001, T1573.001, T1036.005",
+    Detection = "CRITICAL: Multiple UNK_RobotDreams indicators correlated - PDF lure + PowerShell staging + Azure CDN C2"

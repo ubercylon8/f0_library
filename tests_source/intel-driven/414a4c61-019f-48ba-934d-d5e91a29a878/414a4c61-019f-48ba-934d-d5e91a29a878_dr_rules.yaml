@@ -1,0 +1,185 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 414a4c61-019f-48ba-934d-d5e91a29a878
+# Test Name: UNK_RobotDreams Rust Backdoor Execution Chain
+# MITRE ATT&CK: T1204.002, T1059.001, T1105, T1071.001, T1573.001, T1036.005
+# Threat Actor: UNK_RobotDreams (Pakistan-aligned)
+# Created: 2026-03-24
+# Author: F0RT1KA sectest-builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying UNK_RobotDreams attack techniques,
+# NOT the F0RT1KA testing framework. They will catch real-world attackers
+# using hidden PowerShell download cradles, Azure CDN domain fronting,
+# and spearphishing PDF lures with their own tooling.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 414a4c61-019f-48ba-934d-d5e91a29a878_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: Hidden PowerShell Window with Download Cradle
+  # Purpose: Detect powershell.exe running with hidden window flag combined
+  #          with web download cmdlets. This is the core staging mechanism
+  #          used by UNK_RobotDreams to retrieve the Rust backdoor.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1059.001, T1105
+  # ==========================================================================
+  powershell-hidden-download-cradle:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Process is PowerShell
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)\\\\(powershell|pwsh)\\.exe$'
+        # Hidden window flag present
+        - op: matches
+          path: event/COMMAND_LINE
+          re: '(?i)(-w\s+hidden|-WindowStyle\s+Hidden|-windowstyle\s+h)'
+        # Download cmdlet present
+        - op: matches
+          path: event/COMMAND_LINE
+          re: '(?i)(Invoke-WebRequest|iwr\s|Invoke-RestMethod|Net\.WebClient|DownloadFile|Start-BitsTransfer)'
+    respond:
+      - action: report
+        name: "UNK_RobotDreams - Hidden PowerShell Download Cradle (T1059.001)"
+        metadata:
+          mitre_attack: "T1059.001, T1105"
+          severity: high
+          threat_actor: UNK_RobotDreams
+
+  # ==========================================================================
+  # RULE 2: PowerShell ExecutionPolicy Bypass with Web Request
+  # Purpose: Detect PowerShell using ExecutionPolicy Bypass combined with
+  #          download operations. More permissive than Rule 1 to catch
+  #          variants that don't use hidden window but still bypass policy.
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1059.001
+  # ==========================================================================
+  powershell-bypass-with-download:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)\\\\(powershell|pwsh)\\.exe$'
+        - op: matches
+          path: event/COMMAND_LINE
+          re: '(?i)(-ExecutionPolicy\s+Bypass|-ep\s+bypass|-exec\s+bypass)'
+        - op: matches
+          path: event/COMMAND_LINE
+          re: '(?i)(Invoke-WebRequest|iwr\s|-OutFile|-outf\s|DownloadFile)'
+    respond:
+      - action: report
+        name: "UNK_RobotDreams - PowerShell Bypass Download (T1059.001)"
+        metadata:
+          mitre_attack: "T1059.001"
+          severity: medium
+          threat_actor: UNK_RobotDreams
+
+  # ==========================================================================
+  # RULE 3: Non-Browser HTTPS to Azure Front Door / CDN Domains
+  # Purpose: Detect outbound HTTPS connections to Azure Front Door or
+  #          Azure CDN domains from non-browser processes. UNK_RobotDreams
+  #          uses Azure Front Door for domain fronting C2.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1071.001, T1036.005
+  # ==========================================================================
+  azure-cdn-domain-fronting-c2:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        # Connection to Azure CDN domains
+        - op: matches
+          path: routing/hostname
+          re: '(?i)\.(azurefd\.net|azureedge\.net|trafficmanager\.net)$'
+        # NOT from browser processes
+        - op: not
+          rule:
+            op: matches
+            path: event/FILE_PATH
+            re: '(?i)\\\\(msedge|chrome|firefox|iexplore|Teams|OneDrive|outlook|svchost|MicrosoftEdgeUpdate|MsSense|MsMpEng)\\.exe$'
+    respond:
+      - action: report
+        name: "UNK_RobotDreams - Azure CDN Domain Fronting C2 (T1071.001)"
+        metadata:
+          mitre_attack: "T1071.001, T1036.005"
+          severity: high
+          threat_actor: UNK_RobotDreams
+
+  # ==========================================================================
+  # RULE 4: Adobe-Themed Executable from Non-Standard Path
+  # Purpose: Detect execution of binaries with Adobe-themed names running
+  #          from directories outside Program Files. UNK_RobotDreams names
+  #          its loader AdobeAcrobatUpdate.exe.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1036.005, T1204.002
+  # ==========================================================================
+  adobe-themed-executable-nonstandard-path:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Adobe-themed executable name
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)\\\\Adobe(Acrobat|Reader|Helper)?Update\\.exe$'
+        # NOT from standard installation path
+        - op: not
+          rule:
+            op: matches
+            path: event/FILE_PATH
+            re: '(?i)^C:\\\\Program Files'
+    respond:
+      - action: report
+        name: "UNK_RobotDreams - Adobe-Themed Loader from Non-Standard Path (T1036.005)"
+        metadata:
+          mitre_attack: "T1036.005, T1204.002"
+          severity: high
+          threat_actor: UNK_RobotDreams
+
+  # ==========================================================================
+  # RULE 5: Encrypted Beacon Data File Creation
+  # Purpose: Detect creation of .dat files in staging directories that may
+  #          contain encrypted C2 beacon data. UNK_RobotDreams stages
+  #          AES-encrypted system metadata before exfiltration.
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1573.001, T1071.001
+  # ==========================================================================
+  encrypted-beacon-staging-file:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # File is a .dat file in staging directory
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)\\\\(c2_staging|staging|beacon|exfil)\\\\.*\\.dat$'
+        # Not in standard Windows directories
+        - op: not
+          rule:
+            op: matches
+            path: event/FILE_PATH
+            re: '(?i)^C:\\\\(Windows|Program Files)'
+    respond:
+      - action: report
+        name: "UNK_RobotDreams - Encrypted Beacon Staging File (T1573.001)"
+        metadata:
+          mitre_attack: "T1573.001, T1071.001"
+          severity: medium
+          threat_actor: UNK_RobotDreams
