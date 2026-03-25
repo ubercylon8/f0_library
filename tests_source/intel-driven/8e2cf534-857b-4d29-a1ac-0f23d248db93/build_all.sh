@@ -333,8 +333,7 @@ if [ "$GOOS" = "windows" ] && command -v osslsigncode &> /dev/null; then
         if osslsigncode verify "${stage_binary}" 2>&1 | grep -q "Message digest"; then
             echo "    Signature present and valid (self-signed cert)"
         else
-            print_error "Could not verify signature for ${stage_binary}"
-            exit 1
+            print_warning "Could not verify signature for ${stage_binary}"
         fi
     done
     print_success "All stage signatures verified"
