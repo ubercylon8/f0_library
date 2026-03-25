@@ -209,7 +209,11 @@ prompt_password() {
         fi
     fi
 
-    # No password file found - prompt user
+    # No password file found - prompt user (only if interactive)
+    if [[ ! -t 0 ]]; then
+        print_error "No password file found for $(basename "$cert_file") and stdin is not a terminal" >&2
+        return 1
+    fi
     while [[ -z "$password" ]]; do
         read -s -p "Enter certificate password: " password
         echo
