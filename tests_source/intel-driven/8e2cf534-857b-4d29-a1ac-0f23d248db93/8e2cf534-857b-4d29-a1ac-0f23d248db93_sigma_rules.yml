@@ -1,0 +1,234 @@
+# ============================================================
+# TA453 NICECURL VBScript Backdoor Detection - Sigma Rules
+# Test ID: 8e2cf534-857b-4d29-a1ac-0f23d248db93
+# MITRE ATT&CK: T1204.002, T1059.005, T1047, T1518.001, T1071.001, T1105, T1036.004
+# Threat Actor: TA453 (APT42 / Charming Kitten / Mint Sandstorm)
+# Generated: 2026-03-24
+# ============================================================
+# FOCUS: Technique-level attack behaviors only.
+# Detections target the underlying attack patterns, NOT test framework artifacts.
+# ============================================================
+---
+title: Script Interpreter Executing VBScript from User Directory
+id: 8e2cf534-sigma-001
+status: stable
+description: |
+  Detects wscript.exe or cscript.exe executing VBScript (.vbs/.vbe) files from
+  user-writable directories (Downloads, Temp, AppData, user profiles). TA453
+  NICECURL is delivered via LNK files that trigger wscript.exe to run a VBScript
+  backdoor downloaded from Glitch.me. This detection is generic and catches any
+  VBScript execution from non-standard locations.
+references:
+  - https://attack.mitre.org/techniques/T1059/005/
+  - https://hawk-eye.io/wp-content/advisories/apt42-threat-advisory.html
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-24
+tags:
+  - attack.execution
+  - attack.t1059.005
+  - attack.t1204.002
+  - ta453
+  - nicecurl
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\wscript.exe'
+      - '\cscript.exe'
+    CommandLine|contains:
+      - '.vbs'
+      - '.vbe'
+  filter_standard_locations:
+    CommandLine|contains:
+      - '\SYSVOL\'
+      - '\NETLOGON\'
+      - '\Program Files\'
+      - '\Windows\System32\'
+  filter_standard_parents:
+    ParentImage|endswith:
+      - '\services.exe'
+      - '\svchost.exe'
+  condition: selection and not filter_standard_locations and not filter_standard_parents
+falsepositives:
+  - Enterprise login scripts deployed via GPO
+  - VBScript-based IT automation tools
+  - Legacy monitoring scripts
+level: high
+
+---
+title: WMI Query for Security Software Discovery
+id: 8e2cf534-sigma-002
+status: stable
+description: |
+  Detects WMI queries to the SecurityCenter2 namespace for AntiVirusProduct
+  enumeration. NICECURL uses GetObject("winmgmts:").ExecQuery("Select * from
+  AntiVirusProduct") to identify installed security software. This is a common
+  pre-exploitation discovery technique used by Iranian APT tooling to assess
+  the target environment risk level.
+references:
+  - https://attack.mitre.org/techniques/T1518/001/
+  - https://attack.mitre.org/techniques/T1047/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-24
+tags:
+  - attack.discovery
+  - attack.t1047
+  - attack.t1518.001
+  - ta453
+  - nicecurl
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_wmic:
+    Image|endswith: '\wmic.exe'
+    CommandLine|contains|all:
+      - 'SecurityCenter2'
+      - 'AntiVirusProduct'
+  selection_script:
+    Image|endswith:
+      - '\wscript.exe'
+      - '\cscript.exe'
+    CommandLine|contains: '.vbs'
+  filter_known_tools:
+    ParentImage|endswith:
+      - '\MsMpEng.exe'
+      - '\mmc.exe'
+      - '\svchost.exe'
+  condition: (selection_wmic or selection_script) and not filter_known_tools
+falsepositives:
+  - Legitimate security monitoring or inventory tools
+  - IT asset management scripts
+  - Some AV products querying their own status
+level: high
+
+---
+title: curl.exe HTTPS POST to Suspicious Domain
+id: 8e2cf534-sigma-003
+status: stable
+description: |
+  Detects curl.exe making outbound HTTPS POST requests, particularly to
+  Glitch.me or similar PaaS hosting domains. TA453 NICECURL uses curl.exe
+  as a Living off the Land binary for C2 communication because it is a
+  legitimate Windows utility found in developer environments, allowing
+  malicious traffic to blend with normal activity.
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+  - https://attack.mitre.org/techniques/T1105/
+  - https://cloud.google.com/blog/topics/threat-intelligence/untangling-iran-apt42-operations
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-24
+tags:
+  - attack.command-and-control
+  - attack.t1071.001
+  - attack.t1105
+  - ta453
+  - nicecurl
+  - lotl
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_curl:
+    Image|endswith: '\curl.exe'
+    CommandLine|contains:
+      - '-X POST'
+      - '--data'
+      - '-d '
+  selection_domains:
+    CommandLine|contains:
+      - 'glitch.me'
+      - 'glitch.io'
+      - 'herokuapp.com'
+      - 'replit.dev'
+  selection_suspicious_context:
+    ParentImage|endswith:
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\cmd.exe'
+      - '\powershell.exe'
+  condition: selection_curl and (selection_domains or selection_suspicious_context)
+falsepositives:
+  - Developers using curl for API testing against PaaS platforms
+  - CI/CD pipelines using curl for deployment
+  - Admin scripts using curl for health checks
+level: high
+
+---
+title: LNK File with Double Extension Masquerading
+id: 8e2cf534-sigma-004
+status: stable
+description: |
+  Detects creation of Windows Shell Link (.lnk) files with double extensions
+  that masquerade as documents (e.g., onedrive-form.pdf.lnk). TA453 delivers
+  NICECURL via LNK files disguised as PDF forms from OneDrive. The double
+  extension exploits Windows default behavior of hiding known extensions.
+references:
+  - https://attack.mitre.org/techniques/T1204/002/
+  - https://attack.mitre.org/techniques/T1036/004/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-24
+tags:
+  - attack.execution
+  - attack.t1204.002
+  - attack.defense-evasion
+  - attack.t1036.004
+  - ta453
+  - nicecurl
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|endswith: '.lnk'
+    TargetFilename|contains:
+      - '.pdf.'
+      - '.doc.'
+      - '.docx.'
+      - '.xls.'
+      - '.xlsx.'
+  condition: selection
+falsepositives:
+  - Very rare - double extensions on LNK files are almost always malicious
+  - Some legitimate file sync tools creating backup links
+level: high
+
+---
+title: Victim Identifier File Creation in Local AppData
+id: 8e2cf534-sigma-005
+status: stable
+description: |
+  Detects creation of config.txt files in %LOCALAPPDATA% which may indicate
+  a NICECURL-style persistent victim identifier. NICECURL creates this file
+  to maintain a unique victim ID across sessions for C2 tracking. While
+  config.txt in AppData is not inherently suspicious, creation by script
+  interpreters or unknown binaries warrants investigation.
+references:
+  - https://attack.mitre.org/techniques/T1059/005/
+  - https://hawk-eye.io/wp-content/advisories/apt42-threat-advisory.html
+author: F0RT1KA Defense Guidance Builder
+date: 2026-03-24
+tags:
+  - attack.execution
+  - attack.t1059.005
+  - ta453
+  - nicecurl
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|endswith: '\config.txt'
+    TargetFilename|contains: '\AppData\Local\'
+  filter_known_apps:
+    Image|endswith:
+      - '\explorer.exe'
+      - '\msiexec.exe'
+      - '\setup.exe'
+  condition: selection and not filter_known_apps
+falsepositives:
+  - Application configuration files legitimately created in AppData
+  - Some installer packages
+level: medium

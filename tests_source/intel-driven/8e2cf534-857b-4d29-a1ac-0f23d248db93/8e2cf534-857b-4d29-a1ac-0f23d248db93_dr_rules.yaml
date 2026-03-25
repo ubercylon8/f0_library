@@ -1,0 +1,230 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 8e2cf534-857b-4d29-a1ac-0f23d248db93
+# Test Name: TA453 NICECURL VBScript Backdoor Detection
+# MITRE ATT&CK: T1204.002, T1059.005, T1047, T1518.001, T1071.001, T1105, T1036.004
+# Threat Actor: TA453 (APT42 / Charming Kitten / Mint Sandstorm)
+# Created: 2026-03-24
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying TA453 NICECURL attack techniques,
+# NOT the F0RT1KA testing framework. They will catch real-world attackers
+# using VBScript delivery, WMI discovery, and curl.exe C2 with their own tooling.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 8e2cf534-857b-4d29-a1ac-0f23d248db93_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: Script Interpreter Executing VBScript from Non-Standard Path
+  # Purpose: Detect wscript.exe or cscript.exe running .vbs/.vbe files from
+  #          user-writable directories. NICECURL delivery ends with wscript.exe
+  #          executing a VBScript backdoor from a user directory.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1059.005, T1204.002
+  # ==========================================================================
+  vbscript-execution-from-user-directory:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Process is wscript.exe or cscript.exe
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\wscript.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\cscript.exe"
+        # Command line references VBScript
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".vbs"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".vbe"
+        # NOT from legitimate script deployment paths
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "\\SYSVOL\\"
+          not: true
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "\\NETLOGON\\"
+          not: true
+    respond:
+      - action: report
+        name: "TA453 NICECURL - VBScript Execution from User Directory"
+        metadata:
+          mitre_attack: "T1059.005, T1204.002"
+          severity: high
+          confidence: high
+          description: "wscript/cscript executing VBScript from non-standard path - possible NICECURL delivery"
+
+  # ==========================================================================
+  # RULE 2: WMI Query for SecurityCenter2 AntiVirusProduct
+  # Purpose: Detect WMI queries to SecurityCenter2 for AntiVirusProduct
+  #          enumeration. NICECURL uses this to identify security software.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1047, T1518.001
+  # ==========================================================================
+  wmi-security-software-discovery:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\wmic.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "SecurityCenter2"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "AntiVirusProduct"
+    respond:
+      - action: report
+        name: "TA453 NICECURL - WMI AntiVirusProduct Discovery"
+        metadata:
+          mitre_attack: "T1047, T1518.001"
+          severity: high
+          confidence: high
+          description: "WMI query for AntiVirusProduct in SecurityCenter2 namespace - possible NICECURL discovery"
+
+  # ==========================================================================
+  # RULE 3: curl.exe HTTPS POST to PaaS Hosting
+  # Purpose: Detect curl.exe making outbound HTTPS POST to Glitch.me or
+  #          similar PaaS hosting used by NICECURL for C2 communication.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1071.001, T1105
+  # ==========================================================================
+  curl-https-c2-paas-hosting:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\curl.exe"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "glitch.me"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "glitch.io"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "herokuapp.com"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "POST"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--data"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-d "
+    respond:
+      - action: report
+        name: "TA453 NICECURL - curl.exe C2 to PaaS Hosting"
+        metadata:
+          mitre_attack: "T1071.001, T1105"
+          severity: high
+          confidence: high
+          description: "curl.exe HTTPS POST to PaaS hosting platform - possible NICECURL C2 communication"
+
+  # ==========================================================================
+  # RULE 4: curl.exe Spawned by Script Interpreter
+  # Purpose: Detect curl.exe being spawned by wscript.exe, cscript.exe,
+  #          or other script interpreters. This LotL pattern is used by
+  #          NICECURL to execute C2 via legitimate system binaries.
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1071.001
+  # ==========================================================================
+  curl-spawned-by-script-interpreter:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\curl.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "https://"
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "\\wscript.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "\\cscript.exe"
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "\\cmd.exe"
+    respond:
+      - action: report
+        name: "TA453 NICECURL - curl.exe Spawned by Script Interpreter"
+        metadata:
+          mitre_attack: "T1071.001"
+          severity: medium
+          confidence: medium
+          description: "curl.exe spawned by script interpreter for HTTPS - possible LotL C2 technique"
+
+  # ==========================================================================
+  # RULE 5: LNK File Creation with Double Extension
+  # Purpose: Detect creation of .lnk files with double extensions that
+  #          masquerade as documents. NICECURL uses onedrive-form.pdf.lnk.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1204.002, T1036.004
+  # ==========================================================================
+  lnk-double-extension-masquerading:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".lnk"
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: ".pdf.lnk"
+            - op: contains
+              path: event/FILE_PATH
+              value: ".doc.lnk"
+            - op: contains
+              path: event/FILE_PATH
+              value: ".docx.lnk"
+            - op: contains
+              path: event/FILE_PATH
+              value: ".xls.lnk"
+    respond:
+      - action: report
+        name: "TA453 NICECURL - LNK Double Extension Masquerading"
+        metadata:
+          mitre_attack: "T1204.002, T1036.004"
+          severity: high
+          confidence: high
+          description: "LNK file with double extension masquerading as document - possible NICECURL delivery"

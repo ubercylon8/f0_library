@@ -1,0 +1,160 @@
+// ============================================================
+// Behavioral Detection Queries for TA453 NICECURL VBScript Backdoor
+// Test ID: 8e2cf534-857b-4d29-a1ac-0f23d248db93
+// MITRE ATT&CK: T1204.002, T1059.005, T1047, T1518.001, T1071.001, T1105, T1036.004
+// Threat Actor: TA453 (APT42 / Charming Kitten / Mint Sandstorm)
+// Generated: 2026-03-24
+// ============================================================
+// FOCUS: Technique-level attack behaviors only.
+// All detections target the underlying attack technique, NOT test framework artifacts.
+// ============================================================
+
+
+// ============================================================
+// QUERY 1: Malicious LNK File Targeting Script Interpreter (T1204.002 + T1059.005)
+// Confidence: High
+// Purpose: Detect LNK files whose target is wscript.exe or cscript.exe with a
+//          .vbs/.vbe argument. NICECURL and similar VBScript backdoors are
+//          delivered via LNK files that trigger script interpreters. Also
+//          detects double-extension masquerading (.pdf.lnk, .doc.lnk).
+// False Positives: Legitimate IT admin shortcuts to scripts,
+//                  VBS-based login scripts in network shares.
+// Threshold: Any single match from non-IT user warrants investigation.
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".lnk"
+| where FileName matches regex @"(?i)\.(pdf|doc|docx|xls|xlsx|ppt|pptx)\.lnk$"
+    or FolderPath has_any ("Downloads", "Desktop", "Documents", "Temp")
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, FolderPath, InitiatingProcessFileName,
+    InitiatingProcessCommandLine, SHA256
+| extend
+    Severity = "High",
+    ThreatType = "Malicious LNK Delivery",
+    MitreAttack = "T1204.002, T1059.005, T1036.004",
+    Detection = "LNK file with double extension masquerading detected - possible NICECURL delivery"
+
+
+// ============================================================
+// QUERY 2: Script Interpreter Executing VBScript from Non-Standard Path (T1059.005)
+// Confidence: High
+// Purpose: Detect wscript.exe or cscript.exe executing VBScript files from
+//          user-writable locations (Downloads, Temp, AppData, user profiles).
+//          NICECURL's delivery chain ends with wscript.exe running a .vbs file.
+// False Positives: Legitimate enterprise login scripts, VBS-based automation.
+// Threshold: Any match outside known script deployment paths warrants triage.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("wscript.exe", "cscript.exe")
+| where ProcessCommandLine has_any (".vbs", ".vbe")
+| where ProcessCommandLine !startswith "C:\\Windows\\SYSVOL"
+    and ProcessCommandLine !has "\\NETLOGON\\"
+| where InitiatingProcessFileName !in~ ("services.exe", "svchost.exe", "mmc.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    ProcessId, InitiatingProcessId
+| extend
+    Severity = "High",
+    ThreatType = "VBScript Execution via Script Interpreter",
+    MitreAttack = "T1059.005",
+    Detection = "wscript/cscript executing VBScript from non-standard path - possible NICECURL or similar VBS backdoor"
+
+
+// ============================================================
+// QUERY 3: WMI Query for AntiVirusProduct (T1047 + T1518.001)
+// Confidence: High
+// Purpose: Detect WMI queries to root\SecurityCenter2 for AntiVirusProduct.
+//          This is a hallmark of NICECURL's internal discovery phase and is
+//          commonly used by malware to detect security products before
+//          proceeding with malicious operations.
+// False Positives: Legitimate security monitoring tools, IT inventory scripts.
+// Threshold: Suspicious when originating from wscript/cscript or unknown binaries.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where (
+    (FileName =~ "wmic.exe" and ProcessCommandLine has "SecurityCenter2" and ProcessCommandLine has "AntiVirusProduct")
+    or
+    (FileName in~ ("wscript.exe", "cscript.exe") and ProcessCommandLine has ".vbs")
+)
+| where InitiatingProcessFileName !in~ ("mmc.exe", "services.exe", "svchost.exe", "System")
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    ProcessId
+| extend
+    Severity = "High",
+    ThreatType = "Security Software Discovery via WMI",
+    MitreAttack = "T1047, T1518.001",
+    Detection = "WMI query for AntiVirusProduct in SecurityCenter2 namespace - possible NICECURL discovery phase"
+
+
+// ============================================================
+// QUERY 4: curl.exe HTTPS POST to Suspicious Domain (T1071.001 + T1105)
+// Confidence: High
+// Purpose: Detect curl.exe making outbound HTTPS POST requests, especially
+//          to Glitch.me domains or with suspicious headers. NICECURL uses
+//          curl.exe as a Living off the Land binary for C2 communication
+//          to blend with legitimate developer/admin traffic.
+// False Positives: Developer/admin using curl for API testing,
+//                  CI/CD pipelines using curl for deployments.
+// Threshold: Any match from non-developer context warrants investigation.
+// ============================================================
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "curl.exe"
+| where ProcessCommandLine has_any ("POST", "-X POST", "--data", "-d")
+| where ProcessCommandLine has_any ("glitch.me", "glitch.io", "herokuapp.com")
+    or ProcessCommandLine has_any ("NICECURL", "beacon", "X-Request-ID")
+    or (InitiatingProcessFileName in~ ("wscript.exe", "cscript.exe", "cmd.exe", "powershell.exe")
+        and ProcessCommandLine has "https://")
+| project TimeGenerated, DeviceName, AccountName,
+    FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    ProcessId
+| extend
+    Severity = "High",
+    ThreatType = "curl.exe C2 Communication",
+    MitreAttack = "T1071.001, T1105",
+    Detection = "curl.exe HTTPS POST to suspicious domain - possible NICECURL C2 or tool transfer"
+
+
+// ============================================================
+// QUERY 5: Combined NICECURL Behavioral Correlation
+// Confidence: Critical
+// Purpose: Correlate multiple NICECURL indicators on the same device within
+//          a short timeframe. Presence of LNK execution + WMI discovery +
+//          curl.exe C2 on the same host is a strong indicator of NICECURL
+//          or similar VBScript-based backdoor activity.
+// False Positives: Very unlikely when all three indicators are present.
+// Threshold: Any match is high-priority.
+// ============================================================
+let scriptExecution = DeviceProcessEvents
+| where TimeGenerated > ago(4h)
+| where FileName in~ ("wscript.exe", "cscript.exe")
+| where ProcessCommandLine has_any (".vbs", ".vbe")
+| summarize ScriptExecTime = min(TimeGenerated) by DeviceName;
+let wmiDiscovery = DeviceProcessEvents
+| where TimeGenerated > ago(4h)
+| where (FileName =~ "wmic.exe" and ProcessCommandLine has "SecurityCenter2")
+    or (FileName in~ ("wscript.exe", "cscript.exe") and ProcessCommandLine has "SecurityCenter2")
+| summarize WmiTime = min(TimeGenerated) by DeviceName;
+let curlC2 = DeviceProcessEvents
+| where TimeGenerated > ago(4h)
+| where FileName =~ "curl.exe"
+| where ProcessCommandLine has_any ("POST", "-X POST", "--data", "-d")
+| where ProcessCommandLine has "https://"
+| summarize CurlTime = min(TimeGenerated) by DeviceName;
+scriptExecution
+| join kind=inner wmiDiscovery on DeviceName
+| join kind=inner curlC2 on DeviceName
+| extend
+    Severity = "Critical",
+    ThreatType = "TA453 NICECURL Kill Chain Correlation",
+    MitreAttack = "T1204.002, T1059.005, T1047, T1518.001, T1071.001",
+    Detection = "CRITICAL: Multiple NICECURL indicators on same host - VBScript execution + WMI AV discovery + curl.exe C2"
+| project DeviceName, ScriptExecTime, WmiTime, CurlTime, Severity, ThreatType, MitreAttack, Detection
