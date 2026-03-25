@@ -84,13 +84,13 @@ func main() {
 		Severity:   "high",
 		Techniques: []string{"T1204.002", "T1059.001", "T1105", "T1071.001", "T1573.001", "T1036.005"},
 		Tactics:    []string{"execution", "command-and-control", "defense-evasion"},
-		Score:      8.5,
+		Score:      9.2,
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.7,
+			RealWorldAccuracy:       3.0,
 			TechnicalSophistication: 2.8,
-			SafetyMechanisms:        1.5,
+			SafetyMechanisms:        2.0,
 			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.5,
+			LoggingObservability:    0.4,
 		},
 		Tags: []string{"powershell", "domain-fronting", "azure", "cloud-c2", "rust-backdoor", "pdf-lure", "unk-robotdreams", "multi-stage", "killchain"},
 	}
@@ -172,6 +172,7 @@ func test() {
 			Endpoint.Say("FATAL: Failed to extract stage binary: %s", stage.BinaryName)
 			Endpoint.Say("    Error: %v", err)
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage extraction failed: %v", err))
+			cleanup()
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 	}
@@ -240,6 +241,7 @@ func test() {
 
 			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("EDR blocked at stage %d: %s (%s)", stage.ID, stage.Name, stage.Technique))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			cleanup()
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
 
 		} else if exitCode != 0 {
@@ -256,6 +258,7 @@ func test() {
 
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage %d (%s) failed with exit code %d", stage.ID, stage.Technique, exitCode))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			cleanup()
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 
@@ -305,7 +308,46 @@ func test() {
 
 	SaveLog(Endpoint.Unprotected, fmt.Sprintf("All %d stages completed - complete UNK_RobotDreams attack chain successful", len(killchain)))
 	WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+	cleanup()
 	Endpoint.Stop(Endpoint.Unprotected)
+}
+
+// ==============================================================================
+// CLEANUP FUNCTION
+// ==============================================================================
+
+func cleanup() {
+	Endpoint.Say("[*] Cleaning up test artifacts...")
+	LogMessage("INFO", "Cleanup", "Starting post-evaluation artifact cleanup")
+
+	// Stage binaries in LOG_DIR
+	for _, tech := range []string{"T1204.002", "T1059.001", "T1071.001"} {
+		binPath := filepath.Join(LOG_DIR, fmt.Sprintf("%s-%s.exe", TEST_UUID, tech))
+		if err := os.Remove(binPath); err == nil {
+			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed stage binary: %s", tech))
+		}
+		outPath := filepath.Join(LOG_DIR, tech+"_output.txt")
+		if err := os.Remove(outPath); err == nil {
+			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed output: %s", tech))
+		}
+	}
+
+	// Artifacts in ARTIFACT_DIR
+	for _, f := range []string{"Gulf_Security_Alert_MEA_2026.pdf", "AdobeAcrobatUpdate.exe", "Read_Gulf_Security_Alert.url", "agent.exe"} {
+		path := filepath.Join(ARTIFACT_DIR, f)
+		if err := os.Remove(path); err == nil {
+			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed artifact: %s", f))
+		}
+	}
+
+	// EncodedCommand marker file
+	os.Remove(filepath.Join(LOG_DIR, "encoded_cradle_marker.txt"))
+
+	// C2 staging directory
+	os.RemoveAll(filepath.Join(LOG_DIR, "c2_staging"))
+
+	Endpoint.Say("[*] Cleanup complete")
+	LogMessage("INFO", "Cleanup", "Post-evaluation artifact cleanup finished")
 }
 
 // ==============================================================================

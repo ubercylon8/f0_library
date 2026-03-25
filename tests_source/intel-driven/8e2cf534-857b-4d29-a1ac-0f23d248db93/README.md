@@ -1,6 +1,6 @@
 # TA453 NICECURL VBScript Backdoor Detection
 
-**Test Score**: **8.5/10**
+**Test Score**: **9.2/10**
 
 ## Overview
 

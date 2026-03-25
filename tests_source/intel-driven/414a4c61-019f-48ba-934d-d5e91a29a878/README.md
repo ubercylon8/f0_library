@@ -1,6 +1,6 @@
 # UNK_RobotDreams Rust Backdoor Execution Chain
 
-**Test Score**: **8.5/10**
+**Test Score**: **9.2/10**
 
 ## Overview
 

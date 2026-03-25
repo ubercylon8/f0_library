@@ -153,7 +153,8 @@ func performTechnique() error {
 	// We create and execute a small VBS that performs this query.
 	vbsDir := "c:\\F0"
 	vbsPath := filepath.Join(vbsDir, "nicecurl_wmi_query.vbs")
-	vbsContent := `' F0RT1KA NICECURL WMI Discovery Simulation
+	vbsContent := `' F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE
+' F0RT1KA NICECURL WMI Discovery Simulation
 ' Models NICECURL's exact WMI query pattern via VBScript
 On Error Resume Next
 
@@ -171,6 +172,7 @@ For Each objItem In colItems
 Next
 
 outFile.WriteLine "Query completed at: " & Now()
+outFile.WriteLine "F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE"
 outFile.Close
 
 WScript.Quit 0
@@ -212,7 +214,7 @@ WScript.Quit 0
 
 	// Generate a victim ID similar to NICECURL's format
 	victimID := fmt.Sprintf("VID-%s-%s-%d", hostname, username, time.Now().Unix())
-	victimContent := fmt.Sprintf("# NICECURL Victim Identifier (F0RT1KA Simulation)\n# Created: %s\nvictim_id=%s\nhostname=%s\nuser=%s\n",
+	victimContent := fmt.Sprintf("# F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE\n# NICECURL Victim Identifier - F0RT1KA Security Test\n# Created: %s\nvictim_id=%s\nhostname=%s\nuser=%s\n",
 		time.Now().UTC().Format(time.RFC3339), victimID, hostname, username)
 
 	if err := os.WriteFile(victimIDPath, []byte(victimContent), 0644); err != nil {

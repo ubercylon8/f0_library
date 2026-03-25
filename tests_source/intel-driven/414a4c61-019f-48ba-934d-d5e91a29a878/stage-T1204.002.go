@@ -15,6 +15,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 )
@@ -92,6 +93,7 @@ func performTechnique() error {
 	// We create a benign .exe-like artifact (batch wrapper) to trigger AV scanning
 	loaderContent := []byte(
 		"@echo off\r\n" +
+			"REM F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE\r\n" +
 			"REM F0RT1KA Security Test - Simulated UNK_RobotDreams loader\r\n" +
 			"REM Real loader downloads Rust backdoor via PowerShell\r\n" +
 			"echo [F0RT1KA] Simulated executable loader activated\r\n" +
@@ -139,6 +141,19 @@ func performTechnique() error {
 	}
 	LogMessage("INFO", TECHNIQUE_ID, "Executable loader survived AV scan")
 
+	// Step 5: Simulate user opening the PDF (process lineage for EDR)
+	// In the real attack, the victim opens the PDF which triggers the OpenAction URI.
+	// This produces a realistic parent-child process tree for EDR detection.
+	LogMessage("INFO", TECHNIQUE_ID, "Simulating PDF open via default handler (process lineage)")
+	openCmd := exec.Command("cmd.exe", "/C", "start", "", pdfPath)
+	if err := openCmd.Start(); err != nil {
+		LogMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("Could not open PDF via default handler: %v", err))
+	} else {
+		LogMessage("INFO", TECHNIQUE_ID, "PDF opened via cmd.exe /C start - process lineage created")
+		LogMessage("INFO", TECHNIQUE_ID, "Detection opportunity: cmd.exe spawning PDF reader (msedge.exe/AcroRd32.exe)")
+	}
+	time.Sleep(2 * time.Second)
+
 	LogMessage("INFO", TECHNIQUE_ID, "Detection opportunity: PDF with OpenAction URI + executable in same directory")
 	LogMessage("INFO", TECHNIQUE_ID, "Detection opportunity: Executable named AdobeAcrobatUpdate.exe in user profile")
 
@@ -173,6 +188,7 @@ func buildGulfSecurityAlertPDF() []byte {
 	content += "BT /F1 12 Tf 72 690 Td (CLASSIFIED: Gulf Region Security Advisory 2026) Tj ET\r\n"
 	content += "BT /F1 10 Tf 72 660 Td (This document requires Adobe Reader to view securely.) Tj ET\r\n"
 	content += "BT /F1 10 Tf 72 640 Td (Click the button below to enable secure viewing.) Tj ET\r\n"
+	content += "BT /F1 4 Tf 72 20 Td (F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE) Tj ET\r\n"
 	pdf += "4 0 obj\r\n"
 	pdf += fmt.Sprintf("<< /Length %d >>\r\n", len(content))
 	pdf += "stream\r\n"

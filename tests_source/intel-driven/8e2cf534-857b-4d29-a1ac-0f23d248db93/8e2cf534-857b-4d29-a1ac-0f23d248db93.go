@@ -83,13 +83,13 @@ func main() {
 		Severity:   "high",
 		Techniques: []string{"T1204.002", "T1059.005", "T1047", "T1518.001", "T1071.001", "T1105", "T1036.004"},
 		Tactics:    []string{"execution", "discovery", "command-and-control"},
-		Score:      8.5,
+		Score:      9.2,
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.7,
+			RealWorldAccuracy:       3.0,
 			TechnicalSophistication: 2.5,
-			SafetyMechanisms:        1.8,
+			SafetyMechanisms:        2.0,
 			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.5,
+			LoggingObservability:    0.7,
 		},
 		Tags: []string{"vbscript", "wmi", "lotl", "curl", "nicecurl", "lnk", "ta453", "apt42", "charming-kitten", "glitch", "multi-stage", "killchain"},
 	}
@@ -113,6 +113,7 @@ func main() {
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Test panic: %v", r))
+			cleanup()
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 	}()
@@ -171,6 +172,7 @@ func test() {
 			Endpoint.Say("FATAL: Failed to extract stage binary: %s", stage.BinaryName)
 			Endpoint.Say("    Error: %v", err)
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage extraction failed: %v", err))
+			cleanup()
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 	}
@@ -239,6 +241,7 @@ func test() {
 
 			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("EDR blocked at stage %d: %s (%s)", stage.ID, stage.Name, stage.Technique))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			cleanup()
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
 
 		} else if exitCode != 0 {
@@ -255,6 +258,7 @@ func test() {
 
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage %d (%s) failed with exit code %d", stage.ID, stage.Technique, exitCode))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			cleanup()
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 
@@ -304,7 +308,61 @@ func test() {
 
 	SaveLog(Endpoint.Unprotected, fmt.Sprintf("All %d stages completed - complete TA453 NICECURL attack chain successful", len(killchain)))
 	WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+	cleanup()
 	Endpoint.Stop(Endpoint.Unprotected)
+}
+
+// ==============================================================================
+// CLEANUP
+// ==============================================================================
+
+func cleanup() {
+	Endpoint.Say("[*] Cleaning up test artifacts...")
+	LogMessage("INFO", "Cleanup", "Starting post-evaluation artifact cleanup")
+
+	// Stage binaries in LOG_DIR
+	for _, tech := range []string{"T1204.002", "T1047", "T1071.001"} {
+		binPath := filepath.Join(LOG_DIR, fmt.Sprintf("%s-%s.exe", TEST_UUID, tech))
+		if err := os.Remove(binPath); err == nil {
+			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed stage binary: %s", tech))
+		}
+		outPath := filepath.Join(LOG_DIR, tech+"_output.txt")
+		if err := os.Remove(outPath); err == nil {
+			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed output: %s", tech))
+		}
+	}
+
+	// LOG_DIR artifacts from stages
+	for _, f := range []string{"nicecurl_vbs_executed.txt", "nicecurl_wmi_query.vbs", "wmi_av_results.txt"} {
+		path := filepath.Join(LOG_DIR, f)
+		if err := os.Remove(path); err == nil {
+			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed: %s", f))
+		}
+	}
+
+	// ARTIFACT_DIR artifacts
+	for _, f := range []string{"nicecurl_payload.vbs", "onedrive-form.pdf.lnk"} {
+		path := filepath.Join(ARTIFACT_DIR, f)
+		if err := os.Remove(path); err == nil {
+			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed artifact: %s", f))
+		}
+	}
+
+	// Victim ID config.txt
+	localAppData := os.Getenv("LOCALAPPDATA")
+	if localAppData == "" {
+		localAppData = filepath.Join(os.Getenv("SystemDrive"), "Users", "Default", "AppData", "Local")
+	}
+	configPath := filepath.Join(localAppData, "config.txt")
+	if err := os.Remove(configPath); err == nil {
+		LogMessage("INFO", "Cleanup", "Removed victim ID config.txt from LOCALAPPDATA")
+	}
+
+	// C2 staging directory
+	os.RemoveAll(filepath.Join(LOG_DIR, "c2_staging"))
+
+	Endpoint.Say("[*] Cleanup complete")
+	LogMessage("INFO", "Cleanup", "Post-evaluation artifact cleanup finished")
 }
 
 // ==============================================================================

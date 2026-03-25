@@ -79,7 +79,8 @@ func performTechnique() error {
 	// This is a benign VBScript that merely echoes a message (no malicious payload).
 	// Real NICECURL would download from Glitch and execute commands.
 	vbsPath := filepath.Join(artifactDir, "nicecurl_payload.vbs")
-	vbsContent := `' F0RT1KA Security Test - TA453 NICECURL VBScript Simulation
+	vbsContent := `' F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE
+' F0RT1KA Security Test - TA453 NICECURL VBScript Simulation
 ' This script simulates NICECURL backdoor behavior for EDR detection testing.
 ' It does NOT perform any malicious actions.
 '
@@ -102,6 +103,7 @@ Dim markerPath
 markerPath = objShell.ExpandEnvironmentStrings("C:\F0\nicecurl_vbs_executed.txt")
 Dim f
 Set f = fso.CreateTextFile(markerPath, True)
+f.WriteLine "F0RT1KA_SIMULATION_ARTIFACT_NOT_REAL_MALWARE"
 f.WriteLine "NICECURL VBScript simulation executed at: " & Now()
 f.WriteLine "Test UUID: 8e2cf534-857b-4d29-a1ac-0f23d248db93"
 f.WriteLine "Stage: 1 (T1204.002)"
@@ -135,6 +137,19 @@ WScript.Quit 0
 	if _, err := os.Stat(lnkPath); os.IsNotExist(err) {
 		return fmt.Errorf("LNK file was quarantined after creation")
 	}
+
+	// Step 2b: Open LNK via default shell handler (process lineage for EDR)
+	// In the real attack, the user double-clicks the LNK file, triggering the shell to
+	// invoke wscript.exe based on the LNK target. This produces a realistic process tree.
+	LogMessage("INFO", TECHNIQUE_ID, "Simulating LNK open via shell handler (process lineage)")
+	lnkOpenCmd := exec.Command("cmd.exe", "/C", "start", "", lnkPath)
+	if err := lnkOpenCmd.Start(); err != nil {
+		LogMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("Could not open LNK via shell handler: %v", err))
+	} else {
+		LogMessage("INFO", TECHNIQUE_ID, "LNK opened via cmd.exe /C start - process lineage created")
+		LogMessage("INFO", TECHNIQUE_ID, "Detection opportunity: cmd.exe spawning wscript.exe via LNK shell handler")
+	}
+	time.Sleep(3 * time.Second)
 
 	// Step 3: Execute the wscript.exe -> VBScript chain directly
 	// We invoke wscript.exe with the .vbs file as the LNK target would do.
