@@ -72,12 +72,14 @@ func performTechnique() error {
 	//
 	// We simulate both behaviors using wmic.exe (WMI command line) and file creation.
 
-	// Step 1: Execute WMI query for AntiVirusProduct via wmic.exe
+	// Step 1: Execute WMI query for AntiVirusProduct
 	// This models NICECURL's exact WMI query pattern.
 	// The query targets root\SecurityCenter2 namespace which is a well-known
 	// indicator of security software enumeration.
+	// Try wmic.exe first (legacy), fall back to PowerShell Get-CimInstance (modern).
 	LogMessage("INFO", TECHNIQUE_ID, "Executing WMI query: SELECT * FROM AntiVirusProduct (SecurityCenter2 namespace)")
 
+	wmicAvailable := true
 	cmd := exec.Command("wmic.exe",
 		"/Namespace:\\\\root\\SecurityCenter2",
 		"Path", "AntiVirusProduct",
@@ -88,17 +90,33 @@ func performTechnique() error {
 	outputStr := strings.TrimSpace(string(output))
 
 	if err != nil {
-		// Check if WMI query was blocked by EDR
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode := exitErr.ExitCode()
 			LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("wmic.exe exited with code %d", exitCode))
-			// Some EDR solutions block WMI queries to SecurityCenter2
 			if exitCode != 0 {
 				LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("WMI output: %s", outputStr))
 			}
 		} else {
-			// wmic.exe could not be started
-			return fmt.Errorf("wmic.exe execution was prevented: %v", err)
+			// wmic.exe not found — deprecated on modern Windows, fall back to PowerShell
+			LogMessage("INFO", TECHNIQUE_ID, "wmic.exe not available (deprecated on this Windows build), falling back to PowerShell Get-CimInstance")
+			wmicAvailable = false
+		}
+	}
+
+	// Fallback: use PowerShell Get-CimInstance if wmic.exe is not available
+	if !wmicAvailable {
+		psCmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+			`Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | Select-Object displayName,productState | Format-List`)
+		psOutput, psErr := psCmd.CombinedOutput()
+		outputStr = strings.TrimSpace(string(psOutput))
+		if psErr != nil {
+			if psExitErr, ok := psErr.(*exec.ExitError); ok {
+				LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("PowerShell WMI query exited with code %d: %s", psExitErr.ExitCode(), outputStr))
+			} else {
+				return fmt.Errorf("failed to execute WMI query via PowerShell: %v", psErr)
+			}
+		} else {
+			LogMessage("INFO", TECHNIQUE_ID, "PowerShell Get-CimInstance WMI query executed successfully")
 		}
 	}
 
@@ -111,8 +129,10 @@ func performTechnique() error {
 		avProducts := []string{}
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "displayName=") {
-				name := strings.TrimPrefix(line, "displayName=")
+			if strings.HasPrefix(line, "displayName=") || strings.HasPrefix(line, "displayName :") {
+				name := line
+				name = strings.TrimPrefix(name, "displayName=")
+				name = strings.TrimPrefix(name, "displayName :")
 				name = strings.TrimSpace(name)
 				if name != "" {
 					avProducts = append(avProducts, name)
