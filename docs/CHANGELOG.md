@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI: Claude Code Action** for interactive issue/PR assistance
 
 ### Changed
-- **Test consolidation**: 49 tests across 4 categories → 44 tests across 3 categories (removed `phase-aligned`, consolidated redundant cyber-hygiene tests)
+- **Test consolidation**: 49 tests across 4 categories → 46 tests across 3 categories (removed `phase-aligned`, consolidated redundant cyber-hygiene tests, added new intel-driven tests)
 - **Schema v2.0 enforcement**: All tests migrated to `InitLogger(testID, testName, metadata, executionContext)` signature
 - **CI build workflow**: Fixed shellcheck to scope only framework scripts (not auto-generated `build_all.sh`), dynamic test path detection
 - **CI security workflow**: Removed disabled CodeQL job, replaced grep-based secret scanning with Gitleaks + TruffleHog

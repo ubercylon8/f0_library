@@ -329,6 +329,241 @@ python3 utils/combine_test_results.py --uuid "abc123def456" --date-range "today"
 - Microsoft Defender credentials (Azure tenant, client ID, secret)
 - Optional: python-dotenv package for .env file support
 
+---
+
+## Validation Utilities
+
+### validate - Test Results Validation Wrapper
+
+Wrapper script that checks dependencies and invokes `validate_test_results.py`.
+
+```bash
+./utils/validate build/<uuid>/test_execution_log.json   # Single file
+./utils/validate --directory build/<uuid>/               # Directory
+./utils/validate --all                                   # All results in build/
+```
+
+### validate_test_results.py - Schema v2.0 Validator
+
+Validates test result JSON files against Schema v2.0 structure requirements.
+
+```bash
+python3 utils/validate_test_results.py build/<uuid>/test_execution_log.json
+python3 utils/validate_test_results.py --all
+```
+
+### validate-score-format.sh - Score Format Checker
+
+Validates that README.md and info.md files use the correct score format patterns expected by the metadata extractor.
+
+```bash
+./utils/validate-score-format.sh              # All tests
+./utils/validate-score-format.sh <test-uuid>  # Specific test
+```
+
+### validate-reference-urls.py - Reference URL Validator
+
+Validates URLs in `_references.md` files for HTTP status, MITRE ATT&CK technique correctness, and broken links.
+
+```bash
+python3 utils/validate-reference-urls.py                    # All tests
+python3 utils/validate-reference-urls.py --uuid <test-uuid> # Specific test
+python3 utils/validate-reference-urls.py --fix              # Auto-fix known broken URLs
+python3 utils/validate-reference-urls.py --dry-run          # Preview fixes
+```
+
+### fix-broken-urls.py - URL Fixer
+
+Maps and fixes known broken URLs in `_references.md` files using predefined replacements (e.g., `docs.microsoft.com` → `learn.microsoft.com` migrations).
+
+```bash
+python3 utils/fix-broken-urls.py  # Operates on files in place
+```
+
+---
+
+## Elasticsearch Utilities
+
+### sync-test-catalog-to-elasticsearch.py - Test Catalog Sync
+
+Synchronizes test metadata from `tests_source/` to Elasticsearch for the enrichment pipeline.
+
+```bash
+source .venv/bin/activate
+python3 utils/sync-test-catalog-to-elasticsearch.py
+python3 utils/sync-test-catalog-to-elasticsearch.py --dry-run
+```
+
+### create-kibana-dashboard.py - Dashboard Generator
+
+Creates visualizations and dashboards for F0RT1KA test results in Kibana using the Saved Objects API.
+
+```bash
+python3 utils/create-kibana-dashboard.py
+python3 utils/create-kibana-dashboard.py --dry-run
+python3 utils/create-kibana-dashboard.py --delete  # Remove dashboards
+```
+
+### generate-synthetic-test-data.py - Synthetic Data Generator
+
+Generates synthetic enriched RECEIPT events for Elasticsearch visualization experimentation.
+
+```bash
+python3 utils/generate-synthetic-test-data.py
+python3 utils/generate-synthetic-test-data.py --count 500 --dry-run
+```
+
+### upload-legacy-results.py - Legacy Results Uploader
+
+Enriches historical test execution results with metadata and uploads them to Elasticsearch.
+
+```bash
+python3 utils/upload-legacy-results.py --input results.json
+python3 utils/upload-legacy-results.py --input results.json --dry-run --verbose
+```
+
+### f0_collector - Test Result Collector
+
+Lightweight Go utility for collecting F0RT1KA test result JSON files from Windows endpoints and exporting to Elasticsearch with schema v2.0 validation and state management.
+
+```bash
+# Build and deploy
+cd utils/f0_collector && go build -o f0_collector.exe .
+# Deploy via PowerShell
+powershell -File utils/f0_collector/deploy-collector-task.ps1
+```
+
+### resolve_es.sh - Elasticsearch Profile Resolver
+
+Bash helper library for resolving Elasticsearch profile identifiers to endpoints, indices, and API keys from `elasticsearch-registry.json`.
+
+```bash
+source utils/resolve_es.sh
+resolve_es_to_endpoint "production"
+resolve_es_to_index "production"
+resolve_es_to_apikey "production"
+```
+
+---
+
+## Analytics & Querying Utilities
+
+### get_tests.py - Test Catalog Lister
+
+Displays all F0RT1KA security tests in a paginated formatted table.
+
+```bash
+python3 utils/get_tests.py      # Page 1 (default)
+python3 utils/get_tests.py 2    # Page 2
+```
+
+### analyze_test_results.py - Test Result Analyzer
+
+Analyzes LCQL NDJSON query results for test execution events, providing analysis of ERROR codes, STDOUT/STDERR patterns, and protection metrics.
+
+```bash
+python3 utils/analyze_test_results.py rga_all_tests.json tpsgl_all_tests.json
+python3 utils/analyze_test_results.py --output-dir ./analysis_output results.json
+python3 utils/analyze_test_results.py --console-only results.json
+```
+
+### defender_alert_query.py - Microsoft Defender Alert Query
+
+Queries Microsoft Defender 365 alerts for security testing workflows using Azure AD service principal authentication.
+
+```bash
+python3 utils/defender_alert_query.py --days 7
+python3 utils/defender_alert_query.py --severity high --search-term "F0RT1KA"
+python3 utils/defender_alert_query.py --output alerts.json --env-file .env
+```
+
+### update-severity.py - Severity Updater
+
+Updates severity assignments in test Go files based on MITRE ATT&CK technique mapping using F0RT1KA Severity Framework v2.
+
+```bash
+python3 utils/update-severity.py  # Auto-scans tests_source/
+```
+
+---
+
+## Certificate Management Utilities
+
+### Install-F0RT1KA-Certificate.ps1 - Certificate Installer
+
+Installs the F0RT1KA code signing certificate to the Trusted Root store with embedded Base64-encoded certificate. Requires admin privileges.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ./utils/Install-F0RT1KA-Certificate.ps1
+```
+
+### Check-F0RT1KA-Certificate.ps1 - Certificate Diagnostic
+
+Diagnostic tool for troubleshooting F0RT1KA certificate installation — checks execution context, Root Store, test logs, and certificate validity.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ./utils/Check-F0RT1KA-Certificate.ps1
+```
+
+### resolve_org.sh - Organization Certificate Resolver
+
+Bash helper library for resolving organization identifiers to certificate file paths from `organization-registry.json`.
+
+```bash
+source utils/resolve_org.sh
+resolve_org_to_cert "sb"
+```
+
+---
+
+## Documentation Utilities
+
+### generate-retroactive-references.py - References Generator
+
+Generates `_references.md` files for existing tests by extracting data from info.md References sections and Go metadata headers.
+
+```bash
+python3 utils/generate-retroactive-references.py
+python3 utils/generate-retroactive-references.py --uuid <test-uuid>
+python3 utils/generate-retroactive-references.py --dry-run
+```
+
+### Monitor-RegistryChanges.ps1 - Registry Change Monitor
+
+Monitors and displays recent Windows registry changes via WMI events, audit logs, and snapshot comparisons. Requires admin privileges.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ./utils/Monitor-RegistryChanges.ps1
+```
+
+---
+
+## Testing Utilities
+
+### run_tests.sh - Utility Test Runner
+
+Runs all utility unit tests with colored pass/fail reporting.
+
+```bash
+./utils/run_tests.sh
+./utils/run_tests.sh --verbose
+```
+
+### test_codesign.sh / test_gobuild.sh - Unit Tests
+
+Unit test suites for the `codesign` and `gobuild` utilities.
+
+```bash
+./utils/test_codesign.sh
+./utils/test_gobuild.sh
+```
+
+### templates/build_multistage_template.sh - Build Template
+
+Template automating the multi-stage build process where each ATT&CK technique is a separate signed binary embedded in the main orchestrator.
+
+---
+
 ## Typical Workflow
 
 ### Test Development and Building
@@ -374,6 +609,41 @@ python3 utils/combine_test_results.py --uuid "abc123def456" --date-range "today"
    find tests_source/ -name "*attack_flow*.html" -exec ./utils/validate-attack-flow-html.sh {} \;
    ```
 
+### Elasticsearch Sync
+
+1. **Sync test catalog** after creating/updating tests:
+   ```bash
+   source .venv/bin/activate
+   python3 utils/sync-test-catalog-to-elasticsearch.py
+   ```
+
+2. **Re-execute enrichment policy** in Kibana Dev Tools:
+   ```
+   POST /_enrich/policy/f0rtika-test-enrichment/_execute
+   ```
+
+3. **Create/update dashboards**:
+   ```bash
+   python3 utils/create-kibana-dashboard.py
+   ```
+
+### Validation Workflow
+
+1. **Validate test results**:
+   ```bash
+   ./utils/validate --all
+   ```
+
+2. **Check score formats**:
+   ```bash
+   ./utils/validate-score-format.sh
+   ```
+
+3. **Validate reference URLs**:
+   ```bash
+   python3 utils/validate-reference-urls.py
+   ```
+
 ## Configuration
 
 ### Certificate Management
@@ -386,9 +656,12 @@ python3 utils/combine_test_results.py --uuid "abc123def456" --date-range "today"
 - Default output: `build/` directory
 - Each test builds to its own subdirectory
 
+### Defender API Setup
+See `utils/setup_defender_api.md` for Azure AD app registration, API permissions, and environment variable configuration.
+
 ## Error Handling
 
-Both utilities include comprehensive error handling:
+Utilities include comprehensive error handling:
 - Input validation
 - File existence checks
 - Tool availability verification
@@ -400,6 +673,7 @@ Both utilities include comprehensive error handling:
 - **Password Handling**: Passwords are prompted securely and not logged
 - **Binary Integrity**: Always verify signatures after signing
 - **Access Control**: Limit access to signing certificates
+- **API Credentials**: Use `.env` files (gitignored) for API keys, never hardcode
 
 ## Troubleshooting
 
@@ -410,10 +684,8 @@ Both utilities include comprehensive error handling:
 3. **Certificate not found**: Check `signing-certs/` directory
 4. **Permission denied**: Ensure scripts are executable (`chmod +x`)
 5. **Build failures**: Check test structure and go.mod files
+6. **ES sync fails**: Verify `.env` has correct ES endpoint and API key
+7. **Defender query fails**: Check Azure AD credentials in `.env` (see `setup_defender_api.md`)
 
 ### Verbose Output
-Both utilities support `--verbose` flag for detailed debugging information.
-
-## Integration with CLAUDE.md
-
-These utilities are referenced in the main CLAUDE.md file for AI-assisted development. Future Claude instances will know to use these tools for building and signing tests.
+Most utilities support `--verbose` or `--dry-run` flags for debugging.

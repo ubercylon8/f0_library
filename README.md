@@ -21,7 +21,7 @@ F0RT1KA is a professional, open-source security testing framework designed to as
 
 ## Key Features
 
-- **44 Security Tests** across 3 categories covering attack simulation and configuration validation
+- **46 Security Tests** across 3 categories covering attack simulation and configuration validation
 - **Cross-Platform Support**: Windows (primary), Linux, and macOS test targets
 - **Agent-Driven Test Generation**: Orchestrator + specialized agents for automated test creation from threat intelligence
 - **5 Detection Rule Formats**: KQL, YARA, Sigma, Elastic EQL, and LimaCharlie D&R rules generated per test
@@ -37,7 +37,7 @@ F0RT1KA is a professional, open-source security testing framework designed to as
 
 | Category | Tests | Description |
 |----------|-------|-------------|
-| [**intel-driven**](tests_source/intel-driven/) | 26 | Threat intelligence-based tests from APT reports, ransomware analysis, and CVE exploits |
+| [**intel-driven**](tests_source/intel-driven/) | 28 | Threat intelligence-based tests from APT reports, ransomware analysis, and CVE exploits |
 | [**mitre-top10**](tests_source/mitre-top10/) | 10 | MITRE Top 10 Ransomware techniques test suite |
 | [**cyber-hygiene**](tests_source/cyber-hygiene/) | 8 | Configuration validation tests for endpoint, identity, and tenant security |
 
@@ -77,14 +77,16 @@ f0_library/
 │   ├── ISSUE_TEMPLATE/          # Issue templates for bugs and features
 │   ├── workflows/               # CI/CD workflows (build, security, Claude review)
 │   └── pull_request_template.md
-├── docs/                         # Documentation
+├── docs/                         # Documentation (20 files)
 │   ├── ARCHITECTURE.md          # System architecture (multi-binary bundles)
 │   ├── CHANGELOG.md             # Version history
 │   ├── DEVELOPMENT.md           # Developer setup guide
 │   ├── DUAL_SIGNING_STRATEGY.md # Code signing details
+│   ├── F0RT1KA_SCORING_METHODOLOGY.md # Test scoring methodology
 │   ├── MULTISTAGE_QUICK_REFERENCE.md  # Multi-stage build reference
 │   ├── SECTEST_BUILDER_ARCHITECTURE.md # Agent architecture
 │   ├── TEST_RESULTS_SCHEMA_GUIDE.md   # Schema v2.0 guide
+│   ├── ELASTICSEARCH_EXPORT_QUICKSTART.md # ES export guide
 │   └── ...                      # Additional docs
 ├── limacharlie-iac/              # LimaCharlie Infrastructure as Code
 │   ├── elasticsearch/           # Elasticsearch index templates
@@ -94,16 +96,29 @@ f0_library/
 │   └── README.md                # LimaCharlie deployment guide
 ├── sample_tests/                 # Reference test implementations
 │   └── multistage_template/     # Multi-stage test reference
+├── tech-reports/                 # Threat intelligence research documents
 ├── tests_source/                 # Active test development directory
-│   ├── intel-driven/            # Threat intelligence-based tests (26)
+│   ├── intel-driven/            # Threat intelligence-based tests (28)
 │   ├── mitre-top10/             # MITRE Top 10 Ransomware tests (10)
 │   └── cyber-hygiene/           # Configuration validation tests (8)
-├── utils/                        # Build and signing utilities
+├── utils/                        # Build, signing, and analysis utilities
 │   ├── gobuild                  # Cross-platform test builder
 │   ├── codesign                 # Code signing utility
-│   ├── Check-DefenderProtection.ps1
+│   ├── f0_collector             # Test result collector
+│   ├── validate                 # Test validation suite
 │   ├── validate_test_results.py # Schema v2.0 validator
+│   ├── validate-score-format.sh # Score format checker
+│   ├── validate-reference-urls.py # Reference URL validator
 │   ├── sync-test-catalog-to-elasticsearch.py
+│   ├── analyze_test_results.py  # Test result analyzer
+│   ├── combine_test_results.py  # Result combiner
+│   ├── get_tests.py             # Test catalog lister
+│   ├── create-kibana-dashboard.py # Kibana dashboard generator
+│   ├── defender_alert_query.py  # Defender alert querying
+│   ├── lc_events_query.py       # LimaCharlie event querying
+│   ├── generate-synthetic-test-data.py # Synthetic test data
+│   ├── Check-DefenderProtection.ps1
+│   ├── Monitor-RegistryChanges.ps1
 │   └── README.md                # Utility documentation
 ├── rules/                        # Development guidelines
 ├── signing-certs/                # Code signing certificates
@@ -138,7 +153,7 @@ cd f0_library
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt  # If present, or install elasticsearch, requests
+pip install -r utils/requirements.txt  # Core deps; also install elasticsearch for ES sync
 ```
 
 3. **Read the documentation**:
@@ -399,6 +414,9 @@ We welcome contributions from the security community! Please read our [Contribut
 - [Schema v2.0 Guide](docs/TEST_RESULTS_SCHEMA_GUIDE.md) - Test results schema
 - [Multi-stage Reference](docs/MULTISTAGE_QUICK_REFERENCE.md) - Multi-stage build patterns
 - [Dual Signing Strategy](docs/DUAL_SIGNING_STRATEGY.md) - Code signing details
+- [Scoring Methodology](docs/F0RT1KA_SCORING_METHODOLOGY.md) - Test scoring criteria
+- [ES Export Quickstart](docs/ELASTICSEARCH_EXPORT_QUICKSTART.md) - Elasticsearch export setup
+- [Windows SSH Setup](docs/windows-ssh-setup.md) - SSH deployment to Windows targets
 - [Security Policy](SECURITY.md) - Vulnerability disclosure and best practices
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute effectively
 - [Changelog](docs/CHANGELOG.md) - Version history and changes
