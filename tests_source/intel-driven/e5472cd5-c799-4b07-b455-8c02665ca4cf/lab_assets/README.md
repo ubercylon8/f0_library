@@ -19,11 +19,14 @@ Edit these in the test's Go source, then rebuild via `build_all.sh`:
 
 | Constant | Go File | Default Value |
 |----------|---------|---------------|
-| `STAGE1_LLM_RESPONSE_URL` | `stage-T1071.001.go` | `https://raw.githubusercontent.com/F0RT1KA/lab-assets/main/honestcue/v2/gemini_response.json` |
-| `STAGE3_PAYLOAD_URL` | `stage-T1105.go` | `https://raw.githubusercontent.com/F0RT1KA/lab-assets/main/honestcue/v2/stage2_payload.exe` |
+| `STAGE1_LLM_RESPONSE_URL` | `stage-T1071.001.go` | `https://raw.githubusercontent.com/projectachilles/ProjectAchilles/main/lab-assets/honestcue/v2/gemini_response.json` |
+| `STAGE3_PAYLOAD_URL` | `stage-T1105.go` | `https://raw.githubusercontent.com/projectachilles/ProjectAchilles/main/lab-assets/honestcue/v2/stage2_payload.exe` |
 
-Any GitHub repo + path works — the only hard requirement is that the URL
-resolves to `raw.githubusercontent.com` over HTTPS.
+The defaults above are already live in the
+[`projectachilles/ProjectAchilles`](https://github.com/projectachilles/ProjectAchilles/tree/main/lab-assets/honestcue/v2)
+repo and are reachable without any operator action. Any GitHub repo + path
+also works — the only hard requirement is that the URL resolves to
+`raw.githubusercontent.com` over HTTPS.
 
 ## Build & Sign `stage2_payload.exe`
 
@@ -57,11 +60,11 @@ osslsigncode verify ../stage2_payload.exe
 #   /honestcue/v2/gemini_response.json
 #   /honestcue/v2/stage2_payload.exe
 
-git clone https://github.com/F0RT1KA/lab-assets.git  # or your own repo
-cp gemini_response.json lab-assets/honestcue/v2/
-cp stage2_payload.exe   lab-assets/honestcue/v2/
-cd lab-assets
-git add honestcue/v2/
+git clone https://github.com/projectachilles/ProjectAchilles.git  # or your own fork
+cp gemini_response.json ProjectAchilles/lab-assets/honestcue/v2/
+cp stage2_payload.exe   ProjectAchilles/lab-assets/honestcue/v2/
+cd ProjectAchilles
+git add lab-assets/honestcue/v2/
 git commit -m "honestcue v2 lab assets"
 git push
 ```

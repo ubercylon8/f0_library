@@ -1,7 +1,7 @@
 # HONESTCUE LLM-Assisted Runtime C# Compilation (v2)
 
 **Test Score**: **9.4/10**
-**Version**: 2.0.0
+**Version**: 2.1.0
 
 ## Overview
 
@@ -62,8 +62,8 @@ Update these constants in the Go source before rebuilding:
 
 | Constant | File | Default |
 |----------|------|---------|
-| `STAGE1_LLM_RESPONSE_URL` | `stage-T1071.001.go` | `https://raw.githubusercontent.com/F0RT1KA/lab-assets/main/honestcue/v2/gemini_response.json` |
-| `STAGE3_PAYLOAD_URL` | `stage-T1105.go` | `https://raw.githubusercontent.com/F0RT1KA/lab-assets/main/honestcue/v2/stage2_payload.exe` |
+| `STAGE1_LLM_RESPONSE_URL` | `stage-T1071.001.go` | `https://raw.githubusercontent.com/projectachilles/ProjectAchilles/main/lab-assets/honestcue/v2/gemini_response.json` |
+| `STAGE3_PAYLOAD_URL` | `stage-T1105.go` | `https://raw.githubusercontent.com/projectachilles/ProjectAchilles/main/lab-assets/honestcue/v2/stage2_payload.exe` |
 
 If the assets are not reachable at test time, the affected stage exits **999** (UnexpectedTestError), never **126** (blocked) — asset propagation gaps are never confused with EDR protection.
 

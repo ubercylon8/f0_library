@@ -52,7 +52,7 @@ const (
 
 	// One-time lab setup: upload gemini_response.json to a GitHub repo you
 	// control, then update this constant. See lab_assets/README.md.
-	STAGE1_LLM_RESPONSE_URL = "https://raw.githubusercontent.com/F0RT1KA/lab-assets/main/honestcue/v2/gemini_response.json"
+	STAGE1_LLM_RESPONSE_URL = "https://raw.githubusercontent.com/projectachilles/ProjectAchilles/main/lab-assets/honestcue/v2/gemini_response.json"
 
 	// Output file where stage 2 will read the LLM-sourced C# source
 	CSHARP_HANDOFF = `c:\F0\honestcue_stage2_source.cs`

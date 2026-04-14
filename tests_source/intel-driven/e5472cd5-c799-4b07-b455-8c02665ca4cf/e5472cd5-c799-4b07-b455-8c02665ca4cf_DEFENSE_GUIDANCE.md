@@ -1,7 +1,7 @@
 # Defense Guidance — HONESTCUE v2 LLM-Assisted Runtime C# Compilation
 
 **Test ID**: e5472cd5-c799-4b07-b455-8c02665ca4cf
-**Version**: 2.0.0
+**Version**: 2.1.0
 **MITRE ATT&CK**: T1071.001, T1027.004, T1027.010, T1620, T1105, T1204.002, T1059.001
 **Threat Class**: LLM-as-runtime-component malware (HONESTCUE, PROMPTFLUX, and successors)
 **Date**: 2026-04-13
@@ -109,6 +109,6 @@ Security teams often allowlist `raw.githubusercontent.com` because it supports l
 ## Test-Specific Notes
 
 - This F0RT1KA v2 test uses real HTTPS to `raw.githubusercontent.com` — the TLS+DNS+SNI observables are genuine.
-- Lab asset URL constants live in Stage 1 (`STAGE1_LLM_RESPONSE_URL`) and Stage 3 (`STAGE3_PAYLOAD_URL`) source files. The default points to `github.com/F0RT1KA/lab-assets`; operators MUST upload their own copies (see `lab_assets/README.md`).
+- Lab asset URL constants live in Stage 1 (`STAGE1_LLM_RESPONSE_URL`) and Stage 3 (`STAGE3_PAYLOAD_URL`) source files. The default points to `github.com/projectachilles/ProjectAchilles` (path `lab-assets/honestcue/v2/`). Operators may fork/relocate the assets; see `lab_assets/README.md`.
 - Exit code 999 always means "environmental prerequisite missing" (no PowerShell, lab asset unreachable) — never confuse with exit 126 (EDR blocked).
 - Stage 2 is a .NET 8 self-contained single-file executable (~80 MB before gzip). Large binary size is inherent to the self-contained bundle; this is real-HONESTCUE-like for modern-runtime targets.

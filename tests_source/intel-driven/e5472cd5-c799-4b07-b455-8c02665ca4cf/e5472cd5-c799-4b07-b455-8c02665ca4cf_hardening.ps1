@@ -1,7 +1,7 @@
 # ============================================================================
 # Hardening Script — HONESTCUE v2 LLM-Assisted Runtime C# Compilation
 # Test ID: e5472cd5-c799-4b07-b455-8c02665ca4cf
-# Version: 2.0.0
+# Version: 2.1.0
 # MITRE ATT&CK: T1071.001, T1027.004, T1027.010, T1620, T1105, T1204.002
 # Date: 2026-04-13 (v2)
 # Author: F0RT1KA Defense Guidance Builder

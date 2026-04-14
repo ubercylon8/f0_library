@@ -51,7 +51,7 @@ const (
 	// One-time lab setup: upload stage2_payload.exe (F0RT1KA-signed benign
 	// marker PE) to a GitHub repo you control, then update this constant.
 	// See lab_assets/README.md.
-	STAGE3_PAYLOAD_URL = "https://raw.githubusercontent.com/F0RT1KA/lab-assets/main/honestcue/v2/stage2_payload.exe"
+	STAGE3_PAYLOAD_URL = "https://raw.githubusercontent.com/projectachilles/ProjectAchilles/main/lab-assets/honestcue/v2/stage2_payload.exe"
 
 	DROPPED_PE_PATH      = `C:\Windows\Temp\honestcue_payload.exe`
 	ARTIFACT_MARKER_PATH = `c:\Users\fortika-test\honestcue_payload_marker.txt`
