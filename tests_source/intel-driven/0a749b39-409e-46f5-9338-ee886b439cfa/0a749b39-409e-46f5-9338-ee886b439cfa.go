@@ -29,6 +29,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	_ "embed"
 	"fmt"
 	"io"
@@ -42,6 +43,14 @@ import (
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
 )
+
+// Per-stage execution timeout. Hard cap on any single stage. v1.1 added this
+// after a Session-0 wscript.exe MessageBox hang in stage 1 (5m51s before
+// manual kill). 30s is generous: stages 1+2 are HTTPS GET (≤15s timeout) +
+// wscript file-only (<2s); stage 3 is a single file write; stage 4 is one
+// wmic CSV query (typically <5s). A timeout = test-infra failure (999),
+// NOT an EDR block (126).
+const stageExecTimeout = 30 * time.Second
 
 // ==============================================================================
 // CONFIGURATION
@@ -113,7 +122,7 @@ type KillchainStage struct {
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.0.0",
+		Version:    "1.1.0",
 		Category:   "command_and_control",
 		Severity:   "high",
 		Techniques: []string{"T1071.001", "T1027.001", "T1547.001", "T1091"},
@@ -408,7 +417,12 @@ func executeKillchainStage(stage KillchainStage) int {
 		return 105
 	}
 
-	cmd := exec.Command(stagePath)
+	// v1.1: 30s hard timeout per stage. Prevents the orchestrator from
+	// hanging if a stage's child process (e.g. wscript.exe) blocks on an
+	// invisible modal dialog under Session 0 / non-interactive contexts.
+	ctx, cancel := context.WithTimeout(context.Background(), stageExecTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, stagePath)
 
 	var outputBuffer bytes.Buffer
 	stdoutMulti := io.MultiWriter(os.Stdout, &outputBuffer)
@@ -416,7 +430,7 @@ func executeKillchainStage(stage KillchainStage) int {
 	cmd.Stdout = stdoutMulti
 	cmd.Stderr = stderrMulti
 
-	LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID), fmt.Sprintf("Executing %s", stage.BinaryName))
+	LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID), fmt.Sprintf("Executing %s (timeout=%v)", stage.BinaryName, stageExecTimeout))
 
 	startTime := time.Now()
 	err := cmd.Run()
@@ -430,6 +444,16 @@ func executeKillchainStage(stage KillchainStage) int {
 	}
 
 	if err != nil {
+		// v1.1: if the context deadline was exceeded, the stage hung and
+		// was killed by us — treat as test-infra error (999), NOT an EDR
+		// block (126). Hangs are timing failures, not protection signals.
+		if ctx.Err() == context.DeadlineExceeded {
+			errMsg := fmt.Sprintf("Stage %s timed out after %v — killed by orchestrator (test-infra failure, NOT EDR block)", stage.Technique, stageExecTimeout)
+			Endpoint.Say("  %s", errMsg)
+			LogMessage("ERROR", stage.Technique, errMsg)
+			LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999, "context deadline exceeded")
+			return 999
+		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode := exitErr.ExitCode()
 			LogProcessExecution(stage.BinaryName, stagePath, 0, false, exitCode, exitErr.Error())

@@ -29,6 +29,7 @@ itself a GTIG-documented PROMPTFLUX living-off-the-land binary.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -36,6 +37,11 @@ import (
 	"strings"
 	"time"
 )
+
+// v1.1: hard cap on wmic.exe — consistency with stages 1+2 wscript timeout.
+// A normal wmic logicaldisk query returns in well under 5s; 30s is a generous
+// hang guard.
+const wmicExecTimeout = 30 * time.Second
 
 const (
 	TEST_UUID      = "0a749b39-409e-46f5-9338-ee886b439cfa"
@@ -97,7 +103,10 @@ func main() {
 func performTechnique() error {
 	// Query via wmic.exe. Args: logicaldisk get DeviceID,DriveType,VolumeName /format:csv
 	// The /format:csv output is column-header-prefixed; we parse it line by line.
-	cmd := exec.Command("wmic.exe", "logicaldisk", "get", "DeviceID,DriveType,VolumeName", "/format:csv")
+	// v1.1: 30s context timeout for consistency with the other stages.
+	wmicCtx, wmicCancel := context.WithTimeout(context.Background(), wmicExecTimeout)
+	defer wmicCancel()
+	cmd := exec.CommandContext(wmicCtx, "wmic.exe", "logicaldisk", "get", "DeviceID,DriveType,VolumeName", "/format:csv")
 	cmd.Env = os.Environ()
 
 	startTime := time.Now()
@@ -105,6 +114,9 @@ func performTechnique() error {
 	duration := time.Since(startTime)
 
 	if err != nil {
+		if wmicCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("wmic logicaldisk query timed out after %v — killed by stage (test-infra failure)", wmicExecTimeout)
+		}
 		// wmic missing or access denied = the defence signal. Exit 126.
 		return fmt.Errorf("wmic logicaldisk query permission denied: %v (output: %s)", err, truncate(string(output), 200))
 	}

@@ -22,6 +22,7 @@ Detection opportunities:
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/sha256"
 	"encoding/hex"
@@ -33,6 +34,10 @@ import (
 	"path/filepath"
 	"time"
 )
+
+// v1.1: hard cap on the wscript.exe child process — see stage-T1071.001.go
+// rationale (Session-0 MessageBox hang regression guard).
+const wscriptExecTimeout = 30 * time.Second
 
 const (
 	TEST_UUID      = "0a749b39-409e-46f5-9338-ee886b439cfa"
@@ -160,17 +165,23 @@ func performTechnique() error {
 		return fmt.Errorf("vbs file quarantined after overwrite")
 	}
 
-	// Invoke wscript.exe on the new variant.
+	// Invoke wscript.exe on the new variant. v1.1: 30s hard timeout —
+	// any wscript hang kills the child and bubbles up as 999.
 	wscriptOut := `c:\F0\stage2_wscript_output.txt`
-	cmd := exec.Command("wscript.exe", "//Nologo", VBS_TARGET_PATH)
+	wscriptCtx, wscriptCancel := context.WithTimeout(context.Background(), wscriptExecTimeout)
+	defer wscriptCancel()
+	cmd := exec.CommandContext(wscriptCtx, "wscript.exe", "//Nologo", VBS_TARGET_PATH)
 	if outFile, err := os.Create(wscriptOut); err == nil {
 		defer outFile.Close()
 		cmd.Stdout = outFile
 		cmd.Stderr = outFile
 	}
 
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Invoking wscript.exe on rewritten %s", VBS_TARGET_PATH))
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Invoking wscript.exe on rewritten %s (timeout=%v)", VBS_TARGET_PATH, wscriptExecTimeout))
 	if err := cmd.Run(); err != nil {
+		if wscriptCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("wscript.exe timed out after %v on %s — killed by stage (test-infra failure)", wscriptExecTimeout, VBS_TARGET_PATH)
+		}
 		return fmt.Errorf("wscript.exe run: %v", err)
 	}
 

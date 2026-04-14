@@ -24,6 +24,7 @@ Detection opportunities:
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -34,6 +35,11 @@ import (
 	"path/filepath"
 	"time"
 )
+
+// v1.1: hard cap on the wscript.exe child process. The benign VBS body is
+// file-only (no Echo / no MessageBox), but a defence-in-depth timeout
+// protects against any future Session-0 hang regression.
+const wscriptExecTimeout = 30 * time.Second
 
 const (
 	TEST_UUID      = "0a749b39-409e-46f5-9338-ee886b439cfa"
@@ -213,10 +219,13 @@ func performTechnique() error {
 		return fmt.Errorf("vbs file quarantined after write")
 	}
 
-	// Invoke wscript.exe on the dropped VBS. Payload is benign: it echoes
-	// a marker string and creates a marker file. That's the entire effect.
+	// Invoke wscript.exe on the dropped VBS. v1.1: payload is file-only
+	// (creates a marker file under c:\F0). 30s hard timeout — any hang
+	// kills wscript and bubbles up as a test-infra error (999).
 	wscriptOut := `c:\F0\stage1_wscript_output.txt`
-	cmd := exec.Command("wscript.exe", "//Nologo", VBS_DROP_PATH)
+	wscriptCtx, wscriptCancel := context.WithTimeout(context.Background(), wscriptExecTimeout)
+	defer wscriptCancel()
+	cmd := exec.CommandContext(wscriptCtx, "wscript.exe", "//Nologo", VBS_DROP_PATH)
 
 	if outFile, err := os.Create(wscriptOut); err == nil {
 		defer outFile.Close()
@@ -224,13 +233,16 @@ func performTechnique() error {
 		cmd.Stderr = outFile
 	}
 
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Invoking wscript.exe on %s", VBS_DROP_PATH))
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Invoking wscript.exe on %s (timeout=%v)", VBS_DROP_PATH, wscriptExecTimeout))
 	if netLog != nil {
-		fmt.Fprintf(netLog, "[%s] exec: wscript.exe //Nologo %s\n",
-			time.Now().UTC().Format(time.RFC3339), VBS_DROP_PATH)
+		fmt.Fprintf(netLog, "[%s] exec: wscript.exe //Nologo %s (timeout=%v)\n",
+			time.Now().UTC().Format(time.RFC3339), VBS_DROP_PATH, wscriptExecTimeout)
 	}
 
 	if err := cmd.Run(); err != nil {
+		if wscriptCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("wscript.exe timed out after %v on %s — killed by stage (test-infra failure)", wscriptExecTimeout, VBS_DROP_PATH)
+		}
 		return fmt.Errorf("wscript.exe run: %v", err)
 	}
 

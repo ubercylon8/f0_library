@@ -1,9 +1,13 @@
-' --- ACHILLES-PROMPTFLUX stage3 startup payload (benign) ---
+' --- ACHILLES-PROMPTFLUX stage3 startup payload (benign, v1.1) ---
 ' Persistence body for the Startup folder drop. Different variable
 ' naming scheme again from stages 1 and 2 — simulates yet another
 ' Gemini rewrite variant. Execution is NOT triggered by the test;
 ' this file only fires at the next user logon. The orchestrator
 ' cleans it up on every exit path before that can happen.
+'
+' v1.1: WScript.Echo removed for Session-0 / non-interactive safety
+' (parity with stages 1 and 2). Detection signal is the file drop
+' itself — the marker write below is incidental observability.
 
 Dim qW5X, qY2Z, qA8B, qE3F
 Dim pR1S, pT4U, pV6W
@@ -29,5 +33,3 @@ End If
 Set h = fso.CreateTextFile(pV6W, True)
 h.WriteLine pR1S & Chr(32) & Chr(64) & Chr(32) & Now()
 h.Close
-
-WScript.Echo pR1S
