@@ -19,8 +19,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.9.2" />
+    <!-- v2.2: bumped 4.9.2 -> 4.11.0 to align with Basic.Reference.Assemblies.Net80 1.8.5's Microsoft.CodeAnalysis.Common >= 4.11.0 constraint. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+    <!--
+      v2.2: Basic.Reference.Assemblies.Net80 embeds the full .NET 8 reference
+      assembly set (BCL + Microsoft.Win32.Registry) as resources so Roslyn can
+      compile in a self-contained single-file publish context, where
+      Assembly.Location returns empty and AppContext.BaseDirectory does not
+      contain reference assemblies. Fixes v2.1 CS0518 (Predefined type
+      'System.Object' is not defined) failure.
+    -->
+    <PackageReference Include="Basic.Reference.Assemblies.Net80" Version="1.8.5" />
   </ItemGroup>
 
 </Project>

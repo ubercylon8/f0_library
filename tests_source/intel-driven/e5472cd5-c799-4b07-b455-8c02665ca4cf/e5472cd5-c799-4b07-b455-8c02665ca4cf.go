@@ -106,7 +106,7 @@ var tempFiles = []string{
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "2.1.0",
+		Version:    "2.2.0",
 		Category:   "defense_evasion",
 		Severity:   "high",
 		Techniques: []string{"T1071.001", "T1027.004", "T1027.010", "T1620", "T1105", "T1204.002", "T1059.001"},

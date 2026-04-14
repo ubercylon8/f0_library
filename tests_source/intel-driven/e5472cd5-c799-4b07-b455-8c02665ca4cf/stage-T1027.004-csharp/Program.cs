@@ -39,9 +39,12 @@ Detection opportunities (differ from v1 — no csc.exe, no powershell!):
 */
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text;
+using Basic.Reference.Assemblies;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
@@ -132,102 +135,26 @@ namespace Honestcue.Stage2
 
             // Step 3: collect runtime assembly references for compilation.
             //
-            // In a self-contained single-file .NET 8 app, Assembly.Location is
-            // empty for embedded assemblies. We resolve references in three
-            // progressively-fallback ways:
-            //   (a) Probe AppContext.BaseDirectory — where self-extractor drops
-            //       native + managed assemblies when
-            //       IncludeNativeLibrariesForSelfExtract=true.
-            //   (b) Enumerate AppDomain.CurrentDomain.GetAssemblies() and take
-            //       every non-empty .Location.
-            //   (c) For anchor types (object, File, Registry), if neither path
-            //       resolves, emit Roslyn-compile-from-unsafe-Image using the
-            //       in-memory module loaded by the runtime.
-            var references = new System.Collections.Generic.List<MetadataReference>();
-            var seenPaths = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            string baseDir = AppContext.BaseDirectory;
-            Log("INFO", "AppContext.BaseDirectory=" + baseDir);
-
-            // (a) Probe common runtime DLLs under BaseDirectory.
-            string[] requiredRefs = new[]
-            {
-                "System.Private.CoreLib.dll",
-                "System.Runtime.dll",
-                "System.IO.FileSystem.dll",
-                "System.Console.dll",
-                "netstandard.dll",
-                "Microsoft.Win32.Registry.dll",
-                "Microsoft.Win32.Primitives.dll",
-                "System.Runtime.Extensions.dll",
-                "mscorlib.dll",
-            };
-            foreach (var dll in requiredRefs)
-            {
-                string p = Path.Combine(baseDir, dll);
-                if (File.Exists(p) && seenPaths.Add(p))
-                {
-                    references.Add(MetadataReference.CreateFromFile(p));
-                }
-            }
-
-            // (b) Enumerate already-loaded assemblies and add any file-backed ones.
-            //     Assembly.Location is the legal-but-IL3000-warned access in
-            //     single-file builds; our code treats the empty return as "skip
-            //     this assembly", which is the documented-safe pattern.
-#pragma warning disable IL3000
-            foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                string loc;
-                try { loc = loaded.Location; }
-                catch { continue; }
-                if (string.IsNullOrEmpty(loc)) continue;
-                if (!File.Exists(loc)) continue;
-                if (seenPaths.Add(loc))
-                {
-                    references.Add(MetadataReference.CreateFromFile(loc));
-                }
-            }
-#pragma warning restore IL3000
-
-            // (c) Anchor-type fallback via unsafe module image.
-#pragma warning disable IL3000
-            void EnsureAnchorFromType(Type t, string label)
-            {
-                try
-                {
-                    var asm = t.Assembly;
-                    if (!string.IsNullOrEmpty(asm.Location) && File.Exists(asm.Location))
-                    {
-                        if (seenPaths.Add(asm.Location))
-                        {
-                            references.Add(MetadataReference.CreateFromFile(asm.Location));
-                        }
-                        return;
-                    }
-                    // Anchor came from a single-file bundle — read the module's
-                    // on-disk image via its BaseAddress is unsafe; instead we
-                    // fall back to AppContext.BaseDirectory probe using the
-                    // assembly's simple name.
-                    string simpleName = asm.GetName().Name + ".dll";
-                    string probe = Path.Combine(baseDir, simpleName);
-                    if (File.Exists(probe) && seenPaths.Add(probe))
-                    {
-                        references.Add(MetadataReference.CreateFromFile(probe));
-                        Log("INFO", "Anchor " + label + " resolved via BaseDirectory probe: " + probe);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log("WARN", "Anchor " + label + " resolve failed: " + ex.Message);
-                }
-            }
-            EnsureAnchorFromType(typeof(object), "System.Private.CoreLib");
-            EnsureAnchorFromType(typeof(File), "System.IO.FileSystem");
-            EnsureAnchorFromType(typeof(Microsoft.Win32.Registry), "Microsoft.Win32.Registry");
-#pragma warning restore IL3000
-
-            Log("INFO", "Roslyn compile references: " + references.Count);
+            // v2.2: Use Basic.Reference.Assemblies.Net80 (Jared Parsons /
+            // Roslyn team), which embeds the full .NET 8 reference assembly
+            // set (BCL + Microsoft.Win32.Registry) as resources inside the
+            // Basic.Reference.Assemblies.Net80.dll library. This is the
+            // canonical Roslyn-in-single-file-publish solution.
+            //
+            // Why v2.1's triple-fallback resolver returned zero references:
+            //   - .NET 8 self-contained single-file publish does NOT unpack
+            //     runtime reference assemblies to AppContext.BaseDirectory
+            //     (it unpacks only native libs when IncludeNativeLibrariesForSelfExtract=true;
+            //     managed assemblies stay inside the bundle).
+            //   - Assembly.Location returns empty string for assemblies loaded
+            //     from the single-file bundle (IL3000 is the warning, but
+            //     suppressing it doesn't make the location magically exist).
+            //   - typeof(object).Assembly.Location was empty; all three
+            //     fallbacks produced the same zero-reference result, leading
+            //     to CS0518 "Predefined type 'System.Object' is not defined".
+            IEnumerable<MetadataReference> references = Net80.References.All;
+            Log("INFO", "Roslyn compile references: " + references.Count()
+                + " (via Basic.Reference.Assemblies.Net80)");
 
             // Step 4: compile to in-memory PE via Roslyn
             var compilation = CSharpCompilation.Create(

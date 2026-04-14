@@ -1,7 +1,7 @@
 # HONESTCUE LLM-Assisted Runtime C# Compilation (v2)
 
 **Test Score**: **9.4/10**
-**Version**: 2.1.0
+**Version**: 2.2.0
 
 ## Overview
 

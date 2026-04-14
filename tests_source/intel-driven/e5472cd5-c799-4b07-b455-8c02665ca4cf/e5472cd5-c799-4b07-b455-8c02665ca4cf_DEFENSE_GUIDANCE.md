@@ -1,7 +1,7 @@
 # Defense Guidance — HONESTCUE v2 LLM-Assisted Runtime C# Compilation
 
 **Test ID**: e5472cd5-c799-4b07-b455-8c02665ca4cf
-**Version**: 2.1.0
+**Version**: 2.2.0
 **MITRE ATT&CK**: T1071.001, T1027.004, T1027.010, T1620, T1105, T1204.002, T1059.001
 **Threat Class**: LLM-as-runtime-component malware (HONESTCUE, PROMPTFLUX, and successors)
 **Date**: 2026-04-13
