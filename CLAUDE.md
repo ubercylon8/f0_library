@@ -14,7 +14,7 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 5. **ALL tests MUST capture embedded binary stdout/stderr to file** - Use `io.MultiWriter` for console + file output
 6. **ALL tests MUST conform to Schema v2.0** - Use updated InitLogger signature with metadata and executionContext
 7. **ALL tests MUST implement organization UUID support** - See Organization UUID Implementation section below
-8. **ALL tests MUST include metadata header for Elasticsearch enrichment** - See Elasticsearch Catalog Sync section
+8. **ALL tests MUST include metadata header for ProjectAchilles ingestion** - See Test Metadata Header section
 9. **NEVER hardcode exit codes** - Always evaluate actual results before determining exit code
 10. **NEVER modify test_logger.go schema** - Schema must remain consistent across all tests
 11. Tests simulate real attack techniques - handle with appropriate security measures
@@ -218,9 +218,11 @@ Details: `docs/ARCHITECTURE.md`
 
 **Note**: Always copy `test_logger.go` and `org_resolver.go` from `sample_tests/` to ensure consistency.
 
-## Elasticsearch Catalog Sync (MANDATORY for new tests)
+## Test Metadata Header (MANDATORY for new tests)
 
-Test results in Elasticsearch are enriched with metadata from a catalog index. The sync script supports 3 test categories: `cyber-hygiene`, `intel-driven`, `mitre-top10`.
+Every test's main Go file (`<uuid>.go`) MUST include a metadata comment header. This header is the **load-bearing contract** between `f0_library` and ProjectAchilles' `MetadataExtractor` — PA parses this block at test-catalog ingestion time to populate test metadata (techniques, severity, target, threat actor, etc.) in its UI and API surface. A missing or malformed header causes silent field drops in PA (no error, just missing data in the frontend).
+
+The sync script supports 3 test categories: `cyber-hygiene`, `intel-driven`, `mitre-top10`.
 
 ### 1. Include Metadata Header in Go File
 
@@ -245,7 +247,7 @@ AUTHOR: sectest-builder
 */
 ```
 
-**All v2.0 fields are required.** The sync script provides sensible defaults for legacy tests.
+**All v2.0 fields are required.** Legacy tests may rely on parser defaults, but new tests must populate every required field explicitly.
 
 | Field | Required | Example Values |
 |-------|----------|----------------|
@@ -262,18 +264,36 @@ AUTHOR: sectest-builder
 | `SOURCE_URL` | No | URL of the primary threat intelligence source (or `N/A`) |
 | `AUTHOR` | Yes | `sectest-builder` |
 
-### 2. Sync Catalog After Creating Test
+### 2. Propagate Schema Changes to ProjectAchilles
+
+**ProjectAchilles (`~/F0RT1KA/ProjectAchilles/`) is the live consumer of this metadata header.** PA has two parallel backends (`backend/` and `backend-serverless/`) that BOTH parse the Go metadata header with identical `MetadataExtractor` classes. When adding a new metadata field (or changing an existing one's format), the following files MUST be updated **in both `backend/` and `backend-serverless/`** — the two trees are mirrors and drift causes silent bugs:
+
+**PA propagation checklist** (repeat for both `backend/` and `backend-serverless/`):
+
+1. `src/services/browser/metadataExtractor.ts` — Add the `header.match(/FIELD:\s*(.+)/i)` regex extraction.
+2. `src/types/test.ts` — Add the field to the `TestMetadata` (and `TestDetails`) interface.
+3. `src/services/browser/testIndexer.ts` — Wire the extracted field through the indexer pipeline.
+4. `src/services/agent/test-catalog.service.ts` — Include the field in catalog persistence / lookup.
+5. `src/services/browser/__tests__/metadataExtractor.test.ts` — Add a regex extraction test for the new field.
+
+**Failure mode if skipped:** the Go header will still build and sign fine, the field will appear in the source file, but PA's UI and API will silently drop it. No error, no warning — just missing data in the frontend. Always verify PA propagation before declaring a schema change complete.
+
+PA lives in a separate repo with a different review cycle, so sectest-builder does NOT auto-update PA. The validation skill produces a PA propagation checklist for the user to apply manually.
+
+### 3. Legacy: LimaCharlie→ES Enrichment Pipeline (not in production)
+
+The following sync flow is **retained for historical reference only** — no tenant currently consumes `f0rtika-results-*` indices or the `f0rtika-test-catalog` enrichment index. The live results pipeline is ProjectAchilles' own `achilles-results-*` (PA handles its own ingestion). The sync script and its Kibana enrich policy are preserved in the repo but are **not part of the test-build workflow**.
+
+If you need to refresh the historical catalog for exploratory queries:
 
 ```bash
 source .venv/bin/activate
 python3 utils/sync-test-catalog-to-elasticsearch.py
 ```
 
-### 3. Re-execute Enrich Policy
+Then in Kibana Dev Tools: `POST /_enrich/policy/f0rtika-test-enrichment/_execute`
 
-In Kibana Dev Tools: `POST /_enrich/policy/f0rtika-test-enrichment/_execute`
-
-ES field reference and example queries: `limacharlie-iac/ELASTICSEARCH-ENRICHMENT-GUIDE.md`
+ES field reference and historical query examples: `limacharlie-iac/ELASTICSEARCH-ENRICHMENT-GUIDE.md` (marked as not-in-production).
 
 ## Test Score Format Requirements (MANDATORY)
 

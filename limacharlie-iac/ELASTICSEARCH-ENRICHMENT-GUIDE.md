@@ -1,5 +1,7 @@
 # Elasticsearch Data Enrichment for F0RT1KA Test Results
 
+> **Status: Not in production.** The LimaCharlie→ES enrichment pipeline described here is retained for historical reference. ProjectAchilles does not use this pipeline — it ingests test results directly into its own `achilles-results-*` indices via its own services. No tenant currently consumes `f0rtika-results-*` or the `f0rtika-test-catalog` enrichment index. For the current metadata propagation flow (Go header → ProjectAchilles `MetadataExtractor`), see [CLAUDE.md § Test Metadata Header](../CLAUDE.md).
+
 This guide explains how to enrich F0RT1KA test results in Elasticsearch with additional metadata fields like test name, ATT&CK techniques, error code names, and protection status.
 
 ## Overview
