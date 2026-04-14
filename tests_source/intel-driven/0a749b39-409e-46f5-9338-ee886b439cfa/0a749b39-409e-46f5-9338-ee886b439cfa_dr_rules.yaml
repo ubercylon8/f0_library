@@ -1,0 +1,119 @@
+# =============================================================================
+# PROMPTFLUX v1 — LimaCharlie D&R Rules (file format)
+# Test UUID: 0a749b39-409e-46f5-9338-ee886b439cfa
+# Techniques: T1071.001, T1027.001, T1547.001, T1091
+#
+# File-format rules: each rule is a top-level mapping with `detect:` and
+# `respond:`. Web UI uses a different wrapper — see limacharlie-iac/README.md.
+# =============================================================================
+
+promptflux_llm_proxy_fetch_github_raw:
+  detect:
+    event: NETWORK_CONNECTIONS
+    op: and
+    rules:
+      - op: is
+        path: event/DOMAIN_NAME
+        value: raw.githubusercontent.com
+      - op: not
+        rules:
+          - op: is
+            path: event/PROCESS/FILE_PATH
+            case sensitive: false
+            re: ".*\\\\(msedge|chrome|firefox|iexplore|git|code|devenv|curl|wget)\\.exe$"
+  respond:
+    - action: report
+      name: promptflux.llm_proxy_fetch
+      metadata:
+        technique: T1071.001
+        severity: medium
+        description: "Non-browser process fetching from raw.githubusercontent.com — PROMPTFLUX LLM-proxy IOC"
+
+promptflux_wscript_staging_user_writable:
+  detect:
+    event: NEW_PROCESS
+    op: and
+    rules:
+      - op: is
+        path: event/FILE_PATH
+        case sensitive: false
+        value: .*\\wscript\.exe$
+        re: true
+      - op: contains
+        path: event/COMMAND_LINE
+        case sensitive: false
+        value: .vbs
+      - op: matches
+        path: event/PARENT/FILE_PATH
+        case sensitive: false
+        re: ".*\\\\(Users\\\\Public|Users\\\\Default|ProgramData|AppData\\\\Local\\\\Temp|AppData\\\\Roaming)\\\\.*"
+  respond:
+    - action: report
+      name: promptflux.wscript_staging
+      metadata:
+        technique: T1059.005
+        severity: high
+        description: "wscript.exe invoked with .vbs argument by parent in user-writable path"
+
+promptflux_thinking_robot_log:
+  detect:
+    event: NEW_DOCUMENT
+    op: matches
+    path: event/FILE_PATH
+    case sensitive: false
+    re: ".*\\\\thinking_robot_log\\.txt$"
+  respond:
+    - action: report
+      name: promptflux.thinking_robot_log
+      metadata:
+        technique: T1074.001
+        severity: critical
+        description: "File thinking_robot_log.txt created — exact PROMPTFLUX Thinging-module staging-trail IOC"
+
+promptflux_startup_folder_vbs_drop:
+  detect:
+    event: NEW_DOCUMENT
+    op: and
+    rules:
+      - op: matches
+        path: event/FILE_PATH
+        case sensitive: false
+        re: ".*\\\\Start Menu\\\\Programs\\\\Startup\\\\.+\\.vbs$"
+      - op: not
+        rules:
+          - op: matches
+            path: event/PROCESS/FILE_PATH
+            case sensitive: false
+            re: ".*\\\\(msiexec|setup|explorer)\\.exe$"
+  respond:
+    - action: report
+      name: promptflux.startup_folder_vbs
+      metadata:
+        technique: T1547.001
+        severity: high
+        description: ".vbs file written to Startup folder by non-installer process — PROMPTFLUX persistence primitive"
+
+promptflux_wmic_logicaldisk_from_user_path:
+  detect:
+    event: NEW_PROCESS
+    op: and
+    rules:
+      - op: matches
+        path: event/FILE_PATH
+        case sensitive: false
+        re: ".*\\\\wmic\\.exe$"
+      - op: contains
+        path: event/COMMAND_LINE
+        case sensitive: false
+        value: logicaldisk
+      - op: matches
+        path: event/PARENT/FILE_PATH
+        case sensitive: false
+        re: ".*\\\\(Users\\\\Public|Users\\\\Default|ProgramData|AppData\\\\Local\\\\Temp|AppData\\\\Roaming)\\\\.*"
+  respond:
+    - action: report
+      name: promptflux.wmic_propagation_enum
+      metadata:
+        technique: T1091
+        severity: medium
+        description: "wmic.exe logicaldisk enumeration spawned from user-writable path — PROMPTFLUX propagation recon"

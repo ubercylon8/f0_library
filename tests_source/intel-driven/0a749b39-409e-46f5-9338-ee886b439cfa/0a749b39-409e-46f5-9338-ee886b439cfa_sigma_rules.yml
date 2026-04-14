@@ -1,0 +1,190 @@
+# =============================================================================
+# PROMPTFLUX v1 — Sigma Detection Rules (vendor-agnostic)
+# Test UUID: 0a749b39-409e-46f5-9338-ee886b439cfa
+# Techniques: T1071.001, T1027.001, T1547.001, T1091
+#
+# IMPORTANT: These rules target REAL PROMPTFLUX tradecraft. They do not match
+# on this test's UUID or F0RT1KA strings.
+# =============================================================================
+---
+title: PROMPTFLUX LLM-Proxy Fetch via GitHub Raw
+id: c2a7e3d0-promptflux-llm-proxy-fetch
+status: experimental
+description: |
+  Detects a non-browser, non-developer-tool process fetching pre-staged content
+  from raw.githubusercontent.com. PROMPTFLUX fetches Gemini-shaped response
+  envelopes from an operator-controlled CDN to obtain its next-variant VBS body.
+author: F0RT1KA sectest-builder
+date: 2026-04-14
+references:
+    - https://attack.mitre.org/techniques/T1071/001/
+    - GTIG PROMPTFLUX disclosure Nov 2025
+tags:
+    - attack.command_and_control
+    - attack.t1071.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        CommandLine|contains:
+            - 'raw.githubusercontent.com'
+    known_browsers:
+        Image|endswith:
+            - '\msedge.exe'
+            - '\chrome.exe'
+            - '\firefox.exe'
+            - '\iexplore.exe'
+    known_dev_tools:
+        Image|endswith:
+            - '\git.exe'
+            - '\code.exe'
+            - '\devenv.exe'
+            - '\curl.exe'
+            - '\wget.exe'
+    condition: selection and not (known_browsers or known_dev_tools)
+falsepositives:
+    - Developer scripts pulling configuration from GitHub raw
+    - CI/CD workflow runners fetching pinned resources
+level: medium
+---
+title: PROMPTFLUX wscript Staging From User-Writable Path
+id: c2a7e3d1-promptflux-wscript-staging
+status: experimental
+description: |
+  Detects wscript.exe invoked with a .vbs argument that lives in a user-writable
+  data directory — the exact staging shape PROMPTFLUX uses after dropping
+  crypted_ScreenRec_webinstall.vbs.
+author: F0RT1KA sectest-builder
+date: 2026-04-14
+tags:
+    - attack.execution
+    - attack.t1059.005
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith: '\wscript.exe'
+    selection_cmdline:
+        CommandLine|contains: '.vbs'
+    selection_parent_path:
+        ParentImage|contains:
+            - '\Users\Public\'
+            - '\Users\Default\'
+            - '\ProgramData\'
+            - '\AppData\Local\Temp\'
+            - '\AppData\Roaming\'
+            - ':\F0\'
+    condition: selection_image and selection_cmdline and selection_parent_path
+falsepositives:
+    - Legitimate admin scripts staged in non-standard directories
+level: high
+---
+title: PROMPTFLUX Thinging Trail — thinking_robot_log.txt
+id: c2a7e3d2-promptflux-thinking-log
+status: stable
+description: |
+  Detects file creation of thinking_robot_log.txt — exact filename IOC documented
+  by GTIG for the PROMPTFLUX Thinging module's staging trail.
+author: F0RT1KA sectest-builder
+date: 2026-04-14
+tags:
+    - attack.defense_evasion
+    - attack.t1074.001
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '\thinking_robot_log.txt'
+    condition: selection
+falsepositives:
+    - Extremely unlikely — this filename should never appear in clean baselines
+level: critical
+---
+title: PROMPTFLUX Metamorphic VBScript Rewrite In-Place
+id: c2a7e3d3-promptflux-metamorphic-rewrite
+status: experimental
+description: |
+  Detects the same .vbs path being written at least twice with different
+  content hashes within a short window by the same parent process — the
+  Thinging-module hourly-rewrite behaviour.
+author: F0RT1KA sectest-builder
+date: 2026-04-14
+tags:
+    - attack.defense_evasion
+    - attack.t1027.001
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '.vbs'
+    condition: selection
+# Note: Sigma backend must support `count(distinct Hashes.SHA256) >= 2 by TargetFilename, Image within 10m`.
+# Translate per SIEM. See the KQL rule 4 in 0a749b39-409e-46f5-9338-ee886b439cfa_detections.kql for a ready-to-run correlation.
+falsepositives:
+    - Editor/IDE auto-save of a VBS file under active development
+level: high
+---
+title: PROMPTFLUX Startup Folder VBS Drop
+id: c2a7e3d4-promptflux-startup-vbs
+status: experimental
+description: |
+  Detects a .vbs file written into any Windows Startup folder by a non-installer
+  process — PROMPTFLUX's persistence primitive.
+author: F0RT1KA sectest-builder
+date: 2026-04-14
+tags:
+    - attack.persistence
+    - attack.t1547.001
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '.vbs'
+        TargetFilename|contains:
+            - '\Start Menu\Programs\Startup\'
+            - '\Start Menu\Programs\StartUp\'
+    filter_installers:
+        Image|endswith:
+            - '\msiexec.exe'
+            - '\setup.exe'
+            - '\explorer.exe'
+    condition: selection and not filter_installers
+falsepositives:
+    - Legitimate installer placing a .vbs into Startup (rare in modern software)
+level: high
+---
+title: PROMPTFLUX Propagation Recon via wmic.exe logicaldisk
+id: c2a7e3d5-promptflux-wmic-logicaldisk
+status: experimental
+description: |
+  Detects wmic.exe logicaldisk enumeration spawned by a binary living in a
+  user-writable data directory — PROMPTFLUX's propagation-target reconnaissance
+  step before copying itself to removable/network drives.
+author: F0RT1KA sectest-builder
+date: 2026-04-14
+tags:
+    - attack.lateral_movement
+    - attack.t1091
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains: 'logicaldisk'
+    suspicious_parent:
+        ParentImage|contains:
+            - '\Users\Public\'
+            - '\Users\Default\'
+            - '\AppData\Local\Temp\'
+            - '\AppData\Roaming\'
+            - ':\F0\'
+    condition: selection and suspicious_parent
+falsepositives:
+    - Asset-inventory scripts running under an IT admin account
+level: medium

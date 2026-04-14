@@ -1,0 +1,139 @@
+// =============================================================================
+// PROMPTFLUX v1 — KQL Detection Queries (Microsoft Sentinel / Defender for Endpoint)
+// Test UUID: 0a749b39-409e-46f5-9338-ee886b439cfa
+// Techniques: T1071.001, T1027.001, T1547.001, T1091
+// =============================================================================
+// IMPORTANT: These rules target the TECHNIQUE behaviours (PROMPTFLUX tradecraft),
+// NOT the test's own artefact paths or UUIDs. A rule that matches the test
+// UUID or the string "F0RT1KA" would be a false-positive generator on
+// production endpoints. All rules below are written for real PROMPTFLUX.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Detection 1 — Non-browser process fetching pre-staged LLM response payloads
+// from GitHub raw hosting. High signal for LLM-proxy / LLM-CDN-abuse tradecraft.
+// -----------------------------------------------------------------------------
+DeviceNetworkEvents
+| where Timestamp > ago(1d)
+| where RemoteUrl has "raw.githubusercontent.com"
+| where InitiatingProcessFileName !in~ ("msedge.exe", "chrome.exe", "firefox.exe", "iexplore.exe", "git.exe", "code.exe", "devenv.exe", "curl.exe", "wget.exe")
+| where InitiatingProcessFolderPath !has "Program Files"
+| where InitiatingProcessFolderPath !has "Windows\\System32"
+| project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessFolderPath, RemoteUrl, RemoteIP, InitiatingProcessAccountName
+
+// -----------------------------------------------------------------------------
+// Detection 2 — wscript.exe spawned as child of a binary living in a user-writable
+// data directory, executing a .vbs from the same directory. Classic LLM-dropped
+// VBScript staging.
+// -----------------------------------------------------------------------------
+DeviceProcessEvents
+| where Timestamp > ago(1d)
+| where FileName =~ "wscript.exe"
+| where ProcessCommandLine has ".vbs"
+| where InitiatingProcessFolderPath has_any ("Users\\Public", "Users\\Default", "ProgramData", "AppData\\Local\\Temp", "AppData\\Roaming")
+     or InitiatingProcessFolderPath matches regex @"C:\\[A-Z0-9]{1,4}\\"
+| where InitiatingProcessFileName != "explorer.exe"
+| where InitiatingProcessFileName != "wscript.exe"
+| project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessFolderPath, ProcessCommandLine, AccountName
+
+// -----------------------------------------------------------------------------
+// Detection 3 — Write of `thinking_robot_log.txt` under %TEMP%. Exact filename
+// IOC for PROMPTFLUX staging trail; should never appear in a clean baseline.
+// -----------------------------------------------------------------------------
+DeviceFileEvents
+| where Timestamp > ago(30d)
+| where ActionType in ("FileCreated", "FileRenamed", "FileModified")
+| where FileName =~ "thinking_robot_log.txt"
+| project Timestamp, DeviceName, ActionType, FolderPath, FileName, InitiatingProcessFileName, InitiatingProcessFolderPath
+
+// -----------------------------------------------------------------------------
+// Detection 4 — Same .vbs filename observed as File Created and then File Modified
+// (or multiple Writes) with different content hashes within 10 minutes by the
+// same initiating process. Metamorphic / Thinging-style rewrite signal.
+// -----------------------------------------------------------------------------
+DeviceFileEvents
+| where Timestamp > ago(1d)
+| where FileName endswith ".vbs"
+| where ActionType in ("FileCreated", "FileModified")
+| summarize
+    HashCount = dcount(SHA256),
+    ActionTypes = make_set(ActionType),
+    FirstSeen = min(Timestamp),
+    LastSeen = max(Timestamp)
+    by DeviceName, FolderPath, FileName, InitiatingProcessFileName
+| where HashCount >= 2
+| where LastSeen - FirstSeen < 10m
+| where array_length(ActionTypes) >= 2
+
+// -----------------------------------------------------------------------------
+// Detection 5 — VBScript dropped into a Windows Startup folder by a non-installer
+// process. High-signal autostart-via-Startup-Folder rule. Optional: upgrade to
+// critical severity if filename contains "screen", "rec", "helper", "updater".
+// -----------------------------------------------------------------------------
+DeviceFileEvents
+| where Timestamp > ago(30d)
+| where ActionType in ("FileCreated", "FileRenamed")
+| where FileName endswith ".vbs"
+| where FolderPath has_any (
+    @"Start Menu\Programs\Startup",
+    @"Start Menu\Programs\StartUp"
+    )
+| where InitiatingProcessFileName !in~ ("msiexec.exe", "setup.exe", "setup_wm.exe", "explorer.exe")
+| extend SuspiciousName = iff(FileName matches regex @"(?i)(screen|rec|helper|update|sync)", "yes", "no")
+| project Timestamp, DeviceName, FolderPath, FileName, SuspiciousName, InitiatingProcessFileName, InitiatingProcessFolderPath
+
+// -----------------------------------------------------------------------------
+// Detection 6 — wmic.exe logicaldisk enumeration spawned from a user-writable
+// data directory. Propagation-recon signal for PROMPTFLUX-style worms.
+// -----------------------------------------------------------------------------
+DeviceProcessEvents
+| where Timestamp > ago(1d)
+| where FileName =~ "wmic.exe"
+| where ProcessCommandLine has "logicaldisk"
+| where InitiatingProcessFolderPath has_any ("Users\\Public", "Users\\Default", "ProgramData", "AppData\\Local\\Temp", "AppData\\Roaming")
+     or InitiatingProcessFolderPath matches regex @"C:\\[A-Z0-9]{1,4}\\"
+| where InitiatingProcessFileName !in~ ("ccmexec.exe", "msiexec.exe", "mmc.exe", "devenv.exe")
+| project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessFolderPath, ProcessCommandLine, AccountName
+
+// -----------------------------------------------------------------------------
+// Detection 7 — Behavioural correlation: host that produces two-or-more of
+// detections 1, 2, 3, 4, 5, 6 within a 5-minute window. This is the PROMPTFLUX
+// killchain rule — much higher confidence than any single signal.
+// -----------------------------------------------------------------------------
+let window = 5m;
+let fetchers =
+    DeviceNetworkEvents
+    | where Timestamp > ago(1d)
+    | where RemoteUrl has "raw.githubusercontent.com"
+    | where InitiatingProcessFileName !in~ ("msedge.exe", "chrome.exe", "firefox.exe", "git.exe", "code.exe")
+    | project Timestamp, DeviceName, Signal = "fetch_llm_proxy";
+let stagers =
+    DeviceProcessEvents
+    | where Timestamp > ago(1d)
+    | where FileName =~ "wscript.exe" and ProcessCommandLine has ".vbs"
+    | project Timestamp, DeviceName, Signal = "wscript_staging";
+let thinkers =
+    DeviceFileEvents
+    | where Timestamp > ago(1d)
+    | where FileName =~ "thinking_robot_log.txt"
+    | project Timestamp, DeviceName, Signal = "thinking_trail";
+let startups =
+    DeviceFileEvents
+    | where Timestamp > ago(1d)
+    | where FileName endswith ".vbs"
+    | where FolderPath has @"Start Menu\Programs\Startup" or FolderPath has @"Start Menu\Programs\StartUp"
+    | project Timestamp, DeviceName, Signal = "startup_vbs_drop";
+let propagators =
+    DeviceProcessEvents
+    | where Timestamp > ago(1d)
+    | where FileName =~ "wmic.exe" and ProcessCommandLine has "logicaldisk"
+    | project Timestamp, DeviceName, Signal = "wmi_propagation_enum";
+union fetchers, stagers, thinkers, startups, propagators
+| summarize
+    SignalCount = dcount(Signal),
+    Signals = make_set(Signal),
+    FirstSeen = min(Timestamp),
+    LastSeen = max(Timestamp)
+    by DeviceName, bin(Timestamp, window)
+| where SignalCount >= 2
+| project-away Timestamp
