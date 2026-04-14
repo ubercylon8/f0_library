@@ -1,0 +1,312 @@
+# ============================================================
+# HONESTCUE LLM-Assisted Runtime C# Compilation — Sigma Rules
+# Test ID: e5472cd5-c799-4b07-b455-8c02665ca4cf
+# MITRE ATT&CK: T1071.001, T1027.004, T1027.010, T1620, T1105, T1583.006, T1565.001
+# Threat Actor: N/A (unattributed per GTIG)
+# Generated: 2026-04-13
+# ============================================================
+# FOCUS: Technique-level attack behaviors. Detections target the HONESTCUE
+# class of LLM-as-runtime-component threats, NOT F0RT1KA test artifacts.
+# ============================================================
+---
+title: PowerShell Invokes CSharpCodeProvider with GenerateInMemory
+id: e5472cd5-sigma-001
+status: stable
+description: |
+  Detects PowerShell invoking System.CodeDom.CSharpCodeProvider /
+  CompileAssemblyFromSource with GenerateInMemory=true. This is the
+  HONESTCUE stage-2 signature for in-memory C# compilation of
+  LLM-sourced source code. The technique is inherently suspicious on
+  endpoint fleets: legitimate PowerShell scripts rarely compile C# at
+  runtime.
+references:
+  - https://attack.mitre.org/techniques/T1027/004/
+  - https://attack.mitre.org/techniques/T1620/
+  - https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
+author: F0RT1KA Defense Guidance Builder
+date: 2026-04-13
+tags:
+  - attack.defense-evasion
+  - attack.t1027.004
+  - attack.t1620
+  - attack.execution
+  - attack.t1059.001
+logsource:
+  product: windows
+  category: ps_script
+detection:
+  selection_compile:
+    ScriptBlockText|contains|all:
+      - 'CSharpCodeProvider'
+      - 'GenerateInMemory'
+  selection_compile_alt:
+    ScriptBlockText|contains|all:
+      - 'CompileAssemblyFromSource'
+      - 'CompilerParameters'
+  condition: selection_compile or selection_compile_alt
+fields:
+  - Image
+  - ParentImage
+  - User
+  - ScriptBlockText
+falsepositives:
+  - Legitimate internal PowerShell-based build systems
+  - Developer tooling that compiles plugins at startup
+level: high
+---
+title: Reflective Assembly.Load(byte[]) in PowerShell
+id: e5472cd5-sigma-002
+status: stable
+description: |
+  Detects the reflective assembly load pattern where PowerShell invokes
+  System.Reflection.Assembly::Load with a byte[] argument. This is the
+  canonical in-memory reflective loading pattern used by HONESTCUE and
+  many offensive frameworks to avoid on-disk PE signatures.
+references:
+  - https://attack.mitre.org/techniques/T1620/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-04-13
+tags:
+  - attack.defense-evasion
+  - attack.t1620
+logsource:
+  product: windows
+  category: ps_script
+detection:
+  selection:
+    ScriptBlockText|contains|all:
+      - 'Assembly'
+      - '::Load'
+    ScriptBlockText|contains:
+      - '[byte[]]'
+      - 'System.Byte[]'
+  condition: selection
+fields:
+  - Image
+  - ParentImage
+  - User
+  - ScriptBlockText
+falsepositives:
+  - Internal .NET plugin hosts
+  - Penetration testing tooling (authorized use)
+level: high
+---
+title: csc.exe Spawned by powershell.exe
+id: e5472cd5-sigma-003
+status: stable
+description: |
+  Detects csc.exe (C# compiler) being invoked by powershell.exe. This is
+  the byproduct of CSharpCodeProvider.CompileAssemblyFromSource — even
+  with GenerateInMemory=true, csc.exe is invoked under the hood and
+  produces an EDR-visible process-create event.
+references:
+  - https://attack.mitre.org/techniques/T1027/004/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-04-13
+tags:
+  - attack.defense-evasion
+  - attack.t1027.004
+  - attack.execution
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: '\csc.exe'
+    ParentImage|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  condition: selection
+fields:
+  - Image
+  - ParentImage
+  - ParentCommandLine
+  - User
+falsepositives:
+  - Developer workstations building .NET projects from PowerShell
+  - Some DSC / Chocolatey scripts
+level: high
+---
+title: Non-Installer Process Modifies Hosts File
+id: e5472cd5-sigma-004
+status: stable
+description: |
+  Detects file modification to %SystemRoot%\System32\drivers\etc\hosts by
+  any process outside a narrow allowlist of installers, update agents, and
+  domain join tools. HONESTCUE-class threats modify hosts to redirect
+  trusted CDN hostnames to attacker-controlled servers.
+references:
+  - https://attack.mitre.org/techniques/T1565/001/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-04-13
+tags:
+  - attack.impact
+  - attack.t1565.001
+logsource:
+  product: windows
+  category: file_event
+detection:
+  selection:
+    TargetFilename|endswith: '\drivers\etc\hosts'
+  filter_installers:
+    Image|endswith:
+      - '\TrustedInstaller.exe'
+      - '\TiWorker.exe'
+      - '\MsiExec.exe'
+      - '\setup.exe'
+      - '\dsregcmd.exe'
+      - '\djoin.exe'
+  condition: selection and not filter_installers
+fields:
+  - Image
+  - ParentImage
+  - CommandLine
+  - User
+  - TargetFilename
+falsepositives:
+  - Enterprise software deployment / configuration management
+  - VPN clients that ship with hosts-file edits
+level: high
+---
+title: Unsigned PE Drop to %TEMP% With Immediate Execution
+id: e5472cd5-sigma-005
+status: experimental
+description: |
+  Detects a process executing a PE file from a %TEMP% path where the PE
+  has no valid Authenticode signature. HONESTCUE stage 3 fetches from a
+  trusted CDN, drops to %TEMP%, and executes — the PE is unsigned.
+references:
+  - https://attack.mitre.org/techniques/T1105/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-04-13
+tags:
+  - attack.command-and-control
+  - attack.t1105
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|contains:
+      - '\Windows\Temp\'
+      - '\AppData\Local\Temp\'
+  filter_signed:
+    Signed: 'true'
+  condition: selection and not filter_signed
+fields:
+  - Image
+  - ParentImage
+  - CommandLine
+  - User
+  - Hashes
+falsepositives:
+  - Legacy application installers that stage temp binaries
+  - Some MSI custom actions
+level: medium
+---
+title: Non-Browser Process POST to LLM API Endpoint
+id: e5472cd5-sigma-006
+status: experimental
+description: |
+  Detects HTTPS POST requests to known LLM API endpoints
+  (generativelanguage.googleapis.com, api.openai.com, api.anthropic.com)
+  from processes not in the approved AI-tooling allowlist.
+  HONESTCUE-class malware issues POST requests to LLM APIs directly from
+  a non-browser launcher process. Tune the allowlist to your environment.
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+  - https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
+author: F0RT1KA Defense Guidance Builder
+date: 2026-04-13
+tags:
+  - attack.command-and-control
+  - attack.t1071.001
+logsource:
+  product: windows
+  category: network_connection
+detection:
+  selection:
+    DestinationHostname|contains:
+      - 'generativelanguage.googleapis.com'
+      - 'api.openai.com'
+      - 'api.anthropic.com'
+      - 'api.cohere.ai'
+  filter_allowed_clients:
+    Image|endswith:
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\firefox.exe'
+      - '\Code.exe'
+      - '\devenv.exe'
+      - '\cursor.exe'
+      - '\windsurf.exe'
+  condition: selection and not filter_allowed_clients
+fields:
+  - Image
+  - ParentImage
+  - CommandLine
+  - User
+  - DestinationHostname
+falsepositives:
+  - Internally-developed AI tooling
+  - Custom copilot/agent integrations
+level: medium
+---
+title: Trusted CDN Hostname Resolving to Loopback or RFC1918
+id: e5472cd5-sigma-007
+status: stable
+description: |
+  Detects DNS resolution or network connections where a trusted CDN
+  (cdn.discordapp.com, media.discordapp.net, github.com, raw.githubusercontent.com)
+  resolves to a loopback address or RFC1918 private address. This is a
+  strong indicator of hosts-file redirect or DNS hijack used to spoof a
+  trusted CDN.
+references:
+  - https://attack.mitre.org/techniques/T1565/001/
+  - https://attack.mitre.org/techniques/T1583/006/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-04-13
+tags:
+  - attack.impact
+  - attack.t1565.001
+  - attack.resource-development
+  - attack.t1583.006
+logsource:
+  product: windows
+  category: dns_query
+detection:
+  selection:
+    QueryName|contains:
+      - 'cdn.discordapp.com'
+      - 'media.discordapp.net'
+      - 'raw.githubusercontent.com'
+      - 'api.github.com'
+    QueryResults|startswith:
+      - '127.'
+      - '10.'
+      - '192.168.'
+      - '172.16.'
+      - '172.17.'
+      - '172.18.'
+      - '172.19.'
+      - '172.20.'
+      - '172.21.'
+      - '172.22.'
+      - '172.23.'
+      - '172.24.'
+      - '172.25.'
+      - '172.26.'
+      - '172.27.'
+      - '172.28.'
+      - '172.29.'
+      - '172.30.'
+      - '172.31.'
+  condition: selection
+fields:
+  - QueryName
+  - QueryResults
+  - Image
+falsepositives:
+  - Internal CDN mirroring setups
+  - Development/staging DNS overrides
+level: high
