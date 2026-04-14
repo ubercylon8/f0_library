@@ -11,37 +11,37 @@ target. Enumeration is the detection signal; the copy itself is out of scope
 because a real propagation primitive would require handling file writes to
 arbitrary external media / shares in a lab environment.
 
-If WMI is unavailable (service stopped, WMI queries blocked, script host
-constrained) the stage returns exit 126 (blocked) — this is the defence
-signal: a hardened endpoint that has disabled WMI for non-admin callers
-or that has a policy blocking Win32_LogicalDisk enumeration.
+v1.2: Native WMI via COM (IWbemLocator through github.com/StackExchange/wmi).
+Removed wmic.exe shellout because Microsoft removed wmic.exe from Windows 11
+22H2+ default images (per Microsoft deprecation notice, Jan 2024). Native COM
+is also more authentic to how real PROMPTFLUX operates — real malware uses
+IWbemLocator, not the legacy wmic.exe CLI wrapper.
+
+Exit-code signalling:
+  - 0   — WMI query succeeded, targets enumerated & logged
+  - 126 — WMI query actively blocked by policy (WDAC, registry hardening,
+          AppLocker restriction on COM servers)
+  - 999 — WMI service unavailable / not running / prerequisite missing
+          (NOT a defence signal — a genuine test-infra failure)
 
 Detection opportunities:
-  - Win32_LogicalDisk query from a non-admin-tool process (SCCM, MDT, etc.)
-  - wmic.exe spawned with "logicaldisk" argument from c:\F0 binary
-  - PowerShell Get-WmiObject Win32_LogicalDisk from a stage binary
-
-Implementation note: we use wmic.exe as the query driver rather than a
-Go WMI library to avoid pulling in CGO / ole32 dependencies. wmic.exe is
-itself a GTIG-documented PROMPTFLUX living-off-the-land binary.
+  - IWbemServices::ExecQuery of Win32_LogicalDisk from a non-admin-tool process
+  - Unsigned/unusual caller invoking wmi via COM (WmiPrvSE.exe spawning under
+    a c:\F0 binary parent)
+  - Win32_LogicalDisk query immediately followed by file writes to DeviceID
 */
 
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
-)
 
-// v1.1: hard cap on wmic.exe — consistency with stages 1+2 wscript timeout.
-// A normal wmic logicaldisk query returns in well under 5s; 30s is a generous
-// hang guard.
-const wmicExecTimeout = 30 * time.Second
+	"github.com/StackExchange/wmi"
+)
 
 const (
 	TEST_UUID      = "0a749b39-409e-46f5-9338-ee886b439cfa"
@@ -58,6 +58,16 @@ const (
 	StageQuarantined = 105
 	StageError       = 999
 )
+
+// Win32_LogicalDisk WMI class — field names must match the CIM class exactly.
+// DriveType values (MSDN):
+//   0 = Unknown, 1 = NoRootDirectory, 2 = Removable, 3 = LocalDisk,
+//   4 = NetworkDrive, 5 = CompactDisc, 6 = RAMDisk
+type Win32_LogicalDisk struct {
+	DeviceID   string
+	DriveType  uint32
+	VolumeName string
+}
 
 type DriveTarget struct {
 	DeviceID   string `json:"deviceId"`
@@ -78,8 +88,8 @@ type PropagationReport struct {
 func main() {
 	AttachLogger(TEST_UUID, fmt.Sprintf("Stage %d: %s", STAGE_ID, TECHNIQUE_ID))
 
-	LogMessage("INFO", TECHNIQUE_ID, "Starting PROMPTFLUX stage-4 (propagation enumeration via WMI)")
-	LogStageStart(STAGE_ID, TECHNIQUE_ID, "WMI Win32_LogicalDisk enumeration — removable + network drives")
+	LogMessage("INFO", TECHNIQUE_ID, "Starting PROMPTFLUX stage-4 (propagation enumeration via native WMI COM)")
+	LogStageStart(STAGE_ID, TECHNIQUE_ID, "WMI Win32_LogicalDisk enumeration via IWbemLocator — removable + network drives")
 
 	if err := performTechnique(); err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
@@ -96,213 +106,128 @@ func main() {
 
 	fmt.Printf("[STAGE %s] Propagation enumeration complete\n", TECHNIQUE_ID)
 	LogMessage("SUCCESS", TECHNIQUE_ID, "Stage-4 enumeration complete")
-	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "WMI Win32_LogicalDisk enumerated; targets logged")
+	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "WMI Win32_LogicalDisk enumerated via COM; targets logged")
 	os.Exit(StageSuccess)
 }
 
 func performTechnique() error {
-	// Query via wmic.exe. Args: logicaldisk get DeviceID,DriveType,VolumeName /format:csv
-	// The /format:csv output is column-header-prefixed; we parse it line by line.
-	// v1.1: 30s context timeout for consistency with the other stages.
-	wmicCtx, wmicCancel := context.WithTimeout(context.Background(), wmicExecTimeout)
-	defer wmicCancel()
-	cmd := exec.CommandContext(wmicCtx, "wmic.exe", "logicaldisk", "get", "DeviceID,DriveType,VolumeName", "/format:csv")
-	cmd.Env = os.Environ()
+	// Native WMI COM query via IWbemLocator -> IWbemServices::ExecQuery.
+	// This is how real PROMPTFLUX (and most commodity malware) enumerates
+	// drives — not via the deprecated wmic.exe CLI wrapper.
+	query := "SELECT DeviceID, DriveType, VolumeName FROM Win32_LogicalDisk WHERE DriveType = 2 OR DriveType = 4"
 
 	startTime := time.Now()
-	output, err := cmd.CombinedOutput()
+
+	var disks []Win32_LogicalDisk
+	queryErr := wmi.Query(query, &disks)
 	duration := time.Since(startTime)
 
-	if err != nil {
-		if wmicCtx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("wmic logicaldisk query timed out after %v — killed by stage (test-infra failure)", wmicExecTimeout)
+	if queryErr != nil {
+		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("wmi query returned error after %v: %v", duration, queryErr))
+		return fmt.Errorf("wmi query Win32_LogicalDisk failed: %w", queryErr)
+	}
+
+	LogMessage("INFO", TECHNIQUE_ID,
+		fmt.Sprintf("wmi query returned %d matching disk(s) in %v", len(disks), duration))
+
+	// Convert to the report structure. All entries are already DriveType 2 or 4
+	// per the WHERE clause, but we label them defensively.
+	targets := make([]DriveTarget, 0, len(disks))
+	for _, d := range disks {
+		t := DriveTarget{
+			DeviceID:   d.DeviceID,
+			DriveType:  int(d.DriveType),
+			VolumeName: d.VolumeName,
 		}
-		// wmic missing or access denied = the defence signal. Exit 126.
-		return fmt.Errorf("wmic logicaldisk query permission denied: %v (output: %s)", err, truncate(string(output), 200))
-	}
-
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("wmic query returned %d bytes in %v", len(output), duration))
-
-	// Empty output on a tamper-protected / policy-blocked WMI = blocked.
-	trimmed := strings.TrimSpace(string(output))
-	if trimmed == "" {
-		return fmt.Errorf("wmic query returned empty output — permission denied by policy")
-	}
-
-	targets, parseErr := parseWmicLogicalDisk(string(output))
-	if parseErr != nil {
-		return fmt.Errorf("wmic output parse failed: %v", parseErr)
-	}
-
-	// Keep only removable (2) and network (4) drives — those are the
-	// propagation candidates in a real PROMPTFLUX operator playbook.
-	filtered := make([]DriveTarget, 0, len(targets))
-	for _, t := range targets {
-		if t.DriveType == 2 || t.DriveType == 4 {
-			if t.DriveType == 2 {
-				t.DriveLabel = "removable"
-			} else {
-				t.DriveLabel = "network"
-			}
-			filtered = append(filtered, t)
+		switch d.DriveType {
+		case 2:
+			t.DriveLabel = "removable"
+		case 4:
+			t.DriveLabel = "network"
+		default:
+			t.DriveLabel = "other"
 		}
+		targets = append(targets, t)
 	}
 
 	report := PropagationReport{
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Query:       "SELECT DeviceID, DriveType, VolumeName FROM Win32_LogicalDisk WHERE DriveType = 2 OR DriveType = 4",
-		Mechanism:   "wmic.exe logicaldisk get ... /format:csv",
-		TargetCount: len(filtered),
-		Targets:     filtered,
+		Query:       query,
+		Mechanism:   "native WMI COM via IWbemLocator (github.com/StackExchange/wmi)",
+		TargetCount: len(targets),
+		Targets:     targets,
 		Note:        "Enumeration-only simulation — NO copy performed. A real PROMPTFLUX propagation primitive would write a copy of crypted_ScreenRec_webinstall.vbs to each DeviceID\\<filename>. F0RT1KA explicitly stops before that step to keep the test safe in a lab.",
 	}
 
 	reportBytes, marshalErr := json.MarshalIndent(report, "", "  ")
 	if marshalErr != nil {
-		return fmt.Errorf("propagation report marshal: %v", marshalErr)
+		return fmt.Errorf("propagation report marshal failed: %w", marshalErr)
 	}
 
 	if err := os.WriteFile(PROPAGATION_LOG, reportBytes, 0644); err != nil {
-		return fmt.Errorf("propagation log write: %v", err)
+		return fmt.Errorf("propagation log write failed: %w", err)
 	}
 	LogFileDropped("stage4_propagation_targets.json", PROPAGATION_LOG, int64(len(reportBytes)), false)
 
 	LogMessage("INFO", TECHNIQUE_ID,
-		fmt.Sprintf("Propagation enumeration: found %d target(s) (removable+network)", len(filtered)))
-	for _, t := range filtered {
+		fmt.Sprintf("Propagation enumeration: found %d target(s) (removable+network)", len(targets)))
+	for _, t := range targets {
 		LogMessage("INFO", TECHNIQUE_ID,
-			fmt.Sprintf("  target: DeviceID=%s DriveType=%d (%s) Volume=%q", t.DeviceID, t.DriveType, t.DriveLabel, t.VolumeName))
+			fmt.Sprintf("  target: DeviceID=%s DriveType=%d (%s) Volume=%q",
+				t.DeviceID, t.DriveType, t.DriveLabel, t.VolumeName))
 	}
 
 	return nil
-}
-
-// parseWmicLogicalDisk parses the /format:csv output of
-// "wmic.exe logicaldisk get DeviceID,DriveType,VolumeName /format:csv".
-// The output is: Node,DeviceID,DriveType,VolumeName with CRLF line endings.
-func parseWmicLogicalDisk(out string) ([]DriveTarget, error) {
-	// Normalize line endings.
-	out = strings.ReplaceAll(out, "\r\n", "\n")
-	out = strings.ReplaceAll(out, "\r", "\n")
-	lines := strings.Split(out, "\n")
-
-	headerIdx := -1
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(strings.ToLower(line)), "node,") {
-			headerIdx = i
-			break
-		}
-	}
-	if headerIdx < 0 {
-		return nil, fmt.Errorf("no CSV header found in wmic output")
-	}
-	headers := strings.Split(strings.TrimSpace(lines[headerIdx]), ",")
-	colIdx := func(name string) int {
-		for i, h := range headers {
-			if strings.EqualFold(strings.TrimSpace(h), name) {
-				return i
-			}
-		}
-		return -1
-	}
-	devCol := colIdx("DeviceID")
-	typeCol := colIdx("DriveType")
-	volCol := colIdx("VolumeName")
-	if devCol < 0 || typeCol < 0 {
-		return nil, fmt.Errorf("required CSV columns missing")
-	}
-
-	targets := make([]DriveTarget, 0)
-	for i := headerIdx + 1; i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-		fields := strings.Split(line, ",")
-		if len(fields) <= typeCol {
-			continue
-		}
-
-		var driveType int
-		if _, scanErr := fmt.Sscanf(strings.TrimSpace(fields[typeCol]), "%d", &driveType); scanErr != nil {
-			continue
-		}
-		t := DriveTarget{
-			DeviceID:  strings.TrimSpace(fields[devCol]),
-			DriveType: driveType,
-		}
-		if volCol >= 0 && volCol < len(fields) {
-			t.VolumeName = strings.TrimSpace(fields[volCol])
-		}
-		targets = append(targets, t)
-	}
-	return targets, nil
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }
 
 // ==============================================================================
 // EXIT CODE — blame-free (Rule 1)
 // ==============================================================================
 //
-// Stage 4 uses a slightly broader "blocked" interpretation per Q10: WMI
-// permission denial, WMI empty-output, or wmic.exe missing all map to 126.
-// Anything else maps to 999.
+// With native WMI COM, the error paths are now distinguishable:
+//
+//   - A WMI service that's stopped / unavailable / not registered returns COM
+//     errors like "Invalid class", "Provider load failure", "Invalid namespace",
+//     or "RPC server is unavailable" → prereq not met → 999 (test-infra error).
+//
+//   - A policy/WDAC block on the WMI COM server returns errors like "E_ACCESSDENIED"
+//     or wbem "WBEM_E_ACCESS_DENIED" → genuine defence signal → 126 (blocked).
+//
+// We keep the matcher narrow: only the ACCESS-class errors map to 126. Everything
+// else (query syntax error, unavailable service, unknown class) is 999. The
+// wrapper messages in performTechnique() describe the OPERATION that failed,
+// never the cause — so this matcher only fires on error strings that the WMI
+// runtime itself produced (via %w unwrap), not on our wrapper text.
 
 func determineExitCode(err error) int {
 	if err == nil {
 		return StageSuccess
 	}
 	errStr := err.Error()
-	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted"}) {
+	// Defence signals from the WMI runtime. These are errors the COM/wbem
+	// layer itself emits when a policy or ACL refuses the query.
+	if containsAny(errStr, []string{
+		"wbem_e_access_denied",
+		"e_accessdenied",
+		"access is denied",  // generic Windows error text from wbem
+		"access denied",     // same, short form
+	}) {
 		return StageBlocked
 	}
 	if containsAny(errStr, []string{"quarantined", "virus", "threat"}) {
 		return StageQuarantined
 	}
-	if containsAny(errStr, []string{"not found", "does not exist", "no such", "not running", "not available", "cannot find"}) {
-		return StageError
-	}
+	// Everything else — WMI service stopped, namespace missing, class unknown,
+	// RPC unavailable, query syntax — is a prereq failure, not a defence signal.
 	return StageError
 }
 
 func containsAny(s string, substrings []string) bool {
+	lower := strings.ToLower(s)
 	for _, substr := range substrings {
-		if containsCI(s, substr) {
+		if strings.Contains(lower, strings.ToLower(substr)) {
 			return true
 		}
 	}
 	return false
-}
-
-func containsCI(s, substr string) bool {
-	return len(s) >= len(substr) && indexIgnoreCase(s, substr) >= 0
-}
-
-func indexIgnoreCase(s, substr string) int {
-	s = toLowerStr(s)
-	substr = toLowerStr(substr)
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}
-
-func toLowerStr(s string) string {
-	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c = c + ('a' - 'A')
-		}
-		result[i] = c
-	}
-	return string(result)
 }

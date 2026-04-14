@@ -88,6 +88,7 @@ var promptfluxArtefacts = []string{
 	`c:\F0\stage1_wscript_output.txt`,
 	`c:\F0\stage2_wscript_output.txt`,
 	`c:\F0\stage1_network.log`,
+	`c:\F0\stage2_network.log`,
 	`c:\F0\stage4_propagation_targets.json`,
 	`c:\F0\T1071.001_output.txt`,
 	`c:\F0\T1027.001_output.txt`,
@@ -122,7 +123,7 @@ type KillchainStage struct {
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.1.0",
+		Version:    "1.2.0",
 		Category:   "command_and_control",
 		Severity:   "high",
 		Techniques: []string{"T1071.001", "T1027.001", "T1547.001", "T1091"},
