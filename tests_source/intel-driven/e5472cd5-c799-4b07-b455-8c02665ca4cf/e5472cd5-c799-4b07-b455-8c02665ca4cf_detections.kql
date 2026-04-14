@@ -1,39 +1,40 @@
 // ============================================================
-// Behavioral Detection Queries for HONESTCUE LLM-Assisted Runtime C# Compilation
+// Behavioral Detection Queries for HONESTCUE v2 LLM-Assisted Runtime C# Compilation
 // Test ID: e5472cd5-c799-4b07-b455-8c02665ca4cf
-// MITRE ATT&CK: T1071.001, T1027.004, T1027.010, T1620, T1105, T1583.006, T1565.001
+// MITRE ATT&CK: T1071.001, T1027.004, T1027.010, T1620, T1105, T1204.002, T1059.001
 // Threat Actor: N/A (unattributed per GTIG)
-// Generated: 2026-04-13
+// Generated: 2026-04-13 (v2)
 // ============================================================
 // FOCUS: Technique-level attack behaviors. Detections target HONESTCUE-class
-// TTPs (LLM-as-runtime, in-memory C# compile + reflective load, Discord CDN
-// abuse, hosts-file manipulation), NOT F0RT1KA test artifacts.
+// TTPs (LLM-as-runtime, real TLS to trusted hosting, in-memory Roslyn compile
+// + reflective load, PE drop to %TEMP% + exec from trusted-hosting CDN).
 // ============================================================
 
 
 // ============================================================
-// QUERY 1: Non-Browser Process Issuing POST to LLM API Endpoints (T1071.001)
+// QUERY 1: Non-Browser/Non-Git Process Fetching from raw.githubusercontent.com (T1071.001 / T1105)
 // Confidence: Medium-High
-// Purpose: Detect direct-from-PE HTTPS POST to known LLM API hostnames by
-//          processes that are NOT the allowed set of AI-enabled apps. HONESTCUE
-//          issues POST requests to Gemini's generateContent endpoint from a
-//          non-browser launcher process.
-// False Positives: Authorized internal AI tooling, copilot-integrated IDEs,
-//                  data-science workloads.
-// Threshold: Any single match from an unusual parent chain warrants review.
+// Purpose: Detect HTTPS GET to raw.githubusercontent.com from processes that
+//          are NOT the allowed set of browsers, git clients, or package managers.
+//          HONESTCUE v2 fetches Gemini-shaped JSON and its stage-3 PE from
+//          GitHub-raw to blend with benign developer traffic.
+// False Positives: Authorized internal tooling pulling GitHub-hosted configs,
+//                  CI runners on the endpoint (rare).
+// Threshold: Any single match from a non-standard parent chain.
 // ============================================================
 DeviceNetworkEvents
 | where TimeGenerated > ago(1h)
-| where RemoteUrl has_any ("generativelanguage.googleapis.com",
-                           "generativelanguage.googleapis",
-                           "api.openai.com",
-                           "api.anthropic.com",
-                           "api.cohere.ai")
-    or RemoteUrl has "v1beta/models" and RemoteUrl has "generateContent"
+| where RemoteUrl has_any ("raw.githubusercontent.com",
+                           "api.github.com/repos",
+                           "github.com/raw",
+                           "objects.githubusercontent.com")
 | where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe",
                                          "brave.exe", "opera.exe", "iexplore.exe",
                                          "Code.exe", "devenv.exe", "cursor.exe",
-                                         "windsurf.exe", "zed.exe")
+                                         "windsurf.exe", "zed.exe",
+                                         "git.exe", "git-remote-https.exe",
+                                         "curl.exe", "wget.exe",
+                                         "GitHubDesktop.exe", "ssh.exe")
 | project Timestamp, DeviceName, InitiatingProcessFileName,
           InitiatingProcessCommandLine, InitiatingProcessParentFileName,
           RemoteUrl, RemotePort
@@ -41,32 +42,58 @@ DeviceNetworkEvents
 
 
 // ============================================================
-// QUERY 2: PowerShell Invoking CSharpCodeProvider In-Memory Compile (T1027.004)
-// Confidence: High
-// Purpose: Detect the exact AMSI/ScriptBlock logging pattern produced when
-//          PowerShell invokes CSharpCodeProvider with GenerateInMemory=true.
-//          This is HONESTCUE stage 2's characteristic signature.
-// False Positives: Legitimate dev tools. In production environments,
-//                  compile-from-powershell should be extremely rare.
-// Threshold: Any single match warrants investigation.
+// QUERY 2: Non-Browser/Non-Git Process Resolving raw.githubusercontent.com (T1071.001)
+// Confidence: Medium
+// Purpose: Complements Query 1. Sysmon EventID 22 / DeviceEvents DnsQuery gives
+//          the initial DNS lookup IOC even before the TLS connection is made.
+// False Positives: Endpoint package managers (nuget, pip) fetching from GitHub.
+// Threshold: Correlate with Query 1 for higher confidence.
 // ============================================================
 DeviceEvents
 | where TimeGenerated > ago(1h)
-| where ActionType in ("PowerShellCommand", "ScriptBlockLogging", "AmsiScanEvent")
-| where AdditionalFields has_all ("CSharpCodeProvider", "GenerateInMemory")
-    or AdditionalFields has_all ("CompileAssemblyFromSource", "CompilerParameters")
+| where ActionType == "DnsQueryResponse" or ActionType == "DnsQuery"
+| where AdditionalFields has "raw.githubusercontent.com"
+   or  AdditionalFields has "objects.githubusercontent.com"
+| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe",
+                                         "brave.exe", "Code.exe", "devenv.exe",
+                                         "git.exe", "GitHubDesktop.exe",
+                                         "curl.exe", "wget.exe")
 | project Timestamp, DeviceName, InitiatingProcessFileName,
           InitiatingProcessCommandLine, InitiatingProcessParentFileName,
-          ActionType, AdditionalFields
+          AdditionalFields
 | sort by Timestamp desc
 
 
 // ============================================================
-// QUERY 3: Reflective Assembly Load via Assembly.Load(byte[]) (T1620)
+// QUERY 3: Microsoft.CodeAnalysis.CSharp.dll Image Load in Non-Dev Process (T1027.004)
 // Confidence: High
-// Purpose: Detect the AMSI event generated by [System.Reflection.Assembly]::Load
-//          being invoked with a byte[] argument. This is the canonical reflective
-//          load pattern used by HONESTCUE stage 2 and many other offensive tools.
+// Purpose: Detect the Roslyn API surface being loaded by a process that is not
+//          a developer tool, build server, or IDE. HONESTCUE v2 stage 2 is
+//          a .NET 8 self-contained exe that loads Microsoft.CodeAnalysis.CSharp
+//          in-process — no csc.exe child spawn, no powershell.exe ancestor.
+// False Positives: In-house .NET plugin hosts, scripted code-generation tools.
+// Threshold: Any single match from a workstation outside the dev team.
+// ============================================================
+DeviceImageLoadEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("Microsoft.CodeAnalysis.CSharp.dll",
+                      "Microsoft.CodeAnalysis.dll")
+| where InitiatingProcessFileName !in~ ("devenv.exe", "Code.exe", "dotnet.exe",
+                                         "MSBuild.exe", "csc.exe", "ServiceHub.Host.CLR.x64.exe",
+                                         "JetBrains.Rider.exe", "rider64.exe",
+                                         "jetbrains.resharper.globaltools.exe")
+| project Timestamp, DeviceName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, InitiatingProcessParentFileName,
+          FileName, FolderPath, SHA1
+| sort by Timestamp desc
+
+
+// ============================================================
+// QUERY 4: Reflective Assembly Load via Assembly.Load(byte[]) (T1620)
+// Confidence: High
+// Purpose: Detect the AMSI event generated by Assembly.Load being invoked with
+//          a byte[] argument. This is the canonical reflective load pattern
+//          used by HONESTCUE stage 2 and many other offensive tools.
 // False Positives: Internally-developed .NET loaders, plugin hosts.
 // Threshold: Any single match from an unexpected parent process.
 // ============================================================
@@ -82,65 +109,40 @@ DeviceEvents
 
 
 // ============================================================
-// QUERY 4: csc.exe Child of powershell.exe (T1027.004 / T1059.001)
-// Confidence: High
-// Purpose: Detect csc.exe being spawned as a child of powershell.exe. This is
-//          the byproduct of CSharpCodeProvider.CompileAssemblyFromSource (even
-//          with GenerateInMemory=true, csc.exe is invoked for compilation).
-// False Positives: PowerShell-based build systems, internal tooling.
-// Threshold: Any single match from a non-developer workstation.
+// QUERY 5: Self-Contained .NET Single-File Executable Launching from Unusual Path (T1027.004)
+// Confidence: Medium
+// Purpose: HONESTCUE v2 stage 2 is a ~80 MB .NET 8 self-contained single-file
+//          executable. Such binaries load a characteristic set of DLLs from
+//          their per-invocation extraction directory. Detect the combination
+//          of a large single-file self-extracting bundle + clrjit.dll load
+//          from a non-installed-app path.
+// False Positives: Consumer .NET desktop apps shipped as single-file bundles.
+// Threshold: Correlate with Queries 3 and 4.
 // ============================================================
-DeviceProcessEvents
+DeviceImageLoadEvents
 | where TimeGenerated > ago(1h)
-| where FileName =~ "csc.exe"
-| where InitiatingProcessFileName =~ "powershell.exe"
-    or InitiatingProcessFileName =~ "pwsh.exe"
-| project Timestamp, DeviceName, AccountName,
-          FileName, ProcessCommandLine,
-          InitiatingProcessFileName, InitiatingProcessCommandLine,
-          InitiatingProcessParentFileName
+| where FileName =~ "clrjit.dll"
+| where FolderPath matches regex @"(?i)\\AppData\\Local\\Temp\\.net\\"
+   or  FolderPath matches regex @"(?i)\\c:\\F0\\"
+| project Timestamp, DeviceName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, FolderPath
 | sort by Timestamp desc
 
 
 // ============================================================
-// QUERY 5: Hosts File Modification by Non-Installer Process (T1565.001)
-// Confidence: High
-// Purpose: Detect writes to %SystemRoot%\System32\drivers\etc\hosts by any
-//          process that is not a known OS installer, update agent, or domain
-//          join tool. Malware redirects trusted hostnames (e.g., CDN endpoints)
-//          to attacker-controlled infrastructure via hosts-file manipulation.
-// False Positives: Enterprise software deployment tools, VPN clients.
-//                  Endpoint provisioning scripts.
-// Threshold: Any single match warrants investigation.
-// ============================================================
-DeviceFileEvents
-| where TimeGenerated > ago(1h)
-| where FolderPath =~ "C:\\Windows\\System32\\drivers\\etc"
-| where FileName =~ "hosts"
-| where ActionType in ("FileCreated", "FileModified")
-| where InitiatingProcessFileName !in~ ("TrustedInstaller.exe", "TiWorker.exe",
-                                          "MsiExec.exe", "setup.exe",
-                                          "dsregcmd.exe", "djoin.exe")
-| project Timestamp, DeviceName, AccountName,
-          InitiatingProcessFileName, InitiatingProcessCommandLine,
-          InitiatingProcessParentFileName, ActionType
-| sort by Timestamp desc
-
-
-// ============================================================
-// QUERY 6: Unsigned PE Dropped to %TEMP% Followed by Execution (T1105)
+// QUERY 6: PE Dropped to c:\Windows\Temp Followed by Execution (T1105 + T1204.002)
 // Confidence: Medium-High
-// Purpose: Detect a PE file with missing/invalid Authenticode signature
-//          dropped to %TEMP% and subsequently executed. HONESTCUE stage 3
-//          drops the CDN-fetched payload to %TEMP% and executes.
+// Purpose: Detect a PE file dropped to c:\Windows\Temp (or %TEMP%) and then
+//          executed within 10 minutes. HONESTCUE v2 stage 3 fetches the PE
+//          from GitHub raw and drops to c:\Windows\Temp\honestcue_payload.exe.
 // False Positives: Installer temp directories, legitimate updaters.
-// Threshold: Any single execution of an unsigned %TEMP% PE.
+// Threshold: Any single match correlated with a GitHub-raw fetch in Query 1.
 // ============================================================
 let temp_drops =
     DeviceFileEvents
     | where TimeGenerated > ago(1h)
     | where ActionType == "FileCreated"
-    | where FileName endswith ".exe" or FileName endswith ".bat" or FileName endswith ".cmd"
+    | where FileName endswith ".exe"
     | where FolderPath matches regex @"(?i)(C:\\Windows\\Temp|C:\\Users\\[^\\]+\\AppData\\Local\\Temp)"
     | project DropTime=Timestamp, DeviceName, DroppedFile=FileName, DroppedPath=FolderPath, DropSHA1=SHA1,
               InitiatingProcessFileName;
@@ -158,62 +160,87 @@ temp_drops
 
 
 // ============================================================
-// QUERY 7: cdn.discordapp.com Traffic to Non-Routable Address (T1583.006 / T1565.001)
-// Confidence: High
-// Purpose: Detect DNS or network traffic where cdn.discordapp.com (or any
-//          other trusted CDN) resolves to a loopback, RFC1918, or otherwise
-//          non-routable address. This indicates hosts-file or DNS hijacking
-//          used to redirect trusted hostnames to attacker-controlled servers.
-// False Positives: CDN development testing (should be rare on endpoint fleet).
-// Threshold: Any single match.
-// ============================================================
-DeviceNetworkEvents
-| where TimeGenerated > ago(1h)
-| where RemoteUrl has_any ("cdn.discordapp.com", "media.discordapp.net",
-                            "github.com", "raw.githubusercontent.com")
-| where RemoteIP startswith "127."
-    or RemoteIP startswith "10."
-    or RemoteIP startswith "192.168."
-    or (RemoteIP startswith "172." and toint(split(RemoteIP, ".")[1]) between (16 .. 31))
-    or RemoteIP == "::1"
-| project Timestamp, DeviceName, InitiatingProcessFileName,
-          InitiatingProcessCommandLine, RemoteUrl, RemoteIP, RemotePort
-| sort by Timestamp desc
-
-
-// ============================================================
-// QUERY 8: Combined Behavioral Correlation — HONESTCUE Chain Signature
+// QUERY 7: PE Dropped and Executed After GitHub-Raw Fetch by Same Process (T1105 + T1204.002)
 // Confidence: Very High
-// Purpose: Correlate multiple HONESTCUE-chain signals within a single host/hour.
+// Purpose: Full chain correlation. Same process fetches from raw.githubusercontent.com,
+//          drops a PE to c:\Windows\Temp, then executes the dropped PE.
+//          Matches HONESTCUE v2 stage 3 end-to-end.
+// False Positives: Very rare. Software installers occasionally match a subset.
+// Threshold: Single match = confirmed HONESTCUE-v2-chain signal.
+// ============================================================
+let github_fetch =
+    DeviceNetworkEvents
+    | where TimeGenerated > ago(1h)
+    | where RemoteUrl has "raw.githubusercontent.com"
+    | where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe",
+                                             "git.exe", "Code.exe", "devenv.exe", "curl.exe", "wget.exe")
+    | project FetchTime=Timestamp, DeviceName, FetchProcess=InitiatingProcessFileName,
+              FetchPID=InitiatingProcessId, RemoteUrl;
+let pe_drop =
+    DeviceFileEvents
+    | where TimeGenerated > ago(1h)
+    | where ActionType == "FileCreated"
+    | where FileName endswith ".exe"
+    | where FolderPath matches regex @"(?i)C:\\Windows\\Temp"
+    | project DropTime=Timestamp, DeviceName, DropProcess=InitiatingProcessFileName,
+              DropPID=InitiatingProcessId, DroppedFile=FileName, DropSHA1=SHA1;
+let pe_exec =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(1h)
+    | where FolderPath matches regex @"(?i)C:\\Windows\\Temp"
+    | project ExecTime=Timestamp, DeviceName, ExecProcess=FileName, ExecParent=InitiatingProcessFileName,
+              ExecSHA1=SHA1;
+github_fetch
+| join kind=inner pe_drop on DeviceName, $left.FetchPID == $right.DropPID
+| where DropTime between (FetchTime .. (FetchTime + 2m))
+| join kind=inner pe_exec on DeviceName, $left.DropSHA1 == $right.ExecSHA1
+| where ExecTime between (DropTime .. (DropTime + 5m))
+| project FetchTime, DropTime, ExecTime, DeviceName, FetchProcess,
+          RemoteUrl, DroppedFile, DropSHA1, ExecProcess
+| sort by FetchTime desc
+
+
+// ============================================================
+// QUERY 8: Combined Behavioral Correlation — HONESTCUE v2 Chain Signature
+// Confidence: Very High
+// Purpose: Correlate multiple HONESTCUE-v2-chain signals within a single host/hour.
 //          Fires when at least 2 of the 3 chain phases are observed on the
-//          same device within a correlation window.
+//          same device within the correlation window.
 // Threshold: >=2 signals = investigate; 3 signals = confirmed compromise.
 // ============================================================
 let window = 1h;
-let llm_post =
+let github_fetch_sig =
     DeviceNetworkEvents
     | where TimeGenerated > ago(window)
-    | where RemoteUrl has_any ("generativelanguage.googleapis.com", "api.openai.com", "api.anthropic.com")
-    | where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe", "Code.exe")
-    | distinct DeviceName, LlmSig=InitiatingProcessFileName;
-let reflective_compile =
+    | where RemoteUrl has "raw.githubusercontent.com"
+    | where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe",
+                                             "git.exe", "Code.exe", "curl.exe", "wget.exe")
+    | distinct DeviceName, GithubSig=InitiatingProcessFileName;
+let roslyn_load_sig =
+    DeviceImageLoadEvents
+    | where TimeGenerated > ago(window)
+    | where FileName =~ "Microsoft.CodeAnalysis.CSharp.dll"
+    | where InitiatingProcessFileName !in~ ("devenv.exe", "Code.exe", "MSBuild.exe", "dotnet.exe")
+    | distinct DeviceName, RoslynSig=InitiatingProcessFileName;
+let reflective_load_sig =
     DeviceEvents
     | where TimeGenerated > ago(window)
     | where ActionType in ("AmsiScanEvent", "ScriptBlockLogging")
-    | where AdditionalFields has_any ("CSharpCodeProvider", "Assembly.Load", "::Load(")
+    | where AdditionalFields has_any ("Assembly.Load", "::Load(byte[])")
     | distinct DeviceName, ReflectiveSig=InitiatingProcessFileName;
-let hosts_write =
-    DeviceFileEvents
+let pe_drop_exec_sig =
+    DeviceProcessEvents
     | where TimeGenerated > ago(window)
-    | where FolderPath =~ "C:\\Windows\\System32\\drivers\\etc"
-    | where FileName =~ "hosts"
-    | where InitiatingProcessFileName !in~ ("TrustedInstaller.exe", "MsiExec.exe")
-    | distinct DeviceName, HostsSig=InitiatingProcessFileName;
-llm_post
-| join kind=fullouter reflective_compile on DeviceName
-| join kind=fullouter hosts_write on DeviceName
-| extend SignalCount = iff(isnotempty(LlmSig), 1, 0)
+    | where FolderPath matches regex @"(?i)C:\\Windows\\Temp"
+    | where FileName endswith ".exe"
+    | distinct DeviceName, DropExecSig=FileName;
+github_fetch_sig
+| join kind=fullouter roslyn_load_sig on DeviceName
+| join kind=fullouter reflective_load_sig on DeviceName
+| join kind=fullouter pe_drop_exec_sig on DeviceName
+| extend SignalCount = iff(isnotempty(GithubSig), 1, 0)
+                     + iff(isnotempty(RoslynSig), 1, 0)
                      + iff(isnotempty(ReflectiveSig), 1, 0)
-                     + iff(isnotempty(HostsSig), 1, 0)
+                     + iff(isnotempty(DropExecSig), 1, 0)
 | where SignalCount >= 2
-| project DeviceName, SignalCount, LlmSig, ReflectiveSig, HostsSig
+| project DeviceName, SignalCount, GithubSig, RoslynSig, ReflectiveSig, DropExecSig

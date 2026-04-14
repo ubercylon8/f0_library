@@ -1,312 +1,267 @@
 # ============================================================
-# HONESTCUE LLM-Assisted Runtime C# Compilation — Sigma Rules
+# HONESTCUE v2 LLM-Assisted Runtime C# Compilation — Sigma Rules
 # Test ID: e5472cd5-c799-4b07-b455-8c02665ca4cf
-# MITRE ATT&CK: T1071.001, T1027.004, T1027.010, T1620, T1105, T1583.006, T1565.001
+# MITRE ATT&CK: T1071.001, T1027.004, T1027.010, T1620, T1105, T1204.002
 # Threat Actor: N/A (unattributed per GTIG)
-# Generated: 2026-04-13
+# Author: F0RT1KA Defense Guidance Builder
+# Date: 2026-04-13 (v2)
 # ============================================================
-# FOCUS: Technique-level attack behaviors. Detections target the HONESTCUE
-# class of LLM-as-runtime-component threats, NOT F0RT1KA test artifacts.
+# Rules target HONESTCUE-class TTPs, not F0RT1KA test artifacts.
 # ============================================================
+
 ---
-title: PowerShell Invokes CSharpCodeProvider with GenerateInMemory
-id: e5472cd5-sigma-001
-status: stable
-description: |
-  Detects PowerShell invoking System.CodeDom.CSharpCodeProvider /
-  CompileAssemblyFromSource with GenerateInMemory=true. This is the
-  HONESTCUE stage-2 signature for in-memory C# compilation of
-  LLM-sourced source code. The technique is inherently suspicious on
-  endpoint fleets: legitimate PowerShell scripts rarely compile C# at
-  runtime.
-references:
-  - https://attack.mitre.org/techniques/T1027/004/
-  - https://attack.mitre.org/techniques/T1620/
-  - https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
-author: F0RT1KA Defense Guidance Builder
-date: 2026-04-13
-tags:
-  - attack.defense-evasion
-  - attack.t1027.004
-  - attack.t1620
-  - attack.execution
-  - attack.t1059.001
-logsource:
-  product: windows
-  category: ps_script
-detection:
-  selection_compile:
-    ScriptBlockText|contains|all:
-      - 'CSharpCodeProvider'
-      - 'GenerateInMemory'
-  selection_compile_alt:
-    ScriptBlockText|contains|all:
-      - 'CompileAssemblyFromSource'
-      - 'CompilerParameters'
-  condition: selection_compile or selection_compile_alt
-fields:
-  - Image
-  - ParentImage
-  - User
-  - ScriptBlockText
-falsepositives:
-  - Legitimate internal PowerShell-based build systems
-  - Developer tooling that compiles plugins at startup
-level: high
----
-title: Reflective Assembly.Load(byte[]) in PowerShell
-id: e5472cd5-sigma-002
-status: stable
-description: |
-  Detects the reflective assembly load pattern where PowerShell invokes
-  System.Reflection.Assembly::Load with a byte[] argument. This is the
-  canonical in-memory reflective loading pattern used by HONESTCUE and
-  many offensive frameworks to avoid on-disk PE signatures.
-references:
-  - https://attack.mitre.org/techniques/T1620/
-author: F0RT1KA Defense Guidance Builder
-date: 2026-04-13
-tags:
-  - attack.defense-evasion
-  - attack.t1620
-logsource:
-  product: windows
-  category: ps_script
-detection:
-  selection:
-    ScriptBlockText|contains|all:
-      - 'Assembly'
-      - '::Load'
-    ScriptBlockText|contains:
-      - '[byte[]]'
-      - 'System.Byte[]'
-  condition: selection
-fields:
-  - Image
-  - ParentImage
-  - User
-  - ScriptBlockText
-falsepositives:
-  - Internal .NET plugin hosts
-  - Penetration testing tooling (authorized use)
-level: high
----
-title: csc.exe Spawned by powershell.exe
-id: e5472cd5-sigma-003
-status: stable
-description: |
-  Detects csc.exe (C# compiler) being invoked by powershell.exe. This is
-  the byproduct of CSharpCodeProvider.CompileAssemblyFromSource — even
-  with GenerateInMemory=true, csc.exe is invoked under the hood and
-  produces an EDR-visible process-create event.
-references:
-  - https://attack.mitre.org/techniques/T1027/004/
-author: F0RT1KA Defense Guidance Builder
-date: 2026-04-13
-tags:
-  - attack.defense-evasion
-  - attack.t1027.004
-  - attack.execution
-logsource:
-  product: windows
-  category: process_creation
-detection:
-  selection:
-    Image|endswith: '\csc.exe'
-    ParentImage|endswith:
-      - '\powershell.exe'
-      - '\pwsh.exe'
-  condition: selection
-fields:
-  - Image
-  - ParentImage
-  - ParentCommandLine
-  - User
-falsepositives:
-  - Developer workstations building .NET projects from PowerShell
-  - Some DSC / Chocolatey scripts
-level: high
----
-title: Non-Installer Process Modifies Hosts File
-id: e5472cd5-sigma-004
-status: stable
-description: |
-  Detects file modification to %SystemRoot%\System32\drivers\etc\hosts by
-  any process outside a narrow allowlist of installers, update agents, and
-  domain join tools. HONESTCUE-class threats modify hosts to redirect
-  trusted CDN hostnames to attacker-controlled servers.
-references:
-  - https://attack.mitre.org/techniques/T1565/001/
-author: F0RT1KA Defense Guidance Builder
-date: 2026-04-13
-tags:
-  - attack.impact
-  - attack.t1565.001
-logsource:
-  product: windows
-  category: file_event
-detection:
-  selection:
-    TargetFilename|endswith: '\drivers\etc\hosts'
-  filter_installers:
-    Image|endswith:
-      - '\TrustedInstaller.exe'
-      - '\TiWorker.exe'
-      - '\MsiExec.exe'
-      - '\setup.exe'
-      - '\dsregcmd.exe'
-      - '\djoin.exe'
-  condition: selection and not filter_installers
-fields:
-  - Image
-  - ParentImage
-  - CommandLine
-  - User
-  - TargetFilename
-falsepositives:
-  - Enterprise software deployment / configuration management
-  - VPN clients that ship with hosts-file edits
-level: high
----
-title: Unsigned PE Drop to %TEMP% With Immediate Execution
-id: e5472cd5-sigma-005
+title: HONESTCUE Non-Browser Process Fetch from raw.githubusercontent.com
+id: 7f2a9b10-c53e-4b11-a701-2026honest01
 status: experimental
 description: |
-  Detects a process executing a PE file from a %TEMP% path where the PE
-  has no valid Authenticode signature. HONESTCUE stage 3 fetches from a
-  trusted CDN, drops to %TEMP%, and executes — the PE is unsigned.
-references:
-  - https://attack.mitre.org/techniques/T1105/
+    Detects HTTPS GET to raw.githubusercontent.com from processes that are not
+    the allowed set of browsers, git clients, curl/wget, or package managers.
+    HONESTCUE v2 fetches its Gemini-shaped JSON and stage-3 PE from GitHub raw.
 author: F0RT1KA Defense Guidance Builder
-date: 2026-04-13
+references:
+    - https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
+    - https://attack.mitre.org/techniques/T1071/001/
+    - https://attack.mitre.org/techniques/T1105/
 tags:
-  - attack.command-and-control
-  - attack.t1105
+    - attack.command_and_control
+    - attack.t1071.001
+    - attack.t1105
 logsource:
-  product: windows
-  category: process_creation
+    category: network_connection
+    product: windows
 detection:
-  selection:
-    Image|contains:
-      - '\Windows\Temp\'
-      - '\AppData\Local\Temp\'
-  filter_signed:
-    Signed: 'true'
-  condition: selection and not filter_signed
-fields:
-  - Image
-  - ParentImage
-  - CommandLine
-  - User
-  - Hashes
-falsepositives:
-  - Legacy application installers that stage temp binaries
-  - Some MSI custom actions
+    selection:
+        DestinationHostname|contains:
+            - 'raw.githubusercontent.com'
+            - 'objects.githubusercontent.com'
+    filter_browser:
+        Image|endswith:
+            - '\chrome.exe'
+            - '\msedge.exe'
+            - '\firefox.exe'
+            - '\brave.exe'
+            - '\iexplore.exe'
+            - '\opera.exe'
+            - '\Code.exe'
+            - '\devenv.exe'
+            - '\cursor.exe'
+            - '\zed.exe'
+    filter_git:
+        Image|endswith:
+            - '\git.exe'
+            - '\git-remote-https.exe'
+            - '\GitHubDesktop.exe'
+            - '\ssh.exe'
+            - '\curl.exe'
+            - '\wget.exe'
+    condition: selection and not (filter_browser or filter_git)
 level: medium
+falsepositives:
+    - Authorized internal tooling fetching GitHub-hosted configs
+    - CI runners on the endpoint
+
 ---
-title: Non-Browser Process POST to LLM API Endpoint
-id: e5472cd5-sigma-006
+title: HONESTCUE Microsoft.CodeAnalysis.CSharp.dll Loaded in Non-Dev Process
+id: 9a12bb72-e10c-4c5c-b7ef-2026honest02
 status: experimental
 description: |
-  Detects HTTPS POST requests to known LLM API endpoints
-  (generativelanguage.googleapis.com, api.openai.com, api.anthropic.com)
-  from processes not in the approved AI-tooling allowlist.
-  HONESTCUE-class malware issues POST requests to LLM APIs directly from
-  a non-browser launcher process. Tune the allowlist to your environment.
-references:
-  - https://attack.mitre.org/techniques/T1071/001/
-  - https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
+    Detects Microsoft.CodeAnalysis.CSharp.dll (Roslyn) image load in a process
+    that is not a developer tool, build server, or IDE. HONESTCUE v2 stage 2
+    is a self-contained .NET 8 exe that loads Roslyn in-process for runtime
+    compilation of LLM-sourced C# source.
 author: F0RT1KA Defense Guidance Builder
-date: 2026-04-13
-tags:
-  - attack.command-and-control
-  - attack.t1071.001
-logsource:
-  product: windows
-  category: network_connection
-detection:
-  selection:
-    DestinationHostname|contains:
-      - 'generativelanguage.googleapis.com'
-      - 'api.openai.com'
-      - 'api.anthropic.com'
-      - 'api.cohere.ai'
-  filter_allowed_clients:
-    Image|endswith:
-      - '\chrome.exe'
-      - '\msedge.exe'
-      - '\firefox.exe'
-      - '\Code.exe'
-      - '\devenv.exe'
-      - '\cursor.exe'
-      - '\windsurf.exe'
-  condition: selection and not filter_allowed_clients
-fields:
-  - Image
-  - ParentImage
-  - CommandLine
-  - User
-  - DestinationHostname
-falsepositives:
-  - Internally-developed AI tooling
-  - Custom copilot/agent integrations
-level: medium
----
-title: Trusted CDN Hostname Resolving to Loopback or RFC1918
-id: e5472cd5-sigma-007
-status: stable
-description: |
-  Detects DNS resolution or network connections where a trusted CDN
-  (cdn.discordapp.com, media.discordapp.net, github.com, raw.githubusercontent.com)
-  resolves to a loopback address or RFC1918 private address. This is a
-  strong indicator of hosts-file redirect or DNS hijack used to spoof a
-  trusted CDN.
 references:
-  - https://attack.mitre.org/techniques/T1565/001/
-  - https://attack.mitre.org/techniques/T1583/006/
-author: F0RT1KA Defense Guidance Builder
-date: 2026-04-13
+    - https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
+    - https://attack.mitre.org/techniques/T1027/004/
 tags:
-  - attack.impact
-  - attack.t1565.001
-  - attack.resource-development
-  - attack.t1583.006
+    - attack.defense_evasion
+    - attack.t1027.004
 logsource:
-  product: windows
-  category: dns_query
+    category: image_load
+    product: windows
 detection:
-  selection:
-    QueryName|contains:
-      - 'cdn.discordapp.com'
-      - 'media.discordapp.net'
-      - 'raw.githubusercontent.com'
-      - 'api.github.com'
-    QueryResults|startswith:
-      - '127.'
-      - '10.'
-      - '192.168.'
-      - '172.16.'
-      - '172.17.'
-      - '172.18.'
-      - '172.19.'
-      - '172.20.'
-      - '172.21.'
-      - '172.22.'
-      - '172.23.'
-      - '172.24.'
-      - '172.25.'
-      - '172.26.'
-      - '172.27.'
-      - '172.28.'
-      - '172.29.'
-      - '172.30.'
-      - '172.31.'
-  condition: selection
-fields:
-  - QueryName
-  - QueryResults
-  - Image
-falsepositives:
-  - Internal CDN mirroring setups
-  - Development/staging DNS overrides
+    selection:
+        ImageLoaded|endswith:
+            - '\Microsoft.CodeAnalysis.CSharp.dll'
+            - '\Microsoft.CodeAnalysis.dll'
+    filter_dev:
+        Image|endswith:
+            - '\devenv.exe'
+            - '\Code.exe'
+            - '\dotnet.exe'
+            - '\MSBuild.exe'
+            - '\csc.exe'
+            - '\rider64.exe'
+            - '\ServiceHub.Host.CLR.x64.exe'
+            - '\JetBrains.Rider.exe'
+    condition: selection and not filter_dev
 level: high
+falsepositives:
+    - In-house .NET plugin hosts that use Roslyn at runtime
+    - Scripted code-generation tools
+
+---
+title: HONESTCUE Reflective Assembly.Load(byte[]) AMSI Event
+id: b34d08e1-5627-48e0-9c54-2026honest03
+status: experimental
+description: |
+    Detects AMSI scans containing Assembly.Load invocations with a byte[]
+    argument. Canonical reflective-load pattern used by HONESTCUE stage 2
+    and many other offensive tools. Matches both Roslyn (v2) and
+    CSharpCodeProvider (v1/real-HONESTCUE) paths.
+author: F0RT1KA Defense Guidance Builder
+references:
+    - https://attack.mitre.org/techniques/T1620/
+    - https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
+tags:
+    - attack.defense_evasion
+    - attack.t1620
+logsource:
+    product: windows
+    service: amsi
+detection:
+    load_call:
+        ContentRaw|contains:
+            - '[Reflection.Assembly]::Load'
+            - 'System.Reflection.Assembly.Load'
+            - 'Assembly.Load('
+    byte_arg:
+        ContentRaw|contains:
+            - '[byte[]]'
+            - 'byte[]'
+            - 'System.Byte[]'
+    condition: load_call and byte_arg
+level: high
+falsepositives:
+    - Internally developed .NET plugin loaders
+
+---
+title: HONESTCUE Exact GTIG Prompts in Binary Strings
+id: c457fae2-98a1-4d8b-b2ab-2026honest04
+status: experimental
+description: |
+    Detects processes spawning from binaries containing verbatim GTIG-disclosed
+    HONESTCUE prompt strings. The class name "HonestcueStage2" combined with
+    signature prompt phrases is a distinctive string-level IOC. Requires
+    file-string ingestion (e.g., binstrings / process_content pipelines).
+author: F0RT1KA Defense Guidance Builder
+references:
+    - https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
+tags:
+    - attack.command_and_control
+    - attack.t1071.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_strings:
+        CommandLine|contains:
+            - 'HonestcueStage2'
+            - 'You are an expert C# developer'
+            - '.NET Framework 4.x APIs'
+    condition: selection_strings
+level: high
+falsepositives:
+    - Unlikely; the string HonestcueStage2 is highly specific
+
+---
+title: HONESTCUE PE Dropped to c:\Windows\Temp Followed by Execution
+id: d579ab34-fab2-43de-a0be-2026honest05
+status: experimental
+description: |
+    Detects a PE dropped to c:\Windows\Temp that is then executed within 10
+    minutes. HONESTCUE v2 stage 3 fetches a PE from GitHub raw and drops it
+    to c:\Windows\Temp\honestcue_payload.exe before execution.
+author: F0RT1KA Defense Guidance Builder
+references:
+    - https://attack.mitre.org/techniques/T1105/
+    - https://attack.mitre.org/techniques/T1204/002/
+tags:
+    - attack.command_and_control
+    - attack.execution
+    - attack.t1105
+    - attack.t1204.002
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_drop:
+        TargetFilename|contains: '\Windows\Temp\'
+        TargetFilename|endswith: '.exe'
+    filter_installer:
+        Image|endswith:
+            - '\TrustedInstaller.exe'
+            - '\TiWorker.exe'
+            - '\MsiExec.exe'
+            - '\setup.exe'
+            - '\OneDriveSetup.exe'
+    condition: selection_drop and not filter_installer
+level: high
+falsepositives:
+    - Installer temp directories
+    - Legitimate updater tools
+
+---
+title: HONESTCUE Process Execution from c:\Windows\Temp
+id: e68bcd45-0bc3-41cf-b3de-2026honest06
+status: experimental
+description: |
+    Detects process execution where the Image is located under c:\Windows\Temp.
+    Complements the file-drop rule; together they cover HONESTCUE v2 stage 3.
+author: F0RT1KA Defense Guidance Builder
+references:
+    - https://attack.mitre.org/techniques/T1204/002/
+tags:
+    - attack.execution
+    - attack.t1204.002
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|startswith: 'C:\Windows\Temp\'
+    filter_installer:
+        ParentImage|endswith:
+            - '\TrustedInstaller.exe'
+            - '\MsiExec.exe'
+            - '\setup.exe'
+    condition: selection and not filter_installer
+level: high
+falsepositives:
+    - Installer helpers extracted to Windows\Temp by legitimate installers
+
+---
+title: HONESTCUE Gemini-Shaped JSON with Embedded C# Source on Disk
+id: f79ade56-1cd4-4f0e-c4ef-2026honest07
+status: experimental
+description: |
+    Detects JSON files written to disk matching the Gemini generateContent
+    response schema (candidates[].content.parts[].text) with embedded C#
+    source. HONESTCUE v2 hands off the stage-2 source via such a file at
+    c:\F0\honestcue_stage2_source.cs (extracted from a prior JSON response).
+    File-based detection is an optional complement to process-based rules.
+author: F0RT1KA Defense Guidance Builder
+references:
+    - https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
+tags:
+    - attack.defense_evasion
+    - attack.t1027.004
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_path:
+        TargetFilename|endswith:
+            - '.json'
+            - '.cs'
+    selection_content:
+        # Available when the collection pipeline tails file-write content
+        FileContent|contains|all:
+            - '"candidates"'
+            - '"parts"'
+            - '"text"'
+            - 'using System'
+    condition: selection_path and selection_content
+level: medium
+falsepositives:
+    - Developer workstations handling Gemini-SDK test fixtures

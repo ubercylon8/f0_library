@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HONESTCUE (LLM-Assisted Runtime Compilation) — Kill Chain Strip</title>
+    <title>HONESTCUE v2 (LLM-Assisted Runtime Compilation) — Kill Chain Strip</title>
     <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2/cytoscape-dagre.js"></script>
@@ -109,25 +109,26 @@
     <div class="container">
         <header class="header">
             <div class="header-content">
-                <h1>HONESTCUE <span class="alias">(GTIG AI Threat Tracker, Feb 2026)</span></h1>
-                <p class="subtitle">LLM-Assisted Runtime C# Compilation — Gemini API prompt/response, in-memory compile, reflective .NET load, Discord-CDN spoof, hosts-file manipulation</p>
+                <h1>HONESTCUE v2 <span class="alias">(GTIG AI Threat Tracker, Feb 2026)</span></h1>
+                <p class="subtitle">LLM-Assisted Runtime C# Compilation — Gemini-shaped JSON on GitHub raw, Roslyn in-memory compile, reflective .NET 8 load, trusted-hosting PE drop + execute</p>
                 <div class="meta">
-                    <span class="badge badge-score">&#9733; 8.9 / 10</span>
+                    <span class="badge badge-score">&#9733; 9.4 / 10</span>
                     <span class="badge badge-sev-high">HIGH</span>
                     <span class="badge badge-uuid">e5472cd5-c799-4b07-b455-8c02665ca4cf</span>
+                    <span class="badge badge-uuid">v2.0.0</span>
                 </div>
             </div>
             <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#x263E;</button>
         </header>
 
         <div class="mitre-strip">
-            <div class="mitre-tag"><span class="tid">T1071.001</span><span class="tname">LLM API Fetch</span><span class="tactic">Command &amp; Control</span></div>
+            <div class="mitre-tag"><span class="tid">T1071.001</span><span class="tname">Web Protocols (LLM fetch)</span><span class="tactic">Command &amp; Control</span></div>
+            <div class="mitre-tag"><span class="tid">T1105</span><span class="tname">Ingress Tool Transfer</span><span class="tactic">Command &amp; Control</span></div>
             <div class="mitre-tag"><span class="tid">T1027.004</span><span class="tname">Compile After Delivery</span><span class="tactic">Defense Evasion</span></div>
             <div class="mitre-tag"><span class="tid">T1027.010</span><span class="tname">Command Obfuscation</span><span class="tactic">Defense Evasion</span></div>
             <div class="mitre-tag"><span class="tid">T1620</span><span class="tname">Reflective Code Loading</span><span class="tactic">Defense Evasion</span></div>
-            <div class="mitre-tag"><span class="tid">T1105</span><span class="tname">Ingress Tool Transfer</span><span class="tactic">Command &amp; Control</span></div>
-            <div class="mitre-tag"><span class="tid">T1583.006</span><span class="tname">Web Services (CDN)</span><span class="tactic">Resource Development</span></div>
-            <div class="mitre-tag"><span class="tid">T1565.001</span><span class="tname">Hosts-File Manipulation</span><span class="tactic">Impact</span></div>
+            <div class="mitre-tag"><span class="tid">T1204.002</span><span class="tname">User Execution: Malicious File</span><span class="tactic">Execution</span></div>
+            <div class="mitre-tag"><span class="tid">T1059.001</span><span class="tname">PowerShell (prereq)</span><span class="tactic">Execution</span></div>
         </div>
 
         <div class="diagram-panel">
@@ -144,33 +145,33 @@
 
         <div class="stage-cards">
             <div class="stage-card">
-                <div class="sc-header"><div class="sc-num">1</div><span class="sc-title">LLM API Fetch (Mock Gemini)</span></div>
-                <div class="sc-tech">T1071.001 — Application Layer Protocol: Web Protocols</div>
-                <p class="sc-desc">Spins up loopback TLS server with self-signed cert pinned client-side. Issues HONESTCUE-style HTTPS POST to a Gemini-schema endpoint; receives C# source as the response; hands off to Stage 2 on disk.</p>
-                <div class="sc-chips"><span class="chip">HTTPS POST</span><span class="chip">Gemini schema</span><span class="chip">cert pinning</span><span class="chip">x-goog-api-key</span></div>
+                <div class="sc-header"><div class="sc-num">1</div><span class="sc-title">LLM API Fetch (GitHub-Raw GET)</span></div>
+                <div class="sc-tech">T1071.001 + T1105 — Web Protocols + Ingress Tool Transfer</div>
+                <p class="sc-desc">Real HTTPS GET to raw.githubusercontent.com for a pre-staged Gemini-shaped JSON response. Produces genuine TLS+DNS+SNI IOCs; hands off the embedded C# source to Stage 2. Embeds the three exact GTIG HONESTCUE prompts as string IOCs.</p>
+                <div class="sc-chips"><span class="chip">HTTPS GET</span><span class="chip">raw.githubusercontent.com</span><span class="chip">Gemini schema</span><span class="chip">real TLS</span><span class="chip">GTIG prompts</span></div>
             </div>
             <div class="stage-card">
-                <div class="sc-header"><div class="sc-num">2</div><span class="sc-title">In-Memory Compile &amp; Reflective Load</span></div>
+                <div class="sc-header"><div class="sc-num">2</div><span class="sc-title">Roslyn In-Memory Compile &amp; Reflective Load</span></div>
                 <div class="sc-tech">T1027.004 / T1027.010 / T1620 — Compile After Delivery + Reflective Load</div>
-                <p class="sc-desc">Invokes powershell.exe + CSharpCodeProvider (GenerateInMemory=true) to compile the LLM-sourced C#, reflectively loads via Assembly.Load(byte[]), invokes Run() which reads HKLM Defender subkey and writes marker to ARTIFACT_DIR.</p>
-                <div class="sc-chips"><span class="chip">CSharpCodeProvider</span><span class="chip">GenerateInMemory</span><span class="chip">Assembly.Load(byte[])</span><span class="chip">csc.exe</span></div>
+                <p class="sc-desc">Native C# .NET 8 self-contained single-file exe uses Microsoft.CodeAnalysis.CSharp (Roslyn) CSharpCompilation.Create + Emit(MemoryStream) to compile the LLM-sourced C# in-memory. Assembly.Load(byte[]) reflectively loads the result; invokes Run() which reads HKLM Defender subkey and writes marker to ARTIFACT_DIR. No csc.exe spawned — Roslyn compiles in-process.</p>
+                <div class="sc-chips"><span class="chip">Roslyn</span><span class="chip">CSharpCompilation</span><span class="chip">Assembly.Load(byte[])</span><span class="chip">.NET 8 self-contained</span></div>
             </div>
             <div class="stage-card">
-                <div class="sc-header"><div class="sc-num">3</div><span class="sc-title">Discord CDN Spoof &amp; Unsigned PE Drop</span></div>
-                <div class="sc-tech">T1105 / T1583.006 / T1565.001 — Ingress Tool Transfer + Web Services + Hosts Manipulation</div>
-                <p class="sc-desc">Backs up and modifies C:\Windows\System32\drivers\etc\hosts to redirect cdn.discordapp.com to 127.0.0.1; spins up loopback Discord-CDN lookalike; HTTPS GET for attachment URL; drops UNSIGNED PE to %TEMP%; executes. Hosts file restored on every exit path.</p>
-                <div class="sc-chips"><span class="chip">hosts redirect</span><span class="chip">cdn.discordapp.com</span><span class="chip">unsigned PE</span><span class="chip">%TEMP% drop</span></div>
+                <div class="sc-header"><div class="sc-num">3</div><span class="sc-title">GitHub-Raw PE Fetch &amp; Execute</span></div>
+                <div class="sc-tech">T1105 + T1204.002 — Ingress Tool Transfer + User Execution: Malicious File</div>
+                <p class="sc-desc">Real HTTPS GET to raw.githubusercontent.com for a pre-staged F0RT1KA-signed benign marker PE. Drops to c:\Windows\Temp\honestcue_payload.exe and executes. No hosts-file modification; no admin context required.</p>
+                <div class="sc-chips"><span class="chip">GitHub raw</span><span class="chip">trusted hosting</span><span class="chip">c:\Windows\Temp</span><span class="chip">PE drop + exec</span></div>
             </div>
         </div>
 
         <div class="outcomes">
             <div class="outcome prot">
                 <h3>&#x2705; Protected <span class="code">(Exit 126)</span></h3>
-                <p>EDR detected and blocked at least one stage — most likely T1027.004 (CSharpCodeProvider compile), T1620 (Assembly.Load byte[] AMSI event), or T1565.001 (hosts-file write by non-installer).</p>
+                <p>EDR detected and blocked at least one stage — most likely T1027.004 (Roslyn image load in non-dev process), T1620 (Assembly.Load byte[] AMSI event), T1105 (fetch from raw.githubusercontent.com by non-browser process), or T1204.002 (process exec from c:\Windows\Temp).</p>
             </div>
             <div class="outcome unprot">
                 <h3>&#x26A0; Unprotected <span class="code">(Exit 101)</span></h3>
-                <p>All 3 stages executed without EDR intervention. Full HONESTCUE LLM-abuse chain succeeded: marker files present in c:\Users\fortika-test.</p>
+                <p>All 3 stages executed without EDR intervention. Full HONESTCUE v2 LLM-abuse chain succeeded: marker files present in c:\Users\fortika-test (honestcue_marker.txt + honestcue_payload_marker.txt).</p>
             </div>
         </div>
     </div>
@@ -185,15 +186,15 @@
         container: document.getElementById('cy'),
         elements: [
             { data: { id: 'deploy', label: 'DEPLOY\nc:\\F0', type: 'orchestrator' } },
-            { data: { id: 'prereq', label: 'PREREQ CHECK\nadmin + .NET4\nhosts backup', type: 'orchestrator' } },
+            { data: { id: 'prereq', label: 'PREREQ CHECK\npowershell.exe', type: 'orchestrator' } },
             { data: { id: 'extract', label: 'EXTRACT\n3 stages', type: 'orchestrator' } },
-            { data: { id: 's1', label: 'STAGE 1\nMock Gemini\nT1071.001', type: 'stage', stage: 1 } },
-            { data: { id: 's2', label: 'STAGE 2\nCompile+ReflectLoad\nT1027.004 / T1620', type: 'stage', stage: 2 } },
-            { data: { id: 's3', label: 'STAGE 3\nCDN Spoof + PE Drop\nT1105 / T1565.001', type: 'stage', stage: 3 } },
+            { data: { id: 's1', label: 'STAGE 1\nGitHub-Raw GET\nT1071.001 + T1105', type: 'stage', stage: 1 } },
+            { data: { id: 's2', label: 'STAGE 2\nRoslyn Compile+ReflectLoad\nT1027.004 / T1620', type: 'stage', stage: 2 } },
+            { data: { id: 's3', label: 'STAGE 3\nGitHub-Raw PE Drop+Exec\nT1105 / T1204.002', type: 'stage', stage: 3 } },
             { data: { id: 'success', label: 'EXIT 101\nUNPROTECTED', type: 'unprotected' } },
-            { data: { id: 'p1', label: '126\nLLM fetch blocked', type: 'protected' } },
-            { data: { id: 'p2', label: '126\nCompile/Load blocked', type: 'protected' } },
-            { data: { id: 'p3', label: '126\nCDN/hosts blocked', type: 'protected' } },
+            { data: { id: 'p1', label: '126\nGitHub fetch blocked', type: 'protected' } },
+            { data: { id: 'p2', label: '126\nRoslyn/Load blocked', type: 'protected' } },
+            { data: { id: 'p3', label: '126\nPE drop/exec blocked', type: 'protected' } },
             { data: { source: 'deploy', target: 'prereq' } },
             { data: { source: 'prereq', target: 'extract' } },
             { data: { source: 'extract', target: 's1' } },

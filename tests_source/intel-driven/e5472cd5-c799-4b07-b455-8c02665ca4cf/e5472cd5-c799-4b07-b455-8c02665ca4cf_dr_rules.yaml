@@ -2,20 +2,20 @@
 # DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
 # ============================================================================
 # Test ID: e5472cd5-c799-4b07-b455-8c02665ca4cf
-# Test Name: HONESTCUE LLM-Assisted Runtime C# Compilation
-# MITRE ATT&CK: T1071.001, T1027.004, T1027.010, T1620, T1105, T1583.006, T1565.001
+# Test Name: HONESTCUE v2 LLM-Assisted Runtime C# Compilation
+# MITRE ATT&CK: T1071.001, T1027.004, T1027.010, T1620, T1105, T1204.002
 # Threat Actor: N/A (unattributed per GTIG)
-# Created: 2026-04-13
+# Created: 2026-04-13 (v2)
 # Author: F0RT1KA Defense Guidance Builder
 # Format: LimaCharlie file format (for `limacharlie dr add`)
 # ============================================================================
 #
 # TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
 # These D&R rules detect the underlying HONESTCUE-class TTPs (LLM-as-runtime
-# C# source delivery, in-memory CSharpCodeProvider compilation, reflective
-# Assembly.Load, Discord-CDN abuse, hosts-file manipulation), NOT the F0RT1KA
-# test framework. Real-world attackers using equivalent tooling will trigger
-# these rules.
+# C# source delivery via trusted-hosting CDN, in-memory Roslyn compilation,
+# reflective Assembly.Load, PE drop-and-execute from c:\Windows\Temp), NOT
+# the F0RT1KA test framework. Real-world attackers using equivalent tooling
+# will trigger these rules.
 #
 # DEPLOYMENT:
 #   limacharlie dr add -f e5472cd5-c799-4b07-b455-8c02665ca4cf_dr_rules.yaml
@@ -25,9 +25,10 @@
 rules:
 
   # ==========================================================================
-  # RULE 1: PowerShell invokes CSharpCodeProvider with GenerateInMemory
-  # Purpose: Detect the HONESTCUE stage-2 signature — PowerShell compiling
-  #          C# via System.CodeDom at runtime.
+  # RULE 1: PowerShell invokes CSharpCodeProvider with GenerateInMemory (legacy)
+  # Purpose: Detect HONESTCUE stage-2 signature on .NET Framework 4.x hosts —
+  #          PowerShell compiling C# via System.CodeDom at runtime. Kept for
+  #          real-HONESTCUE matching on Win7/Server2012/older Win10.
   # Confidence: HIGH
   # MITRE ATT&CK: T1027.004, T1620
   # ==========================================================================
@@ -46,184 +47,235 @@ rules:
           case sensitive: false
     respond:
       - action: report
-        name: HONESTCUE-Class PowerShell In-Memory C# Compile
+        name: HONESTCUE-Class PowerShell In-Memory C# Compile (Legacy)
         metadata:
-          severity: high
-          category: defense-evasion
-          attack-technique: T1027.004
-          description: PowerShell invoked CSharpCodeProvider with GenerateInMemory=true — runtime C# compilation pattern
+          tactic: Defense Evasion
+          technique: T1027.004
+          severity: 4
+          confidence: high
 
   # ==========================================================================
-  # RULE 2: Reflective Assembly.Load(byte[]) in PowerShell
-  # Purpose: Detect `[System.Reflection.Assembly]::Load([byte[]] ...)` pattern.
+  # RULE 2: Microsoft.CodeAnalysis.CSharp.dll loaded in non-dev process (Roslyn)
+  # Purpose: Detect HONESTCUE v2 stage-2 signature on .NET 8 hosts — the Roslyn
+  #          compiler loaded by a process that is not a developer tool.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1027.004
+  # ==========================================================================
+  honestcue-roslyn-loaded-nondev:
+    detect:
+      event: MODULE_LOAD
+      op: and
+      rules:
+        - op: ends with
+          path: event/MODULE_NAME
+          value: Microsoft.CodeAnalysis.CSharp.dll
+          case sensitive: false
+        - op: is not
+          not: true
+          path: event/FILE_PATH
+          values:
+            - devenv.exe
+            - Code.exe
+            - dotnet.exe
+            - MSBuild.exe
+            - csc.exe
+            - rider64.exe
+            - ServiceHub.Host.CLR.x64.exe
+            - JetBrains.Rider.exe
+          case sensitive: false
+    respond:
+      - action: report
+        name: HONESTCUE v2 Roslyn Load in Non-Dev Process
+        metadata:
+          tactic: Defense Evasion
+          technique: T1027.004
+          severity: 4
+          confidence: high
+
+  # ==========================================================================
+  # RULE 3: Reflective Assembly.Load(byte[])
+  # Purpose: Canonical reflective-load primitive used by HONESTCUE stage 2 on
+  #          both legacy and modern runtimes.
   # Confidence: HIGH
   # MITRE ATT&CK: T1620
   # ==========================================================================
-  honestcue-ps-reflective-assembly-load-bytearr:
+  honestcue-reflective-assembly-load:
     detect:
       event: SCRIPT_BLOCK
       op: and
       rules:
+        - op: contains
+          path: event/SCRIPT
+          value: Assembly
+          case sensitive: false
+        - op: contains
+          path: event/SCRIPT
+          value: "::Load"
+          case sensitive: false
         - op: matches
           path: event/SCRIPT
-          re: (?i)(System\.Reflection\.|Reflection\.)?Assembly(\.|::)Load
-        - op: matches
-          path: event/SCRIPT
-          re: (?i)(\[byte\[\]\]|System\.Byte\[\])
+          re: "(?i)(\\[byte\\[\\]\\]|System\\.Byte\\[\\]|byte\\[\\])"
     respond:
       - action: report
-        name: Reflective Assembly.Load(byte[]) in PowerShell
+        name: Reflective Assembly.Load(byte[])
         metadata:
-          severity: high
-          category: defense-evasion
-          attack-technique: T1620
-          description: PowerShell invoked Assembly.Load with byte[] argument — reflective .NET load
+          tactic: Defense Evasion
+          technique: T1620
+          severity: 4
+          confidence: high
 
   # ==========================================================================
-  # RULE 3: csc.exe spawned by powershell.exe
-  # Purpose: Detect the process-tree byproduct of CSharpCodeProvider.
-  # Confidence: HIGH
-  # MITRE ATT&CK: T1027.004
-  # ==========================================================================
-  honestcue-csc-child-of-powershell:
-    detect:
-      event: NEW_PROCESS
-      op: and
-      rules:
-        - op: ends with
-          path: event/FILE_PATH
-          value: \csc.exe
-          case sensitive: false
-        - op: ends with
-          path: event/PARENT/FILE_PATH
-          value: \powershell.exe
-          case sensitive: false
-    respond:
-      - action: report
-        name: csc.exe spawned by powershell.exe
-        metadata:
-          severity: high
-          category: defense-evasion
-          attack-technique: T1027.004
-          description: C# compiler invoked by PowerShell — CSharpCodeProvider byproduct
-
-  # ==========================================================================
-  # RULE 4: Non-installer write to hosts file
-  # Purpose: Detect hosts-file modification by any process outside allowlist.
-  # Confidence: HIGH
-  # MITRE ATT&CK: T1565.001
-  # ==========================================================================
-  honestcue-hosts-file-write-noninstaller:
-    detect:
-      event: FILE_CREATE
-      op: and
-      rules:
-        - op: ends with
-          path: event/FILE_PATH
-          value: \Windows\System32\drivers\etc\hosts
-          case sensitive: false
-        - op: is
-          not: true
-          path: event/PARENT/FILE_PATH
-          values:
-            - C:\Windows\servicing\TrustedInstaller.exe
-            - C:\Windows\WinSxS\amd64_microsoft-windows-servicingstack_*\TiWorker.exe
-            - C:\Windows\System32\msiexec.exe
-            - C:\Windows\System32\dsregcmd.exe
-            - C:\Windows\System32\djoin.exe
-    respond:
-      - action: report
-        name: Non-installer process modified hosts file
-        metadata:
-          severity: high
-          category: impact
-          attack-technique: T1565.001
-          description: Hosts file written by non-installer process — possible CDN redirect manipulation
-
-  # ==========================================================================
-  # RULE 5: Unsigned PE drop to %TEMP%
-  # Purpose: Detect PE file creation in temp paths where the PE has no valid
-  #          Authenticode signature.
+  # RULE 4: Non-browser / non-git process connects to raw.githubusercontent.com
+  # Purpose: HONESTCUE v2 fetches Gemini-shaped JSON and stage-3 PE from
+  #          raw.githubusercontent.com. Match on TLS connection by process
+  #          not in the allowlist of browsers/git clients.
   # Confidence: MEDIUM
-  # MITRE ATT&CK: T1105
+  # MITRE ATT&CK: T1071.001, T1105
   # ==========================================================================
-  honestcue-unsigned-pe-drop-to-temp:
+  honestcue-github-raw-nonbrowser:
     detect:
-      event: NEW_PROCESS
+      event: NETWORK_CONNECTIONS
       op: and
       rules:
-        - op: matches
+        - op: contains
+          path: event/DOMAIN_NAME
+          value: raw.githubusercontent.com
+          case sensitive: false
+        - op: is not
+          not: true
           path: event/FILE_PATH
-          re: (?i)(\\Windows\\Temp\\|\\AppData\\Local\\Temp\\).*\.exe$
-        - op: is
-          path: event/SIGNATURE/TRUSTED
-          value: false
+          values:
+            - chrome.exe
+            - msedge.exe
+            - firefox.exe
+            - brave.exe
+            - Code.exe
+            - devenv.exe
+            - git.exe
+            - GitHubDesktop.exe
+            - curl.exe
+            - wget.exe
+            - ssh.exe
+          case sensitive: false
     respond:
       - action: report
-        name: Unsigned PE executed from %TEMP%
+        name: HONESTCUE v2 GitHub-Raw Fetch from Non-Browser Process
         metadata:
-          severity: medium
-          category: command-and-control
-          attack-technique: T1105
-          description: Unsigned PE executed from %TEMP% — possible staged payload
+          tactic: Command and Control
+          technique: T1071.001
+          severity: 3
+          confidence: medium
 
   # ==========================================================================
-  # RULE 6: Non-browser process to LLM API endpoint
-  # Purpose: Detect DNS queries or connections to LLM API hostnames from
-  #          processes outside the approved AI-tooling allowlist.
-  # Confidence: MEDIUM (tune allowlist)
+  # RULE 5: Non-browser LLM API invocation
+  # Purpose: Direct-from-PE HTTPS POST to Gemini/OpenAI/Anthropic endpoints.
+  #          Kept for v1 compatibility and for matching real-HONESTCUE
+  #          campaigns that still POST directly to Gemini.
+  # Confidence: MEDIUM
   # MITRE ATT&CK: T1071.001
   # ==========================================================================
-  honestcue-nonbrowser-llm-api-contact:
+  honestcue-llm-api-nonbrowser:
     detect:
-      event: DNS_REQUEST
+      event: NETWORK_CONNECTIONS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: generativelanguage.googleapis.com
+              case sensitive: false
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: api.openai.com
+              case sensitive: false
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: api.anthropic.com
+              case sensitive: false
+        - op: is not
+          not: true
+          path: event/FILE_PATH
+          values:
+            - chrome.exe
+            - msedge.exe
+            - firefox.exe
+            - brave.exe
+            - Code.exe
+            - devenv.exe
+            - cursor.exe
+            - zed.exe
+          case sensitive: false
+    respond:
+      - action: report
+        name: Non-Browser Process Issues HTTPS Connection to LLM API
+        metadata:
+          tactic: Command and Control
+          technique: T1071.001
+          severity: 3
+          confidence: medium
+
+  # ==========================================================================
+  # RULE 6: PE written to c:\Windows\Temp by non-installer process
+  # Purpose: HONESTCUE v2 stage 3 drops a fetched PE to c:\Windows\Temp and
+  #          executes. Detect the drop by any non-installer process.
+  # Confidence: MEDIUM-HIGH
+  # MITRE ATT&CK: T1105
+  # ==========================================================================
+  honestcue-temp-pe-drop:
+    detect:
+      event: NEW_DOCUMENT
       op: and
       rules:
         - op: matches
-          path: event/DOMAIN_NAME
-          re: (?i)(generativelanguage\.googleapis\.com|api\.openai\.com|api\.anthropic\.com|api\.cohere\.ai)
-        - op: is
+          path: event/FILE_PATH
+          re: '(?i)c:\\Windows\\Temp\\.*\.exe$'
+        - op: is not
           not: true
           path: event/PROCESS/FILE_PATH
           values:
-            - C:\Program Files\Google\Chrome\Application\chrome.exe
-            - C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
-            - C:\Program Files\Mozilla Firefox\firefox.exe
-            - C:\Users\*\AppData\Local\Programs\Microsoft VS Code\Code.exe
-            - C:\Program Files\Microsoft VS Code\Code.exe
-            - C:\Users\*\AppData\Local\Programs\cursor\Cursor.exe
+            - TrustedInstaller.exe
+            - TiWorker.exe
+            - MsiExec.exe
+            - setup.exe
+            - OneDriveSetup.exe
+          case sensitive: false
     respond:
       - action: report
-        name: Non-browser process resolving LLM API hostname
+        name: PE Written to c:\Windows\Temp by Non-Installer
         metadata:
-          severity: medium
-          category: command-and-control
-          attack-technique: T1071.001
-          description: Non-browser process queried DNS for a cloud LLM API — tune allowlist
+          tactic: Command and Control
+          technique: T1105
+          severity: 4
+          confidence: high
 
   # ==========================================================================
-  # RULE 7: Trusted CDN hostname resolves to loopback/RFC1918
-  # Purpose: Detect DNS responses where trusted CDN hostname returns a
-  #          non-routable address (hosts-file redirect or DNS hijack).
-  # Confidence: HIGH
-  # MITRE ATT&CK: T1565.001, T1583.006
+  # RULE 7: Process executes from c:\Windows\Temp
+  # Purpose: HONESTCUE v2 stage 3 executes the dropped PE from c:\Windows\Temp.
+  # Confidence: MEDIUM-HIGH
+  # MITRE ATT&CK: T1204.002
   # ==========================================================================
-  honestcue-cdn-resolves-loopback:
+  honestcue-temp-pe-exec:
     detect:
-      event: DNS_REQUEST
+      event: NEW_PROCESS
       op: and
       rules:
         - op: matches
-          path: event/DOMAIN_NAME
-          re: (?i)(cdn\.discordapp\.com|media\.discordapp\.net|raw\.githubusercontent\.com|api\.github\.com)
-        - op: matches
-          path: event/IP_ADDRESS
-          re: ^(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1)
+          path: event/FILE_PATH
+          re: '(?i)c:\\Windows\\Temp\\.*\.exe$'
+        - op: is not
+          not: true
+          path: event/PARENT/FILE_PATH
+          values:
+            - TrustedInstaller.exe
+            - MsiExec.exe
+            - setup.exe
+          case sensitive: false
     respond:
       - action: report
-        name: Trusted CDN hostname resolved to loopback or RFC1918
+        name: Process Execution from c:\Windows\Temp
         metadata:
-          severity: high
-          category: impact
-          attack-technique: T1565.001
-          description: Trusted CDN resolved to non-routable address — hosts-file redirect or DNS hijack indicator
+          tactic: Execution
+          technique: T1204.002
+          severity: 4
+          confidence: high

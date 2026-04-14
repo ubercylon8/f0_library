@@ -3,19 +3,28 @@
 
 /*
 ID: e5472cd5-c799-4b07-b455-8c02665ca4cf
-NAME: HONESTCUE LLM-Assisted Runtime C# Compilation
-TECHNIQUES: T1071.001, T1027.004, T1027.010, T1620, T1105, T1583.006, T1565.001
-TACTICS: command-and-control, defense-evasion, execution, resource-development, impact
+NAME: HONESTCUE LLM-Assisted Runtime C# Compilation (v2)
+TECHNIQUES: T1071.001, T1027.004, T1027.010, T1620, T1105, T1204.002, T1059.001
+TACTICS: command-and-control, defense-evasion, execution
 SEVERITY: high
 TARGET: windows-endpoint
-COMPLEXITY: high
+COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: apt
-TAGS: honestcue, llm-abuse, gemini-api, ai-as-runtime, runtime-compilation, reflective-load, discord-cdn-abuse, hosts-file-manipulation, multi-stage, killchain
+TAGS: honestcue, llm-abuse, gemini-api, ai-as-runtime, runtime-compilation, reflective-load, github-raw, roslyn, dotnet-8, real-tls, exact-gtig-prompts, multi-stage, killchain
 SOURCE_URL: https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use
 UNIT: response
 CREATED: 2026-04-13
 AUTHOR: sectest-builder
+
+v2 CHANGES (2026-04-13):
+  - Stage 1 POST -> GET against raw.githubusercontent.com (real TLS+DNS IOCs)
+  - Stage 2 Go+powershell+CSharpCodeProvider -> native C# .NET 8 self-contained
+    + Roslyn in-memory compile + Assembly.Load(byte[])
+  - Stage 3 Discord-CDN hosts-file spoof removed; simple GitHub-raw PE fetch + exec
+  - Admin prerequisite removed (no hosts-file modification needed)
+  - T1583.006 (Discord CDN) + T1565.001 (hosts file) removed; T1204.002 added
+  - See _info.md "Changes from v1" and "Roslyn vs CSharpCodeProvider"
 
 NOTE ON SUBCATEGORY:
   Using `apt` for compatibility with existing CLAUDE.md enum. A new
@@ -50,10 +59,7 @@ import (
 
 const (
 	TEST_UUID = "e5472cd5-c799-4b07-b455-8c02665ca4cf"
-	TEST_NAME = "HONESTCUE LLM-Assisted Runtime C# Compilation"
-
-	HOSTS_PATH   = `C:\Windows\System32\drivers\etc\hosts`
-	HOSTS_BACKUP = `C:\F0\hosts.bak`
+	TEST_NAME = "HONESTCUE LLM-Assisted Runtime C# Compilation (v2)"
 )
 
 // Embed gzip-compressed signed stage binaries
@@ -82,13 +88,17 @@ type KillchainStage struct {
 	Description string
 }
 
-// ==============================================================================
-// HOSTS-FILE SAFETY STATE
-// ==============================================================================
-
-var (
-	hostsBackedUp bool
-)
+// Temp files we drop across the chain; cleaned best-effort on exit.
+var tempFiles = []string{
+	`c:\F0\honestcue_stage2_source.cs`,
+	`c:\F0\stage1_network.log`,
+	`c:\F0\stage2_roslyn.log`,
+	`c:\F0\stage3_network.log`,
+	`c:\F0\T1071.001_output.txt`,
+	`c:\F0\T1027.004_output.txt`,
+	`c:\F0\T1105_output.txt`,
+	`C:\Windows\Temp\honestcue_payload.exe`,
+}
 
 // ==============================================================================
 // MAIN FUNCTION
@@ -96,20 +106,20 @@ var (
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.0.0",
+		Version:    "2.0.0",
 		Category:   "defense_evasion",
 		Severity:   "high",
-		Techniques: []string{"T1071.001", "T1027.004", "T1027.010", "T1620", "T1105", "T1583.006", "T1565.001"},
-		Tactics:    []string{"command-and-control", "defense-evasion", "execution", "resource-development", "impact"},
-		Score:      8.9,
+		Techniques: []string{"T1071.001", "T1027.004", "T1027.010", "T1620", "T1105", "T1204.002", "T1059.001"},
+		Tactics:    []string{"command-and-control", "defense-evasion", "execution"},
+		Score:      9.4,
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8,
+			RealWorldAccuracy:       2.9,
 			TechnicalSophistication: 3.0,
-			SafetyMechanisms:        1.6,
+			SafetyMechanisms:        1.8,
 			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.5,
+			LoggingObservability:    0.7,
 		},
-		Tags: []string{"honestcue", "llm-abuse", "gemini-api", "ai-as-runtime", "multi-stage", "killchain"},
+		Tags: []string{"honestcue", "llm-abuse", "gemini-api", "ai-as-runtime", "github-raw", "roslyn", "dotnet-8", "real-tls", "exact-gtig-prompts", "multi-stage", "killchain"},
 	}
 
 	orgInfo := ResolveOrganization("")
@@ -127,9 +137,8 @@ func main() {
 
 	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
 
-	// Install panic recovery that still restores hosts file
+	// Install panic recovery with best-effort cleanup of temp files.
 	defer func() {
-		restoreHostsFile()
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Test panic: %v", r))
@@ -137,18 +146,17 @@ func main() {
 		}
 	}()
 
-	// Install signal handler for Ctrl+C / termination to restore hosts
+	// Install signal handler for Ctrl+C / termination.
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		LogMessage("WARN", "Runtime", "Received termination signal - restoring hosts file")
-		restoreHostsFile()
+		LogMessage("WARN", "Runtime", "Received termination signal - exiting")
 		os.Exit(999)
 	}()
 
 	Endpoint.Say("=================================================================")
-	Endpoint.Say("F0RT1KA Multi-Stage Test: %s", TEST_NAME)
+	Endpoint.Say("F0RT1KA Multi-Stage Test (v2): %s", TEST_NAME)
 	Endpoint.Say("Test UUID: %s", TEST_UUID)
 	Endpoint.Say("Reference: GTIG AI Threat Tracker (Feb 2026) - HONESTCUE")
 	Endpoint.Say("=================================================================")
@@ -162,74 +170,52 @@ func main() {
 // ==============================================================================
 
 func test() {
-	// Prerequisite 1: Administrator context (required for hosts-file manipulation in stage 3)
-	if !isAdmin() {
-		Endpoint.Say("[!] Prerequisite failed: administrator context required for hosts-file modification")
-		LogMessage("ERROR", "Prerequisites", "Test requires administrator context (hosts-file write)")
-		SaveLog(Endpoint.UnexpectedTestError, "Missing prerequisite: administrator context")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-		return
-	}
-	LogMessage("INFO", "Prerequisites", "Administrator context confirmed")
-
-	// Prerequisite 2: powershell.exe available
+	// Prerequisite: powershell.exe available (stage-2 Roslyn is self-contained,
+	// but Roslyn runtime on some Windows SKUs reaches powershell via AppContext
+	// probe in rare edge cases; also useful for optional diagnostic commands).
+	// NOTE: the stage-2 C# binary itself is SELF-CONTAINED .NET 8 — it does NOT
+	// require an external .NET runtime. The powershell prereq is kept only as
+	// a sanity check for the target host being a real Windows box.
 	if _, err := exec.LookPath("powershell.exe"); err != nil {
 		Endpoint.Say("[!] Prerequisite failed: powershell.exe not available")
-		LogMessage("ERROR", "Prerequisites", "powershell.exe not in PATH - required for stage 2")
+		LogMessage("ERROR", "Prerequisites", "powershell.exe not in PATH - target host may not be Windows")
 		SaveLog(Endpoint.UnexpectedTestError, "Missing prerequisite: powershell.exe")
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 		return
 	}
-	LogMessage("INFO", "Prerequisites", "powershell.exe located")
-
-	// Prerequisite 3: .NET Framework 4.x System.CodeDom assembly (required for stage 2 compile)
-	if !hasDotNetFramework() {
-		Endpoint.Say("[!] Prerequisite failed: .NET Framework 4.x not detected (CSharpCodeProvider unavailable)")
-		LogMessage("ERROR", "Prerequisites", ".NET Framework 4.x required for CSharpCodeProvider")
-		SaveLog(Endpoint.UnexpectedTestError, "Missing prerequisite: .NET Framework 4.x")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-		return
-	}
-	LogMessage("INFO", "Prerequisites", ".NET Framework 4.x detected")
-
-	// Back up hosts file BEFORE any stage runs so stage 3 failures never corrupt it
-	if err := backupHostsFile(); err != nil {
-		Endpoint.Say("[!] Failed to back up hosts file: %v", err)
-		LogMessage("ERROR", "Prerequisites", fmt.Sprintf("Hosts backup failed: %v", err))
-		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Hosts backup failed: %v", err))
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-		return
-	}
+	LogMessage("INFO", "Prerequisites", "powershell.exe located (Windows host confirmed)")
 
 	killchain := []KillchainStage{
 		{
 			ID:         1,
-			Name:       "LLM API Fetch (Mock Gemini)",
+			Name:       "LLM API Fetch (GitHub-Raw GET)",
 			Technique:  "T1071.001",
 			BinaryName: fmt.Sprintf("%s-T1071.001.exe", TEST_UUID),
 			BinaryData: stage1Compressed,
-			Description: "Spin up loopback mock LLM server with self-signed cert; issue HTTPS POST " +
-				"to simulate HONESTCUE's Gemini API prompt; write returned C# source to disk for handoff",
+			Description: "Real HTTPS GET to raw.githubusercontent.com for pre-staged " +
+				"Gemini-shaped JSON response containing C# source; produces real TLS+DNS IOCs; " +
+				"hands off C# source to stage 2 via disk",
 		},
 		{
 			ID:         2,
-			Name:       "In-Memory C# Compile & Reflective Load",
+			Name:       "Roslyn In-Memory Compile & Reflective Load",
 			Technique:  "T1027.004",
 			BinaryName: fmt.Sprintf("%s-T1027.004.exe", TEST_UUID),
 			BinaryData: stage2Compressed,
-			Description: "Compile the LLM-sourced C# via powershell.exe + CSharpCodeProvider " +
-				"(GenerateInMemory=true), reflectively load the assembly, read Defender registry " +
-				"subkey, write marker to ARTIFACT_DIR; covers T1027.004 + T1027.010 + T1620",
+			Description: "Native C# .NET 8 self-contained executable uses Microsoft.CodeAnalysis.CSharp " +
+				"(Roslyn) CSharpCompilation.Create + Emit(MemoryStream) to compile the LLM-sourced " +
+				"C# in-memory, Assembly.Load(byte[]) reflective load, invokes Run() which reads " +
+				"Defender registry subkey and writes marker to ARTIFACT_DIR; covers T1027.004 + " +
+				"T1027.010 + T1620",
 		},
 		{
 			ID:         3,
-			Name:       "Discord CDN Spoof & Unsigned PE Drop",
+			Name:       "GitHub-Raw PE Fetch & Execute",
 			Technique:  "T1105",
 			BinaryName: fmt.Sprintf("%s-T1105.exe", TEST_UUID),
 			BinaryData: stage3Compressed,
-			Description: "Modify hosts file to redirect cdn.discordapp.com to 127.0.0.1; spin up " +
-				"loopback Discord-CDN lookalike with self-signed cert; HTTPS GET; drop UNSIGNED " +
-				"benign marker PE to %TEMP%; execute; covers T1105 + T1583.006 + T1565.001",
+			Description: "Real HTTPS GET to raw.githubusercontent.com for pre-staged F0RT1KA-signed " +
+				"benign marker PE; drop to c:\\Windows\\Temp; execute; covers T1105 + T1204.002",
 		},
 	}
 
@@ -255,7 +241,7 @@ func test() {
 
 	// Initialize per-stage bundle results for ES fan-out
 	stageSeverity := "high"
-	stageTactics := []string{"command-and-control", "defense-evasion", "execution", "resource-development", "impact"}
+	stageTactics := []string{"command-and-control", "defense-evasion", "execution"}
 	stageResults := make([]StageBundleDef, len(killchain))
 	for i, stage := range killchain {
 		stageResults[i] = StageBundleDef{
@@ -269,7 +255,7 @@ func test() {
 	}
 
 	// Execute killchain
-	Endpoint.Say("[*] Executing %d-stage HONESTCUE LLM-abuse killchain...", len(killchain))
+	Endpoint.Say("[*] Executing %d-stage HONESTCUE v2 killchain...", len(killchain))
 	Endpoint.Say("")
 
 	for idx, stage := range killchain {
@@ -302,7 +288,7 @@ func test() {
 			Endpoint.Say("=================================================================")
 			Endpoint.Say("")
 
-			restoreHostsFile()
+			cleanupTempFiles()
 			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("EDR blocked at stage %d: %s (%s)", stage.ID, stage.Name, stage.Technique))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
@@ -319,7 +305,7 @@ func test() {
 			Endpoint.Say("    Exit Code: %d", exitCode)
 			Endpoint.Say("")
 
-			restoreHostsFile()
+			cleanupTempFiles()
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage %d (%s) failed with exit code %d", stage.ID, stage.Technique, exitCode))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
@@ -344,21 +330,21 @@ func test() {
 	Endpoint.Say("=================================================================")
 	Endpoint.Say("RESULT: VULNERABLE")
 	Endpoint.Say("")
-	Endpoint.Say("CRITICAL: Complete HONESTCUE LLM-abuse chain executed without prevention")
+	Endpoint.Say("CRITICAL: Complete HONESTCUE v2 chain executed without prevention")
 	Endpoint.Say("  Stages Completed: %d/%d", len(killchain), len(killchain))
 	for _, stage := range killchain {
 		Endpoint.Say("  Stage %d: %s (%s)", stage.ID, stage.Name, stage.Technique)
 	}
 	Endpoint.Say("")
 	Endpoint.Say("Security Impact: HIGH")
-	Endpoint.Say("  LLM API abused as runtime C# source provider")
-	Endpoint.Say("  In-memory C# compile + reflective .NET assembly load")
-	Endpoint.Say("  Discord CDN trust abuse + hosts-file redirect + unsigned PE drop")
+	Endpoint.Say("  LLM API abused as runtime C# source provider (Gemini-shaped JSON on GitHub raw)")
+	Endpoint.Say("  In-memory Roslyn compile + reflective .NET 8 assembly load")
+	Endpoint.Say("  Trusted-hosting (GitHub raw) abused for signed-PE staging")
 	Endpoint.Say("=================================================================")
 	Endpoint.Say("")
 
-	restoreHostsFile()
-	SaveLog(Endpoint.Unprotected, fmt.Sprintf("All %d stages completed - complete HONESTCUE chain successful", len(killchain)))
+	cleanupTempFiles()
+	SaveLog(Endpoint.Unprotected, fmt.Sprintf("All %d stages completed - complete HONESTCUE v2 chain successful", len(killchain)))
 	WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
 	Endpoint.Stop(Endpoint.Unprotected)
 }
@@ -457,57 +443,16 @@ func executeKillchainStage(stage KillchainStage) int {
 	return 0
 }
 
-// ==============================================================================
-// HOSTS FILE SAFETY
-// ==============================================================================
-
-// backupHostsFile copies the current hosts file to C:\F0\hosts.bak so we can
-// always restore it even if stage 3 crashes mid-write.
-func backupHostsFile() error {
-	if err := os.MkdirAll(`c:\F0`, 0755); err != nil {
-		return fmt.Errorf("create LOG_DIR: %v", err)
+// cleanupTempFiles removes handoff & log files created by the stages.
+// Best-effort; no errors are surfaced. The dropped payload PE under
+// c:\Windows\Temp is intentionally LEFT BEHIND as evidence of the attack
+// chain's file-drop IOC; operators can remove it after forensic review.
+func cleanupTempFiles() {
+	for _, p := range tempFiles {
+		if p == `C:\Windows\Temp\honestcue_payload.exe` {
+			// Leave the dropped PE as evidence.
+			continue
+		}
+		_ = os.Remove(p)
 	}
-	data, err := os.ReadFile(HOSTS_PATH)
-	if err != nil {
-		return fmt.Errorf("read hosts: %v", err)
-	}
-	if err := os.WriteFile(HOSTS_BACKUP, data, 0644); err != nil {
-		return fmt.Errorf("write hosts backup: %v", err)
-	}
-	hostsBackedUp = true
-	LogMessage("INFO", "Safety", fmt.Sprintf("Hosts file backed up to %s (%d bytes)", HOSTS_BACKUP, len(data)))
-	return nil
-}
-
-// restoreHostsFile restores the hosts file from backup if it was ever modified.
-// Safe to call multiple times (idempotent). Called from defer, signal handler,
-// and every test exit path.
-func restoreHostsFile() {
-	if !hostsBackedUp {
-		return
-	}
-	data, err := os.ReadFile(HOSTS_BACKUP)
-	if err != nil {
-		LogMessage("ERROR", "Safety", fmt.Sprintf("Hosts backup read failed during restore: %v", err))
-		return
-	}
-	if err := os.WriteFile(HOSTS_PATH, data, 0644); err != nil {
-		LogMessage("ERROR", "Safety", fmt.Sprintf("Hosts restore write failed: %v", err))
-		return
-	}
-	LogMessage("INFO", "Safety", "Hosts file restored from backup")
-	// Clear backup flag so we don't log "restored" repeatedly on defer chains
-	hostsBackedUp = false
-}
-
-// hasDotNetFramework checks whether .NET Framework 4.x is installed by
-// probing the well-known registry key. Required for CSharpCodeProvider
-// in stage 2's in-memory compilation.
-func hasDotNetFramework() bool {
-	// Run a tiny PowerShell check - this is the canonical way to detect .NET 4.x
-	script := `if (Test-Path 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full') { exit 0 } else { exit 1 }`
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	return cmd.Run() == nil
 }
