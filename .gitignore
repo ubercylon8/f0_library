@@ -83,3 +83,8 @@ utils/__pycache__/
 
 # Analysis outputs
 analysis_output/
+
+# .NET build outputs for embedded C# stages (e.g. HONESTCUE stage2_payload_src)
+**/stage2_payload_src/bin/
+**/stage2_payload_src/obj/
+**/stage2_payload_src/publish/
