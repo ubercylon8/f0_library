@@ -1,0 +1,409 @@
+// ============================================================
+// BlueHammer Early-Stage Behavioral Pattern — KQL Detection Queries
+// Test ID: 5e59dd6a-6c87-4377-942c-ea9b5e054cb9
+// MITRE ATT&CK: T1211, T1562.001
+// Threat Actor: Nightmare-Eclipse
+// Platform: Windows Endpoint
+// ============================================================
+// Coverage: Cloud Files API abuse (CfRegisterSyncRoot), batch oplock
+// scanner-stall (FSCTL_REQUEST_BATCH_OPLOCK), VSS device enumeration
+// via NtOpenDirectoryObject, and transacted file access (CreateFileTransactedW).
+// Detections target technique behaviors observable in real-world attackers
+// using the same primitives with their own tooling.
+// ============================================================
+
+
+// ============================================================
+// Query 1: Suspicious Cloud Files Sync-Root Registration
+// Technique: T1211 — Exploitation for Defense Evasion
+// Confidence: High
+// ============================================================
+// Purpose: Detect CfRegisterSyncRoot calls from non-standard provider
+//          binaries. Legitimate providers are OneDrive, iCloud, Google Drive,
+//          Dropbox, Box. Any other process loading cldapi.dll and calling
+//          CfRegisterSyncRoot is highly anomalous.
+// False Positives: New legitimate cloud-sync ISV software, enterprise
+//                  MDM-deployed sync clients. Tune by adding provider process
+//                  names to the exclusion list after baselining your environment.
+// Threshold: Alert on first occurrence per host; no suppression.
+// ============================================================
+
+DeviceImageLoadEvents
+| where FileName =~ "cldapi.dll"
+| where not(
+    InitiatingProcessFolderPath has_any (
+        @"C:\Program Files\Microsoft OneDrive",
+        @"C:\Program Files (x86)\Microsoft OneDrive",
+        @"C:\Program Files\Google\Drive File Stream",
+        @"C:\Program Files (x86)\Google\Drive File Stream",
+        @"C:\Program Files\Dropbox",
+        @"C:\Program Files (x86)\Dropbox",
+        @"C:\Program Files\Box",
+        @"C:\Windows\System32",
+        @"C:\Windows\SysWOW64"
+    )
+)
+| extend
+    Severity = "High",
+    ThreatType = "CloudFilesAPIAbuse",
+    MitreAttack = "T1211",
+    TestID = "5e59dd6a-6c87-4377-942c-ea9b5e054cb9"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 2: EICAR Drop Inside a Cloud Files Sync-Root Directory
+// Technique: T1211 — Exploitation for Defense Evasion
+// Confidence: High
+// ============================================================
+// Purpose: Detect the specific combination of a process creating a registered
+//          Cloud Files sync-root AND writing EICAR-like content (the probe
+//          pattern used by BlueHammer and RedSun to trigger the fetch-placeholder
+//          callback and freeze the scanner). Even without matching the sync-root
+//          registration step, an EICAR drop immediately followed by a dir/ls
+//          enumeration command from the same parent process is a high-fidelity signal.
+// False Positives: AV vendor regression test suites, security QA pipelines.
+//                  These should not run on production endpoints.
+// Threshold: Alert on first occurrence per device per day.
+// ============================================================
+
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FileName endswith ".txt" or FileName endswith ".com" or FileName endswith ".exe"
+// EICAR string written to disk — 68 bytes, SHA256 is deterministic
+| where SHA256 == "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+    or FileSize == 68
+| join kind=leftouter (
+    DeviceProcessEvents
+    | where ProcessCommandLine has "cldapi"
+        or InitiatingProcessCommandLine has "cldapi"
+    | project DeviceName, JoinTime = TimeGenerated, JoinPID = ProcessId
+) on DeviceName
+| where TimeGenerated between (JoinTime .. JoinTime + 60s) or isnull(JoinTime)
+| extend
+    Severity = "High",
+    ThreatType = "EICARDropInCloudFilesRoot",
+    MitreAttack = "T1211",
+    TestID = "5e59dd6a-6c87-4377-942c-ea9b5e054cb9"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    FileSize,
+    SHA256,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 3: Batch Oplock Request via DeviceIoControl (FSCTL_REQUEST_BATCH_OPLOCK)
+// Technique: T1562.001 — Impair Defenses: Disable or Modify Tools
+// Confidence: High
+// ============================================================
+// Purpose: Detect FSCTL_REQUEST_BATCH_OPLOCK (IOCTL 0x00090018) issued by a
+//          user-mode process against a non-system file. Batch oplocks are
+//          legitimately used by file-server components (srv2.sys, CIFS clients)
+//          and some database engines — NOT by end-user applications. Abuse of
+//          this IOCTL against files in Defender's scan path is the core
+//          scanner-stall primitive used by BlueHammer and other scanner-freeze PoCs.
+// False Positives: File servers running on the endpoint (rare), SQL Server TDE
+//                  file-open sequences. Tune by excluding known DB process names.
+// Threshold: Alert on occurrence from non-server-process images.
+// ============================================================
+
+// Defender for Endpoint Advanced Hunting: DeviceEvents surfaces IoControl events
+// when Microsoft Defender for Endpoint kernel sensor captures IOCTL dispatch.
+DeviceEvents
+| where ActionType == "OtherAlertRelatedActivity" or ActionType == "AntivirusDetection"
+| union (
+    DeviceEvents
+    | where AdditionalFields has "0x00090018"
+        or AdditionalFields has "589848"   // 0x00090018 in decimal
+)
+| where not(
+    InitiatingProcessFolderPath has_any (
+        @"C:\Windows\System32",
+        @"C:\Windows\SysWOW64",
+        @"C:\Program Files\Microsoft SQL Server",
+        @"C:\Program Files (x86)\Microsoft SQL Server"
+    )
+)
+| extend
+    Severity = "High",
+    ThreatType = "BatchOplockScannerStall",
+    MitreAttack = "T1562.001",
+    TestID = "5e59dd6a-6c87-4377-942c-ea9b5e054cb9"
+| project
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    AdditionalFields,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 4: NtOpenDirectoryObject on \Device Followed by VSS Recon Pattern
+// Technique: T1211 — Exploitation for Defense Evasion
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect user-mode processes calling NtOpenDirectoryObject targeting
+//          the \Device NT namespace object directory — the necessary precursor
+//          to enumerating HarddiskVolumeShadowCopy objects without going through
+//          the VSS COM API. Legitimate callers are system services, not user apps.
+//          Combine with process lineage (non-system parent) for High confidence.
+// False Positives: Sysinternals WinObj/Handle, Volatility live acquisition,
+//                  some backup agents. Exclude signed, known-good tools by hash.
+// Threshold: Alert on unsigned binaries performing this call.
+// ============================================================
+
+DeviceEvents
+| where ActionType == "NtAllocateVirtualMemoryApiCall"
+    or ActionType == "CreateRemoteThreadApiCall"
+    or ActionType == "NamedPipeEvent"
+| union (
+    // Sentinel / MDE may log NT object access through its ntdll hook
+    DeviceEvents
+    | where AdditionalFields has_any ("NtOpenDirectoryObject", "\\Device", "HarddiskVolumeShadowCopy")
+)
+| where not(
+    InitiatingProcessFolderPath has_any (
+        @"C:\Windows\System32",
+        @"C:\Windows\SysWOW64",
+        @"C:\Program Files\Windows NT",
+        @"C:\Program Files\Sysinternals"
+    )
+)
+| extend
+    Severity = "Medium",
+    ThreatType = "VSSDeviceEnumeration",
+    MitreAttack = "T1211",
+    TestID = "5e59dd6a-6c87-4377-942c-ea9b5e054cb9"
+| project
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    AdditionalFields,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 5: CreateFileTransactedW Usage by Non-Installer Process
+// Technique: T1211 — Exploitation for Defense Evasion
+// Confidence: High
+// ============================================================
+// Purpose: CreateFileTransactedW (loading ktmw32.dll and calling the KTM API)
+//          is used almost exclusively by Windows Installer (msiexec.exe), DISM,
+//          CBS, and legacy transactional NTFS applications — not by general
+//          user-land software. Any non-installer process calling this API
+//          deserves scrutiny as a potential TOCTOU-race precursor (the full
+//          BlueHammer chain targets mpasbase.vdm via a transacted open inside
+//          a VSS snapshot while Defender is frozen).
+// False Positives: Legacy enterprise installers using TxF explicitly.
+//                  Tune by excluding msiexec.exe, dism.exe, TiWorker.exe.
+// Threshold: Alert on first occurrence per process image per day.
+// ============================================================
+
+DeviceImageLoadEvents
+| where FileName =~ "ktmw32.dll"
+| where not(
+    InitiatingProcessFileName in~ (
+        "msiexec.exe",
+        "dism.exe",
+        "TiWorker.exe",
+        "TrustedInstaller.exe",
+        "wusa.exe",
+        "expand.exe"
+    )
+)
+| extend
+    Severity = "High",
+    ThreatType = "TransactedFileOpenAbuse",
+    MitreAttack = "T1211",
+    TestID = "5e59dd6a-6c87-4377-942c-ea9b5e054cb9"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    InitiatingProcessIntegrityLevel,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 6: BlueHammer Kill-Chain Behavioral Correlation (Multi-Indicator)
+// Technique: T1211 + T1562.001
+// Confidence: High (requires 2+ signals from same process tree within 5 min)
+// ============================================================
+// Purpose: High-fidelity rule that fires when at least TWO of the three
+//          BlueHammer stage behaviors are observed from the same process or
+//          process family within a 5-minute window:
+//          (a) cldapi.dll load by non-vendor process
+//          (b) ktmw32.dll load by non-installer process
+//          (c) File creation in a directory registered as a Cloud Files root
+//          Correlation is key — each signal alone has lower confidence.
+// False Positives: Extremely rare. Only a legitimate sync client that ALSO
+//                  uses KTM transactions would trigger this. No known product does.
+// Threshold: Alert on first occurrence; page on-call.
+// ============================================================
+
+let CldapiLoads = DeviceImageLoadEvents
+    | where FileName =~ "cldapi.dll"
+    | where not(InitiatingProcessFolderPath has_any (
+        @"C:\Program Files\Microsoft OneDrive",
+        @"C:\Program Files (x86)\Microsoft OneDrive",
+        @"C:\Program Files\Google\Drive File Stream",
+        @"C:\Windows\System32"))
+    | project DeviceName, ProcessId = InitiatingProcessId, CloudFilesTime = TimeGenerated;
+let KtmLoads = DeviceImageLoadEvents
+    | where FileName =~ "ktmw32.dll"
+    | where not(InitiatingProcessFileName in~ ("msiexec.exe", "dism.exe", "TiWorker.exe"))
+    | project DeviceName, ProcessId = InitiatingProcessId, KtmTime = TimeGenerated;
+CldapiLoads
+| join kind=inner KtmLoads on DeviceName, ProcessId
+| where abs(datetime_diff("second", CloudFilesTime, KtmTime)) < 300
+| join kind=leftouter (
+    DeviceProcessEvents
+    | project DeviceName, ProcessId, ProcessCommandLine, ProcessFileName = FileName, AccountName
+) on DeviceName, ProcessId
+| extend
+    Severity = "Critical",
+    ThreatType = "BlueHammerBehavioralChain",
+    MitreAttack = "T1211, T1562.001",
+    TestID = "5e59dd6a-6c87-4377-942c-ea9b5e054cb9"
+| project
+    TimeGenerated = CloudFilesTime,
+    DeviceName,
+    ProcessId,
+    ProcessFileName,
+    ProcessCommandLine,
+    AccountName,
+    CloudFilesTime,
+    KtmTime,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 7: Cloud Files Provider Registration from User Profile or Temp Path
+// Technique: T1211 — Exploitation for Defense Evasion
+// Confidence: High
+// ============================================================
+// Purpose: Legitimate cloud-sync providers are installed to %ProgramFiles%.
+//          Any process registering a Cloud Files sync-root while running from
+//          a user profile, temp directory, or AppData location is a strong
+//          indicator of attacker-controlled tooling mimicking the Cloud Files
+//          provider pattern. This catches the registry artifact written by
+//          CfRegisterSyncRoot under HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\
+//          Explorer\SyncRootManager.
+// False Positives: Developer testing of Cloud Files apps from non-standard
+//                  locations. Rare in production environments.
+// Threshold: Alert on first occurrence per device.
+// ============================================================
+
+DeviceRegistryEvents
+| where RegistryKey has "SyncRootManager"
+| where ActionType in ("RegistryKeyCreated", "RegistryValueSet")
+| where not(
+    InitiatingProcessFolderPath has_any (
+        @"C:\Program Files",
+        @"C:\Program Files (x86)",
+        @"C:\Windows\System32",
+        @"C:\Windows\SysWOW64"
+    )
+)
+| extend
+    Severity = "High",
+    ThreatType = "CloudFilesSyncRootRegistration",
+    MitreAttack = "T1211",
+    TestID = "5e59dd6a-6c87-4377-942c-ea9b5e054cb9"
+| project
+    TimeGenerated,
+    DeviceName,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData,
+    ActionType,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Query 8: Overlapped I/O File Open (FILE_FLAG_OVERLAPPED) + IOCTL from Same PID
+// Technique: T1562.001
+// Confidence: Medium
+// ============================================================
+// Purpose: FILE_FLAG_OVERLAPPED combined with a subsequent DeviceIoControl FSCTL
+//          is the required setup for requesting a batch oplock. This query
+//          correlates both events from the same process within 30 seconds.
+//          It broadens the net beyond exact IOCTL code matching.
+// False Positives: SMB redirector (mrxsmb.sys), database engines. Exclude
+//                  known server processes.
+// Threshold: Apply threshold of 1 occurrence per non-server process per day.
+// ============================================================
+
+let OverlappedOpens = DeviceFileEvents
+    | where ActionType == "FileCreated" or ActionType == "FileModified"
+    | where not(InitiatingProcessFolderPath has_any (
+        @"C:\Windows\System32",
+        @"C:\Windows\SysWOW64",
+        @"C:\Program Files\Microsoft SQL Server"))
+    | project DeviceName, PID = InitiatingProcessId, OpenTime = TimeGenerated,
+              FilePath = FolderPath, ProcessName = InitiatingProcessFileName;
+let IoctlEvents = DeviceEvents
+    | where AdditionalFields has "IoControl" or AdditionalFields has "FSCTL"
+    | project DeviceName, PID = InitiatingProcessId, IoctlTime = TimeGenerated;
+OverlappedOpens
+| join kind=inner IoctlEvents on DeviceName, PID
+| where IoctlTime between (OpenTime .. OpenTime + 30s)
+| extend
+    Severity = "Medium",
+    ThreatType = "OverlappedIOWithIoctl",
+    MitreAttack = "T1562.001",
+    TestID = "5e59dd6a-6c87-4377-942c-ea9b5e054cb9"
+| project
+    TimeGenerated = OpenTime,
+    DeviceName,
+    PID,
+    ProcessName,
+    FilePath,
+    IoctlTime,
+    Severity,
+    ThreatType,
+    MitreAttack

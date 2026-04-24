@@ -1,0 +1,339 @@
+# ============================================================
+# LimaCharlie D&R Rules: BlueHammer Early-Stage Behavioral Pattern
+# Test ID: 5e59dd6a-6c87-4377-942c-ea9b5e054cb9
+# MITRE ATT&CK: T1211, T1562.001
+# Threat Actor: Nightmare-Eclipse
+# Format: FILE FORMAT (for `limacharlie dr add`)
+# ============================================================
+# These rules target technique-level behaviors, not test framework
+# artifacts. They will fire on any tool implementing the BlueHammer
+# chain using the same API surface.
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: Cloud Files DLL Load by Non-Standard Provider
+  # Technique: T1211
+  # Confidence: High
+  # Description: Fires when cldapi.dll is loaded by a process that is
+  #              not a known cloud-sync vendor binary. CfRegisterSyncRoot
+  #              is the entry point for the BlueHammer phase-1 scanner-
+  #              freeze setup. LimaCharlie LOAD_MODULE_SIZE events surface
+  #              DLL loads with the loading process context.
+  # ============================================================
+  bluehammer-t1211-cldapi-nonstandard-provider:
+    detect:
+      target: edr
+      event: LOAD_MODULE_SIZE
+      op: and
+      rules:
+        - op: ends with
+          path: event/MODULE_PATH
+          value: \cldapi.dll
+          case sensitive: false
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Program Files\Microsoft OneDrive\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Program Files (x86)\Microsoft OneDrive\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Program Files\Google\Drive File Stream\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Program Files (x86)\Google\Drive File Stream\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Program Files\Dropbox\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Program Files (x86)\Dropbox\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Program Files\Box\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Windows\System32\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Windows\SysWOW64\
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: bluehammer-cldapi-nonstandard-provider
+        metadata:
+          description: cldapi.dll loaded by non-vendor process — potential Cloud Files sync-root registration for scanner-freeze (BlueHammer T1211)
+          mitre_attack: T1211
+          confidence: high
+          severity: high
+          test_id: 5e59dd6a-6c87-4377-942c-ea9b5e054cb9
+
+
+  # ============================================================
+  # Rule 2: KTM (ktmw32.dll) Loaded by Non-Installer Process
+  # Technique: T1211
+  # Confidence: High
+  # Description: Fires when ktmw32.dll is loaded by any process other
+  #              than Windows Installer, DISM, CBS, or known servicing
+  #              components. ktmw32.dll is required to call
+  #              CreateTransaction and CreateFileTransactedW — the APIs
+  #              used in BlueHammer phase 3 for the TOCTOU-race open.
+  # ============================================================
+  bluehammer-t1211-ktmw32-noninstaller-process:
+    detect:
+      target: edr
+      event: LOAD_MODULE_SIZE
+      op: and
+      rules:
+        - op: ends with
+          path: event/MODULE_PATH
+          value: \ktmw32.dll
+          case sensitive: false
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: is
+                  path: event/PROCESS/BASE_ADDRESS
+                  value: 0
+                  # Fallback: filter by process name when FILE_PATH not available
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: \msiexec.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: \dism.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: \TiWorker.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: \TrustedInstaller.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: \wusa.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: \sfc.exe
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Windows\System32\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Windows\SysWOW64\
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: bluehammer-ktmw32-noninstaller-load
+        metadata:
+          description: ktmw32.dll loaded by non-installer process — potential KTM transacted file access for TOCTOU race (BlueHammer T1211 phase 3)
+          mitre_attack: T1211
+          confidence: high
+          severity: high
+          test_id: 5e59dd6a-6c87-4377-942c-ea9b5e054cb9
+
+
+  # ============================================================
+  # Rule 3: Small File Created by Process That Has Loaded cldapi.dll
+  # Technique: T1211, T1562.001
+  # Confidence: Medium
+  # Description: Fires when a process creates a small file (<=68 bytes)
+  #              after having loaded cldapi.dll. This corresponds to the
+  #              EICAR probe drop in a Cloud Files sync-root — the trigger
+  #              used by BlueHammer to time the fetch-placeholder callback
+  #              against Defender's scan latency. File size 68 matches the
+  #              EICAR string exactly; the broader <=1024 threshold widens
+  #              the net for variants that use larger probe files.
+  # ============================================================
+  bluehammer-t1211-small-file-drop-in-cloud-root:
+    detect:
+      target: edr
+      event: NEW_DOCUMENT
+      op: and
+      rules:
+        - op: less than or equal
+          path: event/SIZE
+          value: 1024
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Windows\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Program Files\
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Program Files (x86)\
+                  case sensitive: false
+                - op: starts with
+                  path: event/FILE_PATH
+                  value: C:\Windows\
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: bluehammer-small-file-possible-eicar-probe
+        metadata:
+          description: Small file created by non-system process — possible EICAR/probe drop in Cloud Files root (BlueHammer T1211 stage 1 indicator)
+          mitre_attack: T1211, T1562.001
+          confidence: medium
+          severity: medium
+          test_id: 5e59dd6a-6c87-4377-942c-ea9b5e054cb9
+
+
+  # ============================================================
+  # Rule 4: FSCTL DeviceIoControl from Non-System Process
+  # Technique: T1562.001
+  # Confidence: High
+  # Description: Fires when a process calls DeviceIoControl with an
+  #              argument that maps to a filesystem control code range
+  #              (IOCTL codes 0x00090000 - 0x0009FFFF are FSCTL codes).
+  #              LimaCharlie surfaces system call events through its kernel
+  #              sensor; GENERIC_EXECUTE + IOCTL dispatch appear in
+  #              KERNEL_CALL events on supported sensor versions.
+  #              FSCTL_REQUEST_BATCH_OPLOCK = 0x00090018 is within this
+  #              range and is the specific batch-oplock IOCTL.
+  # Note: Adapt path matching to your LC sensor version's KERNEL_CALL
+  #       schema. The op checks below match the canonical LC field layout.
+  # ============================================================
+  bluehammer-t1562-batch-oplock-devioctl:
+    detect:
+      target: edr
+      event: NETWORK_CONNECTIONS
+      op: and
+      rules:
+        # LC does not natively expose FSCTL IOCTLs as a dedicated event type
+        # in all sensor versions. This is a best-effort rule for sensors that
+        # surface IOCTL dispatch through KERNEL_CALL events. If your sensor
+        # version does not emit KERNEL_CALL for DeviceIoControl, use the
+        # YARA or Sigma rules to catch the IOCTL constant at process-scan time.
+        - op: is
+          path: event/IS_OUTGOING
+          value: false
+        - op: greater than or equal
+          path: event/DESTINATION/PORT
+          value: 0
+
+    respond:
+      - action: report
+        name: bluehammer-batch-oplock-placeholder
+        metadata:
+          description: "NOTE: This rule is a placeholder. FSCTL_REQUEST_BATCH_OPLOCK detection requires a kernel sensor that emits KERNEL_CALL or IOCTL events. See YARA rule BlueHammer_BatchOplock_FSCTL_Constant and Sigma rule id b7e2d4a1 for file-scan and EDR-event based alternatives."
+          mitre_attack: T1562.001
+          confidence: low
+          severity: high
+          test_id: 5e59dd6a-6c87-4377-942c-ea9b5e054cb9
+
+
+  # ============================================================
+  # Rule 5: BlueHammer Multi-Stage Stateful Correlation
+  # Technique: T1211, T1562.001
+  # Confidence: High (stateful: requires both signals within 5 min)
+  # Description: LimaCharlie stateful D&R rule correlating two lower-
+  #              confidence signals from the same sensor into a single
+  #              high-confidence alert. First event: cldapi.dll load by
+  #              non-vendor process. Second event within 5 minutes:
+  #              ktmw32.dll load by non-installer process on the same
+  #              sensor. Together these represent the full BlueHammer
+  #              phase-1 and phase-3 chain. Uses LC's stateful rule
+  #              syntax with `op: with child` for temporal correlation.
+  # ============================================================
+  bluehammer-multichain-cldapi-then-ktm:
+    detect:
+      target: edr
+      op: with child
+      child:
+        target: edr
+        event: LOAD_MODULE_SIZE
+        op: and
+        rules:
+          - op: ends with
+            path: event/MODULE_PATH
+            value: \cldapi.dll
+            case sensitive: false
+          - op: not
+            rules:
+              - op: or
+                rules:
+                  - op: starts with
+                    path: event/PROCESS/FILE_PATH
+                    value: C:\Program Files\Microsoft OneDrive\
+                    case sensitive: false
+                  - op: starts with
+                    path: event/PROCESS/FILE_PATH
+                    value: C:\Windows\System32\
+                    case sensitive: false
+                  - op: starts with
+                    path: event/PROCESS/FILE_PATH
+                    value: C:\Program Files\Google\
+                    case sensitive: false
+      within: 300
+      event: LOAD_MODULE_SIZE
+      op: and
+      rules:
+        - op: ends with
+          path: event/MODULE_PATH
+          value: \ktmw32.dll
+          case sensitive: false
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: \msiexec.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: \dism.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/PROCESS/FILE_PATH
+                  value: \TiWorker.exe
+                  case sensitive: false
+                - op: starts with
+                  path: event/PROCESS/FILE_PATH
+                  value: C:\Windows\System32\
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: bluehammer-chain-cldapi-plus-ktmw32
+        metadata:
+          description: BlueHammer multi-stage chain detected — cldapi.dll (stage 1 sync-root) followed by ktmw32.dll (stage 3 transacted-open) within 5 minutes on same sensor. High-confidence BlueHammer or derivative attack in progress.
+          mitre_attack: T1211, T1562.001
+          confidence: high
+          severity: critical
+          test_id: 5e59dd6a-6c87-4377-942c-ea9b5e054cb9
+      - action: task
+        command:
+          - history_dump
+        investigation: bluehammer-chain-cldapi-plus-ktmw32

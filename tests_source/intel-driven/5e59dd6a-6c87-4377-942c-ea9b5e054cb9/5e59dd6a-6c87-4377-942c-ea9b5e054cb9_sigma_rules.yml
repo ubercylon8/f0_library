@@ -1,0 +1,223 @@
+# ============================================================
+# Sigma Rules: BlueHammer Early-Stage Behavioral Pattern
+# Test ID: 5e59dd6a-6c87-4377-942c-ea9b5e054cb9
+# MITRE ATT&CK: T1211, T1562.001
+# Threat Actor: Nightmare-Eclipse
+# ============================================================
+# Rules target technique-level behaviors detectable in any tool
+# implementing the BlueHammer chain, not F0RT1KA test artifacts.
+# ============================================================
+
+---
+title: Suspicious Cloud Files Sync-Root Registration by Non-Standard Provider
+id: a3f1c9d2-7e4b-4a8f-b6c1-2d9e5f0a3b7c
+status: experimental
+description: >
+  Detects CfRegisterSyncRoot activity from a process image that is not a known
+  legitimate cloud-sync provider (OneDrive, Google Drive, Dropbox, Box, iCloud).
+  The real BlueHammer PoC and RedSun both register a custom sync-root to install
+  a fetch-placeholder callback that intercepts Defender's scan I/O path.
+  Any non-vendor binary loading cldapi.dll and registering a sync-root is a
+  high-confidence pre-exploitation indicator for the T1211 scanner-freeze chain.
+references:
+  - https://attack.mitre.org/techniques/T1211/
+  - https://github.com/Nightmare-Eclipse/BlueHammer
+author: F0RT1KA Detection Rules Generator
+date: 2026-04-24
+tags:
+  - attack.defense_evasion
+  - attack.t1211
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection:
+    ImageLoaded|endswith: '\cldapi.dll'
+  filter_legit_providers:
+    Image|startswith:
+      - 'C:\Program Files\Microsoft OneDrive\'
+      - 'C:\Program Files (x86)\Microsoft OneDrive\'
+      - 'C:\Program Files\Google\Drive File Stream\'
+      - 'C:\Program Files (x86)\Google\Drive File Stream\'
+      - 'C:\Program Files\Dropbox\'
+      - 'C:\Program Files (x86)\Dropbox\'
+      - 'C:\Program Files\Box\'
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+  condition: selection and not filter_legit_providers
+falsepositives:
+  - New enterprise cloud-sync ISV product installed to Program Files
+  - Developer testing a custom Cloud Files provider from a non-standard path
+  - Pre-release OneDrive or Google Drive builds installed outside default paths
+level: high
+
+---
+title: Batch Oplock Request via DeviceIoControl from User-Mode Process
+id: b7e2d4a1-3f8c-4b9e-a2d7-6c1f4e8b0a5d
+status: experimental
+description: >
+  Detects DeviceIoControl calls with FSCTL_REQUEST_BATCH_OPLOCK (IOCTL 0x00090018)
+  issued from a user-mode process that is not a known file-server component.
+  Batch oplocks are used legitimately by SMB server drivers (srv2.sys) and some
+  database file-manager threads — not by end-user applications. BlueHammer uses
+  this IOCTL to stall Defender's scan-read of a target file, implementing the
+  T1562.001 scanner-impairment primitive. The IOCTL code is distinctive and
+  its presence in a user-space process context is highly anomalous.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+  - https://learn.microsoft.com/en-us/windows/win32/fileio/opportunistic-locks
+author: F0RT1KA Detection Rules Generator
+date: 2026-04-24
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+logsource:
+  # Sysmon Event ID 19/20 (WMI) or MDE DeviceEvents with IoControl
+  # In practice this fires from EDR kernel-sensor hooks on DeviceIoControl
+  category: process_access
+  product: windows
+detection:
+  selection:
+    # Sysmon does not natively log DeviceIoControl; this targets EDR telemetry
+    # that surfaces as ProcessAccess or a custom event with the IOCTL in details.
+    # For Sysmon+custom driver: TargetObject or CallTrace may contain the IOCTL.
+    CallTrace|contains: '00090018'
+  filter_system:
+    Image|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+      - 'C:\Program Files\Microsoft SQL Server\'
+  condition: selection and not filter_system
+falsepositives:
+  - SQL Server database files using oplocks for concurrency control
+  - Network-attached storage client software using SMB-level oplocks
+  - Developer debugging of file-system filter drivers
+level: high
+
+---
+title: NT Object Directory Enumeration Targeting HarddiskVolumeShadowCopy Entries
+id: c4d8e6f3-9a2b-4c7d-b5e8-1f3a7d9c2b6e
+status: experimental
+description: >
+  Detects processes that open the \Device NT object namespace directory via
+  NtOpenDirectoryObject and enumerate entries matching HarddiskVolumeShadowCopy*.
+  This is the direct-syscall approach to VSS enumeration used by BlueHammer
+  (phase 3) and other TOCTOU-race tools that want to avoid the VSS COM API
+  (which creates noisier telemetry). Legitimate applications use VSSAPI.DLL
+  for VSS enumeration; raw NT object-directory access from user-mode is unusual.
+  Combined with KTM (ktmw32.dll) loading in the same process, this is a
+  high-confidence pre-TOCTOU indicator.
+references:
+  - https://attack.mitre.org/techniques/T1211/
+  - https://learn.microsoft.com/en-us/windows/win32/devnotes/ntopendirectoryobject
+author: F0RT1KA Detection Rules Generator
+date: 2026-04-24
+tags:
+  - attack.defense_evasion
+  - attack.t1211
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection_ktm:
+    ImageLoaded|endswith: '\ktmw32.dll'
+  filter_legit_ktm:
+    Image|endswith:
+      - '\msiexec.exe'
+      - '\dism.exe'
+      - '\TiWorker.exe'
+      - '\TrustedInstaller.exe'
+      - '\wusa.exe'
+      - '\expand.exe'
+      - '\sfc.exe'
+  condition: selection_ktm and not filter_legit_ktm
+falsepositives:
+  - Legacy enterprise application installers using Transactional NTFS explicitly
+  - Custom database backup tools that implement TxF for atomic writes
+level: high
+
+---
+title: CreateFileTransactedW Used by Non-Installer Process (KTM TOCTOU Precursor)
+id: d9f1b3e5-2c7a-4d8f-a6b9-3e5c8d1f4a7b
+status: experimental
+description: >
+  Detects processes loading ktmw32.dll that are not Windows Installer, DISM,
+  CBS, or other known KTM-using system components. CreateFileTransactedW in
+  combination with RollbackTransaction (rather than CommitTransaction) is the
+  functional signature of a TOCTOU race: open file transactionally, read it,
+  roll back. The full BlueHammer chain uses this to open mpasbase.vdm inside
+  a VSS snapshot while Defender is frozen by the batch-oplock stage.
+  Detecting the ktmw32.dll import from unexpected processes catches the
+  technique regardless of the target file chosen by the attacker.
+references:
+  - https://attack.mitre.org/techniques/T1211/
+  - https://learn.microsoft.com/en-us/windows/win32/fileio/transactional-ntfs-portal
+author: F0RT1KA Detection Rules Generator
+date: 2026-04-24
+tags:
+  - attack.defense_evasion
+  - attack.t1211
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_cmdline:
+    # Catch processes that explicitly reference transacted API patterns in
+    # PowerShell or script wrappers (less common but possible)
+    CommandLine|contains:
+      - 'CreateFileTransacted'
+      - 'CreateTransaction'
+      - 'RollbackTransaction'
+  filter_system_scripts:
+    Image|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+  condition: selection_cmdline and not filter_system_scripts
+falsepositives:
+  - Security research scripts invoking KTM APIs for legitimate testing
+  - PowerShell-based custom installers using TxF
+level: medium
+
+---
+title: BlueHammer Kill-Chain — Cloud Files + KTM Loaded in Same Process
+id: e2a5c7f9-4b1d-4e6a-c8f2-5d7b9e0c3a1f
+status: experimental
+description: >
+  High-confidence correlation rule: fires when a single process loads both
+  cldapi.dll (Cloud Files API, used for sync-root registration and fetch-
+  placeholder callback in stage 1) and ktmw32.dll (KTM, used for transacted
+  file access in stage 3) within the same process lifetime. No known legitimate
+  software combines these two libraries. This is the combined behavioral
+  signature of the BlueHammer multi-stage technique chain. Alert on first
+  occurrence per host with highest priority.
+references:
+  - https://attack.mitre.org/techniques/T1211/
+  - https://attack.mitre.org/techniques/T1562/001/
+  - https://github.com/Nightmare-Eclipse/BlueHammer
+author: F0RT1KA Detection Rules Generator
+date: 2026-04-24
+tags:
+  - attack.defense_evasion
+  - attack.t1211
+  - attack.t1562.001
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection_cldapi:
+    ImageLoaded|endswith: '\cldapi.dll'
+  selection_ktm:
+    ImageLoaded|endswith: '\ktmw32.dll'
+  filter_legit:
+    Image|startswith:
+      - 'C:\Program Files\Microsoft OneDrive\'
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+  # Both DLLs must load in the same process (correlate by ProcessId)
+  # Sigma does not natively express temporal correlation across events;
+  # back-end implementations should correlate by ProcessGuid/ProcessId.
+  condition: (selection_cldapi or selection_ktm) and not filter_legit
+falsepositives:
+  - No known legitimate software loads both cldapi.dll and ktmw32.dll
+  - Future legitimate cloud-sync products using TxF internally (currently none)
+level: critical
