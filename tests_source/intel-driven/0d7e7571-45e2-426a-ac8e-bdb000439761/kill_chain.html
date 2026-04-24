@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nightmare-Eclipse RedSun — Kill Chain Strip</title>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2/cytoscape-dagre.js"></script>
+    <style>
+        :root {
+            --bg: oklch(1 0 0); --bg-grad-start: oklch(0.985 0 0); --bg-grad-end: oklch(0.922 0 0);
+            --text-1: oklch(0.145 0 0); --text-2: oklch(0.556 0 0); --text-3: oklch(0.708 0 0);
+            --panel: oklch(1 0 0); --border: oklch(0.922 0 0);
+            --card: oklch(0.97 0 0); --card-hover: oklch(0.95 0 0); --code-bg: oklch(0.97 0 0);
+            --shadow: oklch(0 0 0 / 15%);
+            --accent-red: #ff6b6b; --accent-blue: #4fc3f7; --accent-green: #66bb6a; --accent-orange: #ff9f43;
+            --sev-high: #ff9f43; --sev-high-bg: rgba(255,159,67,0.08);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: oklch(0.145 0 0); --bg-grad-start: oklch(0.1 0.02 265); --bg-grad-end: oklch(0.18 0.02 265);
+                --text-1: oklch(0.985 0 0); --text-2: oklch(0.708 0 0); --text-3: oklch(0.556 0 0);
+                --panel: oklch(0.12 0.01 265); --border: oklch(1 0 0 / 10%);
+                --card: oklch(0.205 0 0); --card-hover: oklch(0.25 0 0); --code-bg: oklch(0.1 0.02 265);
+                --shadow: oklch(0 0 0 / 50%);
+            }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, var(--bg-grad-start), var(--bg-grad-end)); color: var(--text-1); min-height: 100vh; padding: 2rem; }
+        .container { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; }
+        .header { padding: 1.5rem 2rem; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 2px 12px var(--shadow); }
+        .header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.25rem; }
+        .header .alias { color: var(--text-2); font-weight: 400; }
+        .header .subtitle { color: var(--text-2); font-size: 0.9rem; margin: 0.5rem 0 0.75rem; line-height: 1.4; }
+        .meta { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+        .badge { display: inline-flex; align-items: center; padding: 0.25rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
+        .badge-score { background: var(--sev-high-bg); color: var(--sev-high); border: 1px solid rgba(255,159,67,0.3); }
+        .badge-sev { background: var(--sev-high-bg); color: var(--sev-high); border: 1px solid rgba(255,159,67,0.3); text-transform: uppercase; font-size: 0.65rem; }
+        .badge-uuid { background: var(--code-bg); color: var(--text-2); border: 1px solid var(--border); font-family: monospace; font-size: 0.7rem; }
+        .mitre-strip { display: flex; gap: 0.5rem; padding: 1rem 1.5rem; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; box-shadow: 0 2px 8px var(--shadow); }
+        .mitre-tag { display: flex; flex-direction: column; align-items: center; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--card); border: 1px solid var(--border); min-width: 140px; text-align: center; }
+        .mitre-tag .tid { font-family: monospace; font-size: 0.8rem; font-weight: 700; color: var(--accent-blue); }
+        .mitre-tag .tname { font-size: 0.7rem; color: var(--text-2); margin-top: 0.15rem; line-height: 1.3; }
+        .mitre-tag .tactic { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin-top: 0.25rem; padding-top: 0.25rem; border-top: 1px solid var(--border); width: 100%; }
+        .diagram-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 2px 12px var(--shadow); overflow: hidden; }
+        .diagram-bar { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border); }
+        .diagram-bar h2 { font-size: 0.85rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; }
+        .legend { display: flex; gap: 1rem; font-size: 0.7rem; color: var(--text-3); }
+        .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .legend-dot.stage { background: var(--accent-blue); }
+        .legend-dot.prot { background: var(--accent-green); }
+        .legend-dot.unprot { background: var(--accent-red); }
+        #cy { width: 100%; height: 340px; }
+        .stage-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+        .stage-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; box-shadow: 0 2px 8px var(--shadow); position: relative; overflow: hidden; }
+        .stage-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+        .stage-card:nth-child(1)::before { background: linear-gradient(90deg, #2563eb, #3b82f6); }
+        .stage-card:nth-child(2)::before { background: linear-gradient(90deg, #3b82f6, #6366f1); }
+        .stage-card:nth-child(3)::before { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+        .sc-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .sc-num { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: white; }
+        .stage-card:nth-child(1) .sc-num { background: #2563eb; }
+        .stage-card:nth-child(2) .sc-num { background: #6366f1; }
+        .stage-card:nth-child(3) .sc-num { background: #8b5cf6; }
+        .sc-title { font-size: 0.9rem; font-weight: 600; }
+        .sc-tid { font-family: monospace; font-size: 0.7rem; color: var(--accent-blue); margin-left: auto; }
+        .sc-desc { font-size: 0.8rem; color: var(--text-2); line-height: 1.4; margin-bottom: 0.75rem; }
+        .sc-detect { background: var(--code-bg); border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.7rem; color: var(--text-2); line-height: 1.5; border-left: 2px solid var(--accent-green); }
+        .sc-detect-label { color: var(--accent-green); font-weight: 600; display: block; margin-bottom: 0.25rem; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <div class="header">
+        <h1>Nightmare-Eclipse RedSun <span class="alias">— Cloud Files Rewrite Primitive Chain</span></h1>
+        <div class="subtitle">F0RT1KA behavioral simulation of the RedSun PoC: Cloud Files API abuse + VSS enumeration + batch oplock + mount-point reparse + FILE_SUPERSEDE race, scoped to sandbox targets under <code>c:\Users\fortika-test\</code>.</div>
+        <div class="meta">
+            <span class="badge badge-score">Score 8.4/10</span>
+            <span class="badge badge-sev">High Severity</span>
+            <span class="badge badge-uuid">0d7e7571-45e2-426a-ac8e-bdb000439761</span>
+            <span class="badge badge-uuid">3 stages</span>
+        </div>
+    </div>
+
+    <div class="mitre-strip">
+        <div class="mitre-tag"><div class="tid">T1211</div><div class="tname">Exploitation for Defense Evasion</div><div class="tactic">Defense Evasion</div></div>
+        <div class="mitre-tag"><div class="tid">T1006</div><div class="tname">Direct Volume Access</div><div class="tactic">Collection</div></div>
+        <div class="mitre-tag"><div class="tid">T1574</div><div class="tname">Hijack Execution Flow</div><div class="tactic">Persistence</div></div>
+    </div>
+
+    <div class="diagram-panel">
+        <div class="diagram-bar">
+            <h2>Attack Kill Chain</h2>
+            <div class="legend">
+                <div class="legend-item"><span class="legend-dot stage"></span>Stage (detection opportunity)</div>
+                <div class="legend-item"><span class="legend-dot prot"></span>Protected</div>
+                <div class="legend-item"><span class="legend-dot unprot"></span>Unprotected</div>
+            </div>
+        </div>
+        <div id="cy"></div>
+    </div>
+
+    <div class="stage-cards">
+        <div class="stage-card">
+            <div class="sc-header">
+                <div class="sc-num">1</div>
+                <div class="sc-title">Cloud Files Sync Root + EICAR</div>
+                <div class="sc-tid">T1211</div>
+            </div>
+            <div class="sc-desc">Register a non-OneDrive Cloud Files sync root against the sandbox directory via <code>CfRegisterSyncRoot</code>. Drop the EICAR test string into the sync-root directory to provoke Defender's cloud-rewrite pathway.</div>
+            <div class="sc-detect">
+                <span class="sc-detect-label">Detection opportunity</span>
+                Registry write to <code>SyncRootManager\*</code> from non-OneDrive process. AV scanner event on EICAR inside freshly-registered sync root.
+            </div>
+        </div>
+
+        <div class="stage-card">
+            <div class="sc-header">
+                <div class="sc-num">2</div>
+                <div class="sc-title">VSS Enumeration + Batch Oplock</div>
+                <div class="sc-tid">T1006</div>
+            </div>
+            <div class="sc-desc">Read <code>\Device</code> via <code>NtOpenDirectoryObject</code> + <code>NtQueryDirectoryObject</code>; filter for <code>HarddiskVolumeShadowCopy*</code> entries. Request <code>FSCTL_REQUEST_BATCH_OPLOCK</code> on a sandbox file.</div>
+            <div class="sc-detect">
+                <span class="sc-detect-label">Detection opportunity</span>
+                Kernel-object audit (event 4663) for <code>\Device</code> enumeration from non-backup process. Batch oplock request from outside the backup/VSS allowlist.
+            </div>
+        </div>
+
+        <div class="stage-card">
+            <div class="sc-header">
+                <div class="sc-num">3</div>
+                <div class="sc-title">Reparse + FILE_SUPERSEDE Race</div>
+                <div class="sc-tid">T1574</div>
+            </div>
+            <div class="sc-desc">Create <code>IO_REPARSE_TAG_MOUNT_POINT</code> reparse on a sandbox directory (pointed at another sandbox directory). Loop <code>CREATE_ALWAYS</code> / <code>FILE_SUPERSEDE</code> opens against a sandbox target file.</div>
+            <div class="sc-detect">
+                <span class="sc-detect-label">Detection opportunity</span>
+                Reparse-point set by non-privileged user process. 15+ file create/delete events on a single path within 1 minute (supersede race pattern).
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    cytoscape.use(window.cytoscapeDagre);
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const cy = cytoscape({
+        container: document.getElementById('cy'),
+        elements: [
+            { data: { id: 's0', label: 'Entry', type: 'entry' } },
+            { data: { id: 's1', label: 'T1211\nCloud Files + EICAR', type: 'stage' } },
+            { data: { id: 's2', label: 'T1006\nVSS Enum + Oplock', type: 'stage' } },
+            { data: { id: 's3', label: 'T1574\nReparse + Supersede', type: 'stage' } },
+            { data: { id: 's4', label: 'Primitive Chain Complete', type: 'end' } },
+            { data: { source: 's0', target: 's1' } },
+            { data: { source: 's1', target: 's2' } },
+            { data: { source: 's2', target: 's3' } },
+            { data: { source: 's3', target: 's4' } }
+        ],
+        style: [
+            { selector: 'node[type="entry"]', style: { 'background-color': '#66bb6a', 'label': 'data(label)', 'color': '#fff', 'width': 90, 'height': 40, 'shape': 'round-rectangle', 'text-valign': 'center', 'font-size': 11, 'font-weight': 700 } },
+            { selector: 'node[type="stage"]', style: { 'background-color': '#4fc3f7', 'label': 'data(label)', 'color': '#fff', 'width': 140, 'height': 55, 'shape': 'round-rectangle', 'text-valign': 'center', 'text-wrap': 'wrap', 'text-max-width': 130, 'font-size': 10, 'font-weight': 600 } },
+            { selector: 'node[type="end"]', style: { 'background-color': '#ff6b6b', 'label': 'data(label)', 'color': '#fff', 'width': 180, 'height': 40, 'shape': 'round-rectangle', 'text-valign': 'center', 'text-wrap': 'wrap', 'text-max-width': 170, 'font-size': 10, 'font-weight': 700 } },
+            { selector: 'edge', style: { 'width': 2, 'line-color': isDark ? '#888' : '#666', 'target-arrow-color': isDark ? '#888' : '#666', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier' } }
+        ],
+        layout: {
+            name: 'dagre',
+            rankDir: 'LR',
+            spacingFactor: 1.15,
+            padding: 20
+        }
+    });
+    cy.fit(undefined, 30);
+});
+</script>
+</body>
+</html>

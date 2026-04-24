@@ -1,0 +1,135 @@
+// =====================================================================
+// Detection Rules — Nightmare-Eclipse RedSun Primitive Chain
+// UUID: 0d7e7571-45e2-426a-ac8e-bdb000439761
+// Format: Microsoft Sentinel / Defender Advanced Hunting KQL
+// =====================================================================
+// These queries detect the RedSun technique family broadly — they do NOT
+// key off test artifacts (UUID in path, "F0RT1KA" in provider name). A
+// real attacker would not leave those strings behind.
+
+// ---------------------------------------------------------------------
+// Detection 1 — Non-OneDrive Cloud Files sync root registration (T1211)
+// ---------------------------------------------------------------------
+// The RedSun PoC calls CfRegisterSyncRoot with an arbitrary provider name
+// ("SERIOUSLYMSFT"). Legitimate Cloud Files providers are OneDrive, iCloud,
+// Google Drive, Box, Dropbox, and enterprise sync clients. Any other
+// provider registration from a non-allowlisted process is suspicious.
+//
+// Requires Microsoft-Windows-CloudFilterDriver or equivalent ETW to be
+// forwarded to Sentinel. Falls back to DeviceFileEvents for the registry
+// key written by CfRegisterSyncRoot.
+
+DeviceRegistryEvents
+| where Timestamp > ago(1h)
+| where RegistryKey has "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\SyncRootManager"
+| where ActionType == "RegistryValueSet" or ActionType == "RegistryKeyCreated"
+| where not(InitiatingProcessFileName in~ (
+    "OneDrive.exe", "OneDriveSetup.exe", "OneDriveStandaloneUpdater.exe",
+    "Dropbox.exe", "GoogleDriveFS.exe", "iCloudDrive.exe", "BoxDrive.exe",
+    "svchost.exe", "explorer.exe"
+))
+| project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine, RegistryKey, RegistryValueName, RegistryValueData
+
+// ---------------------------------------------------------------------
+// Detection 2 — Enumeration of \Device\HarddiskVolumeShadowCopy* from
+//                a non-system process (T1006)
+// ---------------------------------------------------------------------
+// The real PoC opens \Device via NtOpenDirectoryObject and filters for
+// HarddiskVolumeShadowCopy* names. Sysmon Event ID 18 (PipeConnected) is
+// the closest public proxy; Defender exposes object-access events via
+// DeviceEvents when audit-object-access is enabled.
+
+DeviceEvents
+| where Timestamp > ago(1h)
+| where ActionType in ("ObjectAccessed", "OtherEvents")
+| where AdditionalFields has_any ("NtOpenDirectoryObject", "NtQueryDirectoryObject", "\\Device\\HarddiskVolumeShadowCopy")
+| where not(InitiatingProcessFileName in~ ("svchost.exe", "VSSVC.exe", "vssadmin.exe", "wbengine.exe", "DbgSvc.exe"))
+| project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine, ActionType, AdditionalFields
+
+// ---------------------------------------------------------------------
+// Detection 3 — Batch oplock request (FSCTL_REQUEST_BATCH_OPLOCK) from
+//                an unsigned / rare user-mode binary (T1006)
+// ---------------------------------------------------------------------
+// Batch oplocks are legitimate for backup software, file servers, and
+// file-replication services. User binaries outside those roles rarely
+// request them. Sysmon Event ID 22 (DNSEvent) does not cover this;
+// ETW provider "Microsoft-Windows-Kernel-File" event 12 (OpLock) is the
+// source. This query assumes kernel-file ETW is being forwarded.
+
+DeviceEvents
+| where Timestamp > ago(1h)
+| where ActionType == "FileOplockRequest"   // Defender-specific action name
+| where AdditionalFields contains "BatchOplock" or AdditionalFields contains "0x90000"
+| where not(InitiatingProcessFileName in~ (
+    "MsMpEng.exe", "dfsrs.exe", "wbengine.exe", "robocopy.exe",
+    "svchost.exe", "VSSVC.exe", "ShareEx.exe"
+))
+| project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine, FolderPath, FileName, AdditionalFields
+
+// ---------------------------------------------------------------------
+// Detection 4 — Mount-point reparse point created by non-system process
+//                (T1574)
+// ---------------------------------------------------------------------
+// IO_REPARSE_TAG_MOUNT_POINT is normally set by mklink /j, vssadmin, or
+// installer code running as SYSTEM / admin. A regular user process
+// setting a mount-point reparse is high-signal, especially if the target
+// traverses upward (e.g., "..\..\Windows\System32").
+
+DeviceFileEvents
+| where Timestamp > ago(1h)
+| where ActionType in ("FileCreated", "FileModified")
+| where FileName has_any ("desktop.ini") == false   // drop noisy created markers
+| where AdditionalFields has "IO_REPARSE_TAG_MOUNT_POINT" or AdditionalFields has "ReparseTag=0xa0000003"
+| where not(InitiatingProcessFileName in~ (
+    "cmd.exe", "powershell.exe", "mklink.exe",    // evaluate separately — these are operator tools
+    "vssadmin.exe", "wbengine.exe", "svchost.exe",
+    "TrustedInstaller.exe", "msiexec.exe", "InstallAgent.exe"
+))
+| project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine, FolderPath, FileName, AdditionalFields
+
+// ---------------------------------------------------------------------
+// Detection 5 — High-rate FILE_SUPERSEDE loop against a single target
+//                (T1574)
+// ---------------------------------------------------------------------
+// The supersede race pattern opens the same file over and over with
+// FILE_SUPERSEDE / CREATE_ALWAYS until the open succeeds. Behaviorally
+// this looks like many rapid "file created / deleted" pairs against a
+// single path from the same process.
+
+DeviceFileEvents
+| where Timestamp > ago(5m)
+| where ActionType in ("FileCreated", "FileDeleted", "FileModified")
+| summarize EventCount = count(), distinctActions = make_set(ActionType), FirstSeen = min(Timestamp), LastSeen = max(Timestamp)
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessId, FolderPath, FileName
+| where EventCount > 15
+| where array_length(distinctActions) >= 2
+| extend WindowSec = datetime_diff("second", LastSeen, FirstSeen)
+| where WindowSec <= 60    // 15+ rapid events in under a minute
+| where not(InitiatingProcessFileName in~ (
+    "chrome.exe", "msedge.exe", "firefox.exe",
+    "excel.exe", "winword.exe", "powerpnt.exe",
+    "OneDrive.exe", "MsMpEng.exe"
+))
+| project FirstSeen, LastSeen, WindowSec, EventCount, DeviceName, InitiatingProcessFileName, FolderPath, FileName
+
+// ---------------------------------------------------------------------
+// Detection 6 — EICAR drop inside a Cloud Files sync-root directory
+//                (T1211 chain sentinel)
+// ---------------------------------------------------------------------
+// The RedSun pattern pairs non-OneDrive sync-root registration with an
+// EICAR-like trigger to force Defender's cloud-rewrite pathway. Any AV
+// detection inside a path that was JUST registered as a sync root is
+// high-signal.
+
+DeviceFileEvents
+| where Timestamp > ago(1h)
+| where ActionType == "AntivirusDetection"
+| join kind=inner (
+    DeviceRegistryEvents
+    | where Timestamp > ago(1h)
+    | where RegistryKey has "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\SyncRootManager"
+    | project RegTime = Timestamp, DeviceName, SyncRootPath = RegistryValueData
+) on DeviceName
+| where FolderPath startswith SyncRootPath
+| where (Timestamp - RegTime) between (0s .. 5m)
+| project Timestamp, DeviceName, FolderPath, FileName, SyncRootPath, RegTime, InitiatingProcessFileName

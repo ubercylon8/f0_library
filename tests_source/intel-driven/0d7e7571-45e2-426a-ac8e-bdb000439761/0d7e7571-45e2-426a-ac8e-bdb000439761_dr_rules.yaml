@@ -1,0 +1,168 @@
+# LimaCharlie Detect & Respond rules — RedSun Primitive Chain
+# UUID: 0d7e7571-45e2-426a-ac8e-bdb000439761
+# Reference: https://github.com/Nightmare-Eclipse/RedSun
+#
+# File format (D&R config file, as opposed to web-UI). Each rule is a top-level
+# entry: <rule-name> → { detect, respond }. The D&R engine parses the detect
+# block to match events and the respond block to take action.
+
+redsun_cloud_files_nonmicrosoft_sync_root:
+  detect:
+    event: REGISTRY_WRITE
+    op: and
+    rules:
+      - op: starts with
+        path: event/REGISTRY_KEY
+        value: HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\SyncRootManager\
+      - op: not
+        rule:
+          op: or
+          rules:
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \OneDrive.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \OneDriveSetup.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \Dropbox.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \GoogleDriveFS.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \iCloudDrive.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \BoxDrive.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \svchost.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \explorer.exe
+              case sensitive: false
+  respond:
+    - action: report
+      name: RedSun.T1211.NonMicrosoftSyncRoot
+      priority: 3
+      metadata:
+        attck_tactic: defense-evasion
+        attck_technique: T1211
+        threat_actor: Nightmare-Eclipse
+        reference: https://github.com/Nightmare-Eclipse/RedSun
+
+redsun_vss_enumeration_from_non_backup:
+  detect:
+    event: FILE_READ
+    op: and
+    rules:
+      - op: starts with
+        path: event/FILE_PATH
+        value: \Device\HarddiskVolumeShadowCopy
+        case sensitive: false
+      - op: not
+        rule:
+          op: or
+          rules:
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \svchost.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \VSSVC.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \vssadmin.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \wbengine.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \MsMpEng.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \robocopy.exe
+              case sensitive: false
+  respond:
+    - action: report
+      name: RedSun.T1006.VSSEnumeration
+      priority: 3
+      metadata:
+        attck_tactic: collection
+        attck_technique: T1006
+        threat_actor: Nightmare-Eclipse
+
+redsun_mount_point_reparse_from_user_process:
+  detect:
+    event: REPARSE_POINT_CREATED
+    op: and
+    rules:
+      # IO_REPARSE_TAG_MOUNT_POINT (0xA0000003)
+      - op: is
+        path: event/REPARSE_TAG
+        value: 0xa0000003
+      - op: not
+        rule:
+          op: or
+          rules:
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \TrustedInstaller.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \msiexec.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \svchost.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \vssadmin.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: \wbengine.exe
+              case sensitive: false
+  respond:
+    - action: report
+      name: RedSun.T1574.MountPointReparse
+      priority: 3
+      metadata:
+        attck_tactic: defense-evasion
+        attck_technique: T1574
+        threat_actor: Nightmare-Eclipse
+
+redsun_eicar_in_sync_root:
+  detect:
+    event: SENSITIVE_PROCESS_ACCESS
+    op: and
+    rules:
+      - op: contains
+        path: event/THREAT_NAME
+        value: eicar
+        case sensitive: false
+  respond:
+    - action: report
+      name: RedSun.T1211.EICAR_ChainSentinel
+      priority: 5
+      metadata:
+        attck_tactic: defense-evasion
+        attck_technique: T1211
+        threat_actor: Nightmare-Eclipse
+        note: Highest-fidelity signal when correlated with a recent SyncRootManager registry write from the same process

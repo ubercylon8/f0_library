@@ -1,0 +1,174 @@
+---
+title: Non-Microsoft Cloud Files Sync Root Registration
+id: 0d7e7571-45e2-426a-ac8e-bdb000439761-sigma-01
+status: experimental
+description: Detects registration of a Cloud Files API sync root by a process that is not a known Cloud Files provider (RedSun-style T1211 primitive)
+references:
+  - https://github.com/Nightmare-Eclipse/RedSun
+  - https://learn.microsoft.com/en-us/windows/win32/cfapi/cloud-files-api-portal
+author: F0RT1KA sectest-builder
+date: 2026-04-24
+tags:
+  - attack.defense_evasion
+  - attack.t1211
+logsource:
+  product: windows
+  category: registry_event
+detection:
+  selection:
+    TargetObject|contains: 'SOFTWARE\Microsoft\Windows\CurrentVersion\SyncRootManager\'
+    EventType:
+      - SetValue
+      - CreateKey
+  filter_known_providers:
+    Image|endswith:
+      - '\OneDrive.exe'
+      - '\OneDriveSetup.exe'
+      - '\OneDriveStandaloneUpdater.exe'
+      - '\Dropbox.exe'
+      - '\GoogleDriveFS.exe'
+      - '\iCloudDrive.exe'
+      - '\BoxDrive.exe'
+      - '\explorer.exe'
+      - '\svchost.exe'
+  condition: selection and not filter_known_providers
+falsepositives:
+  - New enterprise sync clients rolled out that are not in the allowlist (tune by adding them)
+level: medium
+
+---
+title: VSS Shadow Copy Device Path Enumerated by Non-Backup Process
+id: 0d7e7571-45e2-426a-ac8e-bdb000439761-sigma-02
+status: experimental
+description: Detects reads against \Device\HarddiskVolumeShadowCopy* from a process that is not a known backup/VSS client — the discovery half of the RedSun T1006 primitive
+references:
+  - https://github.com/Nightmare-Eclipse/RedSun
+  - https://attack.mitre.org/techniques/T1006/
+author: F0RT1KA sectest-builder
+date: 2026-04-24
+tags:
+  - attack.collection
+  - attack.t1006
+logsource:
+  product: windows
+  service: sysmon
+  category: file_event
+detection:
+  selection:
+    TargetFilename|startswith: '\Device\HarddiskVolumeShadowCopy'
+  filter_legit:
+    Image|endswith:
+      - '\svchost.exe'
+      - '\VSSVC.exe'
+      - '\vssadmin.exe'
+      - '\wbengine.exe'
+      - '\MsMpEng.exe'
+      - '\robocopy.exe'
+      - '\SenseIR.exe'
+  condition: selection and not filter_legit
+falsepositives:
+  - Custom backup solutions not on the allowlist (tune by adding them)
+level: medium
+
+---
+title: User Process Sets Mount Point Reparse Point
+id: 0d7e7571-45e2-426a-ac8e-bdb000439761-sigma-03
+status: experimental
+description: Detects FSCTL_SET_REPARSE_POINT with IO_REPARSE_TAG_MOUNT_POINT issued from a non-privileged user process (RedSun T1574 reparse primitive)
+references:
+  - https://github.com/Nightmare-Eclipse/RedSun
+  - https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/fsctl-set-reparse-point
+author: F0RT1KA sectest-builder
+date: 2026-04-24
+tags:
+  - attack.defense_evasion
+  - attack.t1574
+logsource:
+  product: windows
+  category: driver_loaded   # Proxy: this event requires kernel-file ETW
+detection:
+  selection:
+    EventID: 4663   # Windows audit object access — set reparse point appears here when audit is enabled
+    AccessMask|contains: '0x40'    # WRITE_DAC or write-access approximation
+    ObjectType: 'File'
+    HandleType|contains: 'Reparse'
+  filter_legit:
+    ProcessName|endswith:
+      - '\cmd.exe'        # mklink /j — usually operator action, raise priority to medium
+      - '\mklink.exe'
+      - '\TrustedInstaller.exe'
+      - '\msiexec.exe'
+      - '\InstallAgent.exe'
+  condition: selection and not filter_legit
+falsepositives:
+  - Operator-initiated junctions via mklink — disable when that workflow exists
+level: medium
+
+---
+title: Rapid FILE_SUPERSEDE Loop Against Single Target
+id: 0d7e7571-45e2-426a-ac8e-bdb000439761-sigma-04
+status: experimental
+description: Detects many rapid create/delete events against a single file from the same process — the supersede-race half of the RedSun T1574 primitive
+references:
+  - https://github.com/Nightmare-Eclipse/RedSun
+author: F0RT1KA sectest-builder
+date: 2026-04-24
+tags:
+  - attack.defense_evasion
+  - attack.t1574
+logsource:
+  product: windows
+  service: sysmon
+  category: file_event
+detection:
+  timeframe: 1m
+  selection:
+    EventID:
+      - 11    # FileCreate
+      - 23    # FileDelete
+  filter_legit:
+    Image|endswith:
+      - '\MsMpEng.exe'
+      - '\OneDrive.exe'
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\firefox.exe'
+      - '\excel.exe'
+      - '\winword.exe'
+  condition: selection and not filter_legit | count() by Image, TargetFilename > 15
+falsepositives:
+  - Custom backup or sync software with aggressive retry behavior
+level: medium
+
+---
+title: Batch Oplock Request From Non-Backup User Process
+id: 0d7e7571-45e2-426a-ac8e-bdb000439761-sigma-05
+status: experimental
+description: Detects FSCTL_REQUEST_BATCH_OPLOCK from a process that is not a known backup / file-replication / VSS client (RedSun T1006 primitive)
+references:
+  - https://github.com/Nightmare-Eclipse/RedSun
+  - https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/fsctl-request-batch-oplock
+author: F0RT1KA sectest-builder
+date: 2026-04-24
+tags:
+  - attack.collection
+  - attack.t1006
+logsource:
+  product: windows
+  category: driver_loaded   # proxy — requires Microsoft-Windows-Kernel-File ETW forwarding
+detection:
+  selection:
+    EventID: 12   # kernel-file OpLock event
+    OplockType|contains: 'Batch'
+  filter_legit:
+    ProcessName|endswith:
+      - '\MsMpEng.exe'
+      - '\dfsrs.exe'
+      - '\wbengine.exe'
+      - '\robocopy.exe'
+      - '\svchost.exe'
+      - '\VSSVC.exe'
+  condition: selection and not filter_legit
+falsepositives:
+  - Custom or OEM backup software
+level: medium
