@@ -1,0 +1,187 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 6a2351ac-654a-4112-b378-e6919beef70d
+# Test Name: UnDefend - Defender Signature/Engine Update DoS via File-Lock Race
+# MITRE ATT&CK: T1562.001, T1083
+# Threat Actor: Nightmare-Eclipse (PoC author)
+# Created: 2026-04-24
+# Author: F0RT1KA sectest-builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the UnDefend-class attack primitive (registry recon
+# for Defender paths, directory-change watch on Definition Updates, and
+# service-stop subscription on WinDefend) regardless of the specific binary
+# name or signing identity of the attacker tool. They do NOT match on the
+# F0RT1KA test framework itself.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 6a2351ac-654a-4112-b378-e6919beef70d_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: Non-Defender Process Queries WinDefend Service Handle
+  # Purpose: Detect OpenService calls against WinDefend by a process that does
+  #          not live in the Defender install directory. UnDefend opens the
+  #          service to register SERVICE_NOTIFY_STOPPED.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1562.001
+  # ==========================================================================
+  undefend-windefend-service-open-by-non-defender:
+    detect:
+      target: edr
+      event: SENSITIVE_PROCESS_ACCESS
+      op: and
+      rules:
+        - op: is
+          path: event/TARGET_NAME
+          value: WinDefend
+        - op: not
+          rules:
+            - op: starts with
+              path: event/FILE_PATH
+              value: C:\Program Files\Windows Defender\
+            - op: starts with
+              path: event/FILE_PATH
+              value: C:\ProgramData\Microsoft\Windows Defender\
+            - op: starts with
+              path: event/FILE_PATH
+              value: C:\Windows\System32\
+    respond:
+      - action: report
+        name: undefend-windefend-service-open-by-non-defender
+        priority: 3
+        metadata:
+          mitre: T1562.001
+          confidence: high
+          severity: high
+
+  # ==========================================================================
+  # RULE 2: Non-System Process Opens Defender Definition Updates Directory
+  # Purpose: Detect a non-SYSTEM process opening the Definition Updates
+  #          directory — UnDefend opens it with FILE_LIST_DIRECTORY and
+  #          subscribes via ReadDirectoryChangesW.
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1562.001, T1083
+  # ==========================================================================
+  undefend-open-definition-updates-directory:
+    detect:
+      target: edr
+      event: FILE_OPEN
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: \Windows Defender\Definition Updates
+            - op: contains
+              path: event/FILE_PATH
+              value: \System32\MRT\
+        - op: not
+          rules:
+            - op: starts with
+              path: event/PROCESS/FILE_PATH
+              value: C:\Program Files\Windows Defender\
+            - op: starts with
+              path: event/PROCESS/FILE_PATH
+              value: C:\ProgramData\Microsoft\Windows Defender\
+            - op: is
+              path: event/PROCESS/FILE_PATH
+              value: C:\Windows\System32\MpSigStub.exe
+            - op: is
+              path: event/PROCESS/USER_NAME
+              value: SYSTEM
+    respond:
+      - action: report
+        name: undefend-open-definition-updates-directory
+        priority: 3
+        metadata:
+          mitre: T1562.001,T1083
+          confidence: high
+          severity: high
+
+  # ==========================================================================
+  # RULE 3: Defender Path Registry Recon
+  # Purpose: Detect a non-Defender process reading Defender's update-path
+  #          registry values — UnDefend does this to resolve Definition
+  #          Updates and mpavbase.vdm.
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1083
+  # ==========================================================================
+  undefend-defender-registry-recon:
+    detect:
+      target: edr
+      event: REGISTRY_READ
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/KEY
+              value: \SOFTWARE\Microsoft\Windows Defender\ProductAppDataPath
+            - op: contains
+              path: event/KEY
+              value: \SOFTWARE\Microsoft\Windows Defender\Signature Updates\SignatureLocation
+        - op: not
+          rules:
+            - op: starts with
+              path: event/PROCESS/FILE_PATH
+              value: C:\Program Files\Windows Defender\
+            - op: starts with
+              path: event/PROCESS/FILE_PATH
+              value: C:\ProgramData\Microsoft\Windows Defender\
+            - op: is
+              path: event/PROCESS/FILE_PATH
+              value: C:\Windows\System32\MpSigStub.exe
+    respond:
+      - action: report
+        name: undefend-defender-registry-recon
+        priority: 2
+        metadata:
+          mitre: T1083
+          confidence: medium
+          severity: medium
+
+  # ==========================================================================
+  # RULE 4: File Lock on Defender Signature File by Non-Defender Process
+  # Purpose: Detect LockFile / LockFileEx API calls targeting any file under
+  #          the Defender Definition Updates directory. This is the real
+  #          UnDefend DoS primitive — the test simulation targets a sandbox
+  #          file outside this path, so this rule fires on real attackers only.
+  # Confidence: VERY HIGH (true-positive on real tool, not simulation)
+  # MITRE ATT&CK: T1562.001
+  # ==========================================================================
+  undefend-file-lock-on-defender-signature:
+    detect:
+      target: edr
+      event: FILE_HANDLE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: \Windows Defender\Definition Updates\
+        - op: contains
+          path: event/OPEN_FLAGS
+          value: LOCK
+        - op: not
+          rules:
+            - op: starts with
+              path: event/PROCESS/FILE_PATH
+              value: C:\Program Files\Windows Defender\
+            - op: starts with
+              path: event/PROCESS/FILE_PATH
+              value: C:\ProgramData\Microsoft\Windows Defender\
+    respond:
+      - action: report
+        name: undefend-file-lock-on-defender-signature
+        priority: 4
+        metadata:
+          mitre: T1562.001
+          confidence: very_high
+          severity: critical

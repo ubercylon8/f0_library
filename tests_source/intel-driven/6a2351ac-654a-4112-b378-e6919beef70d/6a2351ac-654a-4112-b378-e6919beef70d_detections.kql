@@ -1,0 +1,149 @@
+// ============================================================
+// Behavioral Detection Queries for UnDefend (Defender Update-DoS via File-Lock Race)
+// Test ID: 6a2351ac-654a-4112-b378-e6919beef70d
+// MITRE ATT&CK: T1562.001, T1083
+// Threat Actor: Nightmare-Eclipse (PoC author)
+// Generated: 2026-04-24
+// ============================================================
+// FOCUS: Technique-level behaviors of UnDefend-class tools.
+// All detections target the underlying attack primitive (the API
+// sequence that disables Defender updates), NOT the F0RT1KA test binary.
+// ============================================================
+
+
+// ============================================================
+// QUERY 1: Non-Microsoft Process Registering Service-Stop Notification on WinDefend
+// Confidence: Very High
+// Purpose: Detect any non-Microsoft-signed process calling
+//          NotifyServiceStatusChangeW on WinDefend. This pattern
+//          has essentially no legitimate use outside Defender itself.
+// False Positives: Legitimate security products that monitor WinDefend state
+//          (AV vendors, monitoring tools). Filter by publisher/path.
+// ============================================================
+DeviceEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in~ ("ServiceStatusQueried", "OpenProcessApiCall", "ServiceHandleOpened")
+    or AdditionalFields has "NotifyServiceStatusChange"
+    or AdditionalFields has "WinDefend"
+| where InitiatingProcessFolderPath !startswith "C:\\Program Files\\Windows Defender"
+    and InitiatingProcessFolderPath !startswith "C:\\ProgramData\\Microsoft\\Windows Defender"
+    and InitiatingProcessFolderPath !startswith "C:\\Windows\\System32\\"
+    and InitiatingProcessFolderPath !startswith "C:\\Windows\\SysWOW64\\"
+| where AdditionalFields has_any ("WinDefend", "Windows Defender Antivirus Service")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine, InitiatingProcessSHA256,
+    ActionType, AdditionalFields
+| extend
+    Severity = "High",
+    ThreatType = "Defender Tamper - Service Notification Subscription",
+    MitreAttack = "T1562.001",
+    Detection = "Non-Microsoft process subscribing to WinDefend state changes - UnDefend-class tampering"
+
+
+// ============================================================
+// QUERY 2: Directory Change Subscription on Defender Definition Updates
+// Confidence: High
+// Purpose: Detect a non-system process opening C:\ProgramData\Microsoft\
+//          Windows Defender\Definition Updates with FILE_LIST_DIRECTORY
+//          and registering ReadDirectoryChangesW. UnDefend uses this to
+//          race signature-file modifications.
+// False Positives: Backup / indexing services that enumerate ProgramData.
+//          Filter to process paths outside C:\Windows and C:\Program Files.
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FolderPath has "C:\\ProgramData\\Microsoft\\Windows Defender\\Definition Updates"
+    or FolderPath has "C:\\Windows\\System32\\MRT"
+| where ActionType in~ ("FileOpened", "FileOpenedForRead", "FileAccessed")
+| where InitiatingProcessFolderPath !startswith "C:\\Windows\\"
+    and InitiatingProcessFolderPath !startswith "C:\\Program Files\\Windows Defender\\"
+    and InitiatingProcessFolderPath !startswith "C:\\ProgramData\\Microsoft\\Windows Defender\\"
+    and InitiatingProcessAccountName !in ("SYSTEM", "LOCAL SERVICE", "NT AUTHORITY\\SYSTEM")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine, InitiatingProcessSHA256,
+    FolderPath, FileName, ActionType
+| extend
+    Severity = "High",
+    ThreatType = "Defender Tamper - Update Directory Watch",
+    MitreAttack = "T1083, T1562.001",
+    Detection = "Non-system process opening Defender Definition Updates directory - possible signature-update DoS"
+
+
+// ============================================================
+// QUERY 3: Registry Recon of Defender Update Paths Followed by File-Lock Activity
+// Confidence: High
+// Purpose: Correlate reads of HKLM\...\Windows Defender\ProductAppDataPath
+//          or SignatureLocation with subsequent suspicious file opens.
+//          UnDefend reads these keys to resolve the Definition Updates
+//          and mpavbase.vdm paths before taking locks.
+// False Positives: Security product management tooling, MDE updater.
+//          Whitelist known Microsoft processes.
+// ============================================================
+DeviceRegistryEvents
+| where TimeGenerated > ago(30m)
+| where RegistryKey has_any (
+    "\\SOFTWARE\\Microsoft\\Windows Defender\\Signature Updates",
+    "\\SOFTWARE\\Microsoft\\Windows Defender"
+)
+| where RegistryValueName in~ ("ProductAppDataPath", "SignatureLocation", "AVSignatureVersion")
+| where ActionType == "RegistryValueRead"
+| where InitiatingProcessFolderPath !startswith "C:\\Program Files\\Windows Defender\\"
+    and InitiatingProcessFolderPath !startswith "C:\\ProgramData\\Microsoft\\Windows Defender\\"
+    and InitiatingProcessFolderPath !startswith "C:\\Windows\\System32\\"
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessSHA256, RegistryKey, RegistryValueName
+| extend
+    Severity = "Medium",
+    ThreatType = "Defender Path Reconnaissance",
+    MitreAttack = "T1083",
+    Detection = "Non-Defender process reading Defender update-path registry values"
+
+
+// ============================================================
+// QUERY 4: Defender Signature-Update Failures Correlated with Non-Privileged User Processes
+// Confidence: Medium-High
+// Purpose: Detect repeated "signature update failed" Defender events
+//          (EventID 2001, 2002 in Defender operational log) when a
+//          non-privileged user process is concurrently active on the host.
+// False Positives: Offline hosts, slow/interrupted update downloads.
+// ============================================================
+DeviceEvents
+| where TimeGenerated > ago(24h)
+| where ActionType == "AntivirusDefinitionUpdateFailed"
+    or (AdditionalFields has "Event ID" and AdditionalFields has_any ("2001", "2002", "2004"))
+| summarize
+    FailureCount = count(),
+    FirstFailure = min(TimeGenerated),
+    LastFailure = max(TimeGenerated)
+    by DeviceName
+| where FailureCount >= 3
+| extend
+    Severity = "Medium",
+    ThreatType = "Persistent Defender Update Failures",
+    MitreAttack = "T1562.001",
+    Detection = "Host has 3+ signature-update failures in 24h - possible UnDefend-class DoS"
+
+
+// ============================================================
+// QUERY 5: Standard-User Process Opening Definition Updates with Async-IO Flags
+// Confidence: High
+// Purpose: Directory handles opened with FILE_LIST_DIRECTORY | SYNCHRONIZE
+//          or async completion bits on the Definition Updates folder by a
+//          non-SYSTEM process strongly suggests ReadDirectoryChangesW setup.
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FolderPath has "Definition Updates" or FolderPath has "System32\\MRT"
+| where InitiatingProcessIntegrityLevel !in ("System", "High")
+| where ActionType == "FileOpened"
+| project TimeGenerated, DeviceName, InitiatingProcessAccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessIntegrityLevel, FolderPath, FileName
+| extend
+    Severity = "High",
+    ThreatType = "Non-Privileged Watcher on Defender Updates",
+    MitreAttack = "T1562.001",
+    Detection = "Medium/low-integrity process opened Defender update directory - UnDefend-class tampering"

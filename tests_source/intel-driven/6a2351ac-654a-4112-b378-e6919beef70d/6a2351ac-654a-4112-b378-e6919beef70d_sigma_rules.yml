@@ -1,0 +1,172 @@
+# ============================================================
+# UnDefend Defender Update-DoS - Sigma Rules
+# Test ID: 6a2351ac-654a-4112-b378-e6919beef70d
+# MITRE ATT&CK: T1562.001, T1083
+# Threat Actor: Nightmare-Eclipse (PoC author)
+# Generated: 2026-04-24
+# ============================================================
+# FOCUS: Technique-level behaviors of UnDefend-class Defender tampering.
+# Rules target the underlying attack primitive (API sequence that blocks
+# Defender signature/engine updates), NOT the F0RT1KA test binary name.
+# ============================================================
+---
+title: Non-Defender Process Subscribing to WinDefend Service State
+id: 6a2351ac-sigma-001
+status: stable
+description: |
+  Detects a process outside of the Defender install path subscribing to
+  WinDefend service state changes via NotifyServiceStatusChangeW. UnDefend
+  (Nightmare-Eclipse) uses this primitive to race the engine binary replace
+  during a major platform update. Legitimate Defender tooling itself almost
+  never subscribes to its own service state from outside the product's
+  install directory.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+  - https://github.com/Nightmare-Eclipse/UnDefend
+author: F0RT1KA sectest-builder
+date: 2026-04-24
+tags:
+  - attack.defense-evasion
+  - attack.t1562.001
+  - undefend
+  - defender-tamper
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection_target:
+    TargetImage|endswith:
+      - '\services.exe'
+    CallTrace|contains:
+      - 'NotifyServiceStatusChange'
+  filter_defender:
+    SourceImage|startswith:
+      - 'C:\Program Files\Windows Defender\'
+      - 'C:\ProgramData\Microsoft\Windows Defender\'
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+  condition: selection_target and not filter_defender
+falsepositives:
+  - Third-party security products that monitor Defender state (whitelist by publisher)
+  - System management tooling with explicit Defender health checks
+level: high
+
+---
+title: Non-System Process Opening Defender Definition Updates Directory
+id: 6a2351ac-sigma-002
+status: stable
+description: |
+  Detects a non-system process opening C:\ProgramData\Microsoft\Windows
+  Defender\Definition Updates (or C:\Windows\System32\MRT) as a directory
+  handle. UnDefend does this to subscribe to ReadDirectoryChangesW and
+  race file modifications.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+  - https://attack.mitre.org/techniques/T1083/
+  - https://github.com/Nightmare-Eclipse/UnDefend
+author: F0RT1KA sectest-builder
+date: 2026-04-24
+tags:
+  - attack.defense-evasion
+  - attack.discovery
+  - attack.t1562.001
+  - attack.t1083
+  - undefend
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|contains:
+      - '\Windows Defender\Definition Updates'
+      - '\System32\MRT\'
+  filter_system:
+    Image|startswith:
+      - 'C:\Program Files\Windows Defender\'
+      - 'C:\ProgramData\Microsoft\Windows Defender\'
+      - 'C:\Windows\System32\MpSigStub.exe'
+      - 'C:\Windows\System32\svchost.exe'
+  filter_integrity:
+    IntegrityLevel:
+      - 'System'
+      - 'SYSTEM'
+  condition: selection and not filter_system and not filter_integrity
+falsepositives:
+  - Backup/indexing services scanning ProgramData (whitelist by product)
+  - Defender Platform Update Installer (signed Microsoft process)
+level: high
+
+---
+title: Non-Microsoft Process Reading Defender Update Path Registry Keys
+id: 6a2351ac-sigma-003
+status: experimental
+description: |
+  Detects a non-Microsoft-signed process reading HKLM\SOFTWARE\Microsoft\
+  Windows Defender\ProductAppDataPath or
+  HKLM\SOFTWARE\Microsoft\Windows Defender\Signature Updates\SignatureLocation.
+  UnDefend reads these values to locate Definition Updates and mpavbase.vdm.
+references:
+  - https://attack.mitre.org/techniques/T1083/
+  - https://github.com/Nightmare-Eclipse/UnDefend
+author: F0RT1KA sectest-builder
+date: 2026-04-24
+tags:
+  - attack.discovery
+  - attack.t1083
+  - defender-recon
+  - undefend
+logsource:
+  category: registry_event
+  product: windows
+detection:
+  selection:
+    EventType:
+      - 'QueryValue'
+      - 'RegistryValueRead'
+    TargetObject|contains:
+      - '\SOFTWARE\Microsoft\Windows Defender\ProductAppDataPath'
+      - '\SOFTWARE\Microsoft\Windows Defender\Signature Updates\SignatureLocation'
+  filter_defender:
+    Image|startswith:
+      - 'C:\Program Files\Windows Defender\'
+      - 'C:\ProgramData\Microsoft\Windows Defender\'
+      - 'C:\Windows\System32\MpSigStub.exe'
+  condition: selection and not filter_defender
+falsepositives:
+  - Defender platform updater (signed Microsoft binary)
+  - System management agents reading Defender version strings
+level: medium
+
+---
+title: Defender Operational Log Repeated Signature Update Failures
+id: 6a2351ac-sigma-004
+status: experimental
+description: |
+  Detects 3 or more Defender signature-update failure events
+  (EventID 2001/2002/2004 in Microsoft-Windows-Windows Defender/Operational)
+  within a 6-hour window — a strong indicator of UnDefend-class
+  persistent lock-race DoS.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+  - https://github.com/Nightmare-Eclipse/UnDefend
+author: F0RT1KA sectest-builder
+date: 2026-04-24
+tags:
+  - attack.defense-evasion
+  - attack.t1562.001
+  - defender-health
+logsource:
+  product: windows
+  service: windows-defender
+detection:
+  selection:
+    EventID:
+      - 2001
+      - 2002
+      - 2004
+  timeframe: 6h
+  condition: selection | count() by ComputerName > 2
+falsepositives:
+  - Offline hosts unable to reach Defender update servers
+  - Persistent network connectivity issues on endpoint
+level: medium
