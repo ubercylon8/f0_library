@@ -1,8 +1,10 @@
-# Proposed Rubric v2: Realism-First Quality Scoring
+# Rubric v2: Realism-First Quality Scoring
 
-**Status:** Proposal — not yet merged into `.claude/agents/sectest-documentation.md`
+**Status:** **ACTIVE** — merged into `.claude/agents/sectest-documentation.md` on 2026-04-25.
 **Parent analysis:** `docs/SCORE_LIFT_ANALYSIS_NIGHTMARE_ECLIPSE_2026-04-24.md`
-**Author:** 2026-04-24
+**Author:** 2026-04-24, activated 2026-04-25
+
+This document is preserved as the long-form specification with worked examples. The agent prompt contains the condensed operative version. When they disagree, **the agent prompt wins** (it's what the scoring agent actually reads).
 
 ## Intent
 
@@ -343,50 +345,64 @@ else:
 
 ---
 
-## Open Questions (before merging)
+## Resolved Decisions (2026-04-25)
 
-1. **Lab run prerequisite for Detection Firing scores above 0.5.** If a
-   test is written but has not yet been deployed to the lab, can it be
-   scored at all? Proposal: allow up to **0.5** from rule-to-primitive
-   mapping documentation alone, but cap Detection Firing at 0.5 until a
-   real lab run produces firing evidence. Scores above 7.5 are
-   therefore gated on lab runs — which aligns with "realism is only
-   provable empirically."
+1. **Lab run prerequisite for Detection Firing > 0.5: ADOPTED.** Without a
+   real lab run, Detection Firing is capped at **0.5**, regardless of how
+   complete the rule-to-primitive mapping documentation is. A test cannot
+   exceed **7.5 total** without lab evidence. This is a forcing function:
+   tests are drafted, deployed, lab-verified, then finalized. Authors who
+   want a >7.5 score must run their test against a representative sensor
+   stack and document which rules fired.
 
-2. **Multi-stage bonus.** v1 said "multi-stage tests typically +1.0–1.5
-   points." v2 doesn't need an explicit bonus because multi-stage tests
-   naturally earn more on API Fidelity (more primitives to match) and
-   Detection Firing (more rules to exercise). Drop the bonus; let the
-   rubric speak for itself.
+2. **Multi-stage bonus: REMOVED.** v1's +1.0–1.5 structural credit for
+   multi-stage tests is gone. Multi-stage tests now earn more
+   organically through API Fidelity (more primitives) and Detection
+   Firing (more rules to exercise). Letting the rubric reward realism
+   directly is more honest than an architectural bonus.
 
-3. **Rubric-version field.** Add `RubricVersion string` to
-   `TestMetadata` so existing v1 scores remain interpretable. Default
-   to `"v1"` for backward compatibility; new tests write `"v2"`.
+3. **Rubric-version field: SHIPPED 2026-04-24.** `RubricVersion string`
+   added to `TestMetadata` with `omitempty` JSON tag. Existing tests
+   backfilled with `"v1"`; new tests default to `"v2"` (template
+   updated). Empty/missing == `"v1"` for downstream consumers. See
+   commit `eb9d9d5`.
 
-4. **Merger with Defense Score.** `F0RT1KA_SCORING_METHODOLOGY.md`
-   scores *defender performance*; this doc scores *test quality*. They
-   share the realism axis (a realistic test generates realistic defense
-   signals). A follow-up could merge both scores into a single
-   2-dimensional rating `(test_quality, defense_performance)` — out of
-   scope here.
+4. **Merger with Defense Score: DEFERRED.** Test-quality score (this
+   rubric) and defense score (`F0RT1KA_SCORING_METHODOLOGY.md`) remain
+   independent for now. Both share a realism axis — a realistic test
+   generates realistic defense signals — and a future
+   2-dimensional rating `(test_quality, defense_performance)` is
+   plausible but out of scope. Revisit if we accumulate enough v2 + lab
+   data to justify a unified score.
 
-5. **Alignment with `sectest-builder`'s score-estimate skill.**
-   `.claude/skills/sectest-source-analysis.md` also uses "scoring
-   rubric" language. Update to reference v2 when the rubric is merged.
+5. **`sectest-source-analysis` alignment: DONE 2026-04-25.** Skill now
+   cites v2 in its score-estimate language.
+
+## Re-scoring Policy
+
+- **No retroactive re-scoring of existing v1 tests.** They keep their v1
+  scores with `RubricVersion: "v1"` to preserve ES/PA trend lines.
+- **Materially-modified tests trigger a re-score under v2.** A "lift PR"
+  that changes Go source code is a re-score event. Docs-only PRs are
+  not.
+- **The Nightmare-Eclipse triad** (`5e59dd6a`, `0d7e7571`, `6a2351ac`)
+  will be the first re-scored cohort once their lift proposals from
+  `docs/SCORE_LIFT_ANALYSIS_NIGHTMARE_ECLIPSE_2026-04-24.md` land — at
+  which point they'll carry `RubricVersion: "v2"` and be reanchored to
+  the v2 scale shown in the worked-examples section above.
 
 ---
 
-## Recommended Merge Sequence
+## Activation Sequence (completed)
 
-1. Land this doc in `docs/` for review (this commit).
-2. Review + iterate on Tier 2 weights (is API Fidelity really 3.0 of 7?
-   Should Detection Firing be 3.0 instead of 2.0?).
-3. Add `RubricVersion` field to `test_logger.go` and backfill existing
-   tests with `"v1"`.
-4. Replace lines 34–68 of `.claude/agents/sectest-documentation.md`
-   with the block in the "Exact Drop-In Replacement" section.
-5. Update `.claude/skills/sectest-source-analysis.md` to cite v2.
-6. Re-score the Nightmare-Eclipse triad under v2 as the first
-   test-bed; apply the per-test lift proposals to push each to ≥ 9.0.
-7. Update `F0RT1KA_SCORING_METHODOLOGY.md` with a cross-reference to
-   the realism-first test rubric and a note on future merger.
+1. ✅ Add `RubricVersion` field to `test_logger.go` and backfill existing
+   tests with `"v1"` (commit `eb9d9d5`, 2026-04-24).
+2. ✅ Replace lines 34–68 of `.claude/agents/sectest-documentation.md`
+   with the v2 block (2026-04-25).
+3. ✅ Update `.claude/skills/sectest-source-analysis.md` to cite v2
+   (2026-04-25).
+4. ✅ Flip canonical template to `RubricVersion: "v2"` so new tests
+   default to v2 (2026-04-25).
+5. ⏳ Re-score the Nightmare-Eclipse triad under v2 once lift proposals
+   land (pending — tracked in `SCORE_LIFT_ANALYSIS_NIGHTMARE_ECLIPSE_2026-04-24.md`).
+6. ⏳ Cross-reference v2 from `F0RT1KA_SCORING_METHODOLOGY.md` (pending).
