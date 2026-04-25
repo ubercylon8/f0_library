@@ -13,18 +13,18 @@ The bundle implements 7 multi-binary validators (one per ITGC control family) fo
 
 ## Status
 
-**Phase 2 milestone (2026-04-25)**: scaffolding + 7 representative checks (one per family) shipped. Architecture, evidence sidecar emitter, and auditor workpaper output verified.
+**Phase 2.5 milestone (2026-04-25)**: 13 of 31 controls shipped + multi-binary signed build pipeline verified (orchestrator signed with F0RT1KA cert, 24 MB, SHA1 verified).
 
-| Family | Controls in scope | Implemented (Phase 2) | Remaining |
+| Family | Controls in scope | Implemented (Phase 2.5) | Remaining |
 |---|---|---|---|
-| Access Management (AM) | AM-001, AM-002, AM-005 | AM-005 | 2 |
+| Access Management (AM) | AM-001, AM-002, AM-005 | AM-002, AM-005 | 1 (AM-001 → AD bundle) |
 | Change Management (CM) | CM-001..005 | CM-005 | 4 |
-| Logging & Monitoring (LM) | LM-001..005 | LM-005 | 4 |
-| Endpoint Protection (EP) | EP-001..006 | EP-004, EP-006 (1 ASR rule) | 4 |
+| Logging & Monitoring (LM) | LM-001..005 | LM-002, LM-005 | 3 |
+| Endpoint Protection (EP) | EP-001..006 | **EP-001..006 (full)** | 0 |
 | Backup & Recovery (BR) | BR-001..003 | BR-003 | 2 |
-| Network Security (NS) | NS-001, NS-002, NS-004 | NS-004 | 2 |
+| Network Security (NS) | NS-001, NS-002, NS-004 | NS-002, NS-004 | 1 |
 | Governance & Policy (GV) | GV-001..006 | GV-002 | 5 |
-| **TOTAL** | **31** | **8** | **23** |
+| **TOTAL** | **31** | **13** | **16** (+ 2 in companion bundles) |
 
 Companion bundles (planned):
 - ISACA ITGC AD Identity Bundle (UUID TBD) — covers AM-001 (local admin inv), AM-003 (dormant accts), AM-004 (service accts), NS-003 (LAPS) on a DC / mgmt server

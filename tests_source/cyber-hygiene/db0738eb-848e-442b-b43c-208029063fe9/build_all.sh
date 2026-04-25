@@ -71,8 +71,11 @@ NC='\033[0m'
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Detect if running inside f0_library or standalone
-if [ -d "${SCRIPT_DIR}/../../utils" ]; then
+# Detect if running inside f0_library or standalone.
+# Bundles live at f0_library/tests_source/cyber-hygiene/<uuid>/, so utils/ is 3 levels up.
+if [ -d "${SCRIPT_DIR}/../../../utils" ]; then
+    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+elif [ -d "${SCRIPT_DIR}/../../utils" ]; then
     PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 else
     PROJECT_ROOT=""

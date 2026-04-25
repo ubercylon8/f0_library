@@ -1,8 +1,9 @@
 //go:build ignore
 // +build ignore
 
-// checks_ns.go — ISACA ITGC Network Security control checks (NS-001/002/004).
-// Phase-2 milestone: NS-004 WinRM service exposure check.
+// checks_ns.go — ISACA ITGC Network Security control checks.
+// Phase-2.5: NS-002 RDP Security + NS-004 WinRM Exposure.
+// NS-001 Open Port Inventory ships in Phase-2.5b.
 
 package main
 
@@ -10,12 +11,15 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 func RunNSChecks() ValidatorResult {
 	result := ValidatorResult{Name: "Network Security"}
 	result.Checks = []CheckResult{
-		checkWinRMExposureISACA(),
+		checkRDPSecurityISACA(),    // NS-002
+		checkWinRMExposureISACA(),  // NS-004
 	}
 	for _, c := range result.Checks {
 		result.TotalChecks++
@@ -29,8 +33,77 @@ func RunNSChecks() ValidatorResult {
 	return result
 }
 
+// ITGC-NS-002 — RDP security: NLA on, encryption High (>=3), or RDP disabled altogether.
+func checkRDPSecurityISACA() CheckResult {
+	c := CheckResult{
+		ControlID:      "ITGC-NS-002",
+		Name:           "RDP Security Configuration",
+		Category:       "network-security",
+		Description:    "RDP either disabled, or NLA enforced with MinEncryptionLevel ≥ 3.",
+		Severity:       "critical",
+		Techniques:     []string{"T1021.001"},
+		Tactics:        []string{"lateral-movement"},
+		CisaDomain:     "D5: Protection of Information Assets",
+		CobitObjective: "DSS05.02 Manage Network and Connectivity Security",
+		CisV8Mapping:   "CIS 4.3 Configure Data Access Control Lists",
+		ManualResidual: "Auditor verifies RDP-enabled hosts are restricted to approved admin groups.",
+	}
+
+	// fDenyTSConnections: 1 = RDP disabled, 0 = enabled
+	denyMatched, denyVal, denyErr := CheckRegistryDWORD(
+		registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Control\Terminal Server`,
+		"fDenyTSConnections", 1)
+
+	c.Expected = "RDP disabled OR (NLA=1 AND MinEncryptionLevel>=3)"
+	c.Evidence = map[string]interface{}{}
+
+	if denyErr == nil && denyMatched {
+		c.Passed = true
+		c.Actual = "RDP disabled (fDenyTSConnections=1)"
+		c.Details = "RDP listening service disabled — no remote desktop attack surface."
+		c.Evidence["rdp_enabled"] = false
+		c.Evidence["fDenyTSConnections"] = denyVal
+		return c
+	}
+	c.Evidence["rdp_enabled"] = true
+	c.Evidence["fDenyTSConnections"] = denyVal
+
+	// RDP enabled — require NLA + encryption
+	nlaMatched, nlaVal, _ := CheckRegistryDWORD(
+		registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp`,
+		"UserAuthentication", 1)
+
+	encMatched, encVal, _ := CheckRegistryDWORDMinimum(
+		registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp`,
+		"MinEncryptionLevel", 3)
+
+	c.Evidence["nla_enforced"] = nlaMatched
+	c.Evidence["nla_value"] = nlaVal
+	c.Evidence["min_encryption_level"] = encVal
+	c.Evidence["min_encryption_compliant"] = encMatched
+
+	c.Passed = nlaMatched && encMatched
+	if c.Passed {
+		c.Actual = fmt.Sprintf("RDP enabled with NLA=1, MinEncryption=%d (High+)", encVal)
+		c.Details = "RDP active with strong-auth + High encryption. Auditor verifies group restrictions (manual residual)."
+	} else {
+		fails := []string{}
+		if !nlaMatched {
+			fails = append(fails, fmt.Sprintf("NLA=%d (need 1)", nlaVal))
+		}
+		if !encMatched {
+			fails = append(fails, fmt.Sprintf("MinEncryptionLevel=%d (need >=3)", encVal))
+		}
+		c.Actual = strings.Join(fails, "; ")
+		c.Details = "RDP security gaps: " + c.Actual
+	}
+	return c
+}
+
 // ITGC-NS-004 — WinRM/Remote Management Exposure.
-// Compliant if WinRM is disabled OR WinRM is HTTPS-only with restricted trusted hosts.
 func checkWinRMExposureISACA() CheckResult {
 	c := CheckResult{
 		ControlID:      "ITGC-NS-004",
@@ -75,7 +148,6 @@ func checkWinRMExposureISACA() CheckResult {
 		return c
 	}
 
-	// WinRM running — check for HTTP listeners
 	hasHTTPListener := strings.Contains(output, "Transport = HTTP") && !strings.Contains(output, "Transport = HTTPS")
 	if hasHTTPListener {
 		c.Passed = false

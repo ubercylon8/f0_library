@@ -1,23 +1,32 @@
 //go:build ignore
 // +build ignore
 
-// checks_am.go — ISACA ITGC Access Management control checks (AM-001/002/005).
-// Phase-2 milestone: AM-005 (Guest account disabled) implemented as proof of architecture.
-// AM-001 (local admin inventory) and AM-002 (password policy) come in iteration 2 by
-// copying CIS L1 checks_accounts.go and checks_credpolicy.go.
+// checks_am.go — ISACA ITGC Access Management control checks.
+//
+// In-scope for the Windows Endpoint bundle:
+//   ITGC-AM-002 Password Policy Enforcement (rolled-up from `net accounts` parse)
+//   ITGC-AM-005 Guest/Default Account Status (rolled-up from `net user Guest`)
+//
+// Out of scope (covered by AD Identity companion bundle):
+//   ITGC-AM-001 Local Admin Inventory  (needs DC enumeration)
+//   ITGC-AM-003 Dormant Accounts        (AD lastLogonTimestamp)
+//   ITGC-AM-004 Service Account Audit   (AD SPN enumeration)
+//   ITGC-AM-006 MFA Enrollment           (Entra Tenant bundle)
 
 package main
 
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
 func RunAMChecks() ValidatorResult {
 	result := ValidatorResult{Name: "Access Management"}
 	result.Checks = []CheckResult{
-		checkGuestAccountDisabledISACA(),
+		checkPasswordPolicyISACA(),       // AM-002
+		checkGuestAccountDisabledISACA(), // AM-005
 	}
 	for _, c := range result.Checks {
 		result.TotalChecks++
@@ -29,6 +38,111 @@ func RunAMChecks() ValidatorResult {
 	}
 	result.IsCompliant = result.FailedCount == 0
 	return result
+}
+
+// ITGC-AM-002 — Password Policy Enforcement (length/complexity/age/lockout via `net accounts`).
+func checkPasswordPolicyISACA() CheckResult {
+	c := CheckResult{
+		ControlID:      "ITGC-AM-002",
+		Name:           "Password Policy Enforcement",
+		Category:       "access-management",
+		Description:    "Password policy meets minimum bar: min length ≥ 14, complexity on, max age ≤ 90d, lockout ≤ 5.",
+		Severity:       "critical",
+		Techniques:     []string{"T1110"},
+		Tactics:        []string{"credential-access"},
+		CisaDomain:     "D5: Protection of Information Assets",
+		CobitObjective: "DSS05.04 Manage Identity and Logical Access",
+		CisV8Mapping:   "CIS 5.2 Use Unique Passwords",
+		ManualResidual: "Auditor verifies organizational policy aligns or exceeds defaults.",
+	}
+
+	cmd := exec.Command("net", "accounts")
+	out, err := cmd.CombinedOutput()
+	c.Expected = "min_length>=14, complexity=on, max_age<=90d, lockout_threshold<=5"
+	if err != nil {
+		c.Passed = false
+		c.Actual = fmt.Sprintf("net accounts failed: %v", err)
+		c.Details = "Could not query password policy via net.exe."
+		c.Evidence = map[string]interface{}{"query_error": err.Error()}
+		return c
+	}
+
+	output := string(out)
+	policy := parseNetAccountsOutput(output)
+	c.Evidence = map[string]interface{}{"net_accounts_output": output, "parsed_policy": policy}
+
+	minLength := getIntOr(policy, "Minimum password length", 0)
+	maxAge := getIntOr(policy, "Maximum password age", 999)
+	lockoutThreshold := getIntOr(policy, "Lockout threshold", 0)
+
+	minLengthOK := minLength >= 14
+	maxAgeOK := maxAge > 0 && maxAge <= 90
+	lockoutOK := lockoutThreshold > 0 && lockoutThreshold <= 5
+
+	c.Evidence["min_length_compliant"] = minLengthOK
+	c.Evidence["max_age_compliant"] = maxAgeOK
+	c.Evidence["lockout_compliant"] = lockoutOK
+
+	c.Passed = minLengthOK && maxAgeOK && lockoutOK
+	if c.Passed {
+		c.Actual = fmt.Sprintf("min_length=%d, max_age=%d, lockout=%d", minLength, maxAge, lockoutThreshold)
+		c.Details = "Password policy meets minimum bar."
+	} else {
+		fails := []string{}
+		if !minLengthOK {
+			fails = append(fails, fmt.Sprintf("min_length=%d (need >=14)", minLength))
+		}
+		if !maxAgeOK {
+			fails = append(fails, fmt.Sprintf("max_age=%d (need 1..90)", maxAge))
+		}
+		if !lockoutOK {
+			fails = append(fails, fmt.Sprintf("lockout=%d (need 1..5)", lockoutThreshold))
+		}
+		c.Actual = strings.Join(fails, "; ")
+		c.Details = "Password policy gaps: " + c.Actual
+	}
+	return c
+}
+
+// parseNetAccountsOutput parses lines like "Minimum password length:    14" into a map.
+func parseNetAccountsOutput(output string) map[string]string {
+	result := make(map[string]string)
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		// "Key:  value" — split on the first colon, trim both sides
+		colonIdx := strings.Index(line, ":")
+		if colonIdx < 1 {
+			continue
+		}
+		key := strings.TrimSpace(line[:colonIdx])
+		val := strings.TrimSpace(line[colonIdx+1:])
+		if key == "" || val == "" {
+			continue
+		}
+		result[key] = val
+	}
+	return result
+}
+
+// getIntOr extracts the leading integer from a policy value, returns dflt if unparseable.
+func getIntOr(m map[string]string, key string, dflt int) int {
+	v, ok := m[key]
+	if !ok {
+		return dflt
+	}
+	// Take only the leading numeric run (e.g. "42 days" -> 42)
+	end := 0
+	for end < len(v) && v[end] >= '0' && v[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return dflt
+	}
+	n, err := strconv.Atoi(v[:end])
+	if err != nil {
+		return dflt
+	}
+	return n
 }
 
 // ITGC-AM-005 — Guest account disabled.
@@ -47,7 +161,6 @@ func checkGuestAccountDisabledISACA() CheckResult {
 		ManualResidual: "None — fully automated.",
 	}
 
-	// `net user Guest` returns "Account active   No" when disabled
 	cmd := exec.Command("net", "user", "Guest")
 	out, err := cmd.CombinedOutput()
 	c.Expected = "Account active = No"
