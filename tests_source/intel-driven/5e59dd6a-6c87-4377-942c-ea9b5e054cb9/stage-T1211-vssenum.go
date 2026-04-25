@@ -1,14 +1,23 @@
 //go:build windows
 // +build windows
 
-// Stage 3: VSS Device Enumeration (read-only) + Transacted-Open on Sandbox File (T1211)
+// Stage 3: VSS Device Enumeration (read-only) + WMI Shadow Enumeration + Transacted-Open on Sandbox File (T1211)
 //
 // Behavior exercised (OBSERVABLE PRIMITIVES ONLY):
-//   Part A — VSS device enumeration:
+//   Part A — VSS device enumeration via NT Object Manager:
 //     - NtOpenDirectoryObject(\Device, DIRECTORY_QUERY)
 //     - NtQueryDirectoryObject loop, looking for HarddiskVolumeShadowCopy* entries
 //     - The matched names are COUNTED and logged, never opened.
-//   Part B — Transacted-open probe against a benign sandbox target:
+//   Part B (v2 lift B3) — WMI shadow-copy enumeration (read-only WQL query):
+//     - "SELECT __PATH FROM Win32_ShadowCopy" via PowerShell Get-WmiObject
+//     - Read-only enumeration; NEVER calls Win32_ShadowCopy.Create() or .Delete()
+//     - Detection surface: wmiprvse.exe + Win32_ShadowCopy provider activity
+//     - Justified PoC deviation: BlueHammer's PoC calls IWbemServices->ExecQuery
+//       directly via COM. This test invokes the same WMI provider via the
+//       PowerShell Get-WmiObject cmdlet for implementation simplicity. The
+//       sensor-visible event (WMI provider + WQL on Win32_ShadowCopy) is
+//       identical. API-Fidelity penalty: ~0.5.
+//   Part C — Transacted-open probe against a benign sandbox target:
 //     - CreateTransaction() -> CreateFileTransactedW() against a file inside
 //       ARTIFACT_DIR\BlueHammerSandbox.
 //     - File handle is closed and transaction is rolled back, regardless of
@@ -25,7 +34,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -106,7 +117,17 @@ func main() {
 	}
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("VSS device enumeration complete — %d HarddiskVolumeShadowCopy entries observed", vssCount))
 
-	// Part B — transacted-open probe on a benign sandbox target. We NEVER
+	// Part B (v2 lift B3) — WMI shadow-copy enumeration. Read-only WQL
+	// query against the Win32_ShadowCopy provider. Never invokes .Create()
+	// or .Delete(). Failure here is non-fatal — Part C still runs.
+	wmiCount, wmiErr := enumerateShadowsViaWMI()
+	if wmiErr != nil {
+		LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("WMI shadow enumeration errored (non-fatal): %v", wmiErr))
+	} else {
+		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("WMI Win32_ShadowCopy enumeration complete — %d shadow copies reported", wmiCount))
+	}
+
+	// Part C — transacted-open probe on a benign sandbox target. We NEVER
 	// target a VSS path or any real system file. If the sandbox file exists
 	// we transacted-open it and immediately close+rollback.
 	if err := transactedOpenProbe(); err != nil {
@@ -121,10 +142,37 @@ func main() {
 		os.Exit(exitCode)
 	}
 
-	fmt.Printf("[STAGE %s] Recon + transacted-open primitives exercised\n", TECHNIQUE_ID)
-	LogMessage("SUCCESS", TECHNIQUE_ID, "VSS enumeration + transacted-open primitives exercised")
-	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", fmt.Sprintf("VSS entries seen=%d; transacted-open on sandbox file executed", vssCount))
+	fmt.Printf("[STAGE %s] Recon + WMI enum + transacted-open primitives exercised\n", TECHNIQUE_ID)
+	LogMessage("SUCCESS", TECHNIQUE_ID, "VSS enumeration + WMI shadow enum + transacted-open primitives exercised")
+	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", fmt.Sprintf("VSS entries seen=%d; WMI shadows reported=%d; transacted-open on sandbox file executed", vssCount, wmiCount))
 	os.Exit(StageSuccess)
+}
+
+// enumerateShadowsViaWMI runs a read-only WQL query against Win32_ShadowCopy
+// via PowerShell's Get-WmiObject cmdlet. The query is purely enumerative —
+// it NEVER invokes the Create() or Delete() methods of Win32_ShadowCopy.
+// Detection surface: powershell.exe spawn + WmiPrvSE.exe activity + Win32_ShadowCopy
+// provider query. Returns the count of shadow copies reported, or an error.
+func enumerateShadowsViaWMI() (int, error) {
+	// Read-only WQL via PowerShell. Output is captured and counted; we do not
+	// keep handles to any shadow path.
+	cmd := exec.Command("powershell.exe",
+		"-NoProfile",
+		"-NonInteractive",
+		"-ExecutionPolicy", "Bypass",
+		"-Command",
+		"$shadows = Get-WmiObject -Class Win32_ShadowCopy -ErrorAction SilentlyContinue; if ($shadows) { ($shadows | Measure-Object).Count } else { 0 }")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("powershell Get-WmiObject Win32_ShadowCopy: %v (output: %s)", err, string(out))
+	}
+	countStr := strings.TrimSpace(string(out))
+	var count int
+	if _, parseErr := fmt.Sscanf(countStr, "%d", &count); parseErr != nil {
+		// Empty output means zero shadow copies — common on workstations.
+		count = 0
+	}
+	return count, nil
 }
 
 // enumerateVSSDevices opens \Device and counts HarddiskVolumeShadowCopy* entries.

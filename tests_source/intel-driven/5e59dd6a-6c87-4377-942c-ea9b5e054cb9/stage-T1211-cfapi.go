@@ -235,13 +235,16 @@ func performTechnique() error {
 	}()
 
 	// Step 3: Drop EICAR in the sandbox directory. Forward-direction drop — EDR
-	// should scan the file. We do not rename or obfuscate.
-	eicarPath := filepath.Join(sandboxDir, "eicar-probe.txt")
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Dropping EICAR test string to %s", eicarPath))
+	// should scan the file. The filename intentionally references "Mimikatz" so
+	// path/filename string-matching detection rules fire in addition to AMSI/AV
+	// content matching. This is a v2 Identifier-Fidelity lift (B2) — the file
+	// CONTENT is still EICAR (benign AV signal), only the NAME suggests Mimikatz.
+	eicarPath := filepath.Join(sandboxDir, "Mimikatz_dump_Win32_signature.txt")
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Dropping EICAR-content probe with Mimikatz-suggestive filename to %s", eicarPath))
 	if err := os.WriteFile(eicarPath, eicarString, 0644); err != nil {
 		return fmt.Errorf("write EICAR probe file: %v", err)
 	}
-	LogFileDropped("eicar-probe.txt", eicarPath, int64(len(eicarString)), false)
+	LogFileDropped("Mimikatz_dump_Win32_signature.txt", eicarPath, int64(len(eicarString)), false)
 
 	// Give AV a small window to react — we do not wait on the callback like
 	// BlueHammer does (which would require full oplock machinery). This is a
@@ -250,7 +253,7 @@ func performTechnique() error {
 
 	// Quarantine check via os.Stat (bug-prevention rule #3)
 	if _, statErr := os.Stat(eicarPath); statErr != nil {
-		LogMessage("INFO", TECHNIQUE_ID, "EICAR probe quarantined/removed by AV — expected protection signal for EICAR drop")
+		LogMessage("INFO", TECHNIQUE_ID, "Mimikatz-named EICAR probe quarantined/removed by AV — expected protection signal")
 		// NOTE: we treat this as SUCCESS at the technique level — the primitive
 		// (drop-in-sandbox) ran. AV action on EICAR is ordinary behavior; the
 		// test framework exit code at orchestrator level will reflect overall

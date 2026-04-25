@@ -1,11 +1,12 @@
 #!/bin/bash
-# Multi-Stage Build: BlueHammer Early-Stage Behavioral Simulation
+# Multi-Stage Build: BlueHammer Early-Stage Behavioral Simulation (v2)
 # Follows the modern 8-step F0RT1KA multi-stage pattern with gzip compression.
 #
 # Stages:
-#   T1211-cfapi     — Cloud Files sync-root + fetch-placeholder callback + EICAR drop
+#   T1211-cfapi      — Cloud Files sync-root + fetch-placeholder callback + Mimikatz-named EICAR drop
 #   T1562.001-oplock — Batch oplock on sandbox file
-#   T1211-vssenum   — VSS device enumeration + transacted-open on sandbox file
+#   T1211-vssenum    — NT \Device enum + WMI Win32_ShadowCopy enum + transacted-open on sandbox file
+#   T1003.002-samsim — Privilege-enable telemetry + synthetic SAM-named hive load/read (sandbox-only, watchdog-protected)
 
 set -e
 set -u
@@ -16,6 +17,7 @@ declare -a STAGES=(
     "T1211-cfapi:stage-T1211-cfapi"
     "T1562.001-oplock:stage-T1562.001-oplock"
     "T1211-vssenum:stage-T1211-vssenum"
+    "T1003.002-samsim:stage-T1003.002-samsim"
 )
 
 # ==============================================================================
