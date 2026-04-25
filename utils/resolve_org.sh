@@ -7,8 +7,24 @@
 #   CERT_FILE=$(resolve_org_to_cert "sb")
 #   CERT_FILE=$(resolve_org_to_cert "09b59276-9efb-4d3d-bbdd-4b4663ef0c42")
 
-# Registry file location (relative to repo root)
-REGISTRY_FILE="signing-certs/organization-registry.json"
+# Registry file location — anchored to THIS script's directory so it works
+# regardless of the caller's cwd. (Bug surfaced 2026-04-25: build_all.sh cd's
+# into the test directory before sourcing this file, which caused the legacy
+# cwd-relative path to silently fail. Stage binaries then shipped unsigned,
+# triggering Defender static-AV signatures on unsigned-PE heuristics.)
+#
+# Resolution order:
+#   1. $F0_REGISTRY_FILE env var (explicit override)
+#   2. <script-dir>/../signing-certs/organization-registry.json (canonical layout)
+#   3. signing-certs/organization-registry.json (cwd-relative legacy fallback)
+_RESOLVE_ORG_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "${F0_REGISTRY_FILE:-}" ]; then
+    REGISTRY_FILE="${F0_REGISTRY_FILE}"
+elif [ -f "${_RESOLVE_ORG_SCRIPT_DIR}/../signing-certs/organization-registry.json" ]; then
+    REGISTRY_FILE="${_RESOLVE_ORG_SCRIPT_DIR}/../signing-certs/organization-registry.json"
+else
+    REGISTRY_FILE="signing-certs/organization-registry.json"
+fi
 
 # Check if jq is available for JSON parsing
 if ! command -v jq &> /dev/null; then
