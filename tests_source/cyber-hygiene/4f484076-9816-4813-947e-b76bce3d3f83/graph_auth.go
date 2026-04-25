@@ -55,7 +55,8 @@ func GraphPreFlight() (string, error) {
 				"    - Directory.Read.All\n"+
 				"    - RoleManagement.Read.All\n"+
 				"    - AuditLog.Read.All\n"+
-				"    - Application.Read.All",
+				"    - Application.Read.All\n"+
+				"    - UserAuthenticationMethod.Read.All  (for ITGC-AM-006 MFA enrollment audit)",
 			strings.Join(missing, ", "))
 	}
 
