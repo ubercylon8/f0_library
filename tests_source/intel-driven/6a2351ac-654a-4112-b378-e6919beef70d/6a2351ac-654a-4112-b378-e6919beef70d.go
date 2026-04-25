@@ -72,8 +72,8 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1562.001", "T1083"},
 		Tactics:       []string{"defense-evasion", "discovery"},
-		Score:         7.0, // v2 — pre-lab cap 7.5; Detection Firing capped at 0.5 until lab evidence lands. Re-score post-lab.
-		RubricVersion: "v2",
+		Score:         8.8, // v2.1 — lab-verified 2026-04-25 (all 3 stages reached, exit 101 against WinDefender 1.449.291.0). See info.md Score Breakdown.
+		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2 — v1 dimensions don't match
 		// v2's tiered structure. Breakdown lives in info.md.
 		Tags: []string{

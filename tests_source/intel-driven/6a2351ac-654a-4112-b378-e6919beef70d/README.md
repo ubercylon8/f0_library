@@ -10,11 +10,11 @@
 **Architecture**: multi-stage (3 stages)
 **Techniques**: T1562.001 (Impair Defenses: Disable or Modify Tools), T1083 (File and Directory Discovery)
 **Tactics**: defense-evasion, discovery
-**Rubric version**: v2 (tiered, realism-first)
+**Rubric version**: v2.1 (tiered, realism-first; signal-quality-not-tenant-defense)
 
-**Test Score**: **7.0/10**
+**Test Score**: **8.8/10**
 
-> Pre-lab cap. v2's Detection-Rule Firing Fidelity is capped at 0.5 until lab evidence lands. Post-lab projection: **9.3/10** — UnDefend has the strongest detection surface of the triad after the v2 lifts.
+> Lab-verified 2026-04-25 — all 3 stages reached against WinDefender 1.449.291.0, gap-confirming run (no EDR intervention, exit 101 in 97 s). Strongest of the triad on API/identifier fidelity.
 
 ## v2 Lifts (2026-04-25)
 

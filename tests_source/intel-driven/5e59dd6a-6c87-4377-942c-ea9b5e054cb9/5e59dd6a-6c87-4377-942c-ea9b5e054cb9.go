@@ -100,8 +100,8 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1211", "T1562.001", "T1003.002", "T1134.001"},
 		Tactics:       []string{"defense-evasion", "credential-access", "privilege-escalation"},
-		Score:         7.0, // v2 — pre-lab cap 7.5; Detection Firing capped at 0.5 until lab evidence lands. Re-score post-lab.
-		RubricVersion: "v2",
+		Score:         8.6, // v2.1 — lab-verified 2026-04-25 via Lab-Bound Observability exception (stages 3-4 unreachable due to MDE stage-2 block). See info.md Score Breakdown.
+		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2 — the v1 dimensions in
 		// the struct don't match v2's tiered structure. The v2 breakdown lives
 		// in the info.md scorecard table.

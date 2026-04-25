@@ -6,11 +6,11 @@
 **Threat Actor**: Nightmare-Eclipse (RedSun PoC, 2026)
 **Severity**: high
 **Architecture**: multi-stage (4 stages)
-**Rubric version**: v2 (tiered, realism-first)
+**Rubric version**: v2.1 (tiered, realism-first; signal-quality-not-tenant-defense)
 
-**Test Score**: **7.0/10**
+**Test Score**: **8.0/10**
 
-> Pre-lab cap. v2's Detection-Rule Firing Fidelity is capped at 0.5 until lab evidence lands. Post-lab projection: **9.0/10** assuming ≥80% rule firing.
+> Lab-verified 2026-04-25 — all 4 stages reached, exit 101 (107 s wallclock, 79.5 s execution; R1-R5 all uncontested). Context-independent by design (T1574/T1006/T1559.001 not privilege-bounded), which keeps 2d Execution-Context Fidelity at 0.5/1.
 
 ## Purpose
 

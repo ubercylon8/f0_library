@@ -110,8 +110,8 @@ func main() {
 			"collection",
 			"persistence",
 		},
-		Score:         7.0, // v2 — pre-lab cap 7.5; Detection Firing capped at 0.5 until lab evidence lands. Re-score post-lab.
-		RubricVersion: "v2",
+		Score:         8.0, // v2.1 — lab-verified 2026-04-25 (all 4 stages reached, exit 101). See info.md Score Breakdown.
+		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2 — v1 dimensions in struct
 		// don't match v2's tiered structure. Breakdown lives in info.md.
 		Tags: []string{
