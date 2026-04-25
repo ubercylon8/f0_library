@@ -1,6 +1,6 @@
 #!/bin/bash
-# Multi-Stage Intel-Driven Test Build Script
-# Nightmare-Eclipse RedSun Cloud Files Rewrite Primitive Chain — 3 stages
+# Multi-Stage Intel-Driven Test Build Script (v2)
+# Nightmare-Eclipse RedSun Cloud Files Rewrite Primitive Chain — 4 stages
 #
 # CRITICAL BUILD SEQUENCE (8-step):
 # 1. Build unsigned stage binaries
@@ -21,6 +21,7 @@ declare -a STAGES=(
     "T1211:stage-T1211"
     "T1006:stage-T1006"
     "T1574:stage-T1574"
+    "T1559.001-com:stage-T1559.001-com"
 )
 
 # Parse args

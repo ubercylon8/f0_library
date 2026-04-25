@@ -5,108 +5,118 @@
 **Target**: `windows-endpoint`
 **Threat Actor**: Nightmare-Eclipse (RedSun PoC, 2026)
 **Severity**: high
-**Architecture**: multi-stage (3 stages)
+**Architecture**: multi-stage (4 stages)
+**Rubric version**: v2 (tiered, realism-first)
 
-**Test Score**: **8.4/10**
+**Test Score**: **7.0/10**
+
+> Pre-lab cap. v2's Detection-Rule Firing Fidelity is capped at 0.5 until lab evidence lands. Post-lab projection: **9.0/10** assuming ≥80% rule firing.
 
 ## Purpose
 
 This test gives EDR/AV products a safe, controlled workload that exercises the
-same API surface as the Nightmare-Eclipse RedSun PoC. It does **not** reproduce
-the end-to-end exploit — no privilege escalation occurs, no real Windows
-system files are touched, no COM activation happens. What it does do is invoke
-each of the observable primitives the real PoC chains together, against
-sandboxed targets under `c:\Users\fortika-test\RedSunSandbox\`, so defenders
-can measure their detection coverage for:
+same API surface as the Nightmare-Eclipse RedSun PoC, including the COM-broker
+activation primitive that's central to RedSun's file-replacement chain.
+
+It does **not** reproduce the end-to-end exploit — no privilege escalation
+occurs, no real Windows system files are touched, no service is started.
+Stage 4's COM activation has a **hard pre-check guard** that aborts without
+activation if `TieringEngineService` is in any state other than `STOPPED`,
+preventing inadvertent service-start behavior on systems where it's already
+running.
+
+What it does do is invoke each observable primitive the real PoC chains
+together, against sandboxed targets under `c:\Users\fortika-test\RedSunSandbox\`,
+so defenders can measure their detection coverage for:
 
 - Non-OneDrive Cloud Files sync-root registration (`CfRegisterSyncRoot`)
-- The agreed-upon safe AV-provocation primitive: EICAR test string in a
-  cloud-synced directory
-- `\Device` object-manager enumeration (`NtOpenDirectoryObject` /
-  `NtQueryDirectoryObject`) filtered for `HarddiskVolumeShadowCopy*`
+- EICAR test-string drop in a cloud-synced directory
+- `\Device` object-manager enumeration (`NtOpenDirectoryObject` / `NtQueryDirectoryObject`) filtered for `HarddiskVolumeShadowCopy*`
 - Batch oplock request (`FSCTL_REQUEST_BATCH_OPLOCK`) on a sandbox file
-- Mount-point reparse point (`FSCTL_SET_REPARSE_POINT`) — sandbox source to
-  sandbox target (never to a real system path)
+- Mount-point reparse-point creation (`FSCTL_SET_REPARSE_POINT`) — sandbox to sandbox
+- Reparse-point read-back (`FSCTL_GET_REPARSE_POINT`) — **v2 R3**
+- Pre-race file-info probe (`NtQueryInformationFile(FileStandardInformation)`) — **v2 R4**
 - `FILE_SUPERSEDE` / `CREATE_ALWAYS` race loop against a sandbox target file
+- TieringEngineService state query + COM activation against the CFAPI Sync Root Manager broker CLSID (`{829BD7DA-5F60-4B8B-A82C-C7B4DF0E2DB8}`) — **v2 R5**, **only fires when service is STOPPED**
 
 ## Stages
 
 | # | Technique | Name | Primitive |
 |---|-----------|------|-----------|
-| 1 | T1211 | Cloud Files Sync Root + EICAR Provocation | `CfRegisterSyncRoot` with provider name `F0RT1KA-REDSUNSIM` against sandbox dir; drop EICAR string to `FakeTarget.exe`; observe AV reaction; unregister sync root |
-| 2 | T1006 | VSS Device Enumeration + Batch Oplock | Read-only enumeration of `\Device` via `NtOpenDirectoryObject` + `NtQueryDirectoryObject`; filter for `HarddiskVolumeShadowCopy*` entries; request `FSCTL_REQUEST_BATCH_OPLOCK` on `OplockTarget.dat` (sandbox file) |
-| 3 | T1574 | Mount-Point Reparse + FILE_SUPERSEDE Race | Create mount-point reparse point `ReparseSource` -> `ReparseTarget` (both inside sandbox dir); tear down via `FSCTL_DELETE_REPARSE_POINT`; loop 20x `CreateFile(CREATE_ALWAYS)` against `FakeTarget.exe` |
+| 1 | T1211 | Cloud Files Sync Root + EICAR Provocation | `CfRegisterSyncRoot` with provider `F0RT1KA-REDSUNSIM`; drop EICAR; unregister |
+| 2 | T1006 | VSS Device Enumeration + Batch Oplock | `\Device` enumeration filtered for `HarddiskVolumeShadowCopy*`; `FSCTL_REQUEST_BATCH_OPLOCK` on sandbox file |
+| 3 | T1574 | Reparse + Read-Back + Pre-Race Probe + FILE_SUPERSEDE | `FSCTL_SET_REPARSE_POINT` (sandbox→sandbox) + **`FSCTL_GET_REPARSE_POINT` read-back** + **`NtQueryInformationFile(FileStandardInformation)` probe** + `CREATE_ALWAYS` race loop |
+| 4 | T1559.001 | TieringEngineService Pre-Check + CFAPI Broker COM Activation | `sc.exe query TieringEngineService` — only proceeds if STOPPED. Then `CoInitializeEx + CoCreateInstance(CLSCTX_LOCAL_SERVER, CFAPI broker CLSID, IID_IUnknown)` — activation telemetry only. Post-activation safety check verifies state didn't change. |
 
 ## MITRE ATT&CK Mapping
 
-**Chosen (2 primary + 1 characterizing)**:
+- **T1211 — Exploitation for Defense Evasion** (stages 1, 2): Cloud Files API abuse + VSS reconnaissance.
+- **T1006 — Direct Volume Access** (stage 2): `\Device` enumeration + batch oplock on a sandbox file mirrors the PoC's VSS-attack surface.
+- **T1574 — Hijack Execution Flow** (stage 3): Mount-point reparse + supersede race is the hijack mechanism in the PoC.
+- **T1559.001 — Inter-Process Communication: Component Object Model** (stage 4 — new in v2): The `CoCreateInstance` call against the CFAPI Sync Root Manager broker is the IPC primitive RedSun uses to trigger the broker-mediated rewrite.
 
-- **T1211 — Exploitation for Defense Evasion**: The Cloud Files API primitive
-  is the defining characteristic of the RedSun technique. Abusing `CfApi` to
-  tag files so Defender's cloud-rewrite pathway kicks in is the core defense-
-  evasion mechanism. Detecting non-OneDrive/non-enterprise sync-root
-  registration is where EDRs should focus.
-- **T1006 — Direct Volume Access**: The `\Device` enumeration + VSS-name
-  scanning + batch oplock pattern maps cleanly. The PoC uses object-manager
-  enumeration to find VSS paths, which sits right at the DVA boundary.
-- **T1574 — Hijack Execution Flow**: The mount-point reparse + `FILE_SUPERSEDE`
-  race is a classic execution-flow hijack primitive. The real PoC uses it to
-  redirect writes from a cloud-tagged placeholder into System32; even without
-  the System32 target, the primitive itself is T1574-shaped.
+## Safety Boundaries (Tier 1 v2 Gate)
 
-**Rejected**:
+- All writes confined to `LOG_DIR` / `ARTIFACT_DIR`
+- Reparse targets always inside `ARTIFACT_DIR`; never reference real system paths
+- All oplocks / reparse-points / handles released within the same stage function
+- Stage 4 `CoCreateInstance` only fires when `TieringEngineService` reports `STOPPED`; refuses to drive service-start behavior
+- Post-activation safety check verifies `TieringEngineService` state didn't change
+- No service start/stop ever attempted by the test
+- No network egress; no privilege escalation
 
-- **T1068 (Exploitation for Privilege Escalation)**: The real PoC's endgame is
-  SYSTEM-level code execution, but this sim explicitly does not escalate
-  privileges — no System32 write, no COM activation. Mapping to T1068 would
-  mislead defenders about what behavior they should expect to detect.
+## Architecture
 
-## Safety Boundaries
+Multi-stage (4 stages, gzip-compressed embedded binaries).
 
-All primitives are scoped to `c:\Users\fortika-test\RedSunSandbox\`:
+```
+<uuid>.go                       — orchestrator (with X1 system-snapshot helpers)
+stage-T1211.go                  — Stage 1: Cloud Files + EICAR
+stage-T1006.go                  — Stage 2: VSS device enum + batch oplock
+stage-T1574.go                  — Stage 3: Reparse + read-back + NtQuery probe + supersede race
+stage-T1559.001-com.go          — Stage 4: CFAPI broker COM activation w/ pre-check guard (NEW in v2)
+```
 
-- No writes to `C:\Windows\`, `C:\Program Files\`, `C:\ProgramData\Microsoft\`
-- No reparse point target ever references a real system path
-- No `CoCreateInstance` on any CLSID
-- No elevation attempts — runs as the invoking user
-- Oplocks are released within the same function that requested them
-- VSS enumeration is read-only; no VSS device handle is opened
-- Sync root is unregistered before stage completion
-- Reparse point is deleted before stage completion
-- Supersede race is capped at 20 iterations (50ms sleep) — exercises the
-  primitive without behaving like a DoS
+## Score breakdown (Rubric v2)
 
-## Build
+| Tier | Sub-dimension | Score | Notes |
+|------|---------------|-------|-------|
+| 1 | Safety Gate | PASS | Sandbox-only writes, reparse hard boundary, TieringEngine pre-check |
+| 2a | API Fidelity | 2.7/3 | All 4 stages mirror the PoC API sequence |
+| 2b | Identifier Fidelity | 1.5/2 | Real CFAPI CLSID + real service name; sandbox file-name still generic |
+| 2c | Detection Firing | **0.5 (cap)** | Pre-lab; post-lab projection ≥1.5 |
+| 3a | Schema & Metadata | 1.0/1 | RubricVersion: v2; all metadata-header fields present |
+| 3b | Documentation | 1.0/1 | README + info.md scorecard + references |
+| 3c | Logging & Plumbing | 1.0/1 | test_logger v2 + per-stage bundles + pre/post system snapshots (incl. TieringEngine state) |
+| | **Total (capped)** | **7.0/10** | Realism: 4.7/7. Structure: 3.0/3. **Post-lab projection: 9.0/10**. |
+
+## Lift history
+
+- **2026-04-24**: v1.0 (score 8.4/10 under v1 rubric) — stages 1–3
+- **2026-04-25**: v2.0 — added stage 4 (T1559.001 COM activation w/ pre-check guard) per R5 lift; R3 (reparse read-back), R4 (NtQuery pre-race probe), X1 (system snapshots) applied. Re-scored under realism-first rubric v2.
+
+## Build & Run
 
 ```bash
 cd tests_source/intel-driven/0d7e7571-45e2-426a-ac8e-bdb000439761/
-./build_all.sh
+./build_all.sh                 # unsigned
+./build_all.sh --org sb        # signed with org cert
 ```
 
-Produces a signed, gzip-compressed-stage multi-stage orchestrator at
-`build/0d7e7571-45e2-426a-ac8e-bdb000439761/0d7e7571-45e2-426a-ac8e-bdb000439761.exe`.
+Output: `build/0d7e7571-45e2-426a-ac8e-bdb000439761/0d7e7571-45e2-426a-ac8e-bdb000439761.exe`
 
 ## Exit Codes
 
-- **101** — All 3 primitives ran unimpeded (endpoint UNPROTECTED against
-  RedSun pattern)
-- **126** — At least one stage was blocked/flagged (endpoint PROTECTED)
-- **105** — Orchestrator stage binary quarantined on disk
-- **999** — Prerequisite failure (e.g., CldApi.dll not loadable on this
-  Windows edition)
+- **101** — all four primitives executed without EDR detection (UNPROTECTED)
+- **126** — EDR blocked the test at one of the four stages (PROTECTED)
+- **105** — a stage binary was quarantined on extraction
+- **999** — prerequisite failure (e.g., Cloud Files feature not installed)
 
-## Scoring Rationale
+Stage 4 short-circuits with success code 0 if `TieringEngineService` is in any state other than `STOPPED` — the pre-check guard fires before any COM activation. State-query telemetry is the value of the stage in that case.
 
-**Test Score: 8.4/10**
+## Reference
 
-| Dimension | Score | Notes |
-|---|---|---|
-| Real-world accuracy | 2.6/3 | Same API surface as the RedSun PoC (CfApi, NtOpen/QueryDirectoryObject, FSCTL_REQUEST_BATCH_OPLOCK, FSCTL_SET_REPARSE_POINT, FILE_SUPERSEDE); primitive sequencing preserved. Loses 0.4 for not completing the end-to-end exploit (intentional safety limit). |
-| Technical sophistication | 2.8/3 | Direct ntdll syscalls via LoadDLL/FindProc, hand-built `REPARSE_DATA_BUFFER`, correct UNICODE_STRING layout, overlapped IOCTL with `ERROR_IO_PENDING` handling. |
-| Safety mechanisms | 2.0/2 | All writes scoped to `ARTIFACT_DIR`; reparse points explicitly sandbox-to-sandbox; oplocks/reparse points torn down in-function; supersede loop bounded; no COM activation; no privilege escalation path. |
-| Detection opportunities | 0.5/1 | Exercises primitives that multiple detection layers can catch (AMSI via EICAR, behavior monitoring for CfRegisterSyncRoot provider, ETW for NtOpenDirectoryObject, fileless detection for oplock/reparse). |
-| Logging & observability | 0.5/1 | Schema v2.0 structured logging, per-stage `WriteStageBundleResults()`, per-stage stdout capture; loses 0.5 for no ETW trace replay. |
-
-## References
-
-See `0d7e7571-45e2-426a-ac8e-bdb000439761_references.md`.
+- PoC source: <https://github.com/Nightmare-Eclipse/RedSun>
+- See `0d7e7571-45e2-426a-ac8e-bdb000439761_references.md` for primitive-to-PoC line-level mapping
+- Score-lift analysis: `docs/SCORE_LIFT_ANALYSIS_NIGHTMARE_ECLIPSE_2026-04-24.md`
+- Rubric definition: `docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md` and `.claude/agents/sectest-documentation.md`

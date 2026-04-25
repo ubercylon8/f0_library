@@ -53,9 +53,32 @@ const (
 const (
 	ioReparseTagMountPoint   = 0xA0000003
 	fsctlSetReparsePoint     = 0x000900A4 // CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 41, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
+	fsctlGetReparsePoint     = 0x000900A8 // CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 42, METHOD_BUFFERED, FILE_ANY_ACCESS) — v2 lift R3
 	fsctlDeleteReparsePoint  = 0x000900AC // CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 43, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
 	fileFlagOpenReparsePoint = 0x00200000
 	fileFlagBackupSemantics  = 0x02000000
+	// FILE_INFORMATION_CLASS values used by NtQueryInformationFile (v2 lift R4)
+	fileStandardInformation = 5
+)
+
+// FILE_STANDARD_INFORMATION layout (NtQueryInformationFile output buffer)
+type fileStandardInformationStruct struct {
+	AllocationSize int64
+	EndOfFile      int64
+	NumberOfLinks  uint32
+	DeletePending  uint32
+	Directory      uint32
+}
+
+// IO_STATUS_BLOCK
+type ioStatusBlock struct {
+	Status      uintptr
+	Information uintptr
+}
+
+var (
+	ntdll                      = syscall.NewLazyDLL("ntdll.dll")
+	procNtQueryInformationFile = ntdll.NewProc("NtQueryInformationFile")
 )
 
 // REPARSE_DATA_BUFFER for mount points — dynamically sized buffer.
@@ -204,6 +227,30 @@ func performTechnique() error {
 		LogMessage("SUCCESS", TECHNIQUE_ID, "FSCTL_SET_REPARSE_POINT succeeded — mount-point reparse active on sandbox dir")
 	}
 
+	// v2 lift R3 — Read the reparse point back via FSCTL_GET_REPARSE_POINT.
+	// This exercises the read-side detection rule (sensors that watch for
+	// reparse-point enumeration), in addition to the create-side rule that
+	// FSCTL_SET fired. Read goes into a sink buffer and is logged but not
+	// persisted — purely a telemetry probe.
+	if reparseCreated {
+		readBackBuf := make([]byte, 1024)
+		var readBackBytes uint32
+		readErr := syscall.DeviceIoControl(
+			hDir,
+			uint32(fsctlGetReparsePoint),
+			nil, 0,
+			&readBackBuf[0],
+			uint32(len(readBackBuf)),
+			&readBackBytes,
+			nil,
+		)
+		if readErr == nil {
+			LogMessage("SUCCESS", TECHNIQUE_ID, fmt.Sprintf("FSCTL_GET_REPARSE_POINT read-back returned %d bytes — reparse-enumerate detection signal exercised", readBackBytes))
+		} else {
+			LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("FSCTL_GET_REPARSE_POINT returned: %v (primitive still visible in telemetry)", readErr))
+		}
+	}
+
 	// Tear the reparse point down before closing the directory handle. Send an
 	// FSCTL_DELETE_REPARSE_POINT with the same tag and zero data length.
 	if reparseCreated {
@@ -233,6 +280,23 @@ func performTechnique() error {
 	// blocking the RedSun primitive. Cap at 20 iterations — plenty to exercise
 	// the pattern without looking like a DoS.
 	supersedeTarget := filepath.Join(sandboxRoot, "FakeTarget.exe")
+
+	// v2 lift R4 — NtQueryInformationFile probe before the supersede race.
+	// The real RedSun PoC queries FileStandardInformation on its target before
+	// racing the supersede. We mirror that pre-race probe here against the
+	// sandbox file. If the file doesn't exist yet, we create a 1-byte stub for
+	// the probe target.
+	probeStubBytes := []byte("X")
+	if _, statErr := os.Stat(supersedeTarget); os.IsNotExist(statErr) {
+		_ = os.WriteFile(supersedeTarget, probeStubBytes, 0644)
+	}
+	if probeInfo, probeErr := queryFileStandardInformation(supersedeTarget); probeErr == nil {
+		LogMessage("SUCCESS", TECHNIQUE_ID, fmt.Sprintf("NtQueryInformationFile(FileStandardInformation) on %s — eof=%d alloc=%d nlinks=%d (PoC pre-race probe primitive)",
+			supersedeTarget, probeInfo.EndOfFile, probeInfo.AllocationSize, probeInfo.NumberOfLinks))
+	} else {
+		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("NtQueryInformationFile probe returned: %v (primitive visible in telemetry regardless)", probeErr))
+	}
+
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Beginning FILE_SUPERSEDE loop against %s", supersedeTarget))
 
 	supersedeTargetW, _ := syscall.UTF16PtrFromString(supersedeTarget)
@@ -278,6 +342,43 @@ func putU16LE(b []byte, v uint16) {
 
 // unused helper preserved for future stage authors reading this file.
 var _ = unsafe.Sizeof(uint32(0))
+
+// queryFileStandardInformation calls NtQueryInformationFile on a path with
+// FILE_INFORMATION_CLASS = FileStandardInformation. This is the v2 R4 lift
+// — mirrors RedSun's PoC pre-race probe primitive. Read-only.
+func queryFileStandardInformation(path string) (*fileStandardInformationStruct, error) {
+	pathW, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, fmt.Errorf("UTF16PtrFromString: %v", err)
+	}
+	h, err := syscall.CreateFile(
+		pathW,
+		syscall.GENERIC_READ,
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE|syscall.FILE_SHARE_DELETE,
+		nil,
+		syscall.OPEN_EXISTING,
+		syscall.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("CreateFile: %v", err)
+	}
+	defer syscall.CloseHandle(h)
+
+	var info fileStandardInformationStruct
+	var iosb ioStatusBlock
+	r1, _, e1 := procNtQueryInformationFile.Call(
+		uintptr(h),
+		uintptr(unsafe.Pointer(&iosb)),
+		uintptr(unsafe.Pointer(&info)),
+		uintptr(unsafe.Sizeof(info)),
+		uintptr(fileStandardInformation),
+	)
+	if r1 != 0 {
+		return nil, fmt.Errorf("NtQueryInformationFile NTSTATUS=0x%08X (%v)", uint32(r1), e1)
+	}
+	return &info, nil
+}
 
 func determineExitCode(err error) int {
 	if err == nil {

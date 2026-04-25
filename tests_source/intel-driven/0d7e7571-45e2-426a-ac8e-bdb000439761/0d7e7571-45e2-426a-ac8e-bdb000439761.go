@@ -4,14 +4,14 @@
 /*
 ID: 0d7e7571-45e2-426a-ac8e-bdb000439761
 NAME: Nightmare-Eclipse RedSun Cloud Files Rewrite Primitive Chain
-TECHNIQUES: T1211, T1006, T1574
-TACTICS: defense-evasion, collection, persistence
+TECHNIQUES: T1211, T1006, T1574, T1559.001
+TACTICS: defense-evasion, collection, persistence, execution
 SEVERITY: high
 TARGET: windows-endpoint
 COMPLEXITY: medium
 THREAT_ACTOR: Nightmare-Eclipse
 SUBCATEGORY: apt
-TAGS: cloud-files-api, cfapi, vss-enumeration, batch-oplock, mount-point-reparse, file-supersede, eicar, redsun, primitive-chain
+TAGS: cloud-files-api, cfapi, vss-enumeration, batch-oplock, mount-point-reparse, reparse-readback, file-supersede, ntqueryinformationfile, com-activation, tieringengine-precheck, eicar, redsun, primitive-chain
 SOURCE_URL: https://github.com/Nightmare-Eclipse/RedSun
 UNIT: response
 CREATED: 2026-04-24
@@ -20,25 +20,32 @@ AUTHOR: sectest-builder
 
 // This test exercises the OBSERVABLE API-surface primitives from the
 // Nightmare-Eclipse "RedSun" PoC against sandboxed targets under
-// c:\Users\fortika-test, without reproducing the real file-replacement
-// exploit. The test NEVER writes to, locks, or reparses real system
-// directories; there is no COM activation of TieringEngineService.exe
-// and no privilege escalation path.
+// c:\Users\fortika-test. The test NEVER writes to or reparses real system
+// directories. Stage 4's COM activation has a HARD pre-check that aborts
+// without activation if TieringEngineService is in any state other than
+// STOPPED — preventing inadvertent service-start behavior.
 //
-// The primitives exercised are the ones that characterize the RedSun
-// detection opportunity surface:
-//   Stage 1 (T1211): non-OneDrive Cloud Files sync-root + EICAR drop
-//   Stage 2 (T1006): NtOpenDirectoryObject over \Device + batch oplock
-//                    on a sandbox file
-//   Stage 3 (T1574): mount-point reparse (sandbox -> sandbox) + FILE_SUPERSEDE
-//                    race loop against a sandbox file
+// The primitives exercised characterize the RedSun detection opportunity
+// surface:
+//   Stage 1 (T1211):     non-OneDrive Cloud Files sync-root + EICAR drop
+//   Stage 2 (T1006):     NtOpenDirectoryObject over \Device + batch oplock
+//                        on a sandbox file
+//   Stage 3 (T1574):     mount-point reparse (sandbox -> sandbox) + reparse
+//                        read-back via FSCTL_GET_REPARSE_POINT (R3) +
+//                        NtQueryInformationFile pre-race probe (R4) +
+//                        FILE_SUPERSEDE race loop against a sandbox file
+//   Stage 4 (T1559.001): TieringEngineService state pre-check + CoCreateInstance
+//                        against the CFAPI Sync Root Manager broker CLSID
+//                        (only fires when service is STOPPED — guard in stage)
 //
-// Safety hard-stops enforced in every stage:
+// Safety hard-stops enforced in every stage (Tier 1 v2 gate):
 //   - all writes under ARTIFACT_DIR (c:\Users\fortika-test)
 //   - no reparse target points anywhere outside ARTIFACT_DIR
-//   - no CoCreateInstance, no COM activation
+//   - CoCreateInstance only runs when TieringEngineService is STOPPED
+//     (stage 4 pre-check); post-activation safety verifies state didn't change
 //   - oplocks are released within the same stage function
 //   - VSS handles are opened read-only
+//   - no service start/stop ever attempted
 
 package main
 
@@ -46,11 +53,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,6 +81,9 @@ var stage2Compressed []byte
 
 //go:embed 0d7e7571-45e2-426a-ac8e-bdb000439761-T1574.exe.gz
 var stage3Compressed []byte
+
+//go:embed 0d7e7571-45e2-426a-ac8e-bdb000439761-T1559.001-com.exe.gz
+var stage4Compressed []byte
 
 // KillchainStage avoids name collision with test_logger.go's Stage struct.
 type KillchainStage struct {
@@ -98,15 +110,10 @@ func main() {
 			"collection",
 			"persistence",
 		},
-		Score:         8.4,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.6,
-			TechnicalSophistication: 2.8,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.5,
-			LoggingObservability:    0.5,
-		},
+		Score:         7.0, // v2 — pre-lab cap 7.5; Detection Firing capped at 0.5 until lab evidence lands. Re-score post-lab.
+		RubricVersion: "v2",
+		// ScoreBreakdown intentionally nil under v2 — v1 dimensions in struct
+		// don't match v2's tiered structure. Breakdown lives in info.md.
 		Tags: []string{
 			"redsun",
 			"nightmare-eclipse",
@@ -115,7 +122,11 @@ func main() {
 			"vss-enumeration",
 			"batch-oplock",
 			"mount-point-reparse",
+			"reparse-readback",
 			"file-supersede",
+			"ntqueryinformationfile",
+			"com-activation",
+			"tieringengine-precheck",
 			"eicar",
 			"multi-stage",
 			"killchain",
@@ -151,10 +162,17 @@ func main() {
 	Endpoint.Say("Threat Actor: Nightmare-Eclipse (RedSun PoC, 2026)")
 	Endpoint.Say("Source: https://github.com/Nightmare-Eclipse/RedSun")
 	Endpoint.Say("Sandbox Root: %s", ARTIFACT_DIR)
+	Endpoint.Say("Rubric: v2 (realism-first, tiered)")
 	Endpoint.Say("=================================================================")
 	Endpoint.Say("")
 
+	// X1 — pre-test system snapshot (best-effort; failure is logged, never aborts)
+	captureSystemSnapshot("pre")
+
 	test()
+
+	// X1 — post-test system snapshot
+	captureSystemSnapshot("post")
 }
 
 func test() {
@@ -177,11 +195,19 @@ func test() {
 		},
 		{
 			ID:          3,
-			Name:        "Mount-Point Reparse + FILE_SUPERSEDE Race",
+			Name:        "Mount-Point Reparse + Reparse Read-Back + NtQueryInformationFile + FILE_SUPERSEDE Race",
 			Technique:   "T1574",
 			BinaryName:  fmt.Sprintf("%s-T1574.exe", TEST_UUID),
 			BinaryData:  stage3Compressed,
-			Description: "Create mount-point reparse (sandbox->sandbox) and loop NtCreateFile with FILE_SUPERSEDE against a sandbox target file",
+			Description: "Create mount-point reparse (sandbox->sandbox), read-back via FSCTL_GET_REPARSE_POINT (R3 lift), NtQueryInformationFile pre-race probe (R4 lift), then loop NtCreateFile with FILE_SUPERSEDE against a sandbox target file",
+		},
+		{
+			ID:          4,
+			Name:        "TieringEngineService Pre-Check + CFAPI Broker COM Activation",
+			Technique:   "T1559.001",
+			BinaryName:  fmt.Sprintf("%s-T1559.001-com.exe", TEST_UUID),
+			BinaryData:  stage4Compressed,
+			Description: "Hard pre-check on TieringEngineService state — only proceeds if STOPPED. CoCreateInstance against the CFAPI Sync Root Manager broker CLSID for activation telemetry. Post-activation safety check verifies service didn't start.",
 		},
 	}
 
@@ -206,7 +232,7 @@ func test() {
 
 	// Bundle results for ES fan-out
 	stageSeverity := "high"
-	stageTactics := []string{"defense-evasion", "collection", "persistence"}
+	stageTactics := []string{"defense-evasion", "collection", "persistence", "execution"}
 	stageResults := make([]StageBundleDef, len(killchain))
 	for i, stage := range killchain {
 		stageResults[i] = StageBundleDef{
@@ -387,4 +413,132 @@ func executeKillchainStage(stage KillchainStage) int {
 
 	LogProcessExecution(stage.BinaryName, stagePath, 0, true, 0, "")
 	return 0
+}
+
+// captureSystemSnapshot writes a JSON dump of system-state probes to
+// LOG_DIR/<uuid>_system_snapshot_<phase>.json. phase is "pre" or "post".
+// Best-effort — failures are logged but never abort the test. (v2 lift X1)
+type systemSnapshot struct {
+	Phase                  string            `json:"phase"`
+	Timestamp              string            `json:"timestamp"`
+	DefenderStatus         map[string]string `json:"defenderStatus,omitempty"`
+	ASRRulesEnabled        []string          `json:"asrRulesEnabled,omitempty"`
+	AVExclusionPaths       []string          `json:"avExclusionPaths,omitempty"`
+	AVExclusionExtensions  []string          `json:"avExclusionExtensions,omitempty"`
+	AVExclusionProcesses   []string          `json:"avExclusionProcesses,omitempty"`
+	HotfixesInstalledCount int               `json:"hotfixesInstalledCount"`
+	TieringEngineState     string            `json:"tieringEngineState,omitempty"` // RedSun-specific: relevant to stage 4 pre-check audit trail
+	Errors                 []string          `json:"errors,omitempty"`
+}
+
+func captureSystemSnapshot(phase string) {
+	snap := systemSnapshot{
+		Phase:     phase,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if status, err := powerShellMap("Get-MpComputerStatus | Select-Object -Property AntivirusEnabled,AMServiceEnabled,RealTimeProtectionEnabled,IoavProtectionEnabled,BehaviorMonitorEnabled,AntivirusSignatureVersion,AntivirusSignatureLastUpdated | Format-List"); err == nil {
+		snap.DefenderStatus = status
+	} else {
+		snap.Errors = append(snap.Errors, fmt.Sprintf("Get-MpComputerStatus: %v", err))
+	}
+
+	if asr, err := powerShellList("(Get-MpPreference).AttackSurfaceReductionRules_Ids"); err == nil {
+		snap.ASRRulesEnabled = asr
+	}
+	if paths, err := powerShellList("(Get-MpPreference).ExclusionPath"); err == nil {
+		snap.AVExclusionPaths = paths
+	}
+	if exts, err := powerShellList("(Get-MpPreference).ExclusionExtension"); err == nil {
+		snap.AVExclusionExtensions = exts
+	}
+	if procs, err := powerShellList("(Get-MpPreference).ExclusionProcess"); err == nil {
+		snap.AVExclusionProcesses = procs
+	}
+	if hcount, err := powerShellInt("(Get-HotFix | Measure-Object).Count"); err == nil {
+		snap.HotfixesInstalledCount = hcount
+	}
+
+	// RedSun-specific: capture TieringEngineService state for audit. Stage 4
+	// reads this independently for its pre-check.
+	if state, err := powerShellRun("(Get-Service -Name TieringEngineService -ErrorAction SilentlyContinue).Status"); err == nil {
+		snap.TieringEngineState = state
+	}
+
+	if err := os.MkdirAll(LOG_DIR, 0755); err != nil {
+		LogMessage("WARN", "Snapshot", fmt.Sprintf("MkdirAll(%s) failed: %v", LOG_DIR, err))
+		return
+	}
+	snapPath := filepath.Join(LOG_DIR, fmt.Sprintf("%s_system_snapshot_%s.json", TEST_UUID, phase))
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		LogMessage("WARN", "Snapshot", fmt.Sprintf("JSON marshal: %v", err))
+		return
+	}
+	if err := os.WriteFile(snapPath, data, 0644); err != nil {
+		LogMessage("WARN", "Snapshot", fmt.Sprintf("Write %s: %v", snapPath, err))
+		return
+	}
+	LogMessage("INFO", "Snapshot", fmt.Sprintf("System snapshot (%s) written to %s", phase, snapPath))
+}
+
+func powerShellRun(command string) (string, error) {
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return strings.TrimSpace(string(out)), err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func powerShellMap(command string) (map[string]string, error) {
+	out, err := powerShellRun(command)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]string)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		idx := strings.Index(line, ":")
+		if idx <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		val := strings.TrimSpace(line[idx+1:])
+		if key != "" {
+			result[key] = val
+		}
+	}
+	return result, nil
+}
+
+func powerShellList(command string) ([]string, error) {
+	out, err := powerShellRun(command)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return []string{}, nil
+	}
+	var items []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			items = append(items, line)
+		}
+	}
+	return items, nil
+}
+
+func powerShellInt(command string) (int, error) {
+	out, err := powerShellRun(command)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	_, scanErr := fmt.Sscanf(strings.TrimSpace(out), "%d", &n)
+	if scanErr != nil {
+		return 0, scanErr
+	}
+	return n, nil
 }
