@@ -170,9 +170,9 @@ func main() {
 	captureSystemSnapshot("pre")
 
 	test()
-
-	// X1 — post-test system snapshot
-	captureSystemSnapshot("post")
+	// NOTE: test() always calls Endpoint.Stop() (which invokes os.Exit()),
+	// so any code after this line is unreachable. The post-snapshot is
+	// captured INSIDE test() before each Endpoint.Stop() site.
 }
 
 func test() {
@@ -223,6 +223,7 @@ func test() {
 			Endpoint.Say("FATAL: Failed to extract stage binary: %s", stage.BinaryName)
 			Endpoint.Say("    Reason: %v", err)
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage extraction failed: %v", err))
+			captureSystemSnapshot("post")
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 	}
@@ -281,6 +282,7 @@ func test() {
 
 			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("EDR blocked at stage %d: %s (%s)", stage.ID, stage.Name, stage.Technique))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			captureSystemSnapshot("post")
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
 
 		} else if exitCode != 0 {
@@ -293,6 +295,7 @@ func test() {
 
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage %d (%s) exit code %d", stage.ID, stage.Technique, exitCode))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			captureSystemSnapshot("post")
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 
@@ -322,6 +325,7 @@ func test() {
 
 	SaveLog(Endpoint.Unprotected, fmt.Sprintf("All %d RedSun primitives executed without prevention", len(killchain)))
 	WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+	captureSystemSnapshot("post")
 	Endpoint.Stop(Endpoint.Unprotected)
 }
 

@@ -137,9 +137,10 @@ func main() {
 	emitEtwMarker("test_start", "UnDefend orchestrator entering killchain")
 
 	runKillchain()
-
-	emitEtwMarker("test_end", "UnDefend orchestrator killchain complete")
-	captureSystemSnapshot("post")
+	// NOTE: runKillchain() always calls Endpoint.Stop() (which invokes os.Exit()),
+	// so any code after this line is unreachable. The post-snapshot and the
+	// test_end ETW marker are emitted INSIDE runKillchain() before each
+	// Endpoint.Stop() site.
 }
 
 func runKillchain() {
@@ -179,6 +180,8 @@ func runKillchain() {
 			LogPhaseEnd(0, "error", fmt.Sprintf("Extract failed for %s: %v", s.BinaryName, err))
 			Endpoint.Say("[!] FATAL: Failed to extract stage %s", s.BinaryName)
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage extraction failed: %v", err))
+			emitEtwMarker("test_end", "UnDefend orchestrator killchain aborted in extraction")
+			captureSystemSnapshot("post")
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 	}
@@ -236,6 +239,8 @@ func runKillchain() {
 			SaveLog(Endpoint.ExecutionPrevented,
 				fmt.Sprintf("EDR blocked stage %d: %s (%s)", s.ID, s.Name, s.Technique))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "defender-evasion", stageResults)
+			emitEtwMarker("test_end", fmt.Sprintf("UnDefend killchain blocked at stage %d", s.ID))
+			captureSystemSnapshot("post")
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
 
 		case exit != 0:
@@ -251,6 +256,8 @@ func runKillchain() {
 
 			SaveLog(Endpoint.UnexpectedTestError, stageResults[idx].Details)
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "defender-evasion", stageResults)
+			emitEtwMarker("test_end", fmt.Sprintf("UnDefend killchain errored at stage %d", s.ID))
+			captureSystemSnapshot("post")
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 
@@ -282,6 +289,8 @@ func runKillchain() {
 	SaveLog(Endpoint.Unprotected,
 		fmt.Sprintf("All %d UnDefend primitives executed without prevention", len(killchain)))
 	WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "defender-evasion", stageResults)
+	emitEtwMarker("test_end", "UnDefend orchestrator killchain complete")
+	captureSystemSnapshot("post")
 	Endpoint.Stop(Endpoint.Unprotected)
 }
 
@@ -314,6 +323,18 @@ func decompressGzip(b []byte) ([]byte, error) {
 // executeStage runs a stage binary and returns its exit code (0 success, 126 blocked, 999 error).
 func executeStage(s UnDefendStage) int {
 	stagePath := filepath.Join(LOG_DIR, s.BinaryName)
+
+	// Quarantine pre-check: EDR may remove a stage binary between extraction
+	// and launch. Detect via os.Stat and return exit 105 (FileQuarantinedOnExtraction)
+	// instead of letting cmd.Run() misclassify "file not found" as exit 999.
+	if _, err := os.Stat(stagePath); os.IsNotExist(err) {
+		Endpoint.Say("  Stage binary quarantined before launch: %s", s.BinaryName)
+		LogMessage("ERROR", fmt.Sprintf("Stage %d", s.ID),
+			fmt.Sprintf("Binary missing at launch (quarantined): %s", s.BinaryName))
+		LogFileDropped(s.BinaryName, stagePath, 0, true)
+		return 105
+	}
+
 	cmd := exec.Command(stagePath)
 	LogMessage("INFO", fmt.Sprintf("Stage %d", s.ID), fmt.Sprintf("Executing %s", s.BinaryName))
 
@@ -326,6 +347,12 @@ func executeStage(s UnDefendStage) int {
 			code := exitErr.ExitCode()
 			LogProcessExecution(s.BinaryName, stagePath, 0, false, code, exitErr.Error())
 			return code
+		}
+		if _, statErr := os.Stat(stagePath); os.IsNotExist(statErr) {
+			LogMessage("ERROR", fmt.Sprintf("Stage %d", s.ID),
+				fmt.Sprintf("Binary disappeared during launch (quarantined mid-run): %s", s.BinaryName))
+			LogFileDropped(s.BinaryName, stagePath, 0, true)
+			return 105
 		}
 		LogProcessExecution(s.BinaryName, stagePath, 0, false, 999, err.Error())
 		return 999

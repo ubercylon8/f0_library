@@ -146,9 +146,10 @@ func main() {
 	captureSystemSnapshot("pre")
 
 	test()
-
-	// X1 — post-test system snapshot.
-	captureSystemSnapshot("post")
+	// NOTE: test() always calls Endpoint.Stop() which invokes os.Exit(),
+	// so any code after this line is unreachable. The post-snapshot is
+	// captured INSIDE test() before each Endpoint.Stop() site. (Fix for
+	// the v2 dead-code bug surfaced by the 2026-04-25 lab run.)
 }
 
 type stageDef struct {
@@ -206,6 +207,7 @@ func test() {
 			LogPhaseEnd(0, "error", fmt.Sprintf("Extraction failed for %s: %v", stage.BinaryName, err))
 			Endpoint.Say("FATAL: Extraction failed for %s: %v", stage.BinaryName, err)
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage extraction failed: %v", err))
+			captureSystemSnapshot("post")
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 	}
@@ -255,6 +257,7 @@ func test() {
 
 			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("EDR blocked at stage %d: %s", stage.ID, stage.Technique))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			captureSystemSnapshot("post")
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
 
 		} else if exitCode != 0 {
@@ -268,6 +271,7 @@ func test() {
 
 			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage %d (%s) errored (exit %d)", stage.ID, stage.Technique, exitCode))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+			captureSystemSnapshot("post")
 			Endpoint.Stop(Endpoint.UnexpectedTestError)
 		}
 
@@ -292,6 +296,7 @@ func test() {
 
 	SaveLog(Endpoint.Unprotected, fmt.Sprintf("All %d observable primitives executed without detection", len(killchain)))
 	WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
+	captureSystemSnapshot("post")
 	Endpoint.Stop(Endpoint.Unprotected)
 }
 
@@ -327,6 +332,23 @@ func decompressGzip(compressed []byte) ([]byte, error) {
 
 func executeStage(stage stageDef) int {
 	stagePath := filepath.Join(LOG_DIR, stage.BinaryName)
+
+	// Quarantine pre-check (Bug Prevention Rule #3 + 2026-04-25 lab finding):
+	// EDR/AV may quarantine a stage binary between extraction (Phase 0) and
+	// the moment we try to launch it. cmd.Run() against a missing file gives
+	// "file does not exist" which would otherwise be misclassified as exit
+	// 999 (test error). os.Stat() lets us detect quarantine and return the
+	// correct exit 105 (Endpoint.FileQuarantinedOnExtraction) so the
+	// orchestrator records the event as a Protected outcome rather than an
+	// error.
+	if _, err := os.Stat(stagePath); os.IsNotExist(err) {
+		Endpoint.Say("  Stage binary quarantined before launch: %s", stage.BinaryName)
+		LogMessage("ERROR", fmt.Sprintf("Stage %d", stage.ID),
+			fmt.Sprintf("Binary missing at launch (quarantined): %s", stage.BinaryName))
+		LogFileDropped(stage.BinaryName, stagePath, 0, true)
+		return 105
+	}
+
 	cmd := exec.Command(stagePath)
 	LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID), fmt.Sprintf("Executing %s", stage.BinaryName))
 	err := cmd.Run()
@@ -335,6 +357,14 @@ func executeStage(stage stageDef) int {
 			code := exitErr.ExitCode()
 			LogProcessExecution(stage.BinaryName, stagePath, 0, false, code, exitErr.Error())
 			return code
+		}
+		// Re-check for quarantine: cmd.Run() can also fail with file-not-found
+		// if the binary was removed between os.Stat and exec.
+		if _, statErr := os.Stat(stagePath); os.IsNotExist(statErr) {
+			LogMessage("ERROR", fmt.Sprintf("Stage %d", stage.ID),
+				fmt.Sprintf("Binary disappeared during launch (quarantined mid-run): %s", stage.BinaryName))
+			LogFileDropped(stage.BinaryName, stagePath, 0, true)
+			return 105
 		}
 		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999, err.Error())
 		return 999
