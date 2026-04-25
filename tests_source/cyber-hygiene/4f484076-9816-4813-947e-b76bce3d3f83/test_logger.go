@@ -110,6 +110,11 @@ type TestMetadata struct {
 	RubricVersion  string          `json:"rubricVersion,omitempty"`  // Scoring rubric version: "v1" (co-equal 5-dim) | "v2" (tiered realism-first). Empty == "v1".
 	ScoreBreakdown *ScoreBreakdown `json:"scoreBreakdown,omitempty"` // Detailed scoring
 	Tags           []string        `json:"tags,omitempty"`           // Additional classification tags
+
+	// ITGC / compliance bundle metadata (populated by ISACA, CIS, ISO27001 bundles for auditor reporting).
+	IsacaControlIDs []string `json:"isacaControlIds,omitempty"` // ITGC-* control IDs covered (e.g., ["ITGC-AM-006"])
+	CisaDomains     []string `json:"cisaDomains,omitempty"`     // CISA 2024 ECO domains (e.g., ["D5"])
+	CobitObjectives []string `json:"cobitObjectives,omitempty"` // COBIT 2019 management objectives (e.g., ["DSS05.04"])
 }
 
 // ScoreBreakdown provides detailed test quality scoring

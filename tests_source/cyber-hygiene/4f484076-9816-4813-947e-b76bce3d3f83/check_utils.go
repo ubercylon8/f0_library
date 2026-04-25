@@ -17,7 +17,7 @@ import (
 
 // CheckResult represents the result of a single configuration check
 type CheckResult struct {
-	ControlID   string // Stable control ID e.g. "CH-ITN-001"
+	ControlID   string // Stable control ID e.g. "CH-ITN-001" or "ITGC-AM-006"
 	Name        string
 	Category    string
 	Description string
@@ -29,6 +29,13 @@ type CheckResult struct {
 	SCuBAID     string   // CISA SCuBA control ID (e.g., MS.AAD.3.1) — preserved as metadata
 	Techniques  []string // MITRE ATT&CK technique IDs
 	Tactics     []string // MITRE ATT&CK tactic names (kebab-case)
+
+	// ISACA ITGC auditor workpaper cross-references (omitempty for non-ITGC checks).
+	CisaDomain     string                 // CISA 2024 ECO domain (e.g., "D5: Protection of Information Assets")
+	CobitObjective string                 // COBIT 2019 management objective
+	CisV8Mapping   string                 // CIS Controls v8 mapping
+	ManualResidual string                 // Auditor manual residual procedure
+	Evidence       map[string]interface{} // Control-specific structured evidence
 }
 
 // ValidatorResult represents the result of a complete validator (group of checks)
@@ -268,6 +275,13 @@ type ControlResult struct {
 	Skipped      bool     `json:"skipped"`
 	ErrorMessage string   `json:"error_message"`
 	SCuBAID      string   `json:"scuba_id,omitempty"` // CISA SCuBA reference
+
+	// ISACA ITGC auditor workpaper cross-references (omitempty for non-ITGC checks).
+	CisaDomain     string                 `json:"cisa_domain,omitempty"`
+	CobitObjective string                 `json:"cobit_objective,omitempty"`
+	CisV8Mapping   string                 `json:"cis_v8_mapping,omitempty"`
+	ManualResidual string                 `json:"manual_residual,omitempty"`
+	Evidence       map[string]interface{} `json:"evidence,omitempty"`
 }
 
 // BundleResults represents the complete bundle output written to bundle_results.json
@@ -297,21 +311,26 @@ func CollectControlResults(validatorName, category, subcategory string, checks [
 		}
 
 		results = append(results, ControlResult{
-			ControlID:   check.ControlID,
-			ControlName: check.Name,
-			Validator:   validatorName,
-			ExitCode:    exitCode,
-			Compliant:   check.Passed,
-			Severity:    check.Severity,
-			Category:    category,
-			Subcategory: subcategory,
-			Techniques:  check.Techniques,
-			Tactics:     check.Tactics,
-			Expected:    check.Expected,
-			Actual:      check.Actual,
-			Details:     check.Details,
-			Skipped:     false,
-			SCuBAID:     check.SCuBAID,
+			ControlID:      check.ControlID,
+			ControlName:    check.Name,
+			Validator:      validatorName,
+			ExitCode:       exitCode,
+			Compliant:      check.Passed,
+			Severity:       check.Severity,
+			Category:       category,
+			Subcategory:    subcategory,
+			Techniques:     check.Techniques,
+			Tactics:        check.Tactics,
+			Expected:       check.Expected,
+			Actual:         check.Actual,
+			Details:        check.Details,
+			Skipped:        false,
+			SCuBAID:        check.SCuBAID,
+			CisaDomain:     check.CisaDomain,
+			CobitObjective: check.CobitObjective,
+			CisV8Mapping:   check.CisV8Mapping,
+			ManualResidual: check.ManualResidual,
+			Evidence:       check.Evidence,
 		})
 	}
 	return results

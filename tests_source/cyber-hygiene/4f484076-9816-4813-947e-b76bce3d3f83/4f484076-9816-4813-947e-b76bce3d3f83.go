@@ -12,7 +12,10 @@ COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: identity-tenant
 INTEGRATIONS: azure
-TAGS: entra-id, mfa, conditional-access, pim, scuba, cis-benchmark, cloud-identity, zero-trust
+TAGS: entra-id, mfa, conditional-access, pim, scuba, cis-benchmark, cloud-identity, zero-trust, isaca, itgc
+ISACA_CONTROLS: ITGC-AM-006
+CISA_DOMAINS: D5
+COBIT_OBJECTIVES: DSS05.04
 UNIT: response
 CREATED: 2026-02-15
 AUTHOR: sectest-builder
@@ -39,8 +42,12 @@ const (
 	EXIT_NON_COMPLIANT = 101 // One or more validators failed
 	EXIT_ERROR         = 999 // Test error (prerequisites not met)
 
-	// Target directory
+	// Target directory.
+	// LOG_DIR is the canonical-template name (referenced by test_logger.go's
+	// WriteStageBundleResults); TARGET_DIR is this bundle's local alias. They
+	// point to the same path on Windows.
 	TARGET_DIR = `c:\F0`
+	LOG_DIR    = `c:\F0`
 )
 
 // Validator represents a single validation module
@@ -104,8 +111,12 @@ func main() {
 		},
 		Tags: []string{
 			"entra-id", "mfa", "conditional-access", "pim",
-			"scuba", "cis-benchmark", "cloud-identity", "zero-trust",
+			"scuba", "cis-benchmark", "cloud-identity", "zero-trust", "isaca", "itgc",
 		},
+		// ISACA ITGC cross-reference: this bundle now also covers ITGC-AM-006 MFA Enrollment.
+		IsacaControlIDs: []string{"ITGC-AM-006"},
+		CisaDomains:     []string{"D5"},
+		CobitObjectives: []string{"DSS05.04"},
 	}
 
 	executionContext := ExecutionContext{

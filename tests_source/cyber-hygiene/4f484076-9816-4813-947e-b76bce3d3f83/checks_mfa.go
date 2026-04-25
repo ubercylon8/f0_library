@@ -8,7 +8,9 @@ import (
 	"strings"
 )
 
-// RunMFAChecks validates CISA SCuBA Section 3: Strong Authentication / MFA
+// RunMFAChecks validates CISA SCuBA Section 3: Strong Authentication / MFA.
+// Also runs the ISACA ITGC-AM-006 MFA Enrollment check (per-user enrollment vs.
+// the CA-policy checks above, which assert tenant-wide enforcement).
 func RunMFAChecks() ValidatorResult {
 	checks := []CheckResult{
 		checkPhishingResistantMFA(),
@@ -18,6 +20,7 @@ func RunMFAChecks() ValidatorResult {
 		checkWeakMethodsDisabled(),
 		checkPhishingResistantForAdmins(),
 		checkDeviceCodeFlowBlocked(),
+		checkMFAEnrollmentISACA(), // ITGC-AM-006
 	}
 
 	passed, failed := AggregateValidatorResults(checks)
@@ -439,5 +442,118 @@ if ($dcfBlock) {
 		result.Details = "Informational: SHOULD block device code flow"
 	}
 
+	return result
+}
+
+// checkMFAEnrollmentISACA — ITGC-AM-006 — per-user MFA enrollment audit.
+//
+// Distinct from checkMFAForAllUsers above (which audits the *CA policy* enforcing MFA),
+// this control audits *actual user enrollment* via Get-MgUserAuthenticationMethod.
+// An auditor needs both: a policy can require MFA, but if users haven't enrolled
+// strong methods, the enforcement gap is real on day one.
+//
+// Requires Graph permission UserAuthenticationMethod.Read.All.
+func checkMFAEnrollmentISACA() CheckResult {
+	result := CheckResult{
+		ControlID:      "ITGC-AM-006",
+		Name:           "MFA Enrollment Verification",
+		Category:       "mfa",
+		Description:    "≥98% of users (member, non-guest, non-disabled) have at least one strong authentication method registered.",
+		Severity:       "critical",
+		SCuBAID:        "MS.AAD.3.x",
+		Expected:       "≥98% strong-method enrollment among active member users",
+		Techniques:     []string{"T1556"},
+		Tactics:        []string{"credential-access"},
+		CisaDomain:     "D5: Protection of Information Assets",
+		CobitObjective: "DSS05.04 Manage Identity and Logical Access",
+		CisV8Mapping:   "CIS 6.5 Require MFA for Administrative Access",
+		ManualResidual: "Auditor reviews exception list (service accounts, break-glass) for documented business justification.",
+	}
+
+	// Strong methods per Microsoft definition: passkey/FIDO2, Microsoft Authenticator (push),
+	// Windows Hello for Business, Authenticator app w/ MFA. Excludes voice + SMS (weak).
+	script := `
+$users = Get-MgUser -All -Filter "accountEnabled eq true and userType eq 'Member'" -Property Id,UserPrincipalName,UserType -ErrorAction SilentlyContinue
+if (-not $users) { Write-Output "ERROR:no users returned"; exit 1 }
+$total = $users.Count
+$enrolled = 0
+$noStrong = @()
+foreach ($u in $users) {
+    try {
+        $methods = Get-MgUserAuthenticationMethod -UserId $u.Id -ErrorAction Stop
+        $strong = $methods | Where-Object {
+            $_.AdditionalProperties['@odata.type'] -in @(
+                '#microsoft.graph.fido2AuthenticationMethod',
+                '#microsoft.graph.microsoftAuthenticatorAuthenticationMethod',
+                '#microsoft.graph.windowsHelloForBusinessAuthenticationMethod',
+                '#microsoft.graph.passwordlessMicrosoftAuthenticatorAuthenticationMethod',
+                '#microsoft.graph.softwareOathAuthenticationMethod'
+            )
+        }
+        if ($strong) {
+            $enrolled++
+        } else {
+            if ($noStrong.Count -lt 25) { $noStrong += $u.UserPrincipalName }
+        }
+    } catch {
+        if ($noStrong.Count -lt 25) { $noStrong += ($u.UserPrincipalName + ' (query-error)') }
+    }
+}
+$pct = if ($total -gt 0) { [math]::Round(($enrolled / $total) * 100, 2) } else { 0 }
+$obj = @{ total = $total; enrolled = $enrolled; pct = $pct; sample_unenrolled = $noStrong }
+$obj | ConvertTo-Json -Compress -Depth 4
+`
+	output, err := RunGraphCommand(script)
+	if err != nil {
+		result.Passed = false
+		result.Actual = "Graph query failed"
+		result.Details = fmt.Sprintf("Could not query MFA enrollment: %v. Verify Graph app permission UserAuthenticationMethod.Read.All is granted.", err)
+		result.Evidence = map[string]interface{}{"query_error": err.Error()}
+		return result
+	}
+	output = strings.TrimSpace(output)
+	if strings.HasPrefix(output, "ERROR:") {
+		result.Passed = false
+		result.Actual = "Graph returned no users"
+		result.Details = output
+		result.Evidence = map[string]interface{}{"query_output": output}
+		return result
+	}
+
+	result.Evidence = map[string]interface{}{"enrollment_query_raw": output}
+
+	// Parse percent — accept patterns like `"pct":99.5` or `"pct":  99.5`
+	pct := -1.0
+	if idx := strings.Index(output, `"pct":`); idx >= 0 {
+		rest := output[idx+6:]
+		// trim leading whitespace
+		i := 0
+		for i < len(rest) && (rest[i] == ' ' || rest[i] == '\t') {
+			i++
+		}
+		end := i
+		for end < len(rest) && (rest[end] == '.' || (rest[end] >= '0' && rest[end] <= '9')) {
+			end++
+		}
+		if end > i {
+			fmt.Sscanf(rest[i:end], "%f", &pct)
+		}
+	}
+	result.Evidence["enrollment_pct"] = pct
+
+	if pct < 0 {
+		result.Passed = false
+		result.Actual = "could not parse enrollment percentage"
+		result.Details = "Graph query succeeded but the response shape was unexpected. Inspect evidence.enrollment_query_raw."
+		return result
+	}
+
+	result.Passed = pct >= 98.0
+	result.Actual = fmt.Sprintf("%.2f%% enrolled (strong methods)", pct)
+	if result.Passed {
+		result.Details = fmt.Sprintf("MFA enrollment compliant at %.2f%% (≥98%% threshold).", pct)
+	} else {
+		result.Details = fmt.Sprintf("MFA enrollment at %.2f%% — below 98%% bar. See evidence.sample_unenrolled for first 25 unenrolled users; auditor reviews exception list for documented justification.", pct)
+	}
 	return result
 }
