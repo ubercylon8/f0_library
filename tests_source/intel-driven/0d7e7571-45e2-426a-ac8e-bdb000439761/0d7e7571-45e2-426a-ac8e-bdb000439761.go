@@ -93,6 +93,11 @@ type KillchainStage struct {
 	BinaryName  string
 	BinaryData  []byte
 	Description string
+	// Budget is the per-stage execution-time ceiling enforced by the
+	// orchestrator's watchdog (v2.1 §3d Operational Hygiene). COM
+	// activation (R5) can plausibly hang in some configurations so the
+	// watchdog is load-bearing for that stage in particular.
+	Budget time.Duration
 }
 
 func main() {
@@ -110,7 +115,7 @@ func main() {
 			"collection",
 			"persistence",
 		},
-		Score:         8.0, // v2.1 — lab-verified 2026-04-25 (all 4 stages reached, exit 101). See info.md Score Breakdown.
+		Score:         8.3, // v2.1 — lab-verified 2026-04-25 (all 4 stages reached, exit 101); 3d Op Hygiene lift (R6, 2026-04-25) added per-stage watchdogs + timeout budgets — R5 COM activation watchdog is load-bearing. See info.md Score Breakdown.
 		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2 — v1 dimensions in struct
 		// don't match v2's tiered structure. Breakdown lives in info.md.
@@ -184,6 +189,7 @@ func test() {
 			BinaryName:  fmt.Sprintf("%s-T1211.exe", TEST_UUID),
 			BinaryData:  stage1Compressed,
 			Description: "Register non-OneDrive Cloud Files sync root under sandbox dir and drop EICAR test string (industry-standard AV provoke)",
+			Budget:      60 * time.Second, // lab-observed ~11.4s; CFAPI registration + EICAR drop
 		},
 		{
 			ID:          2,
@@ -192,6 +198,7 @@ func test() {
 			BinaryName:  fmt.Sprintf("%s-T1006.exe", TEST_UUID),
 			BinaryData:  stage2Compressed,
 			Description: "Enumerate \\Device for HarddiskVolumeShadowCopy* via NtOpenDirectoryObject and request FSCTL_REQUEST_BATCH_OPLOCK on a sandbox file",
+			Budget:      30 * time.Second, // lab-observed ~1.4s; kernel object enum is fast
 		},
 		{
 			ID:          3,
@@ -200,6 +207,7 @@ func test() {
 			BinaryName:  fmt.Sprintf("%s-T1574.exe", TEST_UUID),
 			BinaryData:  stage3Compressed,
 			Description: "Create mount-point reparse (sandbox->sandbox), read-back via FSCTL_GET_REPARSE_POINT (R3 lift), NtQueryInformationFile pre-race probe (R4 lift), then loop NtCreateFile with FILE_SUPERSEDE against a sandbox target file",
+			Budget:      60 * time.Second, // lab-observed ~5.3s; FSCTL race loop bounded internally
 		},
 		{
 			ID:          4,
@@ -208,6 +216,7 @@ func test() {
 			BinaryName:  fmt.Sprintf("%s-T1559.001-com.exe", TEST_UUID),
 			BinaryData:  stage4Compressed,
 			Description: "Hard pre-check on TieringEngineService state — only proceeds if STOPPED. CoCreateInstance against the CFAPI Sync Root Manager broker CLSID for activation telemetry. Post-activation safety check verifies service didn't start.",
+			Budget:      60 * time.Second, // lab-observed ~9s; CoCreateInstance can plausibly hang — watchdog is load-bearing
 		},
 	}
 
@@ -388,11 +397,34 @@ func executeKillchainStage(stage KillchainStage) int {
 	cmd.Stdout = stdoutMulti
 	cmd.Stderr = stderrMulti
 
-	LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID), fmt.Sprintf("Executing %s", stage.BinaryName))
+	LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID),
+		fmt.Sprintf("Executing %s (budget %v)", stage.BinaryName, stage.Budget))
+
+	// v2.1 §3d Operational Hygiene watchdog — kills the stage process if
+	// it exceeds the configured Budget. Stage 4 COM activation can hang
+	// in some configurations; the watchdog is load-bearing for that case
+	// in particular.
+	var watchdogFired bool
+	watchdog := time.AfterFunc(stage.Budget, func() {
+		watchdogFired = true
+		LogMessage("WARN", fmt.Sprintf("Stage %d", stage.ID),
+			fmt.Sprintf("Watchdog fired after %v — killing %s", stage.Budget, stage.BinaryName))
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	})
 
 	startTime := time.Now()
 	err := cmd.Run()
+	watchdog.Stop()
 	executionDuration := time.Since(startTime)
+
+	if watchdogFired {
+		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999,
+			fmt.Sprintf("watchdog_fired after %v", stage.Budget))
+		Endpoint.Say("  Stage %d watchdog fired after %v — terminated", stage.ID, stage.Budget)
+		return 999
+	}
 
 	outputFilePath := filepath.Join(LOG_DIR, fmt.Sprintf("%s_output.txt", stage.Technique))
 	if writeErr := os.WriteFile(outputFilePath, outputBuffer.Bytes(), 0644); writeErr != nil {

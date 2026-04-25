@@ -8,7 +8,7 @@
 **Architecture**: multi-stage (4 stages)
 **Rubric version**: v2.1 (tiered, realism-first; signal-quality-not-tenant-defense)
 
-**Test Score**: **8.0/10**
+**Test Score**: **8.3/10**
 
 > Lab-verified 2026-04-25 — all 4 stages reached, exit 101 (107 s wallclock, 79.5 s execution; R1-R5 all uncontested). Context-independent by design (T1574/T1006/T1559.001 not privilege-bounded), which keeps 2d Execution-Context Fidelity at 0.5/1.
 

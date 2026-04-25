@@ -63,6 +63,11 @@ type UnDefendStage struct {
 	BinaryName  string
 	BinaryData  []byte
 	Description string
+	// Budget is the per-stage execution-time ceiling enforced by the
+	// orchestrator's watchdog (v2.1 §3d Operational Hygiene). Sized at
+	// ~5–10x lab-observed runtime to leave headroom without permitting
+	// genuine hangs.
+	Budget time.Duration
 }
 
 func main() {
@@ -72,7 +77,7 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1562.001", "T1083"},
 		Tactics:       []string{"defense-evasion", "discovery"},
-		Score:         8.8, // v2.1 — lab-verified 2026-04-25 (all 3 stages reached, exit 101 against WinDefender 1.449.291.0). See info.md Score Breakdown.
+		Score:         9.0, // v2.1 — lab-verified 2026-04-25 (all 3 stages reached, exit 101 against WinDefender 1.449.291.0); 3d Op Hygiene lift (U5, 2026-04-25) added per-stage watchdogs + timeout budgets. See info.md Score Breakdown.
 		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2 — v1 dimensions don't match
 		// v2's tiered structure. Breakdown lives in info.md.
@@ -152,6 +157,7 @@ func runKillchain() {
 			BinaryName:  fmt.Sprintf("%s-T1083.exe", TEST_UUID),
 			BinaryData:  stage1Compressed,
 			Description: "Registry recon + ReadDirectoryChangesW watch on Defender Definition Updates directory",
+			Budget:      60 * time.Second, // lab-observed ~14s; ReadDirectoryChangesW + registry reads
 		},
 		{
 			ID:          2,
@@ -160,6 +166,7 @@ func runKillchain() {
 			BinaryName:  fmt.Sprintf("%s-T1562.001-lock.exe", TEST_UUID),
 			BinaryData:  stage2Compressed,
 			Description: "NtCreateFile + LockFile/LockFileEx against a sandbox file under ARTIFACT_DIR (benign)",
+			Budget:      30 * time.Second, // lab-observed ~2s; LockFileEx is synchronous and fast
 		},
 		{
 			ID:          3,
@@ -168,6 +175,7 @@ func runKillchain() {
 			BinaryName:  fmt.Sprintf("%s-T1562.001-svcnotify.exe", TEST_UUID),
 			BinaryData:  stage3Compressed,
 			Description: "NotifyServiceStatusChangeW subscription on WinDefend (read-only, unregistered immediately)",
+			Budget:      60 * time.Second, // lab-observed ~16s; SCM open + notification subscribe
 		},
 	}
 
@@ -336,12 +344,33 @@ func executeStage(s UnDefendStage) int {
 	}
 
 	cmd := exec.Command(stagePath)
-	LogMessage("INFO", fmt.Sprintf("Stage %d", s.ID), fmt.Sprintf("Executing %s", s.BinaryName))
+	LogMessage("INFO", fmt.Sprintf("Stage %d", s.ID),
+		fmt.Sprintf("Executing %s (budget %v)", s.BinaryName, s.Budget))
+
+	// v2.1 §3d Operational Hygiene watchdog — kills the stage process if
+	// it exceeds the configured Budget. File-lock primitives are short and
+	// self-bounded but a watchdog hardens against hung overlapped IO and
+	// SCM notification stalls.
+	var watchdogFired bool
+	watchdog := time.AfterFunc(s.Budget, func() {
+		watchdogFired = true
+		LogMessage("WARN", fmt.Sprintf("Stage %d", s.ID),
+			fmt.Sprintf("Watchdog fired after %v — killing %s", s.Budget, s.BinaryName))
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	})
 
 	emitEtwMarker(fmt.Sprintf("stage_%d_start", s.ID), fmt.Sprintf("technique=%s", s.Technique))
 	err := cmd.Run()
+	watchdog.Stop()
 	emitEtwMarker(fmt.Sprintf("stage_%d_end", s.ID), fmt.Sprintf("technique=%s", s.Technique))
 
+	if watchdogFired {
+		LogProcessExecution(s.BinaryName, stagePath, 0, false, 999,
+			fmt.Sprintf("watchdog_fired after %v", s.Budget))
+		return 999
+	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			code := exitErr.ExitCode()

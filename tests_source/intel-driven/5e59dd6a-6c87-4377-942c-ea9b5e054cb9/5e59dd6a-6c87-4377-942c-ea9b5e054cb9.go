@@ -100,7 +100,7 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1211", "T1562.001", "T1003.002", "T1134.001"},
 		Tactics:       []string{"defense-evasion", "credential-access", "privilege-escalation"},
-		Score:         8.6, // v2.1 — lab-verified 2026-04-25 via Lab-Bound Observability exception (stages 3-4 unreachable due to MDE stage-2 block). See info.md Score Breakdown.
+		Score:         8.8, // v2.1 — lab-verified 2026-04-25 via Lab-Bound Observability exception (stages 3-4 unreachable due to MDE stage-2 block); 3d Op Hygiene lift (B6, 2026-04-25) added per-stage watchdogs + timeout budgets. See info.md Score Breakdown.
 		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2 — the v1 dimensions in
 		// the struct don't match v2's tiered structure. The v2 breakdown lives
@@ -159,6 +159,13 @@ type stageDef struct {
 	BinaryName  string
 	BinaryData  []byte
 	Description string
+	// Budget is the per-stage execution-time ceiling enforced by the
+	// orchestrator's watchdog (v2.1 §3d Operational Hygiene). If a stage
+	// exceeds Budget, the orchestrator kills the process and records the
+	// stage as exit 999 with a watchdog_fired log line. Budgets are sized
+	// at ~5–10x observed lab runtime to leave headroom for slow Defender
+	// scans without permitting genuine hangs.
+	Budget time.Duration
 }
 
 func test() {
@@ -170,6 +177,7 @@ func test() {
 			BinaryName:  fmt.Sprintf("%s-T1211-cfapi.exe", TEST_UUID),
 			BinaryData:  stage1Compressed,
 			Description: "Register a non-standard Cloud Files provider with a fetch-placeholder callback; drop EICAR content in the sync-root sandbox under a Mimikatz-suggestive filename so path-based detection rules also fire",
+			Budget:      180 * time.Second, // lab-observed ~125s; CFAPI sleep + EICAR scan
 		},
 		{
 			ID:          2,
@@ -178,6 +186,7 @@ func test() {
 			BinaryName:  fmt.Sprintf("%s-T1562.001-oplock.exe", TEST_UUID),
 			BinaryData:  stage2Compressed,
 			Description: "Request FSCTL_REQUEST_BATCH_OPLOCK on a sandbox file; always release within 5 seconds",
+			Budget:      60 * time.Second, // lab-observed ~7s before MDE block
 		},
 		{
 			ID:          3,
@@ -186,6 +195,7 @@ func test() {
 			BinaryName:  fmt.Sprintf("%s-T1211-vssenum.exe", TEST_UUID),
 			BinaryData:  stage3Compressed,
 			Description: "Enumerate \\Device for HarddiskVolumeShadowCopy* (read-only recon) + WQL Win32_ShadowCopy enumeration via PowerShell + transacted CreateFileTransacted against a sandbox file",
+			Budget:      60 * time.Second, // unreachable in lab today; sized for native enum + PowerShell wmic
 		},
 		{
 			ID:          4,
@@ -194,6 +204,7 @@ func test() {
 			BinaryName:  fmt.Sprintf("%s-T1003.002-samsim.exe", TEST_UUID),
 			BinaryData:  stage4Compressed,
 			Description: "AdjustTokenPrivileges on SeBackupPrivilege/SeRestorePrivilege as B4 telemetry; if elevated, RegLoadKey a SYNTHETIC sandbox hive under a unique mount name and RegOpenKeyEx-read it (BlueHammer SAM-load API signature). Watchdog force-unloads on timeout/panic. NEVER touches real SAM/SECURITY/SYSTEM hives.",
+			Budget:      60 * time.Second, // unreachable in lab today; stage has its own internal 30s watchdog
 		},
 	}
 
@@ -350,8 +361,29 @@ func executeStage(stage stageDef) int {
 	}
 
 	cmd := exec.Command(stagePath)
-	LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID), fmt.Sprintf("Executing %s", stage.BinaryName))
+	LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID),
+		fmt.Sprintf("Executing %s (budget %v)", stage.BinaryName, stage.Budget))
+
+	// v2.1 §3d Operational Hygiene watchdog — kills the stage process if
+	// it exceeds the configured Budget. Prevents indefinite hangs on long
+	// syscalls, kernel-object waits, COM activation, or quarantined-but-
+	// not-launched binaries.
+	var watchdogFired bool
+	watchdog := time.AfterFunc(stage.Budget, func() {
+		watchdogFired = true
+		LogMessage("WARN", fmt.Sprintf("Stage %d", stage.ID),
+			fmt.Sprintf("Watchdog fired after %v — killing %s", stage.Budget, stage.BinaryName))
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	})
 	err := cmd.Run()
+	watchdog.Stop()
+	if watchdogFired {
+		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999,
+			fmt.Sprintf("watchdog_fired after %v", stage.Budget))
+		return 999
+	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			code := exitErr.ExitCode()

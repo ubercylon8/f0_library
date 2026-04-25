@@ -9,7 +9,7 @@
 **Threat actor**: Nightmare-Eclipse (BlueHammer PoC, 2026)
 **Rubric version**: v2.1 (tiered, realism-first; signal-quality-not-tenant-defense)
 
-**Test Score**: **8.6/10**
+**Test Score**: **8.8/10**
 
 > Lab-verified 2026-04-25 via the v2.1 Lab-Bound Observability exception path: stages 3-4 are unreachable on stock Defender + MDE due to a content-based detection at stage 2's oplock IOCTL, which is the documented and intended kill-chain shape. See `5e59dd6a-6c87-4377-942c-ea9b5e054cb9_info.md` "Lab-Bound Observability" section.
 
