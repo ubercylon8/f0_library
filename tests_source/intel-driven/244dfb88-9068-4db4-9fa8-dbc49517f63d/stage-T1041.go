@@ -111,10 +111,10 @@ func performTechnique() error {
 		}
 
 		syntheticData := map[string]string{
-			"browser_creds.json":   `{"simulation":true,"source":"Chrome Login Data","entries":5}`,
-			"keychain_dump.txt":    "Simulated Keychain dump - 12 entries extracted",
-			"metamask_vault.json":  `{"simulation":true,"wallet":"MetaMask","vault":"SIMULATED_DATA"}`,
-			"system_info.json":     `{"hostname":"target-mac","os":"macOS 14.2","arch":"arm64"}`,
+			"browser_creds.json":  `{"simulation":true,"source":"Chrome Login Data","entries":5}`,
+			"keychain_dump.txt":   "Simulated Keychain dump - 12 entries extracted",
+			"metamask_vault.json": `{"simulation":true,"wallet":"MetaMask","vault":"SIMULATED_DATA"}`,
+			"system_info.json":    `{"hostname":"target-mac","os":"macOS 14.2","arch":"arm64"}`,
 		}
 		for fname, content := range syntheticData {
 			fpath := filepath.Join(stagingDir, fname)

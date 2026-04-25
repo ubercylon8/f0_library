@@ -41,6 +41,7 @@ const (
 )
 
 // Embed the pre-compiled SilentButDeadly binary
+//
 //go:embed sbd-f0rt1ka.exe
 var silentButDeadlyBinary []byte
 
@@ -303,8 +304,9 @@ func main() {
 		Techniques: []string{
 			"T1562.001", // Impair Defenses: Disable or Modify Tools
 		},
-		Tactics: []string{"defense-evasion"},
-		Score:   9.2,
+		Tactics:       []string{"defense-evasion"},
+		Score:         9.2,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8, // Uses actual WFP technique from real threat actors
 			TechnicalSophistication: 2.8, // WFP API usage, multi-EDR targeting

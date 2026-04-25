@@ -245,11 +245,11 @@ func enableDangerousPrivileges() error {
 
 	// List of dangerous privileges used by ransomware
 	dangerousPrivs := []string{
-		"SeDebugPrivilege",           // Process debugging
-		"SeBackupPrivilege",          // Bypass file permissions
-		"SeRestorePrivilege",         // Bypass file permissions
-		"SeTakeOwnershipPrivilege",   // Take ownership of files
-		"SeShutdownPrivilege",        // System shutdown
+		"SeDebugPrivilege",         // Process debugging
+		"SeBackupPrivilege",        // Bypass file permissions
+		"SeRestorePrivilege",       // Bypass file permissions
+		"SeTakeOwnershipPrivilege", // Take ownership of files
+		"SeShutdownPrivilege",      // System shutdown
 	}
 
 	enabledCount := 0

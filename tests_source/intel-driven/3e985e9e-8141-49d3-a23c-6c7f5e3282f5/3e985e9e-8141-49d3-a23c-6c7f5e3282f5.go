@@ -49,11 +49,11 @@ const (
 
 // StealerConfig represents AMOS/Banshee stealer configuration
 type StealerConfig struct {
-	HardwareID    string   `json:"hwid"`
-	WorkerID      string   `json:"wid"`
-	Username      string   `json:"user"`
-	OS            string   `json:"os"`
-	BuildID       string   `json:"build_id"`
+	HardwareID     string   `json:"hwid"`
+	WorkerID       string   `json:"wid"`
+	Username       string   `json:"user"`
+	OS             string   `json:"os"`
+	BuildID        string   `json:"build_id"`
 	TargetBrowsers []string `json:"target_browsers"`
 	TargetWallets  []string `json:"target_wallets"`
 }
@@ -1319,7 +1319,8 @@ func main() {
 			"exfiltration",
 			"defense-evasion",
 		},
-		Score: 9.3,
+		Score:         9.3,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8,
 			TechnicalSophistication: 2.8,

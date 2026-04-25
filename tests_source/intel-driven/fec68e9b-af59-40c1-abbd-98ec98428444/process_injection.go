@@ -36,8 +36,8 @@ const (
 	PROCESS_CREATE_THREAD     = 0x0002
 	PROCESS_ALL_ACCESS        = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0xFFFF
 
-	TH32CS_SNAPPROCESS = 0x00000002
-	TH32CS_SNAPMODULE  = 0x00000008
+	TH32CS_SNAPPROCESS  = 0x00000002
+	TH32CS_SNAPMODULE   = 0x00000008
 	TH32CS_SNAPMODULE32 = 0x00000010
 
 	MAX_MODULE_NAME32 = 255
@@ -56,51 +56,51 @@ type ProcessInfo struct {
 
 // Handle acquisition result
 type HandleResult struct {
-	AccessLevel   string        `json:"accessLevel"`
-	AccessFlags   uint32        `json:"accessFlags"`
-	Handle        windows.Handle `json:"-"` // Don't serialize handle
-	HandleValue   uintptr       `json:"handleValue"`
-	Success       bool          `json:"success"`
-	ErrorCode     uint32        `json:"errorCode,omitempty"`
-	ErrorMessage  string        `json:"errorMessage,omitempty"`
-	Blocked       bool          `json:"blocked"`
-	BlockedBy     string        `json:"blockedBy,omitempty"`
+	AccessLevel  string         `json:"accessLevel"`
+	AccessFlags  uint32         `json:"accessFlags"`
+	Handle       windows.Handle `json:"-"` // Don't serialize handle
+	HandleValue  uintptr        `json:"handleValue"`
+	Success      bool           `json:"success"`
+	ErrorCode    uint32         `json:"errorCode,omitempty"`
+	ErrorMessage string         `json:"errorMessage,omitempty"`
+	Blocked      bool           `json:"blocked"`
+	BlockedBy    string         `json:"blockedBy,omitempty"`
 }
 
 // Module information
 type ModuleInfo struct {
-	ModuleName  string   `json:"moduleName"`
-	BaseAddress uintptr  `json:"baseAddress"`
-	Size        uint32   `json:"size"`
-	Path        string   `json:"path"`
+	ModuleName  string  `json:"moduleName"`
+	BaseAddress uintptr `json:"baseAddress"`
+	Size        uint32  `json:"size"`
+	Path        string  `json:"path"`
 }
 
 // Memory region information
 type MemoryRegion struct {
-	BaseAddress  uintptr `json:"baseAddress"`
-	Size         uint64  `json:"size"`
-	State        uint32  `json:"state"`
-	Protect      uint32  `json:"protect"`
-	Type         uint32  `json:"type"`
+	BaseAddress uintptr `json:"baseAddress"`
+	Size        uint64  `json:"size"`
+	State       uint32  `json:"state"`
+	Protect     uint32  `json:"protect"`
+	Type        uint32  `json:"type"`
 }
 
 // Process enumeration report
 type ProcessEnumReport struct {
-	MsSenseProcess    *ProcessInfo   `json:"msSenseProcess"`
-	SenseIRProcess    *ProcessInfo   `json:"senseIRProcess,omitempty"`
-	ProcessesScanned  int            `json:"processesScanned"`
-	EnumerationSuccess bool          `json:"enumerationSuccess"`
-	ErrorMessage      string         `json:"errorMessage,omitempty"`
+	MsSenseProcess     *ProcessInfo `json:"msSenseProcess"`
+	SenseIRProcess     *ProcessInfo `json:"senseIRProcess,omitempty"`
+	ProcessesScanned   int          `json:"processesScanned"`
+	EnumerationSuccess bool         `json:"enumerationSuccess"`
+	ErrorMessage       string       `json:"errorMessage,omitempty"`
 }
 
 // Process injection report (saved to disk)
 type ProcessInjectionReport struct {
-	TargetProcess    ProcessInfo     `json:"targetProcess"`
-	HandleAttempts   []HandleResult  `json:"handleAttempts"`
+	TargetProcess     ProcessInfo    `json:"targetProcess"`
+	HandleAttempts    []HandleResult `json:"handleAttempts"`
 	ModulesEnumerated []ModuleInfo   `json:"modulesEnumerated,omitempty"`
-	MemoryRegions    []MemoryRegion  `json:"memoryRegions,omitempty"`
-	OverallSuccess   bool            `json:"overallSuccess"`
-	BlockedByEDR     bool            `json:"blockedByEDR"`
+	MemoryRegions     []MemoryRegion `json:"memoryRegions,omitempty"`
+	OverallSuccess    bool           `json:"overallSuccess"`
+	BlockedByEDR      bool           `json:"blockedByEDR"`
 }
 
 // Windows API functions
@@ -108,13 +108,13 @@ var (
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	psapi    = windows.NewLazySystemDLL("psapi.dll")
 
-	procCreateToolhelp32Snapshot = kernel32.NewProc("CreateToolhelp32Snapshot")
-	procProcess32First           = kernel32.NewProc("Process32FirstW")
-	procProcess32Next            = kernel32.NewProc("Process32NextW")
-	procModule32First            = kernel32.NewProc("Module32FirstW")
-	procModule32Next             = kernel32.NewProc("Module32NextW")
+	procCreateToolhelp32Snapshot   = kernel32.NewProc("CreateToolhelp32Snapshot")
+	procProcess32First             = kernel32.NewProc("Process32FirstW")
+	procProcess32Next              = kernel32.NewProc("Process32NextW")
+	procModule32First              = kernel32.NewProc("Module32FirstW")
+	procModule32Next               = kernel32.NewProc("Module32NextW")
 	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
-	procIsWow64Process           = kernel32.NewProc("IsWow64Process")
+	procIsWow64Process             = kernel32.NewProc("IsWow64Process")
 )
 
 // PROCESSENTRY32 structure
@@ -178,10 +178,10 @@ func EnumerateMDEProcesses() *ProcessEnumReport {
 		// Check for MsSense.exe
 		if strings.EqualFold(exeName, "MsSense.exe") {
 			report.MsSenseProcess = &ProcessInfo{
-				ProcessName:  exeName,
-				PID:          pe32.ProcessID,
-				ParentPID:    pe32.ParentProcessID,
-				Found:        true,
+				ProcessName: exeName,
+				PID:         pe32.ProcessID,
+				ParentPID:   pe32.ParentProcessID,
+				Found:       true,
 			}
 
 			// Get full path and architecture
@@ -194,10 +194,10 @@ func EnumerateMDEProcesses() *ProcessEnumReport {
 		// Check for SenseIR.exe
 		if strings.EqualFold(exeName, "SenseIR.exe") {
 			report.SenseIRProcess = &ProcessInfo{
-				ProcessName:  exeName,
-				PID:          pe32.ProcessID,
-				ParentPID:    pe32.ParentProcessID,
-				Found:        true,
+				ProcessName: exeName,
+				PID:         pe32.ProcessID,
+				ParentPID:   pe32.ParentProcessID,
+				Found:       true,
 			}
 
 			if path := getProcessPath(pe32.ProcessID); path != "" {

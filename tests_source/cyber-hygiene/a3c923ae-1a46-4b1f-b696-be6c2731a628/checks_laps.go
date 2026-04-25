@@ -13,8 +13,8 @@ import (
 
 // LAPS registry paths
 const (
-	WindowsLAPSPath = `SOFTWARE\Policies\Microsoft\Windows\LAPS`
-	LegacyLAPSPath  = `SOFTWARE\Policies\Microsoft Services\AdmPwd`
+	WindowsLAPSPath   = `SOFTWARE\Policies\Microsoft\Windows\LAPS`
+	LegacyLAPSPath    = `SOFTWARE\Policies\Microsoft Services\AdmPwd`
 	LegacyLAPSCSEPath = `C:\Program Files\LAPS\CSE\AdmPwd.dll`
 )
 
@@ -37,12 +37,12 @@ func RunLAPSChecks() ValidatorResult {
 	}
 
 	return ValidatorResult{
-		Name:         "Local Administrator Password Solution (LAPS)",
-		Checks:       checks,
-		PassedCount:  passed,
-		FailedCount:  failed,
-		TotalChecks:  len(checks),
-		IsCompliant:  isCompliant, // Pass if ANY LAPS solution is configured
+		Name:        "Local Administrator Password Solution (LAPS)",
+		Checks:      checks,
+		PassedCount: passed,
+		FailedCount: failed,
+		TotalChecks: len(checks),
+		IsCompliant: isCompliant, // Pass if ANY LAPS solution is configured
 	}
 }
 

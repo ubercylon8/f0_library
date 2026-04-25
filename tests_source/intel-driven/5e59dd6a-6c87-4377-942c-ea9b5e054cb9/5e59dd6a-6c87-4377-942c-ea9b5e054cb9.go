@@ -77,12 +77,13 @@ var stage3Compressed []byte
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "defense_evasion",
-		Severity:   "high",
-		Techniques: []string{"T1211", "T1562.001"},
-		Tactics:    []string{"defense-evasion"},
-		Score:      9.0,
+		Version:       "1.0.0",
+		Category:      "defense_evasion",
+		Severity:      "high",
+		Techniques:    []string{"T1211", "T1562.001"},
+		Tactics:       []string{"defense-evasion"},
+		Score:         9.0,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.7,
 			TechnicalSophistication: 2.8,

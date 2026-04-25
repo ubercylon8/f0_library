@@ -23,8 +23,8 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"

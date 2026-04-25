@@ -223,7 +223,8 @@ func lockFileExPrimitive(path string) error {
 
 // lockFileSyscall calls LockFile directly (not exposed in x/sys/windows).
 // Signature: BOOL LockFile(HANDLE, DWORD offsetLow, DWORD offsetHigh,
-//                          DWORD sizeLow, DWORD sizeHigh).
+//
+//	DWORD sizeLow, DWORD sizeHigh).
 func lockFileSyscall(h windows.Handle, offsetLow, offsetHigh, sizeLow, sizeHigh uint32) error {
 	r, _, e := lockFileProc.Call(
 		uintptr(h),

@@ -44,12 +44,12 @@ func RunAuditChecks() ValidatorResult {
 	passed, failed := AggregateValidatorResults(checks)
 
 	return ValidatorResult{
-		Name:         "Windows Audit Logging",
-		Checks:       checks,
-		PassedCount:  passed,
-		FailedCount:  failed,
-		TotalChecks:  len(checks),
-		IsCompliant:  failed == 0,
+		Name:        "Windows Audit Logging",
+		Checks:      checks,
+		PassedCount: passed,
+		FailedCount: failed,
+		TotalChecks: len(checks),
+		IsCompliant: failed == 0,
 	}
 }
 

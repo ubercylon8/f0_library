@@ -110,7 +110,8 @@ func main() {
 			"privilege-escalation",
 			"defense-evasion",
 		},
-		Score: 9.3,
+		Score:         9.3,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8,
 			TechnicalSophistication: 2.8,

@@ -12,9 +12,9 @@ import (
 
 // MDM registry paths
 const (
-	MDMEnrollmentPath    = `SOFTWARE\Microsoft\Enrollments`
-	IntuneExtensionPath  = `SOFTWARE\Microsoft\IntuneManagementExtension\Policies`
-	PolicyManagerPath    = `SOFTWARE\Microsoft\PolicyManager\current\device\DeviceLock`
+	MDMEnrollmentPath   = `SOFTWARE\Microsoft\Enrollments`
+	IntuneExtensionPath = `SOFTWARE\Microsoft\IntuneManagementExtension\Policies`
+	PolicyManagerPath   = `SOFTWARE\Microsoft\PolicyManager\current\device\DeviceLock`
 )
 
 // RunMDMEnrollmentChecks performs all MDM/Intune enrollment checks

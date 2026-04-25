@@ -46,13 +46,14 @@ func main() {
 	Endpoint.Say("=================================================================")
 
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "defense_evasion",
-		Severity:   "high",
-		Techniques: []string{"T1562.001"},
-		Tactics:    []string{"defense-evasion"},
-		Score:      7.8,
-		Tags:       []string{"edrsilencer", "wfp-filter", "telemetry-blocking"},
+		Version:       "1.0.0",
+		Category:      "defense_evasion",
+		Severity:      "high",
+		Techniques:    []string{"T1562.001"},
+		Tactics:       []string{"defense-evasion"},
+		Score:         7.8,
+		RubricVersion: "v1",
+		Tags:          []string{"edrsilencer", "wfp-filter", "telemetry-blocking"},
 	}
 
 	orgInfo := ResolveOrganization("")

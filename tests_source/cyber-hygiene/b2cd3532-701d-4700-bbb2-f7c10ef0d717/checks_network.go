@@ -12,11 +12,11 @@ import (
 
 // Network protocol registry paths
 const (
-	DNSClientPath     = `SOFTWARE\Policies\Microsoft\Windows NT\DNSClient`
-	NetBTPath         = `SYSTEM\CurrentControlSet\Services\NetBT\Parameters`
+	DNSClientPath            = `SOFTWARE\Policies\Microsoft\Windows NT\DNSClient`
+	NetBTPath                = `SYSTEM\CurrentControlSet\Services\NetBT\Parameters`
 	NetBTInterfacePathPrefix = `SYSTEM\CurrentControlSet\Services\NetBT\Parameters\Interfaces`
-	WPADPath          = `SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Wpad`
-	WinHttpPath       = `SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp`
+	WPADPath                 = `SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Wpad`
+	WinHttpPath              = `SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp`
 )
 
 // RunNetworkChecks performs all network protocol hardening checks
@@ -31,12 +31,12 @@ func RunNetworkChecks() ValidatorResult {
 	passed, failed := AggregateValidatorResults(checks)
 
 	return ValidatorResult{
-		Name:         "Network Protocol Hardening",
-		Checks:       checks,
-		PassedCount:  passed,
-		FailedCount:  failed,
-		TotalChecks:  len(checks),
-		IsCompliant:  failed == 0,
+		Name:        "Network Protocol Hardening",
+		Checks:      checks,
+		PassedCount: passed,
+		FailedCount: failed,
+		TotalChecks: len(checks),
+		IsCompliant: failed == 0,
 	}
 }
 

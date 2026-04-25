@@ -31,12 +31,12 @@ func RunSMBChecks() ValidatorResult {
 	passed, failed := AggregateValidatorResults(checks)
 
 	return ValidatorResult{
-		Name:         "SMB Hardening",
-		Checks:       checks,
-		PassedCount:  passed,
-		FailedCount:  failed,
-		TotalChecks:  len(checks),
-		IsCompliant:  failed == 0,
+		Name:        "SMB Hardening",
+		Checks:      checks,
+		PassedCount: passed,
+		FailedCount: failed,
+		TotalChecks: len(checks),
+		IsCompliant: failed == 0,
 	}
 }
 

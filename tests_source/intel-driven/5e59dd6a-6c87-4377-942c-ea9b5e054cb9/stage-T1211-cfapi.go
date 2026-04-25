@@ -60,14 +60,14 @@ var eicarString = []byte{
 
 // CF_SYNC_REGISTRATION — subset we need to populate
 type cfSyncRegistration struct {
-	StructSize      uint32
-	ProviderName    *uint16
-	ProviderVersion *uint16
-	SyncRootIdentity unsafe.Pointer
+	StructSize             uint32
+	ProviderName           *uint16
+	ProviderVersion        *uint16
+	SyncRootIdentity       unsafe.Pointer
 	SyncRootIdentityLength uint32
-	FileIdentity    unsafe.Pointer
-	FileIdentityLength uint32
-	ProviderId      [16]byte
+	FileIdentity           unsafe.Pointer
+	FileIdentityLength     uint32
+	ProviderId             [16]byte
 }
 
 type cfHydrationPolicy struct {
@@ -91,26 +91,26 @@ type cfCallbackRegistration struct {
 }
 
 const (
-	cfRegisterFlagNone             uint32 = 0
-	cfHardLinkPolicyAllowed        uint32 = 1
-	cfHydrationPolicyPartial       uint16 = 2
+	cfRegisterFlagNone                          uint32 = 0
+	cfHardLinkPolicyAllowed                     uint32 = 1
+	cfHydrationPolicyPartial                    uint16 = 2
 	cfHydrationPolicyModifierValidationRequired uint16 = 0x0001
-	cfPlaceholderManagementPolicyDefault uint32 = 0
-	cfInSyncPolicyNone             uint32 = 0
-	cfCallbackTypeFetchPlaceholders uint32 = 2
+	cfPlaceholderManagementPolicyDefault        uint32 = 0
+	cfInSyncPolicyNone                          uint32 = 0
+	cfCallbackTypeFetchPlaceholders             uint32 = 2
 	// CF_CALLBACK_TYPE_NONE is the terminator sentinel for the callback registration
 	// array — per cfapi.h it is (CF_CALLBACK_TYPE)MAXUINT. The Cloud Files API walks
 	// the array until it hits this value; any other terminator causes an over-read.
-	cfCallbackTypeNone             uint32 = 0xFFFFFFFF
-	cfConnectFlagNone              uint32 = 0
+	cfCallbackTypeNone uint32 = 0xFFFFFFFF
+	cfConnectFlagNone  uint32 = 0
 )
 
 var (
-	cldapiDLL                    = syscall.NewLazyDLL("cldapi.dll")
-	procCfRegisterSyncRoot       = cldapiDLL.NewProc("CfRegisterSyncRoot")
-	procCfUnregisterSyncRoot     = cldapiDLL.NewProc("CfUnregisterSyncRoot")
-	procCfConnectSyncRoot        = cldapiDLL.NewProc("CfConnectSyncRoot")
-	procCfDisconnectSyncRoot     = cldapiDLL.NewProc("CfDisconnectSyncRoot")
+	cldapiDLL                = syscall.NewLazyDLL("cldapi.dll")
+	procCfRegisterSyncRoot   = cldapiDLL.NewProc("CfRegisterSyncRoot")
+	procCfUnregisterSyncRoot = cldapiDLL.NewProc("CfUnregisterSyncRoot")
+	procCfConnectSyncRoot    = cldapiDLL.NewProc("CfConnectSyncRoot")
+	procCfDisconnectSyncRoot = cldapiDLL.NewProc("CfDisconnectSyncRoot")
 )
 
 // No-op fetch-placeholder callback. Signature matches CF_CALLBACK contract but

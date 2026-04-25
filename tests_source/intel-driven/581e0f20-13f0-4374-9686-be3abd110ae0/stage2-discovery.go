@@ -154,13 +154,13 @@ func main() {
 
 // SystemInfo holds discovered system information
 type SystemInfo struct {
-	ComputerName  string
-	OSName        string
-	OSVersion     string
+	ComputerName   string
+	OSName         string
+	OSVersion      string
 	OSArchitecture string
-	Manufacturer  string
-	Model         string
-	Domain        string
+	Manufacturer   string
+	Model          string
+	Domain         string
 }
 
 // performSystemDiscovery gathers system information using wmic

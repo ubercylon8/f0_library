@@ -92,13 +92,13 @@ var reconCommands = []ReconCommand{
 
 // CommandResult stores the result of a reconnaissance command
 type CommandResult struct {
-	Command   string
-	Success   bool
-	Blocked   bool
-	Output    string
-	Error     string
-	Duration  time.Duration
-	ExitCode  int
+	Command  string
+	Success  bool
+	Blocked  bool
+	Output   string
+	Error    string
+	Duration time.Duration
+	ExitCode int
 }
 
 // executeReconCommand executes a single reconnaissance command and captures result
@@ -505,18 +505,19 @@ func main() {
 
 	// Initialize Schema v2.0 compliant logger
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "initial_access",
-		Severity:   "high",
-		Techniques: []string{"T1190", "T1059.003"},
-		Tactics:    []string{"initial-access", "execution"},
-		Score:      7.5,
+		Version:       "1.0.0",
+		Category:      "initial_access",
+		Severity:      "high",
+		Techniques:    []string{"T1190", "T1059.003"},
+		Tactics:       []string{"initial-access", "execution"},
+		Score:         7.5,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5,  // Authentic webshell recon patterns
-			TechnicalSophistication: 2.0,  // Multiple recon commands + C2
-			SafetyMechanisms:        1.5,  // Read-only commands, safe C2 endpoint
-			DetectionOpportunities:  1.0,  // 6+ recon commands + C2 = many detection points
-			LoggingObservability:    0.5,  // Full Schema v2.0 logging
+			RealWorldAccuracy:       2.5, // Authentic webshell recon patterns
+			TechnicalSophistication: 2.0, // Multiple recon commands + C2
+			SafetyMechanisms:        1.5, // Read-only commands, safe C2 endpoint
+			DetectionOpportunities:  1.0, // 6+ recon commands + C2 = many detection points
+			LoggingObservability:    0.5, // Full Schema v2.0 logging
 		},
 		Tags: []string{"webshell", "post-exploitation", "reconnaissance", "c2", "native"},
 	}

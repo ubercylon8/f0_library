@@ -140,6 +140,7 @@ func performTechnique() error {
 //   - LinkInfo structure with LocalBasePath
 //   - StringData: NAME_STRING, RELATIVE_PATH, COMMAND_LINE_ARGUMENTS, ICON_LOCATION
 //   - ExtraData: TrackerDataBlock (real APT42 LNKs include tracker data)
+//
 // This matches the binary format that Windows ShellLink parsers and EDR LNK
 // analyzers inspect, triggering heuristic rules for suspicious LNK targets.
 func createMaliciousLNK() []byte {
@@ -181,8 +182,8 @@ func createMaliciousLNK() []byte {
 	// ItemID 1: CLSID for "My Computer" {20D04FE0-3AEA-1069-A2D8-08002B30309D}
 	clsidItem := make([]byte, 20)
 	binary.LittleEndian.PutUint16(clsidItem[0:2], 20) // ItemIDSize
-	clsidItem[2] = 0x1F                                // Root folder indicator
-	clsidItem[3] = 0x50                                // Sort index: My Computer
+	clsidItem[2] = 0x1F                               // Root folder indicator
+	clsidItem[3] = 0x50                               // Sort index: My Computer
 	copy(clsidItem[4:20], []byte{
 		0xE0, 0x4F, 0xD0, 0x20, 0xEA, 0x3A, 0x69, 0x10,
 		0xA2, 0xD8, 0x08, 0x00, 0x2B, 0x30, 0x30, 0x9D,
@@ -212,13 +213,13 @@ func createMaliciousLNK() []byte {
 	localBasePathBytes := append([]byte(localBasePath), 0x00)
 	linkInfoSize := uint32(28 + len(localBasePathBytes)) // LinkInfoHeader + LocalBasePath
 	linkInfo := make([]byte, linkInfoSize)
-	binary.LittleEndian.PutUint32(linkInfo[0:4], linkInfoSize)       // LinkInfoSize
-	binary.LittleEndian.PutUint32(linkInfo[4:8], 28)                 // LinkInfoHeaderSize
-	binary.LittleEndian.PutUint32(linkInfo[8:12], 0x01)              // LinkInfoFlags: VolumeIDAndLocalBasePath
-	binary.LittleEndian.PutUint32(linkInfo[12:16], 0)                // VolumeIDOffset (not present)
-	binary.LittleEndian.PutUint32(linkInfo[16:20], 28)               // LocalBasePathOffset
-	binary.LittleEndian.PutUint32(linkInfo[20:24], 0)                // CommonNetworkRelativeLinkOffset
-	binary.LittleEndian.PutUint32(linkInfo[24:28], 0)                // CommonPathSuffixOffset
+	binary.LittleEndian.PutUint32(linkInfo[0:4], linkInfoSize) // LinkInfoSize
+	binary.LittleEndian.PutUint32(linkInfo[4:8], 28)           // LinkInfoHeaderSize
+	binary.LittleEndian.PutUint32(linkInfo[8:12], 0x01)        // LinkInfoFlags: VolumeIDAndLocalBasePath
+	binary.LittleEndian.PutUint32(linkInfo[12:16], 0)          // VolumeIDOffset (not present)
+	binary.LittleEndian.PutUint32(linkInfo[16:20], 28)         // LocalBasePathOffset
+	binary.LittleEndian.PutUint32(linkInfo[20:24], 0)          // CommonNetworkRelativeLinkOffset
+	binary.LittleEndian.PutUint32(linkInfo[24:28], 0)          // CommonPathSuffixOffset
 	copy(linkInfo[28:], localBasePathBytes)
 	buf = append(buf, linkInfo...)
 
@@ -245,10 +246,10 @@ func createMaliciousLNK() []byte {
 	// Real APT42 LNKs include TrackerDataBlock (0xA0000003)
 	// Contains machine ID and MAC-based DROID — forensic artifact
 	tracker := make([]byte, 96)
-	binary.LittleEndian.PutUint32(tracker[0:4], 96)          // BlockSize
-	binary.LittleEndian.PutUint32(tracker[4:8], 0xA0000003)  // BlockSignature: TrackerDataBlock
-	binary.LittleEndian.PutUint32(tracker[8:12], 88)         // Length
-	binary.LittleEndian.PutUint32(tracker[12:16], 0)         // Version
+	binary.LittleEndian.PutUint32(tracker[0:4], 96)         // BlockSize
+	binary.LittleEndian.PutUint32(tracker[4:8], 0xA0000003) // BlockSignature: TrackerDataBlock
+	binary.LittleEndian.PutUint32(tracker[8:12], 88)        // Length
+	binary.LittleEndian.PutUint32(tracker[12:16], 0)        // Version
 	// MachineID (16 bytes, null-terminated NetBIOS name)
 	copy(tracker[16:32], []byte("DESKTOP-F0RT1KA\x00"))
 	// Droid (2x 16-byte GUIDs — fake unique identifiers)

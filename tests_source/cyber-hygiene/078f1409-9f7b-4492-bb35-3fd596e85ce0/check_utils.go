@@ -18,7 +18,7 @@ import (
 
 // CheckResult represents the result of a single configuration check
 type CheckResult struct {
-	ControlID   string   // Stable control ID e.g. "CH-CW1-001"
+	ControlID   string // Stable control ID e.g. "CH-CW1-001"
 	Name        string
 	Category    string
 	Description string

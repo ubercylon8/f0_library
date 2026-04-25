@@ -73,15 +73,15 @@ const (
 )
 
 var (
-	ntdll                       = syscall.NewLazyDLL("ntdll.dll")
-	procNtOpenDirectoryObject   = ntdll.NewProc("NtOpenDirectoryObject")
-	procNtQueryDirectoryObject  = ntdll.NewProc("NtQueryDirectoryObject")
-	procRtlInitUnicodeString    = ntdll.NewProc("RtlInitUnicodeString")
-	procNtClose                 = ntdll.NewProc("NtClose")
+	ntdll                      = syscall.NewLazyDLL("ntdll.dll")
+	procNtOpenDirectoryObject  = ntdll.NewProc("NtOpenDirectoryObject")
+	procNtQueryDirectoryObject = ntdll.NewProc("NtQueryDirectoryObject")
+	procRtlInitUnicodeString   = ntdll.NewProc("RtlInitUnicodeString")
+	procNtClose                = ntdll.NewProc("NtClose")
 
-	ktmw32                   = syscall.NewLazyDLL("ktmw32.dll")
-	procCreateTransaction    = ktmw32.NewProc("CreateTransaction")
-	procRollbackTransaction  = ktmw32.NewProc("RollbackTransaction")
+	ktmw32                  = syscall.NewLazyDLL("ktmw32.dll")
+	procCreateTransaction   = ktmw32.NewProc("CreateTransaction")
+	procRollbackTransaction = ktmw32.NewProc("RollbackTransaction")
 
 	kernel32                  = syscall.NewLazyDLL("kernel32.dll")
 	procCreateFileTransactedW = kernel32.NewProc("CreateFileTransactedW")
@@ -162,8 +162,8 @@ func enumerateVSSDevices() (int, error) {
 			uintptr(hDir),
 			uintptr(unsafe.Pointer(&buf[0])),
 			uintptr(len(buf)),
-			0,          // ReturnSingleEntry = FALSE (return multiple)
-			0,          // RestartScan = FALSE
+			0, // ReturnSingleEntry = FALSE (return multiple)
+			0, // RestartScan = FALSE
 			uintptr(unsafe.Pointer(&context)),
 			uintptr(unsafe.Pointer(&returned)),
 		)

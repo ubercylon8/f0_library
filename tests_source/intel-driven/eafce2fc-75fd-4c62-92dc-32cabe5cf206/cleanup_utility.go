@@ -37,7 +37,7 @@ type ServiceState struct {
 // OpenSSHState represents the original state of OpenSSH before test modifications
 type OpenSSHState struct {
 	WasInstalled      bool   `json:"was_installed"`
-	ServiceStartup    string `json:"service_startup"`    // "disabled", "manual", "auto"
+	ServiceStartup    string `json:"service_startup"` // "disabled", "manual", "auto"
 	ServiceRunning    bool   `json:"service_running"`
 	FirewallRuleExist bool   `json:"firewall_rule_exist"`
 }

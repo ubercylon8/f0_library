@@ -14,9 +14,9 @@ import (
 
 // WHfB registry paths
 const (
-	PassportPolicyPath = `SOFTWARE\Policies\Microsoft\PassportForWork`
-	PassportSystemPath = `SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{D6886603-9D2F-4EB2-B667-1971041FA96B}`
-	NgcPath            = `ServiceProfiles\LocalService\AppData\Local\Microsoft\Ngc`
+	PassportPolicyPath  = `SOFTWARE\Policies\Microsoft\PassportForWork`
+	PassportSystemPath  = `SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{D6886603-9D2F-4EB2-B667-1971041FA96B}`
+	NgcPath             = `ServiceProfiles\LocalService\AppData\Local\Microsoft\Ngc`
 	BiometricPolicyPath = `SOFTWARE\Policies\Microsoft\Biometrics`
 )
 

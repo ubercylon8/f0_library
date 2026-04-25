@@ -63,12 +63,12 @@ func RunASRChecks() ValidatorResult {
 	passed, failed := AggregateValidatorResults(checks)
 
 	return ValidatorResult{
-		Name:         "Attack Surface Reduction Rules",
-		Checks:       checks,
-		PassedCount:  passed,
-		FailedCount:  failed,
-		TotalChecks:  len(checks),
-		IsCompliant:  failed == 0,
+		Name:        "Attack Surface Reduction Rules",
+		Checks:      checks,
+		PassedCount: passed,
+		FailedCount: failed,
+		TotalChecks: len(checks),
+		IsCompliant: failed == 0,
 	}
 }
 

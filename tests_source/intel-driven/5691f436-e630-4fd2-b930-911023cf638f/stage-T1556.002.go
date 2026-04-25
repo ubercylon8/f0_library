@@ -36,9 +36,9 @@ const (
 )
 
 const (
-	LSA_REG_PATH        = `SYSTEM\CurrentControlSet\Control\Lsa`
-	NOTIFICATION_VALUE  = "Notification Packages"
-	FILTER_DLL_NAME     = "f0rt1ka_credfilter"
+	LSA_REG_PATH       = `SYSTEM\CurrentControlSet\Control\Lsa`
+	NOTIFICATION_VALUE = "Notification Packages"
+	FILTER_DLL_NAME    = "f0rt1ka_credfilter"
 )
 
 func main() {

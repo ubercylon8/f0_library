@@ -35,7 +35,7 @@ import (
 //go:embed safepay_ransomware_sim_v3.ps1
 var ransomwareScript []byte
 
-//go:embed WinRAR.exe 
+//go:embed WinRAR.exe
 var winrarBinary []byte
 
 // Helper function to check if PowerShell processes are running
@@ -45,7 +45,7 @@ func isPowerShellRunning() bool {
 	if err != nil {
 		return false
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	// More than just header line means processes are running
 	return len(lines) > 2
@@ -58,15 +58,15 @@ func readScriptStatus() string {
 	if err != nil {
 		return ""
 	}
-	
+
 	// Remove UTF-8 BOM if present (check bytes before converting to string)
 	if len(data) >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
 		data = data[3:]
 	}
-	
+
 	// Convert to string and clean up
 	status := string(data)
-	
+
 	// Trim whitespace and return
 	return strings.TrimSpace(status)
 }
@@ -84,75 +84,75 @@ func executeRansomwareSimulation() error {
 	// Drop all files to c:\F0
 	targetDir := "c:\\F0"
 	os.MkdirAll(targetDir, 0755)
-	
+
 	// Drop WinRAR binary
 	winrarPath := filepath.Join(targetDir, "WinRAR.exe")
 	err := os.WriteFile(winrarPath, winrarBinary, 0755)
 	if err != nil {
 		return err
 	}
-	
+
 	// Drop PowerShell script (v3 with fixes)
 	scriptPath := filepath.Join(targetDir, "safepay_ransomware_sim_v3.ps1")
 	err = os.WriteFile(scriptPath, ransomwareScript, 0644)
 	if err != nil {
 		return err
 	}
-	
+
 	// Remove any existing status file
 	statusFile := "C:\\F0\\status.txt"
 	os.Remove(statusFile)
-	
+
 	// Start PowerShell script as detached process
 	Endpoint.Say("Starting ransomware simulation as detached process...")
 	cmd := exec.Command("cmd.exe", "/C", "start", "/MIN", "powershell.exe", "-ExecutionPolicy", "Bypass", "-File", "C:\\F0\\safepay_ransomware_sim_v3.ps1")
 	cmd.Dir = targetDir
-	
+
 	err = cmd.Run()
 	if err != nil {
 		Endpoint.Say("Failed to start detached PowerShell process: %v", err)
 		return err
 	}
-	
+
 	Endpoint.Say("Script launched, monitoring for complete simulation phases...")
 	Endpoint.Say("Extended monitoring enabled - tracking all ransomware phases to completion")
-	
+
 	// Monitor for up to 4 minutes - enough time for full simulation
 	filesCreated := 0
 	scriptStartedRunning := false
 	lastStatus := ""
 	maxMonitoringTime := 240 // 4 minutes in seconds
-	
+
 	// Track simulation phases
 	phases := map[string]bool{
-		"STARTED": false,
-		"FILES_CREATED": false,
-		"COMPRESSION_DONE": false,
+		"STARTED":             false,
+		"FILES_CREATED":       false,
+		"COMPRESSION_DONE":    false,
 		"RANSOM_NOTE_CREATED": false,
-		"COMPLETED": false,
+		"COMPLETED":           false,
 	}
-	
+
 	for i := 0; i < maxMonitoringTime; i++ {
 		time.Sleep(1 * time.Second)
-		
+
 		// Check current status from script
 		currentStatus := readScriptStatus()
-		
+
 		// Log new status updates
 		if currentStatus != lastStatus && currentStatus != "" {
 			Endpoint.Say("Phase update: %s", currentStatus)
 			lastStatus = currentStatus
 		}
-		
+
 		// Track phase progression
 		if currentStatus == "STARTED" {
 			phases["STARTED"] = true
 			scriptStartedRunning = true
 		}
-		
+
 		if strings.HasPrefix(currentStatus, "FILES_CREATED:") {
 			phases["FILES_CREATED"] = true
-			scriptStartedRunning = true  // Mark script as running
+			scriptStartedRunning = true // Mark script as running
 			parts := strings.Split(currentStatus, ":")
 			if len(parts) > 1 {
 				if count, err := strconv.Atoi(parts[1]); err == nil {
@@ -161,7 +161,7 @@ func executeRansomwareSimulation() error {
 				}
 			}
 		}
-		
+
 		if currentStatus == "COMPRESSION_DONE" || currentStatus == "COMPRESSION_ERROR" {
 			if currentStatus == "COMPRESSION_DONE" {
 				phases["COMPRESSION_DONE"] = true
@@ -171,13 +171,13 @@ func executeRansomwareSimulation() error {
 			}
 			scriptStartedRunning = true
 		}
-		
+
 		if currentStatus == "RANSOM_NOTE_CREATED" {
 			phases["RANSOM_NOTE_CREATED"] = true
 			scriptStartedRunning = true
 			Endpoint.Say("Phase 3 complete: Ransom note creation")
 		}
-		
+
 		// ONLY declare success on full completion
 		if strings.HasPrefix(currentStatus, "COMPLETED:") {
 			phases["COMPLETED"] = true
@@ -186,33 +186,33 @@ func executeRansomwareSimulation() error {
 				Endpoint.Say("All phases executed successfully:")
 				Endpoint.Say("  - Files created: %d", filesCreated)
 				Endpoint.Say("  - Files encrypted: %d", encCount)
-				
+
 				// Verify artifacts
 				if _, err := os.Stat("C:\\Users\\fortika-test\\readme_safepay.txt"); err == nil {
 					Endpoint.Say("  - Ransom note confirmed: C:\\Users\\fortika-test\\readme_safepay.txt")
 				}
-				
+
 				// Check for detailed log file
 				if _, err := os.Stat("C:\\F0\\safepay_simulation.log"); err == nil {
 					Endpoint.Say("  - Detailed simulation log: C:\\F0\\safepay_simulation.log")
 					Endpoint.Say("  - Log contains all .safepay encryption events for verification")
 				}
-				
+
 				// Check for archive files
 				archiveCount := countFilesInDir("C:\\Users\\fortika-test")
 				if archiveCount > 0 {
 					Endpoint.Say("  - Archive files created: %d", archiveCount)
 				}
-				
-				return nil  // SUCCESS - Full simulation completed
+
+				return nil // SUCCESS - Full simulation completed
 			}
 		}
-		
+
 		// Check if PowerShell was killed during execution (EDR intervention)
 		powershellRunning := isPowerShellRunning()
 		if !powershellRunning && scriptStartedRunning && i > 3 {
 			Endpoint.Say("PowerShell process terminated during phase execution")
-			
+
 			// Report which phases completed before termination
 			completedPhases := []string{}
 			for phaseName, completed := range phases {
@@ -224,7 +224,7 @@ func executeRansomwareSimulation() error {
 			Endpoint.Say("EDR intervention detected - execution prevented")
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
 		}
-		
+
 		// Progress reporting every 30 seconds for long-running test
 		if i > 0 && i%30 == 0 {
 			if scriptStartedRunning {
@@ -236,7 +236,7 @@ func executeRansomwareSimulation() error {
 					}
 				}
 				Endpoint.Say("Monitoring progress: %d/5 phases completed (%d seconds elapsed)", completedCount, i)
-				
+
 				// Additional status info
 				if phases["FILES_CREATED"] && !phases["COMPRESSION_DONE"] {
 					Endpoint.Say("  Currently: Performing multi-phase compression operations...")
@@ -247,17 +247,17 @@ func executeRansomwareSimulation() error {
 				Endpoint.Say("Waiting for script to begin (%d seconds elapsed)...", i)
 			}
 		}
-		
+
 		// Early success exit when fully completed
 		if phases["COMPLETED"] {
 			break
 		}
 	}
-	
+
 	// Final evaluation after monitoring period
 	finalStatus := readScriptStatus()
 	Endpoint.Say("Final status after monitoring: %s", finalStatus)
-	
+
 	// Count final completed phases
 	completedCount := 0
 	for _, completed := range phases {
@@ -265,27 +265,27 @@ func executeRansomwareSimulation() error {
 			completedCount++
 		}
 	}
-	
+
 	// Determine result based on completion level
 	if phases["COMPLETED"] {
 		Endpoint.Say("SUCCESS: Full ransomware simulation completed without intervention")
 		Endpoint.Say("All malicious behaviors executed successfully - system is UNPROTECTED")
 		return nil
 	}
-	
+
 	// Check if EDR intervened
 	if !isPowerShellRunning() && scriptStartedRunning {
 		Endpoint.Say("PowerShell process was terminated after %d/5 phases", completedCount)
 		Endpoint.Say("EDR successfully detected and blocked the ransomware simulation")
 		return fmt.Errorf("execution prevented by security software")
 	}
-	
+
 	// Check if script never started
 	if !scriptStartedRunning {
 		Endpoint.Say("Script failed to initialize - possible immediate blocking")
 		return fmt.Errorf("script blocked at initialization")
 	}
-	
+
 	// Timeout without completion
 	Endpoint.Say("Simulation did not complete within 4-minute monitoring window")
 	Endpoint.Say("Completed phases: %d/5", completedCount)
@@ -309,7 +309,7 @@ func test() {
 	Endpoint.Say("Enhanced v3: Fixed deletion logic and compression errors")
 	Endpoint.Say("Dropping WinRAR binary and enhanced PowerShell script v3")
 	Endpoint.Say("Checking for initial defensive reaction")
-	Endpoint.Wait(2)  // Reduced from 5 to save time
+	Endpoint.Wait(2) // Reduced from 5 to save time
 
 	// Check if components get quarantined
 	if Endpoint.Quarantined("safepay_ransomware_sim_v3.ps1", ransomwareScript) {
@@ -342,17 +342,17 @@ func test() {
 func main() {
 	// CUSTOM RUNNER: Bypass Endpoint.Start() to avoid 30-second timeout limitation
 	// This test requires 4+ minutes to properly validate ransomware simulation phases
-	
+
 	Endpoint.Say("Starting test at: %s", time.Now().Format("2006-01-02T15:04:05"))
 	Endpoint.Say("Using custom runner with extended timeout for long-running simulation")
-	
+
 	// Run test in goroutine with custom timeout
 	done := make(chan bool, 1)
 	go func() {
 		test()
 		done <- true
 	}()
-	
+
 	// Wait for test completion or custom timeout (5 minutes)
 	select {
 	case <-done:

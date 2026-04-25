@@ -38,9 +38,9 @@ const (
 	BITLOCKER_PASSWORD = "F0RT1KA-Recovery-2024!"
 
 	// Test artifacts
-	CUSTOM_LOG_CHANNEL   = "F0RT1KA-Test"
-	TEST_FIREWALL_RULE   = "F0RT1KA-Test-Rule"
-	TARGET_DIR           = "C:\\F0"
+	CUSTOM_LOG_CHANNEL = "F0RT1KA-Test"
+	TEST_FIREWALL_RULE = "F0RT1KA-Test-Rule"
+	TARGET_DIR         = "C:\\F0"
 )
 
 func main() {

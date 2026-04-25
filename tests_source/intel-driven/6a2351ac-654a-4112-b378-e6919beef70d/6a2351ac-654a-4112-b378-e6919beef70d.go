@@ -64,12 +64,13 @@ type UnDefendStage struct {
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "defense_evasion",
-		Severity:   "high",
-		Techniques: []string{"T1562.001", "T1083"},
-		Tactics:    []string{"defense-evasion", "discovery"},
-		Score:      8.7,
+		Version:       "1.0.0",
+		Category:      "defense_evasion",
+		Severity:      "high",
+		Techniques:    []string{"T1562.001", "T1083"},
+		Tactics:       []string{"defense-evasion", "discovery"},
+		Score:         8.7,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8,
 			TechnicalSophistication: 2.7,

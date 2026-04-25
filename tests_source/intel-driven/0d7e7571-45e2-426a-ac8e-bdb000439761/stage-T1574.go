@@ -51,11 +51,11 @@ const (
 )
 
 const (
-	ioReparseTagMountPoint    = 0xA0000003
-	fsctlSetReparsePoint      = 0x000900A4 // CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 41, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
-	fsctlDeleteReparsePoint   = 0x000900AC // CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 43, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
-	fileFlagOpenReparsePoint  = 0x00200000
-	fileFlagBackupSemantics   = 0x02000000
+	ioReparseTagMountPoint   = 0xA0000003
+	fsctlSetReparsePoint     = 0x000900A4 // CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 41, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
+	fsctlDeleteReparsePoint  = 0x000900AC // CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 43, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
+	fileFlagOpenReparsePoint = 0x00200000
+	fileFlagBackupSemantics  = 0x02000000
 )
 
 // REPARSE_DATA_BUFFER for mount points — dynamically sized buffer.

@@ -33,9 +33,9 @@ import (
 
 // Patch mode constants
 const (
-	PatchModeTestOnly    = "TEST_ONLY"    // Only test if patching is possible, don't actually patch
-	PatchModeQuickPatch  = "QUICK_PATCH"  // Patch for 100ms, then restore
-	PatchModePersistent  = "PERSISTENT"   // Patch until explicit restore (requires watchdog)
+	PatchModeTestOnly   = "TEST_ONLY"   // Only test if patching is possible, don't actually patch
+	PatchModeQuickPatch = "QUICK_PATCH" // Patch for 100ms, then restore
+	PatchModePersistent = "PERSISTENT"  // Patch until explicit restore (requires watchdog)
 )
 
 // Memory patch result
@@ -68,10 +68,10 @@ type PatchBackup struct {
 }
 
 var (
-	kernel32DLL = windows.NewLazySystemDLL("kernel32.dll")
-	procGetProcAddress = kernel32DLL.NewProc("GetProcAddress")
-	procGetModuleHandle = kernel32DLL.NewProc("GetModuleHandleW")
-	procReadProcessMemory = kernel32DLL.NewProc("ReadProcessMemory")
+	kernel32DLL            = windows.NewLazySystemDLL("kernel32.dll")
+	procGetProcAddress     = kernel32DLL.NewProc("GetProcAddress")
+	procGetModuleHandle    = kernel32DLL.NewProc("GetModuleHandleW")
+	procReadProcessMemory  = kernel32DLL.NewProc("ReadProcessMemory")
 	procWriteProcessMemory = kernel32DLL.NewProc("WriteProcessMemory")
 )
 

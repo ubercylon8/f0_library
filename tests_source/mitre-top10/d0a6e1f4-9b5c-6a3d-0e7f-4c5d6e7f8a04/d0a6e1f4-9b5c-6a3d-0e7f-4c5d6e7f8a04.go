@@ -628,12 +628,13 @@ func main() {
 
 	// Initialize Schema v2.0 compliant logger
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "execution",
-		Severity:   "high",
-		Techniques: []string{"T1047", "T1546.003"},
-		Tactics:    []string{"execution", "persistence"},
-		Score:      8.0,
+		Version:       "1.0.0",
+		Category:      "execution",
+		Severity:      "high",
+		Techniques:    []string{"T1047", "T1546.003"},
+		Tactics:       []string{"execution", "persistence"},
+		Score:         8.0,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.5, // Uses real WMI commands, potential for wmiexec-Pro
 			TechnicalSophistication: 2.0, // Multiple WMI patterns tested

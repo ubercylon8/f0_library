@@ -452,8 +452,8 @@ func simulateFreeSpaceWipe() string {
 	sb.WriteString("[*] Method: dd if=/dev/zero of=/vmfs/volumes/$ds/.fswipe bs=1M\n\n")
 
 	datastores := []struct {
-		Name    string
-		FreeGB  int
+		Name   string
+		FreeGB int
 	}{
 		{"datastore1", 2048},
 		{"datastore2", 1024},

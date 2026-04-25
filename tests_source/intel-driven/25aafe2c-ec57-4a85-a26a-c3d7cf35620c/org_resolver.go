@@ -54,11 +54,11 @@ func loadRegistry() (*OrganizationRegistry, error) {
 
 	// Try multiple potential locations for the registry file
 	registryPaths := []string{
-		"/tmp/F0/organization-registry.json",                     // Runtime location (Linux)
-		"/etc/f0rt1ka/organization-registry.json",               // Runtime location (Linux alt)
-		"../../signing-certs/organization-registry.json",        // Build time (from test dir)
-		"../signing-certs/organization-registry.json",           // Build time (from sample_tests)
-		"signing-certs/organization-registry.json",              // Build time (from root)
+		"/tmp/F0/organization-registry.json",             // Runtime location (Linux)
+		"/etc/f0rt1ka/organization-registry.json",        // Runtime location (Linux alt)
+		"../../signing-certs/organization-registry.json", // Build time (from test dir)
+		"../signing-certs/organization-registry.json",    // Build time (from sample_tests)
+		"signing-certs/organization-registry.json",       // Build time (from root)
 	}
 
 	var registryData []byte

@@ -36,6 +36,7 @@ import (
 )
 
 // Embed signed stage binaries (these will be built and signed before embedding)
+//
 //go:embed 5ed12ef2-5e29-49a2-8f26-269d8e9edcea-T1204.002.exe
 var stage1Binary []byte
 
@@ -52,6 +53,7 @@ var stage4Binary []byte
 var stage5Binary []byte
 
 // Embed recovery script for safety
+//
 //go:embed recovery.ps1
 var recoveryScript []byte
 

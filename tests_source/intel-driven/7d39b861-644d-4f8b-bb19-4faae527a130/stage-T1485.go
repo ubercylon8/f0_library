@@ -311,13 +311,15 @@ func runPartialWasherWiper() wiperResult {
 
 // runBFGAgonizerWiper simulates BFG Agonizer with the real 7-pass overwrite sequence.
 // Real BFG Agonizer (based on leaked IRGC tooling) uses a 7-pass Gutmann-derivative:
-//   Pass 1: 0x00 (zero fill)
-//   Pass 2: 0xFF (ones fill)
-//   Pass 3: 0x55 (alternating bits: 01010101)
-//   Pass 4: 0xAA (alternating bits: 10101010)
-//   Pass 5: random data
-//   Pass 6: 0x92 0x49 0x24 repeating (Gutmann pass 5 equivalent)
-//   Pass 7: 0x00 (final zero before deletion)
+//
+//	Pass 1: 0x00 (zero fill)
+//	Pass 2: 0xFF (ones fill)
+//	Pass 3: 0x55 (alternating bits: 01010101)
+//	Pass 4: 0xAA (alternating bits: 10101010)
+//	Pass 5: random data
+//	Pass 6: 0x92 0x49 0x24 repeating (Gutmann pass 5 equivalent)
+//	Pass 7: 0x00 (final zero before deletion)
+//
 // Each pass uses file-level I/O (open, seek 0, write, sync, close) to
 // ensure data hits disk and matches forensic I/O signatures.
 func runBFGAgonizerWiper() wiperResult {

@@ -40,6 +40,7 @@ const (
 )
 
 // Embed signed stage binaries (MUST be signed before embedding!)
+//
 //go:embed 244dfb88-9068-4db4-9fa8-dbc49517f63d-T1553.001
 var stage1Binary []byte
 
@@ -56,6 +57,7 @@ var stage4Binary []byte
 var stage5Binary []byte
 
 // Embed cleanup utility
+//
 //go:embed cleanup_utility
 var cleanupBinary []byte
 
@@ -98,7 +100,8 @@ func main() {
 			"initial-access", "persistence", "credential-access",
 			"command-and-control", "exfiltration", "defense-evasion",
 		},
-		Score: 9.2,
+		Score:         9.2,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8,
 			TechnicalSophistication: 3.0,

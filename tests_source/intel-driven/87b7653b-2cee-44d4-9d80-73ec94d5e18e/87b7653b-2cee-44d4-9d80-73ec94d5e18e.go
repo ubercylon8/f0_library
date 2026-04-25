@@ -208,9 +208,10 @@ func main() {
 			"T1055",     // Process Injection
 			"T1574",     // Hijack Execution Flow
 		},
-		Tactics: []string{"defense-evasion", "privilege-escalation"},
-		Score:   8.5,
-		Tags:    []string{"edr-freeze", "process-injection", "dll-hijacking", "defender-tampering"},
+		Tactics:       []string{"defense-evasion", "privilege-escalation"},
+		Score:         8.5,
+		RubricVersion: "v1",
+		Tags:          []string{"edr-freeze", "process-injection", "dll-hijacking", "defender-tampering"},
 	}
 
 	// Resolve organization info

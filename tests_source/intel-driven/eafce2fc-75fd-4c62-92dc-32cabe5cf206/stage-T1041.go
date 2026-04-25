@@ -106,14 +106,14 @@ func createDummySensitiveData(stagingDir string) error {
 
 	// Create various types of "sensitive" files
 	files := map[string]string{
-		"passwords.txt": "admin:P@ssw0rd123\nroot:SuperSecret!\ndbadmin:MyDb2024\n",
-		"credentials.csv": "Username,Password,System\njdoe,Password1,PROD-DB\nadmin,Admin2024,WEB-SERVER\n",
-		"api_keys.txt": "AWS_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE\nAWS_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
-		"database.conf": "[database]\nhost=prod-sql.internal.corp\nuser=sa\npassword=P@ssw0rd2024\n",
-		"ssh_private_key.pem": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA... (dummy key)\n-----END RSA PRIVATE KEY-----\n",
-		"customer_data.csv": "CustomerID,Name,Email,CreditCard\n1001,John Doe,john@example.com,4532-1234-5678-9012\n",
+		"passwords.txt":         "admin:P@ssw0rd123\nroot:SuperSecret!\ndbadmin:MyDb2024\n",
+		"credentials.csv":       "Username,Password,System\njdoe,Password1,PROD-DB\nadmin,Admin2024,WEB-SERVER\n",
+		"api_keys.txt":          "AWS_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE\nAWS_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
+		"database.conf":         "[database]\nhost=prod-sql.internal.corp\nuser=sa\npassword=P@ssw0rd2024\n",
+		"ssh_private_key.pem":   "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA... (dummy key)\n-----END RSA PRIVATE KEY-----\n",
+		"customer_data.csv":     "CustomerID,Name,Email,CreditCard\n1001,John Doe,john@example.com,4532-1234-5678-9012\n",
 		"financial_report.xlsx": "Dummy Excel content - Q4 2024 Financial Data\nRevenue: $5,000,000\nExpenses: $3,000,000\n",
-		"employee_records.txt": "EmpID,Name,SSN,Salary\n12345,Jane Smith,123-45-6789,$95000\n",
+		"employee_records.txt":  "EmpID,Name,SSN,Salary\n12345,Jane Smith,123-45-6789,$95000\n",
 	}
 
 	fileCount := 0

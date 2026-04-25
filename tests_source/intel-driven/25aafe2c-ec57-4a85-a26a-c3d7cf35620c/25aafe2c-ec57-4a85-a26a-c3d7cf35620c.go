@@ -21,12 +21,12 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
-	_ "embed"
 
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
@@ -38,6 +38,7 @@ const (
 )
 
 // Embed signed stage binaries (MUST be signed BEFORE embedding)
+//
 //go:embed 25aafe2c-ec57-4a85-a26a-c3d7cf35620c-T1046
 var stage1Binary []byte
 
@@ -54,6 +55,7 @@ var stage4Binary []byte
 var stage5Binary []byte
 
 // Embed cleanup utility
+//
 //go:embed cleanup_utility
 var cleanupBinary []byte
 
@@ -80,12 +82,13 @@ func main() {
 
 	// Initialize shared logger with Schema v2.0 metadata and execution context
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "ransomware",
-		Severity:   "critical",
-		Techniques: []string{"T1046", "T1018", "T1021.004", "T1068", "T1489", "T1529", "T1048", "T1567.002", "T1486"},
-		Tactics:    []string{"discovery", "lateral-movement", "privilege-escalation", "impact", "exfiltration"},
-		Score:      9.6,
+		Version:       "1.0.0",
+		Category:      "ransomware",
+		Severity:      "critical",
+		Techniques:    []string{"T1046", "T1018", "T1021.004", "T1068", "T1489", "T1529", "T1048", "T1567.002", "T1486"},
+		Tactics:       []string{"discovery", "lateral-movement", "privilege-escalation", "impact", "exfiltration"},
+		Score:         9.6,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8,
 			TechnicalSophistication: 3.0,

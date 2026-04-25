@@ -36,36 +36,36 @@ var fakeDriverContent = []byte("F0RT1KA SIMULATION - GMER64.SYS DRIVER PLACEHOLD
 // EDR service names commonly targeted by Agrius
 var edrServiceTargets = []string{
 	// Microsoft Defender
-	"Sense",                     // Microsoft Defender for Endpoint
-	"WinDefend",                 // Windows Defender Antivirus Service
-	"MsSense",                   // Microsoft Defender for Endpoint (older)
+	"Sense",     // Microsoft Defender for Endpoint
+	"WinDefend", // Windows Defender Antivirus Service
+	"MsSense",   // Microsoft Defender for Endpoint (older)
 	// CrowdStrike
-	"CSFalconService",           // CrowdStrike Falcon
+	"CSFalconService", // CrowdStrike Falcon
 	// SentinelOne
-	"SentinelAgent",             // SentinelOne Agent
-	"SentinelStaticEngine",      // SentinelOne Static AI Engine
+	"SentinelAgent",        // SentinelOne Agent
+	"SentinelStaticEngine", // SentinelOne Static AI Engine
 	// Palo Alto Cortex XDR
-	"CortexXDR",                 // Cortex XDR agent service
-	"cyserver",                  // Cortex XDR (legacy Traps)
+	"CortexXDR", // Cortex XDR agent service
+	"cyserver",  // Cortex XDR (legacy Traps)
 	// Carbon Black
-	"CbDefense",                 // VMware Carbon Black Cloud
-	"CbDefenseWSC",              // Carbon Black Windows Security Center
+	"CbDefense",    // VMware Carbon Black Cloud
+	"CbDefenseWSC", // Carbon Black Windows Security Center
 	// Sophos
 	"Sophos Endpoint Defense Service", // Sophos Intercept X
-	"SAVService",                // Sophos Anti-Virus
+	"SAVService",                      // Sophos Anti-Virus
 	// ESET
-	"ekrn",                      // ESET Kernel Service
-	"EsetService",               // ESET Security Service
+	"ekrn",        // ESET Kernel Service
+	"EsetService", // ESET Security Service
 	// Trend Micro
-	"Ntrtscan",                  // Trend Micro OfficeScan
-	"ds_agent",                  // Trend Micro Deep Security
+	"Ntrtscan", // Trend Micro OfficeScan
+	"ds_agent", // Trend Micro Deep Security
 	// Elastic
-	"elastic-endpoint",          // Elastic Endpoint Security
+	"elastic-endpoint", // Elastic Endpoint Security
 	// Cylance
-	"CylanceSvc",                // BlackBerry Cylance
+	"CylanceSvc", // BlackBerry Cylance
 	// Symantec / Broadcom
-	"SepMasterService",          // Symantec Endpoint Protection
-	"ccSvcHst",                  // Symantec client service
+	"SepMasterService", // Symantec Endpoint Protection
+	"ccSvcHst",         // Symantec client service
 }
 
 func main() {

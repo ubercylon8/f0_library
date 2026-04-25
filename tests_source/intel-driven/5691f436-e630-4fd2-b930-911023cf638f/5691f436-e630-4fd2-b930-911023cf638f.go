@@ -22,13 +22,13 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
-	_ "embed"
 
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
@@ -40,6 +40,7 @@ const (
 )
 
 // Embed signed stage binaries (signed BEFORE embedding during build)
+//
 //go:embed 5691f436-e630-4fd2-b930-911023cf638f-T1505.003.exe
 var stage1Binary []byte
 
@@ -75,12 +76,13 @@ func main() {
 
 	// Initialize logger with Schema v2.0 metadata
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "initial_access",
-		Severity:   "critical",
-		Techniques: []string{"T1505.003", "T1071.003", "T1556.002", "T1048.003"},
-		Tactics:    []string{"persistence", "command-and-control", "credential-access", "exfiltration"},
-		Score:      9.4,
+		Version:       "1.0.0",
+		Category:      "initial_access",
+		Severity:      "critical",
+		Techniques:    []string{"T1505.003", "T1071.003", "T1556.002", "T1048.003"},
+		Tactics:       []string{"persistence", "command-and-control", "credential-access", "exfiltration"},
+		Score:         9.4,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.9,
 			TechnicalSophistication: 2.8,

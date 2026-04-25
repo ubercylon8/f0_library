@@ -100,7 +100,8 @@ func main() {
 			"lateral-movement",
 			"privilege-escalation",
 		},
-		Score: 9.1,
+		Score:         9.1,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.7,
 			TechnicalSophistication: 2.5,

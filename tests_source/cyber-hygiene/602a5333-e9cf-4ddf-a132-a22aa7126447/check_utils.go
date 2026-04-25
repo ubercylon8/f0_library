@@ -19,17 +19,17 @@ import (
 
 // CheckResult represents the result of a single configuration check
 type CheckResult struct {
-	ControlID  string   // Stable control ID e.g. "CH-CIA-001"
-	Name       string
-	Category   string
+	ControlID   string // Stable control ID e.g. "CH-CIA-001"
+	Name        string
+	Category    string
 	Description string
-	Passed     bool
-	Expected   string
-	Actual     string
-	Details    string
-	Severity   string   // critical, high, medium, low, informational
-	Techniques []string // MITRE ATT&CK technique IDs
-	Tactics    []string // MITRE ATT&CK tactic names (kebab-case)
+	Passed      bool
+	Expected    string
+	Actual      string
+	Details     string
+	Severity    string   // critical, high, medium, low, informational
+	Techniques  []string // MITRE ATT&CK technique IDs
+	Tactics     []string // MITRE ATT&CK tactic names (kebab-case)
 }
 
 // ValidatorResult represents the result of a complete validator (group of checks)

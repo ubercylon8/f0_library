@@ -1,5 +1,5 @@
 //go:build windows
-//+build windows
+// +build windows
 
 /*
 ID: c3634a9c-e8c9-44a8-992b-0faeca14f612
@@ -237,8 +237,9 @@ func main() {
 			"T1068",     // Exploitation for Privilege Escalation
 			"T1562.001", // Impair Defenses: Disable or Modify Tools
 		},
-		Tactics: []string{"privilege-escalation", "defense-evasion"},
-		Score:   8.9,
+		Tactics:       []string{"privilege-escalation", "defense-evasion"},
+		Score:         8.9,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.6,
 			TechnicalSophistication: 2.7,

@@ -33,8 +33,8 @@ import (
 )
 
 const (
-	TEST_UUID = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
-	TEST_NAME = "PowerShell Execution & AMSI Detection"
+	TEST_UUID  = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
+	TEST_NAME  = "PowerShell Execution & AMSI Detection"
 	TARGET_DIR = "c:\\F0"
 )
 
@@ -89,10 +89,10 @@ func executeBase64EncodedCommand() (bool, bool, string) {
 
 		// Check for EDR/AV blocking indicators
 		if strings.Contains(outputStr, "blocked") ||
-		   strings.Contains(outputStr, "denied") ||
-		   strings.Contains(outputStr, "prevented") ||
-		   strings.Contains(errorStr, "Access is denied") ||
-		   strings.Contains(errorStr, "not recognized") {
+			strings.Contains(outputStr, "denied") ||
+			strings.Contains(outputStr, "prevented") ||
+			strings.Contains(errorStr, "Access is denied") ||
+			strings.Contains(errorStr, "not recognized") {
 			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls")
 			return false, true, fmt.Sprintf("Blocked: %s", errorStr)
 		}
@@ -140,8 +140,8 @@ func executeDownloadCradle() (bool, bool, string) {
 
 		// Check for blocking
 		if strings.Contains(outputStr, "blocked") ||
-		   strings.Contains(outputStr, "denied") ||
-		   strings.Contains(errorStr, "Access is denied") {
+			strings.Contains(outputStr, "denied") ||
+			strings.Contains(errorStr, "Access is denied") {
 			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls")
 			return false, true, fmt.Sprintf("Blocked: %s", errorStr)
 		}
@@ -185,8 +185,8 @@ func executeHiddenWindow() (bool, bool, string) {
 		outputStr := string(output)
 
 		if strings.Contains(outputStr, "blocked") ||
-		   strings.Contains(outputStr, "denied") ||
-		   strings.Contains(errorStr, "Access is denied") {
+			strings.Contains(outputStr, "denied") ||
+			strings.Contains(errorStr, "Access is denied") {
 			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls")
 			return false, true, fmt.Sprintf("Blocked: %s", errorStr)
 		}
@@ -508,18 +508,19 @@ func main() {
 
 	// Initialize Schema v2.0 compliant logger
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "execution",
-		Severity:   "high",
-		Techniques: []string{"T1059.001", "T1140"},
-		Tactics:    []string{"execution", "defense-evasion"},
-		Score:      7.5,
+		Version:       "1.0.0",
+		Category:      "execution",
+		Severity:      "high",
+		Techniques:    []string{"T1059.001", "T1140"},
+		Tactics:       []string{"execution", "defense-evasion"},
+		Score:         7.5,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.0,  // Uses real PowerShell patterns
-			TechnicalSophistication: 2.0,  // Multiple pattern types
-			SafetyMechanisms:        2.0,  // Only creates marker files
-			DetectionOpportunities:  1.0,  // 4 distinct detection points
-			LoggingObservability:    0.5,  // Good logging
+			RealWorldAccuracy:       2.0, // Uses real PowerShell patterns
+			TechnicalSophistication: 2.0, // Multiple pattern types
+			SafetyMechanisms:        2.0, // Only creates marker files
+			DetectionOpportunities:  1.0, // 4 distinct detection points
+			LoggingObservability:    0.5, // Good logging
 		},
 		Tags: []string{"powershell", "amsi", "base64", "download-cradle", "native"},
 	}

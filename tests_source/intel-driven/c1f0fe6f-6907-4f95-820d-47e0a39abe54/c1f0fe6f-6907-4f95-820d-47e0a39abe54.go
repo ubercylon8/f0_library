@@ -117,13 +117,14 @@ func main() {
 	Endpoint.Say("=================================================================")
 
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "edr-evasion",
-		Severity:   "high",
-		Techniques: []string{"T1562.001"},
-		Tactics:    []string{"defense-evasion"},
-		Score:      7.9,
-		Tags:       []string{"amsi-bypass", "registry", "trolldisappearkey"},
+		Version:       "1.0.0",
+		Category:      "edr-evasion",
+		Severity:      "high",
+		Techniques:    []string{"T1562.001"},
+		Tactics:       []string{"defense-evasion"},
+		Score:         7.9,
+		RubricVersion: "v1",
+		Tags:          []string{"amsi-bypass", "registry", "trolldisappearkey"},
 	}
 
 	orgInfo := ResolveOrganization("")

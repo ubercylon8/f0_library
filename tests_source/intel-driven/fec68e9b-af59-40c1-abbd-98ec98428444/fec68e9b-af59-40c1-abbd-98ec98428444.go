@@ -476,13 +476,14 @@ func main() {
 
 	// Schema v2.0: Build metadata from header
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "defense_evasion",
-		Severity:   "high",
-		Techniques: []string{"T1055", "T1055.001", "T1562.001", "T1014", "T1557", "T1071.001", "T1140"},
-		Tactics:    []string{"defense-evasion", "credential-access", "command-and-control"},
-		Score:      9.7,
-		Tags:       []string{"mde-bypass", "process-injection", "memory-patching", "api-interception", "watchdog"},
+		Version:       "1.0.0",
+		Category:      "defense_evasion",
+		Severity:      "high",
+		Techniques:    []string{"T1055", "T1055.001", "T1562.001", "T1014", "T1557", "T1071.001", "T1140"},
+		Tactics:       []string{"defense-evasion", "credential-access", "command-and-control"},
+		Score:         9.7,
+		RubricVersion: "v1",
+		Tags:          []string{"mde-bypass", "process-injection", "memory-patching", "api-interception", "watchdog"},
 	}
 
 	// Schema v2.0: Resolve organization and build execution context

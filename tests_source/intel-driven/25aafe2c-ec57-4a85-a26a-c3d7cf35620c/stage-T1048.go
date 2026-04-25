@@ -209,10 +209,10 @@ func simulateDataStaging() string {
 	sb.WriteString("Staging directory: /tmp/staging/\n\n")
 
 	categories := []struct {
-		Name     string
-		Pattern  string
-		Count    int
-		TotalMB  int
+		Name    string
+		Pattern string
+		Count   int
+		TotalMB int
 	}{
 		{"VM Configuration Files", "*.vmx, *.vmsd, *.nvram", 30, 12},
 		{"SQL Database Backups", "*.bak, *.mdf, *.ldf", 15, 4500},

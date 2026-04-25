@@ -214,8 +214,8 @@ Content-Disposition: attachment; filename="report_part_%d.dat"
 		host string
 		port string
 	}{
-		{"smtp.gmail.com", "587"},   // Submission port
-		{"smtp.gmail.com", "25"},    // Traditional SMTP
+		{"smtp.gmail.com", "587"}, // Submission port
+		{"smtp.gmail.com", "25"},  // Traditional SMTP
 	}
 
 	for _, target := range smtpTargets {

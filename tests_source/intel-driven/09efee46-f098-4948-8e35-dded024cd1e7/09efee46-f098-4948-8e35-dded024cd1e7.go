@@ -154,13 +154,14 @@ func main() {
 
 	// Schema v2.0 metadata from header comment
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "command-and-control",
-		Severity:   "high",
-		Techniques: []string{"T1219"},
-		Tactics:    []string{"command-and-control"},
-		Score:      7.0,
-		Tags:       []string{"sliver", "c2-implant", "remote-access"},
+		Version:       "1.0.0",
+		Category:      "command-and-control",
+		Severity:      "high",
+		Techniques:    []string{"T1219"},
+		Tactics:       []string{"command-and-control"},
+		Score:         7.0,
+		RubricVersion: "v1",
+		Tags:          []string{"sliver", "c2-implant", "remote-access"},
 	}
 
 	// Resolve organization

@@ -749,12 +749,13 @@ func main() {
 
 	// Initialize Schema v2.0 compliant logger
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "lateral_movement",
-		Severity:   "high",
-		Techniques: []string{"T1021.001", "T1555.004"},
-		Tactics:    []string{"lateral-movement", "credential-access"},
-		Score:      8.0,
+		Version:       "1.0.0",
+		Category:      "lateral_movement",
+		Severity:      "high",
+		Techniques:    []string{"T1021.001", "T1555.004"},
+		Tactics:       []string{"lateral-movement", "credential-access"},
+		Score:         8.0,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.5, // Real tool potential (SharpRDP), actual cmdkey manipulation
 			TechnicalSophistication: 2.0, // Multiple techniques, service/registry checks

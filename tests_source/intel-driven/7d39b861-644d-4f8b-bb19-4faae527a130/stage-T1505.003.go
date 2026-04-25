@@ -80,9 +80,9 @@ func performTechnique() error {
 
 	// Deploy simulated ASPXSpy webshell variants (Agrius uses multiple names)
 	webshellFiles := []string{
-		"aspxspy.aspx",      // Primary ASPXSpy variant
-		"error5.aspx",       // Renamed variant for stealth
-		"contact.aspx",      // Another common Agrius naming pattern
+		"aspxspy.aspx", // Primary ASPXSpy variant
+		"error5.aspx",  // Renamed variant for stealth
+		"contact.aspx", // Another common Agrius naming pattern
 	}
 
 	for _, filename := range webshellFiles {

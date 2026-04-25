@@ -42,6 +42,7 @@ const (
 )
 
 // Embed signed stage binaries (signed BEFORE embedding)
+//
 //go:embed 92b0b4f6-a09b-4c7b-b593-31ce461f804c-T1204.002.exe
 var stage1Binary []byte
 
@@ -77,12 +78,13 @@ type KillchainStage struct {
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "credential_access",
-		Severity:   "critical",
-		Techniques: []string{"T1204.002", "T1059.001", "T1547.001", "T1555.003", "T1102"},
-		Tactics:    []string{"execution", "persistence", "credential-access", "command-and-control"},
-		Score:      9.4,
+		Version:       "1.0.0",
+		Category:      "credential_access",
+		Severity:      "critical",
+		Techniques:    []string{"T1204.002", "T1059.001", "T1547.001", "T1555.003", "T1102"},
+		Tactics:       []string{"execution", "persistence", "credential-access", "command-and-control"},
+		Score:         9.4,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.9,
 			TechnicalSophistication: 2.8,

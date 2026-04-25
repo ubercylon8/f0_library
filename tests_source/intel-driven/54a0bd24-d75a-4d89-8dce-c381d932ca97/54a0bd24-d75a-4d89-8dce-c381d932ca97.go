@@ -53,12 +53,12 @@ var simulatedMaliciousSO = generateSimulatedSO()
 
 // PAMCredentialEntry simulates a captured PAM credential (Perfctl pattern)
 type PAMCredentialEntry struct {
-	Timestamp   string `json:"timestamp"`
-	Service     string `json:"service"`
-	Username    string `json:"username"`
-	AuthResult  string `json:"auth_result"`
-	SourceIP    string `json:"source_ip"`
-	CapturedBy  string `json:"captured_by"`
+	Timestamp  string `json:"timestamp"`
+	Service    string `json:"service"`
+	Username   string `json:"username"`
+	AuthResult string `json:"auth_result"`
+	SourceIP   string `json:"source_ip"`
+	CapturedBy string `json:"captured_by"`
 }
 
 // ShadowEntry simulates a parsed /etc/shadow line
@@ -724,10 +724,10 @@ func generateSimulatedSO() []byte {
 	// ELF magic header (0x7f ELF) followed by simulation marker
 	header := []byte{
 		0x7f, 0x45, 0x4c, 0x46, // ELF magic
-		0x02,                                     // 64-bit
-		0x01,                                     // Little endian
-		0x01,                                     // ELF version
-		0x00,                                     // OS/ABI
+		0x02,                                           // 64-bit
+		0x01,                                           // Little endian
+		0x01,                                           // ELF version
+		0x00,                                           // OS/ABI
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Padding
 	}
 
@@ -1005,8 +1005,9 @@ func main() {
 			"T1014",     // Rootkit
 			"T1059.004", // Command and Scripting Interpreter: Unix Shell
 		},
-		Tactics: []string{"persistence", "defense-evasion", "credential-access", "privilege-escalation"},
-		Score:   9.4,
+		Tactics:       []string{"persistence", "defense-evasion", "credential-access", "privilege-escalation"},
+		Score:         9.4,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8, // Based on Perfctl/Symbiote/Auto-Color real-world TTPs
 			TechnicalSophistication: 2.8, // XOR encryption, ELF simulation, multi-technique

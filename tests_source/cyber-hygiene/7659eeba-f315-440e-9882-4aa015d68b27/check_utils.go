@@ -17,7 +17,7 @@ import (
 
 // CheckResult represents the result of a single configuration check
 type CheckResult struct {
-	ControlID   string   // Stable control ID e.g. "CH-IEP-001"
+	ControlID   string // Stable control ID e.g. "CH-IEP-001"
 	Name        string
 	Category    string
 	Description string
@@ -328,14 +328,14 @@ type DsregcmdSection struct {
 
 // DsregcmdOutput holds the full parsed dsregcmd /status output
 type DsregcmdOutput struct {
-	Sections []DsregcmdSection
+	Sections  []DsregcmdSection
 	RawOutput string
 }
 
 var (
-	dsregcmdCache  *DsregcmdOutput
-	dsregcmdOnce   sync.Once
-	dsregcmdErr    error
+	dsregcmdCache *DsregcmdOutput
+	dsregcmdOnce  sync.Once
+	dsregcmdErr   error
 )
 
 // RunDsregcmd executes dsregcmd /status once and caches the parsed output

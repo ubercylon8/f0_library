@@ -152,23 +152,23 @@ type esxiHost struct {
 }
 
 type vmInfo struct {
-	VMID      int
-	Name      string
-	GuestOS   string
-	State     string
-	WorldID   int
-	VMXPath   string
-	NumCPU    int
-	MemoryMB  int
-	DiskGB    int
+	VMID     int
+	Name     string
+	GuestOS  string
+	State    string
+	WorldID  int
+	VMXPath  string
+	NumCPU   int
+	MemoryMB int
+	DiskGB   int
 }
 
 type datastore struct {
-	Name     string
-	UUID     string
-	SizeGB   int
-	FreeGB   int
-	Type     string
+	Name   string
+	UUID   string
+	SizeGB int
+	FreeGB int
+	Type   string
 }
 
 func generateSimulatedESXiHosts() []esxiHost {

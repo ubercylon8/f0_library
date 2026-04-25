@@ -35,11 +35,11 @@ import (
 )
 
 const (
-	TEST_UUID   = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
-	TEST_NAME   = "LOLBIN Download Detection"
-	TARGET_DIR  = "c:\\F0"
-	TEST_URL    = "http://example.com/robots.txt"
-	TEST_URL_2  = "http://httpbin.org/robots.txt"
+	TEST_UUID  = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
+	TEST_NAME  = "LOLBIN Download Detection"
+	TARGET_DIR = "c:\\F0"
+	TEST_URL   = "http://example.com/robots.txt"
+	TEST_URL_2 = "http://httpbin.org/robots.txt"
 )
 
 // LOLBINTest represents a single LOLBIN download test
@@ -69,20 +69,20 @@ func getLOLBINTests() []LOLBINTest {
 			Technique:   "T1105",
 		},
 		{
-			Name:        "PowerShell Invoke-WebRequest",
-			Binary:      "powershell.exe",
+			Name:   "PowerShell Invoke-WebRequest",
+			Binary: "powershell.exe",
 			CommandArgs: []string{"-ExecutionPolicy", "Bypass", "-Command",
 				fmt.Sprintf("Invoke-WebRequest -Uri '%s' -OutFile '%s' -UseBasicParsing", TEST_URL, filepath.Join(TARGET_DIR, "test_iwr.txt"))},
-			OutputFile:  "test_iwr.txt",
-			Technique:   "T1059.001",
+			OutputFile: "test_iwr.txt",
+			Technique:  "T1059.001",
 		},
 		{
-			Name:        "PowerShell WebClient.DownloadFile",
-			Binary:      "powershell.exe",
+			Name:   "PowerShell WebClient.DownloadFile",
+			Binary: "powershell.exe",
 			CommandArgs: []string{"-ExecutionPolicy", "Bypass", "-Command",
 				fmt.Sprintf("(New-Object System.Net.WebClient).DownloadFile('%s', '%s')", TEST_URL, filepath.Join(TARGET_DIR, "test_webclient.txt"))},
-			OutputFile:  "test_webclient.txt",
-			Technique:   "T1059.001",
+			OutputFile: "test_webclient.txt",
+			Technique:  "T1059.001",
 		},
 		{
 			Name:        "curl.exe download",
@@ -182,7 +182,7 @@ func executeLOLBINTest(test LOLBINTest) (bool, bool, bool, string) {
 
 		for _, indicator := range blockingIndicators {
 			if strings.Contains(strings.ToLower(outputStr), strings.ToLower(indicator)) ||
-			   strings.Contains(strings.ToLower(errorStr), strings.ToLower(indicator)) {
+				strings.Contains(strings.ToLower(errorStr), strings.ToLower(indicator)) {
 				LogProcessExecution(test.Binary, cmdLine, pid, false, 126, "Blocked by security controls")
 				LogMessage("INFO", test.Name, fmt.Sprintf("BLOCKED: %s (duration: %v)", indicator, executionDuration))
 				return false, true, false, fmt.Sprintf("Blocked: %s", indicator)
@@ -494,18 +494,19 @@ func main() {
 
 	// Initialize Schema v2.0 compliant logger
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "command_and_control",
-		Severity:   "high",
-		Techniques: []string{"T1105", "T1059.001"},
-		Tactics:    []string{"command-and-control", "execution"},
-		Score:      8.0,
+		Version:       "1.0.0",
+		Category:      "command_and_control",
+		Severity:      "high",
+		Techniques:    []string{"T1105", "T1059.001"},
+		Tactics:       []string{"command-and-control", "execution"},
+		Score:         8.0,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5,  // Uses actual LOLBINs (certutil, bitsadmin, curl, PowerShell)
-			TechnicalSophistication: 2.0,  // Multiple download methods, proper cleanup
-			SafetyMechanisms:        2.0,  // Only downloads benign content, auto-cleanup
-			DetectionOpportunities:  1.0,  // 5 distinct detection points (one per LOLBIN)
-			LoggingObservability:    0.5,  // Comprehensive logging with output capture
+			RealWorldAccuracy:       2.5, // Uses actual LOLBINs (certutil, bitsadmin, curl, PowerShell)
+			TechnicalSophistication: 2.0, // Multiple download methods, proper cleanup
+			SafetyMechanisms:        2.0, // Only downloads benign content, auto-cleanup
+			DetectionOpportunities:  1.0, // 5 distinct detection points (one per LOLBIN)
+			LoggingObservability:    0.5, // Comprehensive logging with output capture
 		},
 		Tags: []string{"lolbin", "download", "certutil", "bitsadmin", "powershell", "curl", "native"},
 	}

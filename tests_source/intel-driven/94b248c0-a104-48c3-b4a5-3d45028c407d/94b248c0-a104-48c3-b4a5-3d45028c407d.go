@@ -262,13 +262,14 @@ func main() {
 
 	// Schema v2.0 metadata from the test header
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "ransomware",
-		Severity:   "critical",
-		Techniques: []string{"T1486", "T1490", "T1082"},
-		Tactics:    []string{"impact", "discovery"},
-		Score:      8.2,
-		Tags:       []string{"gunra", "encryption", "shadow-copy", "system-info-discovery"},
+		Version:       "1.0.0",
+		Category:      "ransomware",
+		Severity:      "critical",
+		Techniques:    []string{"T1486", "T1490", "T1082"},
+		Tactics:       []string{"impact", "discovery"},
+		Score:         8.2,
+		RubricVersion: "v1",
+		Tags:          []string{"gunra", "encryption", "shadow-copy", "system-info-discovery"},
 	}
 
 	// Resolve organization from registry

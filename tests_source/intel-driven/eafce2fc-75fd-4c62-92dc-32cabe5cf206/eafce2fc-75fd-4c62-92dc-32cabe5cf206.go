@@ -21,13 +21,13 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
-	_ "embed"
 
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
@@ -43,6 +43,7 @@ const (
 )
 
 // Embed signed stage binaries (will be signed BEFORE embedding during build)
+//
 //go:embed eafce2fc-75fd-4c62-92dc-32cabe5cf206-T1105.exe
 var stage1Binary []byte
 
@@ -59,6 +60,7 @@ var stage4Binary []byte
 var stage5Binary []byte
 
 // Embed cleanup utility
+//
 //go:embed cleanup_utility.exe
 var cleanupBinary []byte
 
@@ -103,12 +105,13 @@ func main() {
 
 	// Initialize shared logger with Schema v2.0 metadata and execution context
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "command_and_control",
-		Severity:   "high",
-		Techniques: []string{"T1105", "T1219", "T1543.003", "T1021.004", "T1041"},
-		Tactics:    []string{"command-and-control", "exfiltration", "persistence", "lateral-movement"},
-		Score:      8.5,
+		Version:       "1.0.0",
+		Category:      "command_and_control",
+		Severity:      "high",
+		Techniques:    []string{"T1105", "T1219", "T1543.003", "T1021.004", "T1041"},
+		Tactics:       []string{"command-and-control", "exfiltration", "persistence", "lateral-movement"},
+		Score:         8.5,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.5,
 			TechnicalSophistication: 3.0,
@@ -120,12 +123,12 @@ func main() {
 	}
 
 	// Resolve organization from registry (UUID or short name)
-	orgInfo := ResolveOrganization("")  // Empty string uses default from registry
+	orgInfo := ResolveOrganization("") // Empty string uses default from registry
 
 	executionContext := ExecutionContext{
-		ExecutionID:   uuid.New().String(),
-		Organization:  orgInfo.UUID,
-		Environment:   "lab",
+		ExecutionID:    uuid.New().String(),
+		Organization:   orgInfo.UUID,
+		Environment:    "lab",
 		DeploymentType: "manual",
 		Configuration: &ExecutionConfiguration{
 			TimeoutMs:         300000,

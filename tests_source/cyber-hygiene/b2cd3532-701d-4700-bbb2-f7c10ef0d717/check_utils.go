@@ -15,7 +15,7 @@ import (
 
 // CheckResult represents the result of a single configuration check
 type CheckResult struct {
-	ControlID   string   // Stable control ID e.g. "CH-DEF-001"
+	ControlID   string // Stable control ID e.g. "CH-DEF-001"
 	Name        string
 	Category    string
 	Description string
@@ -30,12 +30,12 @@ type CheckResult struct {
 
 // ValidatorResult represents the result of a complete validator (group of checks)
 type ValidatorResult struct {
-	Name         string
-	Checks       []CheckResult
-	PassedCount  int
-	FailedCount  int
-	TotalChecks  int
-	IsCompliant  bool
+	Name        string
+	Checks      []CheckResult
+	PassedCount int
+	FailedCount int
+	TotalChecks int
+	IsCompliant bool
 }
 
 // CheckRegistryDWORD checks if a DWORD registry value matches expected value

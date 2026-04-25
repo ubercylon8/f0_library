@@ -105,7 +105,8 @@ func main() {
 			"execution",
 			"persistence",
 		},
-		Score: 9.4,
+		Score:         9.4,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.9,
 			TechnicalSophistication: 2.8,

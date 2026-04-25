@@ -49,10 +49,10 @@ const (
 
 // Security services to QUERY ONLY (never stop)
 var securityServicesToQuery = []string{
-	"WinDefend",  // Windows Defender
-	"wscsvc",     // Windows Security Center
-	"VSS",        // Volume Shadow Copy Service
-	"wbengine",   // Windows Backup Engine
+	"WinDefend", // Windows Defender
+	"wscsvc",    // Windows Security Center
+	"VSS",       // Volume Shadow Copy Service
+	"wbengine",  // Windows Backup Engine
 }
 
 // ServiceQueryResult holds service status information
@@ -423,12 +423,13 @@ func cleanup() {
 func test() {
 	// Initialize logging with Schema v2.0
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "impact",
-		Severity:   "high",
-		Techniques: []string{"T1489", "T1562.001"},
-		Tactics:    []string{"impact", "defense-evasion"},
-		Score:      8.0,
+		Version:       "1.0.0",
+		Category:      "impact",
+		Severity:      "high",
+		Techniques:    []string{"T1489", "T1562.001"},
+		Tactics:       []string{"impact", "defense-evasion"},
+		Score:         8.0,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.5,
 			TechnicalSophistication: 2.5,

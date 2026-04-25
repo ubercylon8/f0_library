@@ -61,8 +61,9 @@ const (
 
 // Win32_LogicalDisk WMI class — field names must match the CIM class exactly.
 // DriveType values (MSDN):
-//   0 = Unknown, 1 = NoRootDirectory, 2 = Removable, 3 = LocalDisk,
-//   4 = NetworkDrive, 5 = CompactDisc, 6 = RAMDisk
+//
+//	0 = Unknown, 1 = NoRootDirectory, 2 = Removable, 3 = LocalDisk,
+//	4 = NetworkDrive, 5 = CompactDisc, 6 = RAMDisk
 type Win32_LogicalDisk struct {
 	DeviceID   string
 	DriveType  uint32
@@ -209,8 +210,8 @@ func determineExitCode(err error) int {
 	if containsAny(errStr, []string{
 		"wbem_e_access_denied",
 		"e_accessdenied",
-		"access is denied",  // generic Windows error text from wbem
-		"access denied",     // same, short form
+		"access is denied", // generic Windows error text from wbem
+		"access denied",    // same, short form
 	}) {
 		return StageBlocked
 	}

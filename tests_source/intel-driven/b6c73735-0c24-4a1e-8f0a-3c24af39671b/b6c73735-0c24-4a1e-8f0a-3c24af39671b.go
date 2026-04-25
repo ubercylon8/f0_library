@@ -555,12 +555,13 @@ func main() {
 
 	// Initialize logger BEFORE extracting components (so LogFileDropped works)
 	metadata := TestMetadata{
-		Version:  "1.0.0",
-		Category: "edr-evasion",
-		Severity: "high",
-		Techniques: []string{"T1562.001", "T1014", "T1090.003", "T1140"},
-		Tactics:    []string{"defense-evasion", "command-and-control"},
-		Score:      9.3,
+		Version:       "1.0.0",
+		Category:      "edr-evasion",
+		Severity:      "high",
+		Techniques:    []string{"T1562.001", "T1014", "T1090.003", "T1140"},
+		Tactics:       []string{"defense-evasion", "command-and-control"},
+		Score:         9.3,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       3.0,
 			TechnicalSophistication: 2.8,

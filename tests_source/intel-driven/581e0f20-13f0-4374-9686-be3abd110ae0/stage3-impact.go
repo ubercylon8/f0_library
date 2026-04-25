@@ -43,9 +43,9 @@ const (
 	TECHNIQUE_NAME = "Impact"
 
 	// VHD configuration
-	VHD_PATH     = "C:\\F0\\bitlocker_test.vhd"
-	VHD_SIZE_MB  = 100
-	VHD_LABEL    = "F0RT1KA-TEST"
+	VHD_PATH           = "C:\\F0\\bitlocker_test.vhd"
+	VHD_SIZE_MB        = 100
+	VHD_LABEL          = "F0RT1KA-TEST"
 	BITLOCKER_PASSWORD = "F0RT1KA-Recovery-2024!"
 )
 

@@ -464,12 +464,13 @@ func main() {
 
 	// Initialize logger with Schema v2.0 metadata
 	metadata := TestMetadata{
-		Version:  "1.0.0",
-		Category: "impact",
-		Severity: "critical",
-		Techniques: []string{"T1486", "T1491.001"},
-		Tactics:    []string{"impact"},
-		Score:      8.5,
+		Version:       "1.0.0",
+		Category:      "impact",
+		Severity:      "critical",
+		Techniques:    []string{"T1486", "T1491.001"},
+		Tactics:       []string{"impact"},
+		Score:         8.5,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.5, // Simulates realistic ransomware behavior patterns
 			TechnicalSophistication: 2.5, // AES key generation, file operations, ransom note

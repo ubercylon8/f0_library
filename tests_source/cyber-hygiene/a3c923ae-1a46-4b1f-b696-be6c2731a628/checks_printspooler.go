@@ -12,8 +12,8 @@ import (
 
 // Print Spooler registry paths
 const (
-	PrinterPolicyPath     = `SOFTWARE\Policies\Microsoft\Windows NT\Printers`
-	PointAndPrintPath     = `SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint`
+	PrinterPolicyPath       = `SOFTWARE\Policies\Microsoft\Windows NT\Printers`
+	PointAndPrintPath       = `SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint`
 	PrintSpoolerServicePath = `SYSTEM\CurrentControlSet\Services\Spooler`
 )
 
@@ -34,12 +34,12 @@ func RunPrintSpoolerChecks() ValidatorResult {
 	passed, failed := AggregateValidatorResults(checks)
 
 	return ValidatorResult{
-		Name:         "Print Spooler Hardening (PrintNightmare)",
-		Checks:       checks,
-		PassedCount:  passed,
-		FailedCount:  failed,
-		TotalChecks:  len(checks),
-		IsCompliant:  failed == 0,
+		Name:        "Print Spooler Hardening (PrintNightmare)",
+		Checks:      checks,
+		PassedCount: passed,
+		FailedCount: failed,
+		TotalChecks: len(checks),
+		IsCompliant: failed == 0,
 	}
 }
 

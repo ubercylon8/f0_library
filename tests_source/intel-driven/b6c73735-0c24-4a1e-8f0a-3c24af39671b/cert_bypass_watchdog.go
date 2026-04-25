@@ -23,14 +23,14 @@ const (
 )
 
 var (
-	kernel32                  = syscall.NewLazyDLL("kernel32.dll")
-	procOpenProcess           = kernel32.NewProc("OpenProcess")
-	procReadProcessMemory     = kernel32.NewProc("ReadProcessMemory")
-	procWriteProcessMemory    = kernel32.NewProc("WriteProcessMemory")
-	procVirtualProtectEx      = kernel32.NewProc("VirtualProtectEx")
-	procGetModuleHandle       = kernel32.NewProc("GetModuleHandleW")
-	procGetProcAddress        = kernel32.NewProc("GetProcAddress")
-	procWaitForSingleObject   = kernel32.NewProc("WaitForSingleObject")
+	kernel32                = syscall.NewLazyDLL("kernel32.dll")
+	procOpenProcess         = kernel32.NewProc("OpenProcess")
+	procReadProcessMemory   = kernel32.NewProc("ReadProcessMemory")
+	procWriteProcessMemory  = kernel32.NewProc("WriteProcessMemory")
+	procVirtualProtectEx    = kernel32.NewProc("VirtualProtectEx")
+	procGetModuleHandle     = kernel32.NewProc("GetModuleHandleW")
+	procGetProcAddress      = kernel32.NewProc("GetProcAddress")
+	procWaitForSingleObject = kernel32.NewProc("WaitForSingleObject")
 )
 
 // PatchState stores information about memory patches that need restoration
@@ -48,14 +48,14 @@ type PatchState struct {
 
 // WatchdogState tracks overall watchdog status
 type WatchdogState struct {
-	WatchdogPID     uint32        `json:"watchdogPid"`
-	MonitoredPID    uint32        `json:"monitoredPid"`
-	StartTime       time.Time     `json:"startTime"`
-	LastCheck       time.Time     `json:"lastCheck"`
-	CheckInterval   int           `json:"checkInterval"`
-	Patches         []PatchState  `json:"patches"`
-	AutoRestoreTime int           `json:"autoRestoreTime"`
-	Status          string        `json:"status"`
+	WatchdogPID     uint32       `json:"watchdogPid"`
+	MonitoredPID    uint32       `json:"monitoredPid"`
+	StartTime       time.Time    `json:"startTime"`
+	LastCheck       time.Time    `json:"lastCheck"`
+	CheckInterval   int          `json:"checkInterval"`
+	Patches         []PatchState `json:"patches"`
+	AutoRestoreTime int          `json:"autoRestoreTime"`
+	Status          string       `json:"status"`
 }
 
 func main() {

@@ -46,6 +46,7 @@ const (
 // Embed gzip-compressed signed stage binaries
 // Compressed at build time to reduce orchestrator size (~31MB -> ~20MB)
 // Decompressed in memory during extraction — files on disk are normal PEs
+//
 //go:embed 13c2d073-8e33-4fca-ab27-68f20c408ce9-T1566.001.exe.gz
 var stage1Compressed []byte
 
@@ -89,12 +90,13 @@ type KillchainStage struct {
 func main() {
 	// Initialize logger with Schema v2.0 metadata
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "defense_evasion",
-		Severity:   "high",
-		Techniques: []string{"T1566.001", "T1574.002", "T1547.001", "T1053.005", "T1036", "T1071.001"},
-		Tactics:    []string{"initial-access", "persistence", "defense-evasion", "command-and-control"},
-		Score:      8.7,
+		Version:       "1.0.0",
+		Category:      "defense_evasion",
+		Severity:      "high",
+		Techniques:    []string{"T1566.001", "T1574.002", "T1547.001", "T1053.005", "T1036", "T1071.001"},
+		Tactics:       []string{"initial-access", "persistence", "defense-evasion", "command-and-control"},
+		Score:         8.7,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.7,
 			TechnicalSophistication: 3.0,

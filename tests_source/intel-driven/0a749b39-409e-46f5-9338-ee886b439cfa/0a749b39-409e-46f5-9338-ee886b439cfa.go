@@ -63,7 +63,9 @@ const (
 
 // Embed gzip-compressed signed stage binaries.
 // Stages: T1071.001 (C2 + VBS staging), T1027.001 (metamorphic rewrite),
-//         T1547.001 (startup persistence), T1091 (propagation enumeration).
+//
+//	T1547.001 (startup persistence), T1091 (propagation enumeration).
+//
 //go:embed 0a749b39-409e-46f5-9338-ee886b439cfa-T1071.001.exe.gz
 var stage1Compressed []byte
 
@@ -123,12 +125,13 @@ type KillchainStage struct {
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.2.0",
-		Category:   "command_and_control",
-		Severity:   "high",
-		Techniques: []string{"T1071.001", "T1027.001", "T1547.001", "T1091"},
-		Tactics:    []string{"command-and-control", "defense-evasion", "persistence", "lateral-movement"},
-		Score:      9.4,
+		Version:       "1.2.0",
+		Category:      "command_and_control",
+		Severity:      "high",
+		Techniques:    []string{"T1071.001", "T1027.001", "T1547.001", "T1091"},
+		Tactics:       []string{"command-and-control", "defense-evasion", "persistence", "lateral-movement"},
+		Score:         9.4,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.9,
 			TechnicalSophistication: 3.0,

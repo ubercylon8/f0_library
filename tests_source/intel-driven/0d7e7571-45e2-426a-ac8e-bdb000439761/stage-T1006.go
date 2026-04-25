@@ -73,12 +73,12 @@ type objectDirectoryInformation struct {
 }
 
 const (
-	objCaseInsensitive     = 0x00000040
-	directoryQuery         = 0x0001
+	objCaseInsensitive      = 0x00000040
+	directoryQuery          = 0x0001
 	fsctlRequestBatchOplock = 0x00090000 | (2 << 2) | 0 | (0 << 14) // FSCTL_REQUEST_BATCH_OPLOCK control code
-	statusSuccess          = 0x00000000
-	statusMoreEntries      = 0x00000105
-	statusNoMoreEntries    = 0x8000001A
+	statusSuccess           = 0x00000000
+	statusMoreEntries       = 0x00000105
+	statusNoMoreEntries     = 0x8000001A
 )
 
 func main() {

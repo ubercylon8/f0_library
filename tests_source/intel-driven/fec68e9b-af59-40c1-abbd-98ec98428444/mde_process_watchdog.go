@@ -53,7 +53,7 @@ type WatchdogState struct {
 }
 
 var (
-	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	kernel32               = windows.NewLazySystemDLL("kernel32.dll")
 	procReadProcessMemory  = kernel32.NewProc("ReadProcessMemory")
 	procWriteProcessMemory = kernel32.NewProc("WriteProcessMemory")
 )

@@ -100,7 +100,8 @@ func main() {
 			"persistence",
 			"initial-access",
 		},
-		Score: 8.7,
+		Score:         8.7,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.7,
 			TechnicalSophistication: 2.5,

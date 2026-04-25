@@ -33,24 +33,24 @@ var (
 	kernel32DLL = syscall.NewLazyDLL("kernel32.dll")
 	advapi32DLL = syscall.NewLazyDLL("advapi32.dll")
 
-	procOpenProcess          = kernel32DLL.NewProc("OpenProcess")
-	procReadProcessMemory    = kernel32DLL.NewProc("ReadProcessMemory")
-	procWriteProcessMemory   = kernel32DLL.NewProc("WriteProcessMemory")
-	procVirtualProtectEx     = kernel32DLL.NewProc("VirtualProtectEx")
-	procGetModuleHandleW     = kernel32DLL.NewProc("GetModuleHandleW")
-	procGetProcAddress       = kernel32DLL.NewProc("GetProcAddress")
-	procLookupPrivilegeValue = advapi32DLL.NewProc("LookupPrivilegeValueW")
+	procOpenProcess           = kernel32DLL.NewProc("OpenProcess")
+	procReadProcessMemory     = kernel32DLL.NewProc("ReadProcessMemory")
+	procWriteProcessMemory    = kernel32DLL.NewProc("WriteProcessMemory")
+	procVirtualProtectEx      = kernel32DLL.NewProc("VirtualProtectEx")
+	procGetModuleHandleW      = kernel32DLL.NewProc("GetModuleHandleW")
+	procGetProcAddress        = kernel32DLL.NewProc("GetProcAddress")
+	procLookupPrivilegeValue  = advapi32DLL.NewProc("LookupPrivilegeValueW")
 	procAdjustTokenPrivileges = advapi32DLL.NewProc("AdjustTokenPrivileges")
-	procOpenProcessToken     = advapi32DLL.NewProc("OpenProcessToken")
+	procOpenProcessToken      = advapi32DLL.NewProc("OpenProcessToken")
 )
 
 // BypassMode defines the level of bypass to attempt
 type BypassMode int
 
 const (
-	BypassModeTestOnly    BypassMode = 0  // Just test if bypass is possible (safest)
-	BypassModeQuickPatch  BypassMode = 1  // Patch and immediately restore (safe)
-	BypassModePersistent  BypassMode = 2  // Keep patch active (use with caution)
+	BypassModeTestOnly   BypassMode = 0 // Just test if bypass is possible (safest)
+	BypassModeQuickPatch BypassMode = 1 // Patch and immediately restore (safe)
+	BypassModePersistent BypassMode = 2 // Keep patch active (use with caution)
 )
 
 // PatchState stores information about applied patches
@@ -68,13 +68,13 @@ type PatchState struct {
 
 // BypassResult contains the result of a bypass attempt
 type BypassResult struct {
-	Success         bool
-	Mode            BypassMode
-	Blocked         bool
-	BlockedBy       string
-	PatchesApplied  []PatchState
-	ErrorMessage    string
-	TestDuration    time.Duration
+	Success        bool
+	Mode           BypassMode
+	Blocked        bool
+	BlockedBy      string
+	PatchesApplied []PatchState
+	ErrorMessage   string
+	TestDuration   time.Duration
 }
 
 // AttemptCertificatePinningBypass is the main entry point for bypass attempts
@@ -456,7 +456,7 @@ func generateBypassPatch() []byte {
 	// ret           ; Return to caller
 	return []byte{
 		0xB8, 0x01, 0x00, 0x00, 0x00, // mov eax, 1
-		0xC3,                         // ret
+		0xC3, // ret
 	}
 }
 

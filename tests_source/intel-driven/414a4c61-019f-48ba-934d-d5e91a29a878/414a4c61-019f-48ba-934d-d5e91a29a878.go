@@ -79,12 +79,13 @@ type KillchainStage struct {
 func main() {
 	// Initialize logger with Schema v2.0 metadata
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "execution",
-		Severity:   "high",
-		Techniques: []string{"T1204.002", "T1059.001", "T1105", "T1071.001", "T1573.001", "T1036.005"},
-		Tactics:    []string{"execution", "command-and-control", "defense-evasion"},
-		Score:      9.2,
+		Version:       "1.0.0",
+		Category:      "execution",
+		Severity:      "high",
+		Techniques:    []string{"T1204.002", "T1059.001", "T1105", "T1071.001", "T1573.001", "T1036.005"},
+		Tactics:       []string{"execution", "command-and-control", "defense-evasion"},
+		Score:         9.2,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       3.0,
 			TechnicalSophistication: 2.8,

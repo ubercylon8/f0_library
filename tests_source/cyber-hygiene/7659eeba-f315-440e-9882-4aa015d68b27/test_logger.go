@@ -73,24 +73,24 @@ type TestLog struct {
 	Outcome Outcome `json:"outcome"`
 
 	// Multi-stage support
-	IsMultiStage     bool      `json:"isMultiStage,omitempty"`
-	Stages           []Stage   `json:"stages,omitempty"`
-	BlockedAtStage   int       `json:"blockedAtStage,omitempty"`
-	BlockedTechnique string    `json:"blockedTechnique,omitempty"`
+	IsMultiStage     bool    `json:"isMultiStage,omitempty"`
+	Stages           []Stage `json:"stages,omitempty"`
+	BlockedAtStage   int     `json:"blockedAtStage,omitempty"`
+	BlockedTechnique string  `json:"blockedTechnique,omitempty"`
 
 	// System information
 	SystemInfo SystemInfo `json:"systemInfo"`
 
 	// Execution details
-	Phases            []Phase     `json:"phases"`
-	Messages          []LogEntry  `json:"messages"`
-	FilesDropped      []FileDrop  `json:"filesDropped"`
-	ProcessesExecuted []Process   `json:"processesExecuted"`
+	Phases            []Phase    `json:"phases"`
+	Messages          []LogEntry `json:"messages"`
+	FilesDropped      []FileDrop `json:"filesDropped"`
+	ProcessesExecuted []Process  `json:"processesExecuted"`
 
 	// Test-specific data (optional)
-	CertBypass           *CertBypassLog       `json:"certBypass,omitempty"`
-	NetworkTest          *NetworkTestSummary  `json:"networkTest,omitempty"`
-	IdentifierExtraction *IdentifierLog       `json:"identifierExtraction,omitempty"`
+	CertBypass           *CertBypassLog      `json:"certBypass,omitempty"`
+	NetworkTest          *NetworkTestSummary `json:"networkTest,omitempty"`
+	IdentifierExtraction *IdentifierLog      `json:"identifierExtraction,omitempty"`
 
 	// Aggregation metrics (NEW in v2.0)
 	Metrics *Metrics `json:"metrics,omitempty"`
@@ -101,14 +101,15 @@ type TestLog struct {
 
 // TestMetadata contains test classification and attribution
 type TestMetadata struct {
-	Version        string         `json:"version"`        // Test version (semantic versioning)
-	Category       string         `json:"category"`       // Test category
-	Severity       string         `json:"severity"`       // Threat severity
-	Techniques     []string       `json:"techniques"`     // MITRE ATT&CK technique IDs
-	Tactics        []string       `json:"tactics"`        // MITRE ATT&CK tactic names
-	Score          float64        `json:"score,omitempty"`          // Overall test quality score (0-10)
+	Version        string          `json:"version"`                  // Test version (semantic versioning)
+	Category       string          `json:"category"`                 // Test category
+	Severity       string          `json:"severity"`                 // Threat severity
+	Techniques     []string        `json:"techniques"`               // MITRE ATT&CK technique IDs
+	Tactics        []string        `json:"tactics"`                  // MITRE ATT&CK tactic names
+	Score          float64         `json:"score,omitempty"`          // Overall test quality score (0-10)
+	RubricVersion  string          `json:"rubricVersion,omitempty"`  // Scoring rubric version: "v1" (co-equal 5-dim) | "v2" (tiered realism-first). Empty == "v1".
 	ScoreBreakdown *ScoreBreakdown `json:"scoreBreakdown,omitempty"` // Detailed scoring
-	Tags           []string       `json:"tags,omitempty"`           // Additional classification tags
+	Tags           []string        `json:"tags,omitempty"`           // Additional classification tags
 }
 
 // ScoreBreakdown provides detailed test quality scoring
@@ -183,16 +184,16 @@ type LogEntry struct {
 
 // SystemInfo captures target system context
 type SystemInfo struct {
-	Hostname        string         `json:"hostname"`
-	OSVersion       string         `json:"osVersion"`
-	Architecture    string         `json:"architecture"`
-	DefenderRunning bool           `json:"defenderRunning"`
-	MDEInstalled    bool           `json:"mdeInstalled"`
-	MDEVersion      string         `json:"mdeVersion,omitempty"`
-	ProcessID       int            `json:"processId"`
-	Username        string         `json:"username"`
-	IsAdmin         bool           `json:"isAdmin"`
-	EDRProducts     []EDRProduct   `json:"edrProducts,omitempty"`
+	Hostname        string       `json:"hostname"`
+	OSVersion       string       `json:"osVersion"`
+	Architecture    string       `json:"architecture"`
+	DefenderRunning bool         `json:"defenderRunning"`
+	MDEInstalled    bool         `json:"mdeInstalled"`
+	MDEVersion      string       `json:"mdeVersion,omitempty"`
+	ProcessID       int          `json:"processId"`
+	Username        string       `json:"username"`
+	IsAdmin         bool         `json:"isAdmin"`
+	EDRProducts     []EDRProduct `json:"edrProducts,omitempty"`
 }
 
 // EDRProduct represents detected EDR/AV product
@@ -264,23 +265,23 @@ type NetworkTestSummary struct {
 
 // Metrics provides pre-computed aggregation metrics
 type Metrics struct {
-	TotalPhases        int `json:"totalPhases"`
-	SuccessfulPhases   int `json:"successfulPhases"`
-	FailedPhases       int `json:"failedPhases"`
-	TotalFilesDropped  int `json:"totalFilesDropped"`
-	FilesQuarantined   int `json:"filesQuarantined"`
-	TotalProcesses     int `json:"totalProcesses"`
+	TotalPhases         int `json:"totalPhases"`
+	SuccessfulPhases    int `json:"successfulPhases"`
+	FailedPhases        int `json:"failedPhases"`
+	TotalFilesDropped   int `json:"totalFilesDropped"`
+	FilesQuarantined    int `json:"filesQuarantined"`
+	TotalProcesses      int `json:"totalProcesses"`
 	SuccessfulProcesses int `json:"successfulProcesses"`
-	TotalLogMessages   int `json:"totalLogMessages"`
-	ErrorCount         int `json:"errorCount"`
-	CriticalCount      int `json:"criticalCount"`
+	TotalLogMessages    int `json:"totalLogMessages"`
+	ErrorCount          int `json:"errorCount"`
+	CriticalCount       int `json:"criticalCount"`
 }
 
 // Artifacts contains paths to test artifacts
 type Artifacts struct {
-	LogFilePath      string   `json:"logFilePath,omitempty"`
-	JSONFilePath     string   `json:"jsonFilePath,omitempty"`
-	ScreenshotPaths  []string `json:"screenshotPaths,omitempty"`
+	LogFilePath       string   `json:"logFilePath,omitempty"`
+	JSONFilePath      string   `json:"jsonFilePath,omitempty"`
+	ScreenshotPaths   []string `json:"screenshotPaths,omitempty"`
 	PacketCapturePath string   `json:"packetCapturePath,omitempty"`
 }
 
@@ -692,10 +693,10 @@ func computeOutcome(exitCode int) Outcome {
 // computeMetrics calculates aggregation metrics for dashboard performance
 func computeMetrics() *Metrics {
 	metrics := &Metrics{
-		TotalPhases:        len(globalLog.Phases),
-		TotalFilesDropped:  len(globalLog.FilesDropped),
-		TotalProcesses:     len(globalLog.ProcessesExecuted),
-		TotalLogMessages:   len(globalLog.Messages),
+		TotalPhases:       len(globalLog.Phases),
+		TotalFilesDropped: len(globalLog.FilesDropped),
+		TotalProcesses:    len(globalLog.ProcessesExecuted),
+		TotalLogMessages:  len(globalLog.Messages),
 	}
 
 	// Count successful/failed phases
@@ -786,7 +787,11 @@ func formatTextLog(log *TestLog) string {
 	out.WriteString(fmt.Sprintf("Techniques:   %s\n", strings.Join(log.TestMetadata.Techniques, ", ")))
 	out.WriteString(fmt.Sprintf("Tactics:      %s\n", strings.Join(log.TestMetadata.Tactics, ", ")))
 	if log.TestMetadata.Score > 0 {
-		out.WriteString(fmt.Sprintf("Test Score:   %.1f/10\n", log.TestMetadata.Score))
+		rubric := log.TestMetadata.RubricVersion
+		if rubric == "" {
+			rubric = "v1"
+		}
+		out.WriteString(fmt.Sprintf("Test Score:   %.1f/10 (rubric %s)\n", log.TestMetadata.Score, rubric))
 	}
 	out.WriteString(fmt.Sprintf("Multi-Stage:  %v\n\n", log.IsMultiStage))
 
@@ -1092,8 +1097,8 @@ func WriteStageBundleResults(bundleID, bundleName, category, subcategory string,
 	logMutex.Unlock()
 
 	controls := make([]ControlResult, 0, len(stages))
-	passed := 0  // blocked stages = endpoint defended
-	failed := 0  // successful attack stages = endpoint failed
+	passed := 0 // blocked stages = endpoint defended
+	failed := 0 // successful attack stages = endpoint failed
 	skipped := 0
 
 	for i, stage := range stages {

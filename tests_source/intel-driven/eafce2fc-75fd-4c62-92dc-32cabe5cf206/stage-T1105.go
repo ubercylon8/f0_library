@@ -30,6 +30,7 @@ const (
 )
 
 // Embed Tailscale MSI (backup if download fails)
+//
 //go:embed tailscale_embedded.msi
 var tailscaleEmbedded []byte
 

@@ -46,14 +46,17 @@ const (
 
 // Embed gzip-compressed signed stage binaries
 // Stage 1: LNK -> wscript.exe -> VBScript delivery (T1204.002 + T1059.005 + T1036.004)
+//
 //go:embed 8e2cf534-857b-4d29-a1ac-0f23d248db93-T1204.002.exe.gz
 var stage1Compressed []byte
 
 // Stage 2: WMI discovery + victim ID (T1047 + T1518.001)
+//
 //go:embed 8e2cf534-857b-4d29-a1ac-0f23d248db93-T1047.exe.gz
 var stage2Compressed []byte
 
 // Stage 3: curl.exe HTTPS C2 (T1071.001 + T1105)
+//
 //go:embed 8e2cf534-857b-4d29-a1ac-0f23d248db93-T1071.001.exe.gz
 var stage3Compressed []byte
 
@@ -78,12 +81,13 @@ type KillchainStage struct {
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "execution",
-		Severity:   "high",
-		Techniques: []string{"T1204.002", "T1059.005", "T1047", "T1518.001", "T1071.001", "T1105", "T1036.004"},
-		Tactics:    []string{"execution", "discovery", "command-and-control"},
-		Score:      9.2,
+		Version:       "1.0.0",
+		Category:      "execution",
+		Severity:      "high",
+		Techniques:    []string{"T1204.002", "T1059.005", "T1047", "T1518.001", "T1071.001", "T1105", "T1036.004"},
+		Tactics:       []string{"execution", "discovery", "command-and-control"},
+		Score:         9.2,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       3.0,
 			TechnicalSophistication: 2.5,

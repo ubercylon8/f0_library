@@ -83,7 +83,7 @@ func performFileDiscovery() ([]TargetFile, error) {
 	// High-value file extensions typically targeted by ransomware
 	targetExtensions := map[string]int{
 		// Critical business documents
-		".doc":  1, ".docx": 1, ".xls": 1, ".xlsx": 1, ".ppt": 1, ".pptx": 1,
+		".doc": 1, ".docx": 1, ".xls": 1, ".xlsx": 1, ".ppt": 1, ".pptx": 1,
 		".pdf": 1, ".odt": 1, ".ods": 1, ".odp": 1,
 		// Databases
 		".mdb": 1, ".accdb": 1, ".db": 1, ".sqlite": 1, ".sql": 1,
@@ -101,7 +101,7 @@ func performFileDiscovery() ([]TargetFile, error) {
 
 	// Directories to search (simulated)
 	searchPaths := []string{
-		"C:\\F0",                        // Test directory
+		"C:\\F0", // Test directory
 		os.Getenv("USERPROFILE") + "\\Documents",
 		os.Getenv("USERPROFILE") + "\\Desktop",
 		os.Getenv("USERPROFILE") + "\\Downloads",

@@ -200,13 +200,14 @@ func main() {
 	Endpoint.Say("=================================================================")
 
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "intel-driven",
-		Severity:   "high",
-		Techniques: []string{"T1562.001"},
-		Tactics:    []string{"defense-evasion"},
-		Score:      7.5,
-		Tags:       []string{"cybereye", "powershell", "defender-disabling", "rat"},
+		Version:       "1.0.0",
+		Category:      "intel-driven",
+		Severity:      "high",
+		Techniques:    []string{"T1562.001"},
+		Tactics:       []string{"defense-evasion"},
+		Score:         7.5,
+		RubricVersion: "v1",
+		Tags:          []string{"cybereye", "powershell", "defender-disabling", "rat"},
 	}
 
 	orgInfo := ResolveOrganization("")

@@ -36,11 +36,11 @@ const (
 
 // SimulatedCredential represents a harvested credential
 type SimulatedCredential struct {
-	Source    string `json:"source"`
-	Type     string `json:"type"`
-	Account  string `json:"account"`
-	Data     string `json:"data"`
-	Note     string `json:"note"`
+	Source  string `json:"source"`
+	Type    string `json:"type"`
+	Account string `json:"account"`
+	Data    string `json:"data"`
+	Note    string `json:"note"`
 }
 
 func main() {

@@ -197,10 +197,10 @@ func simulateFTPUploadArtifacts(targetDir string) string {
 
 	// Create simulated exfiltration files
 	files := map[string]string{
-		"credentials_dump.csv":    "F0RT1KA_SIMULATION_DATA\nurl,username,password_hash\nhttps://banking.example.com,user@corp.com,SHA256:0000000000\n",
-		"system_info.json":       `{"hostname":"SIMULATED","domain":"EXAMPLE.COM","source":"F0RT1KA_TEST"}`,
-		"browser_history.dat":    "SIMULATED_BROWSER_HISTORY\ntimestamp,url\n2026-03-07,https://treasury.example.com\n",
-		"keylog_buffer.bin":      "F0RT1KA_SIMULATED_KEYLOG_NO_REAL_DATA_CAPTURED",
+		"credentials_dump.csv": "F0RT1KA_SIMULATION_DATA\nurl,username,password_hash\nhttps://banking.example.com,user@corp.com,SHA256:0000000000\n",
+		"system_info.json":     `{"hostname":"SIMULATED","domain":"EXAMPLE.COM","source":"F0RT1KA_TEST"}`,
+		"browser_history.dat":  "SIMULATED_BROWSER_HISTORY\ntimestamp,url\n2026-03-07,https://treasury.example.com\n",
+		"keylog_buffer.bin":    "F0RT1KA_SIMULATED_KEYLOG_NO_REAL_DATA_CAPTURED",
 	}
 
 	totalSize := 0
@@ -235,13 +235,13 @@ func testHTTPSPostExfiltration() string {
 	// Simulate HTTPS POST to a benign endpoint (httpbin-style)
 	// This tests if large POST requests to external services are monitored
 	simulatedExfilData := map[string]interface{}{
-		"source":    "F0RT1KA_TEST",
-		"timestamp": time.Now().Format(time.RFC3339),
-		"type":      "credential_dump_simulation",
-		"data":      "SIMULATED_NO_REAL_DATA_CONTAINED",
-		"chunks":    4,
+		"source":     "F0RT1KA_TEST",
+		"timestamp":  time.Now().Format(time.RFC3339),
+		"type":       "credential_dump_simulation",
+		"data":       "SIMULATED_NO_REAL_DATA_CONTAINED",
+		"chunks":     4,
 		"total_size": 16384,
-		"agent_id":  TEST_UUID,
+		"agent_id":   TEST_UUID,
 	}
 
 	jsonData, _ := json.Marshal(simulatedExfilData)

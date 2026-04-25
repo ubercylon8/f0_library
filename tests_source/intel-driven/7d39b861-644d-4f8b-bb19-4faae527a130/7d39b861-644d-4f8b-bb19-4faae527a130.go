@@ -21,13 +21,13 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
-	_ "embed"
 
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
@@ -43,6 +43,7 @@ const (
 )
 
 // Embed signed stage binaries (MUST be signed before embedding!)
+//
 //go:embed 7d39b861-644d-4f8b-bb19-4faae527a130-T1505.003.exe
 var stage1Binary []byte
 
@@ -74,12 +75,13 @@ type KillchainStage struct {
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "impact",
-		Severity:   "critical",
-		Techniques: []string{"T1505.003", "T1543.003", "T1562.001", "T1485", "T1070.001"},
-		Tactics:    []string{"persistence", "defense-evasion", "impact"},
-		Score:      9.4,
+		Version:       "1.0.0",
+		Category:      "impact",
+		Severity:      "critical",
+		Techniques:    []string{"T1505.003", "T1543.003", "T1562.001", "T1485", "T1070.001"},
+		Tactics:       []string{"persistence", "defense-evasion", "impact"},
+		Score:         9.4,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.9,
 			TechnicalSophistication: 2.7,

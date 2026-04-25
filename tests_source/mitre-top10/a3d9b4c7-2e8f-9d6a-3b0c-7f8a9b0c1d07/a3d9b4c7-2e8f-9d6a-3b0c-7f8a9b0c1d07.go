@@ -34,10 +34,10 @@ import (
 )
 
 const (
-	TEST_UUID        = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
-	TEST_NAME        = "Pre-Encryption File Enumeration"
-	TARGET_DIR       = "c:\\F0"
-	TEST_DOCS_DIR    = "c:\\Users\\fortika-test\\test_documents"
+	TEST_UUID     = "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07"
+	TEST_NAME     = "Pre-Encryption File Enumeration"
+	TARGET_DIR    = "c:\\F0"
+	TEST_DOCS_DIR = "c:\\Users\\fortika-test\\test_documents"
 )
 
 // Seatbelt binary is loaded at runtime from c:\F0\tools\Seatbelt.exe
@@ -54,16 +54,16 @@ var targetExtensions = []string{
 
 // Test document content for creating realistic test files
 var testDocuments = map[string]string{
-	"financial_report_2024.docx":    "F0RT1KA Test Document - Financial Report",
-	"customer_database.db":          "F0RT1KA Test Document - Customer Database Placeholder",
-	"quarterly_earnings.xlsx":       "F0RT1KA Test Document - Quarterly Earnings",
-	"backup_config.bak":             "F0RT1KA Test Document - Backup Configuration",
-	"invoice_template.pdf":          "F0RT1KA Test Document - Invoice Template",
-	"employee_records.sql":          "-- F0RT1KA Test SQL Dump\nCREATE TABLE employees (id INT, name VARCHAR(255));",
-	"project_plan.docx":             "F0RT1KA Test Document - Project Plan",
-	"credentials_backup.txt":        "F0RT1KA Test Document - Credentials Backup Placeholder",
-	"database_schema.sql":           "-- F0RT1KA Test SQL Schema\nCREATE DATABASE test_db;",
-	"annual_budget.xlsx":            "F0RT1KA Test Document - Annual Budget",
+	"financial_report_2024.docx": "F0RT1KA Test Document - Financial Report",
+	"customer_database.db":       "F0RT1KA Test Document - Customer Database Placeholder",
+	"quarterly_earnings.xlsx":    "F0RT1KA Test Document - Quarterly Earnings",
+	"backup_config.bak":          "F0RT1KA Test Document - Backup Configuration",
+	"invoice_template.pdf":       "F0RT1KA Test Document - Invoice Template",
+	"employee_records.sql":       "-- F0RT1KA Test SQL Dump\nCREATE TABLE employees (id INT, name VARCHAR(255));",
+	"project_plan.docx":          "F0RT1KA Test Document - Project Plan",
+	"credentials_backup.txt":     "F0RT1KA Test Document - Credentials Backup Placeholder",
+	"database_schema.sql":        "-- F0RT1KA Test SQL Schema\nCREATE DATABASE test_db;",
+	"annual_budget.xlsx":         "F0RT1KA Test Document - Annual Budget",
 }
 
 // createTestDocuments creates test documents in the test_documents directory
@@ -860,12 +860,13 @@ func main() {
 
 	// Initialize Schema v2.0 compliant logger
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "discovery",
-		Severity:   "high",
-		Techniques: []string{"T1083", "T1119", "T1082"},
-		Tactics:    []string{"discovery", "collection"},
-		Score:      8.5,
+		Version:       "1.0.0",
+		Category:      "discovery",
+		Severity:      "high",
+		Techniques:    []string{"T1083", "T1119", "T1082"},
+		Tactics:       []string{"discovery", "collection"},
+		Score:         8.5,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.5, // Real tool (Seatbelt with 60+ checks), realistic enumeration
 			TechnicalSophistication: 2.5, // Multiple techniques, comprehensive enumeration

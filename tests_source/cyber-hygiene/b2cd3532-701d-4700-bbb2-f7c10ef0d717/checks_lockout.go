@@ -11,11 +11,11 @@ import (
 
 // CIS Level 1 compliant thresholds
 const (
-	MAX_LOCKOUT_THRESHOLD   = 5  // Max failed attempts before lockout
-	MIN_LOCKOUT_DURATION    = 15 // Minimum lockout duration in minutes
-	MIN_RESET_COUNTER       = 15 // Minimum time to reset failed attempt counter
-	MIN_PASSWORD_LENGTH     = 14 // Minimum password length
-	MAX_PASSWORD_AGE        = 365 // Maximum password age in days
+	MAX_LOCKOUT_THRESHOLD = 5   // Max failed attempts before lockout
+	MIN_LOCKOUT_DURATION  = 15  // Minimum lockout duration in minutes
+	MIN_RESET_COUNTER     = 15  // Minimum time to reset failed attempt counter
+	MIN_PASSWORD_LENGTH   = 14  // Minimum password length
+	MAX_PASSWORD_AGE      = 365 // Maximum password age in days
 )
 
 // RunLockoutChecks performs all account lockout policy checks
@@ -31,12 +31,12 @@ func RunLockoutChecks() ValidatorResult {
 	passed, failed := AggregateValidatorResults(checks)
 
 	return ValidatorResult{
-		Name:         "Account Lockout Policy",
-		Checks:       checks,
-		PassedCount:  passed,
-		FailedCount:  failed,
-		TotalChecks:  len(checks),
-		IsCompliant:  failed == 0,
+		Name:        "Account Lockout Policy",
+		Checks:      checks,
+		PassedCount: passed,
+		FailedCount: failed,
+		TotalChecks: len(checks),
+		IsCompliant: failed == 0,
 	}
 }
 

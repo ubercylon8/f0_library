@@ -98,7 +98,8 @@ func main() {
 			"collection",
 			"persistence",
 		},
-		Score: 8.4,
+		Score:         8.4,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.6,
 			TechnicalSophistication: 2.8,

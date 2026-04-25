@@ -112,7 +112,8 @@ func main() {
 			"persistence",
 			"privilege-escalation",
 		},
-		Score: 9.0,
+		Score:         9.0,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8,
 			TechnicalSophistication: 2.5,

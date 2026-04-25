@@ -53,40 +53,40 @@ type InterceptedCommand struct {
 
 // API interception result
 type APIInterceptionResult struct {
-	TotalRequests      int                  `json:"totalRequests"`
-	SuccessfulRequests int                  `json:"successfulRequests"`
-	CommandsIntercepted int                 `json:"commandsIntercepted"`
-	Commands           []InterceptedCommand `json:"commands"`
-	VulnerabilityFound bool                 `json:"vulnerabilityFound"`
-	AuthBypassWorks    bool                 `json:"authBypassWorks"`
-	ErrorMessages      []string             `json:"errorMessages,omitempty"`
-	TestDuration       float64              `json:"testDuration"`
+	TotalRequests       int                  `json:"totalRequests"`
+	SuccessfulRequests  int                  `json:"successfulRequests"`
+	CommandsIntercepted int                  `json:"commandsIntercepted"`
+	Commands            []InterceptedCommand `json:"commands"`
+	VulnerabilityFound  bool                 `json:"vulnerabilityFound"`
+	AuthBypassWorks     bool                 `json:"authBypassWorks"`
+	ErrorMessages       []string             `json:"errorMessages,omitempty"`
+	TestDuration        float64              `json:"testDuration"`
 }
 
 // CloudLR token structure
 type CloudLRToken struct {
-	TokenType    string    `json:"tokenType"`
-	MachineID    string    `json:"machineId"`
-	Generated    time.Time `json:"generated"`
-	ValidUntil   time.Time `json:"validUntil"`
-	Capabilities []string  `json:"capabilities"`
-	Authenticated bool     `json:"authenticated"`
-	TokenData    string    `json:"tokenData,omitempty"`
+	TokenType     string    `json:"tokenType"`
+	MachineID     string    `json:"machineId"`
+	Generated     time.Time `json:"generated"`
+	ValidUntil    time.Time `json:"validUntil"`
+	Capabilities  []string  `json:"capabilities"`
+	Authenticated bool      `json:"authenticated"`
+	TokenData     string    `json:"tokenData,omitempty"`
 }
 
 // MDE cloud endpoints by region
 var mdeEndpoints = []string{
-	"winatp-gw-eus.microsoft.com",  // East US
-	"winatp-gw-weu.microsoft.com",  // West Europe
-	"winatp-gw-cus.microsoft.com",  // Central US
-	"winatp-gw-neu.microsoft.com",  // North Europe
+	"winatp-gw-eus.microsoft.com", // East US
+	"winatp-gw-weu.microsoft.com", // West Europe
+	"winatp-gw-cus.microsoft.com", // Central US
+	"winatp-gw-neu.microsoft.com", // North Europe
 }
 
 // RaceForCommands attempts to intercept commands using race condition
 func RaceForCommands(identifiers *MDEIdentifiers, duration time.Duration, requestsPerSecond int) *APIInterceptionResult {
 	result := &APIInterceptionResult{
-		Commands:        []InterceptedCommand{},
-		ErrorMessages:   []string{},
+		Commands:           []InterceptedCommand{},
+		ErrorMessages:      []string{},
 		VulnerabilityFound: false,
 		AuthBypassWorks:    false,
 	}
@@ -322,7 +322,7 @@ func AttemptConfigurationExfiltration(identifiers *MDEIdentifiers) (map[string]i
 	if err := json.Unmarshal(body, &config); err != nil {
 		// Return raw if not JSON
 		return map[string]interface{}{
-			"raw": string(body),
+			"raw":  string(body),
 			"size": len(body),
 		}, nil
 	}

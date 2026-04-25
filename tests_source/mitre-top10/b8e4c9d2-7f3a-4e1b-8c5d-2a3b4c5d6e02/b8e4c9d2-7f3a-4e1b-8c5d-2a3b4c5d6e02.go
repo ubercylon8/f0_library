@@ -762,12 +762,13 @@ func main() {
 
 	// Initialize Schema v2.0 compliant logger
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "credential_access",
-		Severity:   "high",
-		Techniques: []string{"T1078.003", "T1087.001", "T1558.003"},
-		Tactics:    []string{"defense-evasion", "persistence", "privilege-escalation", "initial-access", "discovery", "credential-access"},
-		Score:      8.5,
+		Version:       "1.0.0",
+		Category:      "credential_access",
+		Severity:      "high",
+		Techniques:    []string{"T1078.003", "T1087.001", "T1558.003"},
+		Tactics:       []string{"defense-evasion", "persistence", "privilege-escalation", "initial-access", "discovery", "credential-access"},
+		Score:         8.5,
+		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.8, // Real tool (Rubeus), native Windows commands
 			TechnicalSophistication: 2.5, // Multiple techniques, Kerberos operations

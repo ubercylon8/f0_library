@@ -12,9 +12,9 @@ import (
 
 // LSASS protection registry paths
 const (
-	LSAPath                  = `SYSTEM\CurrentControlSet\Control\Lsa`
-	DeviceGuardPath          = `SOFTWARE\Policies\Microsoft\Windows\DeviceGuard`
-	DeviceGuardScenarioPath  = `SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\CredentialGuard`
+	LSAPath                 = `SYSTEM\CurrentControlSet\Control\Lsa`
+	DeviceGuardPath         = `SOFTWARE\Policies\Microsoft\Windows\DeviceGuard`
+	DeviceGuardScenarioPath = `SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\CredentialGuard`
 )
 
 // RunLSASSChecks performs all LSASS protection checks
@@ -28,12 +28,12 @@ func RunLSASSChecks() ValidatorResult {
 	passed, failed := AggregateValidatorResults(checks)
 
 	return ValidatorResult{
-		Name:         "LSASS Protection",
-		Checks:       checks,
-		PassedCount:  passed,
-		FailedCount:  failed,
-		TotalChecks:  len(checks),
-		IsCompliant:  failed == 0,
+		Name:        "LSASS Protection",
+		Checks:      checks,
+		PassedCount: passed,
+		FailedCount: failed,
+		TotalChecks: len(checks),
+		IsCompliant: failed == 0,
 	}
 }
 

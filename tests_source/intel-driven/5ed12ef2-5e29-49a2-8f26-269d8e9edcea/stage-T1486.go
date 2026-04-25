@@ -241,16 +241,16 @@ func createTestFiles(dir string) error {
 
 	// Create various test files if they don't exist
 	testFiles := map[string]string{
-		"report.docx":      "DOCUMENT: Annual Report 2024",
-		"budget.xlsx":      "SPREADSHEET: Q4 Budget Analysis",
+		"report.docx":       "DOCUMENT: Annual Report 2024",
+		"budget.xlsx":       "SPREADSHEET: Q4 Budget Analysis",
 		"presentation.pptx": "PRESENTATION: Board Meeting Slides",
-		"database.db":      "DATABASE: Customer Information",
-		"backup.zip":       "ARCHIVE: System Backup Files",
-		"source.cpp":       "CODE: Application Source Code",
-		"config.json":      "CONFIG: Application Settings",
-		"notes.txt":        "TEXT: Important Notes",
-		"invoice.pdf":      "PDF: Invoice #12345",
-		"credentials.txt":  "SENSITIVE: Login Credentials",
+		"database.db":       "DATABASE: Customer Information",
+		"backup.zip":        "ARCHIVE: System Backup Files",
+		"source.cpp":        "CODE: Application Source Code",
+		"config.json":       "CONFIG: Application Settings",
+		"notes.txt":         "TEXT: Important Notes",
+		"invoice.pdf":       "PDF: Invoice #12345",
+		"credentials.txt":   "SENSITIVE: Login Credentials",
 	}
 
 	for filename, content := range testFiles {

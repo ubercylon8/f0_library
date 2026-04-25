@@ -80,14 +80,14 @@ type cfSyncRegistration struct {
 // which gives CF_HARDLINK_POLICY_NONE / CF_HYDRATION_POLICY_PARTIAL (defaults that
 // match common Cloud Files provider registrations).
 type cfSyncPolicies struct {
-	StructSize              uint32
-	HardLink                uint32
-	HydrationPrimary        uint32
-	HydrationModifier       uint32
-	PopulationPrimary       uint32
-	PopulationModifier      uint32
-	InSyncPolicy            uint32
-	PlaceholderManagement   uint32
+	StructSize            uint32
+	HardLink              uint32
+	HydrationPrimary      uint32
+	HydrationModifier     uint32
+	PopulationPrimary     uint32
+	PopulationModifier    uint32
+	InSyncPolicy          uint32
+	PlaceholderManagement uint32
 }
 
 const cfRegisterFlagDisableOnDemandOnRoot = 0x00000002
