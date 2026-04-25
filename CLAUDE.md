@@ -94,8 +94,14 @@ InitLogger(testID, testName string, metadata TestMetadata, executionContext Exec
 ```
 
 **Required fields:**
-- `TestMetadata`: Version, Category, Severity, Techniques, Tactics, Score, Tags
+- `TestMetadata`: Version, Category, Severity, Techniques, Tactics, Score, **RubricVersion**, Tags
 - `ExecutionContext`: ExecutionID (uuid), Organization (orgInfo.UUID), Environment, DeploymentType
+
+**`RubricVersion` (added 2026-04-24):**
+- `"v1"` = current co-equal 5-dimension rubric (Accuracy 3 + Sophistication 3 + Safety 2 + Detection 1 + Logging 1)
+- `"v2"` = tiered realism-first rubric (Safety gate + Realism 0–7 + Structure 0–3) — see `docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md`
+- Existing tests were backfilled with `"v1"` on 2026-04-24. New tests default to `"v1"` until the v2 rubric is merged into `.claude/agents/sectest-documentation.md`.
+- Empty string is treated as `"v1"` by downstream consumers.
 
 **Enforcement rules:**
 1. DO NOT modify test_logger.go data structures

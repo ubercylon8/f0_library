@@ -60,8 +60,8 @@ import (
 // ==============================================================================
 
 const (
-	TEST_UUID = "TEMPLATE-UUID"  // Replace with your test UUID
-	TEST_NAME = "Multi-Stage Attack Chain Template"  // Replace with your test name
+	TEST_UUID = "TEMPLATE-UUID"                     // Replace with your test UUID
+	TEST_NAME = "Multi-Stage Attack Chain Template" // Replace with your test name
 )
 
 // Embed gzip-compressed signed stage binaries
@@ -96,12 +96,12 @@ var stage3Compressed []byte
 
 // Stage represents one technique in the attack killchain
 type Stage struct {
-	ID          int       // Sequential stage number (1, 2, 3, ...)
-	Name        string    // Human-readable stage name
-	Technique   string    // MITRE ATT&CK technique ID (e.g., "T1134.001")
-	BinaryName  string    // Stage binary filename (e.g., "abc123-T1134.001.exe")
-	BinaryData  []byte    // Embedded signed binary data
-	Description string    // Brief description of what this stage does
+	ID          int    // Sequential stage number (1, 2, 3, ...)
+	Name        string // Human-readable stage name
+	Technique   string // MITRE ATT&CK technique ID (e.g., "T1134.001")
+	BinaryName  string // Stage binary filename (e.g., "abc123-T1134.001.exe")
+	BinaryData  []byte // Embedded signed binary data
+	Description string // Brief description of what this stage does
 }
 
 // ==============================================================================
@@ -113,12 +113,13 @@ func main() {
 	//
 	// Define test metadata (MITRE ATT&CK mapping, scoring, categorization)
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "privilege_escalation", // Update for your test
-		Severity:   "high",                  // critical, high, medium, low, informational
-		Techniques: []string{"T1134.001", "T1055.001", "T1003.001"}, // Update with your techniques
-		Tactics:    []string{"privilege-escalation", "defense-evasion", "credential-access"}, // Update with your tactics
-		Score:      8.5,
+		Version:       "1.0.0",
+		Category:      "privilege_escalation",                                                   // Update for your test
+		Severity:      "high",                                                                   // critical, high, medium, low, informational
+		Techniques:    []string{"T1134.001", "T1055.001", "T1003.001"},                          // Update with your techniques
+		Tactics:       []string{"privilege-escalation", "defense-evasion", "credential-access"}, // Update with your tactics
+		Score:         8.5,
+		RubricVersion: "v1", // "v1" = co-equal 5-dim (current). Flip to "v2" when the realism-first rubric is merged — see docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.5,
 			TechnicalSophistication: 3.0,
@@ -136,10 +137,10 @@ func main() {
 
 	// Define execution context
 	executionContext := ExecutionContext{
-		ExecutionID:   uuid.New().String(), // Generate unique execution ID
-		Organization:  orgInfo.UUID,        // UUID for Elasticsearch analytics
-		Environment:   "lab",               // production, staging, lab, development, testing
-		DeploymentType: "manual",           // manual, automated, cicd, scheduled
+		ExecutionID:    uuid.New().String(), // Generate unique execution ID
+		Organization:   orgInfo.UUID,        // UUID for Elasticsearch analytics
+		Environment:    "lab",               // production, staging, lab, development, testing
+		DeploymentType: "manual",            // manual, automated, cicd, scheduled
 		Configuration: &ExecutionConfiguration{
 			TimeoutMs:         300000, // 5 minutes
 			MultiStageEnabled: true,
@@ -226,7 +227,7 @@ func test() {
 
 	// Track per-stage results for bundle fan-out (per-stage ES documents)
 	// NOTE: Update severity and tactics to match your test's metadata
-	stageSeverity := "high" // Must match metadata.Severity above
+	stageSeverity := "high"                                                                  // Must match metadata.Severity above
 	stageTactics := []string{"privilege-escalation", "defense-evasion", "credential-access"} // Must match metadata.Tactics above
 	stageResults := make([]StageBundleDef, len(killchain))
 	for i, stage := range killchain {
