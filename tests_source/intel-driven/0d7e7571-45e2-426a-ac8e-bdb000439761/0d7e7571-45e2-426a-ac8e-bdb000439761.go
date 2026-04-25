@@ -115,7 +115,7 @@ func main() {
 			"collection",
 			"persistence",
 		},
-		Score:         8.3, // v2.1 — lab-verified 2026-04-25 (all 4 stages reached, exit 101); 3d Op Hygiene lift (R6, 2026-04-25) added per-stage watchdogs + timeout budgets — R5 COM activation watchdog is load-bearing. See info.md Score Breakdown.
+		Score:         8.7, // v2.1 — lab-verified 2026-04-25 (4/4 stages reached, exit 101); R6 3d Op Hygiene lift (watchdogs+budgets) + R7 2b Identifier Fidelity lift (sandbox files renamed FakeTarget → TieringEngineService.exe under ARTIFACT_DIR for path-rule detection without touching System32). See info.md Score Breakdown.
 		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2 — v1 dimensions in struct
 		// don't match v2's tiered structure. Breakdown lives in info.md.

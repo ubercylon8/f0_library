@@ -17,8 +17,9 @@ SAFETY BOUNDARIES:
   - Reparse source:  c:\Users\fortika-test\RedSunSandbox\ReparseSource
   - Reparse target:  c:\Users\fortika-test\RedSunSandbox\ReparseTarget
     (both under ARTIFACT_DIR; no real system path is referenced)
-  - Supersede target: c:\Users\fortika-test\RedSunSandbox\FakeTarget.exe
-    (NOT TieringEngineService.exe, NOT under System32)
+  - Supersede target: c:\Users\fortika-test\RedSunSandbox\TieringEngineService.exe
+    (real-target basename for path-rule detection — v2.1 R7 lift, 2026-04-25 —
+    but ONLY under ARTIFACT_DIR; the safety gate keeps this away from System32)
   - Reparse point is TORN DOWN (FSCTL_DELETE_REPARSE_POINT) within the same
     function. No persistent reparse state is left behind.
   - Supersede loop capped at 20 iterations with 50ms sleep — enough to exercise
@@ -279,7 +280,10 @@ func performTechnique() error {
 	// signature (IRP_MJ_CREATE with FILE_SUPERSEDE) that EDRs observe when
 	// blocking the RedSun primitive. Cap at 20 iterations — plenty to exercise
 	// the pattern without looking like a DoS.
-	supersedeTarget := filepath.Join(sandboxRoot, "FakeTarget.exe")
+	// R7 lift (v2.1, 2026-04-25): real-target basename to fire path-based
+	// detection rules. File lives ONLY under sandboxRoot (ARTIFACT_DIR);
+	// the safety gate prevents System32 access.
+	supersedeTarget := filepath.Join(sandboxRoot, "TieringEngineService.exe")
 
 	// v2 lift R4 — NtQueryInformationFile probe before the supersede race.
 	// The real RedSun PoC queries FileStandardInformation on its target before

@@ -14,7 +14,11 @@ Simulates the RedSun PoC primitives from DoCloudStuff():
 
 SAFETY BOUNDARIES:
   - sync root is created under ARTIFACT_DIR (c:\Users\fortika-test\RedSunSandbox)
-  - placeholder filename is "FakeTarget.exe" — NOT TieringEngineService.exe
+  - placeholder filename is "TieringEngineService.exe" — same basename as the real
+    PoC's target so path-based detection rules fire on the real-target string,
+    but the file lives ONLY under ARTIFACT_DIR (never System32). v2.1 R7 lift
+    (2026-04-25) — tradeoff: identifier fidelity for what the safety gate already
+    enforces (no real system file is touched).
   - provider name is F0RT1KA-branded so defenders can distinguish the sim
     from the real PoC in telemetry
   - no CfConnectSyncRoot / CfCreatePlaceholders — the registration alone is
@@ -180,7 +184,10 @@ func performTechnique() error {
 	}
 
 	// Step 2: drop EICAR into the sync-root dir under a non-system filename.
-	eicarPath := filepath.Join(sandboxRoot, "FakeTarget.exe")
+	// R7 lift (v2.1, 2026-04-25): real-target basename to fire path-based
+	// detection rules. File lives ONLY under sandboxRoot (ARTIFACT_DIR);
+	// the safety gate prevents this from ever touching System32.
+	eicarPath := filepath.Join(sandboxRoot, "TieringEngineService.exe")
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Writing EICAR string to %s (provokes AV scan)", eicarPath))
 	if err := os.WriteFile(eicarPath, []byte(eicarString), 0644); err != nil {
 		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Could not write EICAR file: %v", err))

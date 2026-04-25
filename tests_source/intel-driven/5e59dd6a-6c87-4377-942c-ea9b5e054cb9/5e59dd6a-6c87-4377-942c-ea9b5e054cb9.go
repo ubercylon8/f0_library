@@ -63,6 +63,7 @@ import (
 
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/sys/windows/registry"
 )
 
 // ==============================================================================
@@ -100,7 +101,7 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1211", "T1562.001", "T1003.002", "T1134.001"},
 		Tactics:       []string{"defense-evasion", "credential-access", "privilege-escalation"},
-		Score:         8.8, // v2.1 — lab-verified 2026-04-25 via Lab-Bound Observability exception (stages 3-4 unreachable due to MDE stage-2 block); 3d Op Hygiene lift (B6, 2026-04-25) added per-stage watchdogs + timeout budgets. See info.md Score Breakdown.
+		Score:         9.2, // v2.1 — lab-verified 2026-04-25 via Lab-Bound Observability exception (stages 3-4 unreachable due to MDE stage-2 block); B6 3d Op Hygiene lift (watchdogs+budgets) + B7 2b Identifier Fidelity lift (runtime extraction of real Defender registry paths via golang.org/x/sys/windows/registry — surfaced in snapshot JSON + INFO logs). See info.md Score Breakdown.
 		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2 — the v1 dimensions in
 		// the struct don't match v2's tiered structure. The v2 breakdown lives
@@ -412,12 +413,55 @@ type systemSnapshot struct {
 	Phase                  string            `json:"phase"`
 	Timestamp              string            `json:"timestamp"`
 	DefenderStatus         map[string]string `json:"defenderStatus,omitempty"`
+	DefenderRegistryPaths  map[string]string `json:"defenderRegistryPaths,omitempty"` // B7 lift (v2.1, 2026-04-25)
 	ASRRulesEnabled        []string          `json:"asrRulesEnabled,omitempty"`
 	AVExclusionPaths       []string          `json:"avExclusionPaths,omitempty"`
 	AVExclusionExtensions  []string          `json:"avExclusionExtensions,omitempty"`
 	AVExclusionProcesses   []string          `json:"avExclusionProcesses,omitempty"`
 	HotfixesInstalledCount int               `json:"hotfixesInstalledCount"`
 	Errors                 []string          `json:"errors,omitempty"`
+}
+
+// readDefenderRegistryPaths extracts real Defender path identifiers at runtime
+// from HKLM\SOFTWARE\Microsoft\Windows Defender. v2.1 §2b Identifier Fidelity
+// lift B7 (2026-04-25): converts hard-coded BlueHammer-attributable paths into
+// real production identifiers without altering test behavior. Returns whatever
+// values are readable; missing keys are non-fatal and recorded in the empty map.
+//
+// This function is read-only and never writes/locks/holds handles.
+func readDefenderRegistryPaths() (map[string]string, []string) {
+	paths := make(map[string]string)
+	var errs []string
+
+	type regProbe struct {
+		key   string
+		value string
+		label string
+	}
+	probes := []regProbe{
+		{`SOFTWARE\Microsoft\Windows Defender`, "ProductAppDataPath", "productAppDataPath"},
+		{`SOFTWARE\Microsoft\Windows Defender`, "InstallLocation", "installLocation"},
+		{`SOFTWARE\Microsoft\Windows Defender\Signature Updates`, "SignatureLocation", "signatureLocation"},
+		{`SOFTWARE\Microsoft\Windows Defender\Signature Updates`, "EngineVersion", "engineVersion"},
+		{`SOFTWARE\Microsoft\Windows Defender\Signature Updates`, "ASSignatureVersion", "asSignatureVersion"},
+		{`SOFTWARE\Microsoft\Windows Defender\Signature Updates`, "AVSignatureVersion", "avSignatureVersion"},
+	}
+
+	for _, p := range probes {
+		k, err := registry.OpenKey(registry.LOCAL_MACHINE, p.key, registry.QUERY_VALUE|registry.WOW64_64KEY)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("OpenKey %s: %v", p.key, err))
+			continue
+		}
+		val, _, err := k.GetStringValue(p.value)
+		k.Close()
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("Read %s\\%s: %v", p.key, p.value, err))
+			continue
+		}
+		paths[p.label] = val
+	}
+	return paths, errs
 }
 
 func captureSystemSnapshot(phase string) {
@@ -432,6 +476,23 @@ func captureSystemSnapshot(phase string) {
 		snap.DefenderStatus = status
 	} else {
 		snap.Errors = append(snap.Errors, fmt.Sprintf("Get-MpComputerStatus: %v", err))
+	}
+
+	// B7 lift (v2.1, 2026-04-25): runtime extraction of real Defender path
+	// identifiers from HKLM\SOFTWARE\Microsoft\Windows Defender. Read-only;
+	// values surface in snapshot JSON and are logged at INFO level so the
+	// telemetry the test produces references real production paths instead
+	// of BlueHammer-attributable hardcoded sandbox names.
+	if defPaths, regErrs := readDefenderRegistryPaths(); len(defPaths) > 0 {
+		snap.DefenderRegistryPaths = defPaths
+		for k, v := range defPaths {
+			LogMessage("INFO", "Snapshot", fmt.Sprintf("Defender registry %s = %s", k, v))
+		}
+		if len(regErrs) > 0 {
+			snap.Errors = append(snap.Errors, regErrs...)
+		}
+	} else if len(regErrs) > 0 {
+		snap.Errors = append(snap.Errors, regErrs...)
 	}
 
 	// ASR rules currently enabled. The IDs are GUIDs.
