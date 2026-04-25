@@ -1064,9 +1064,15 @@ func WriteStageBundleResults(bundleID, bundleName, category, subcategory string,
 		})
 	}
 
-	overallExit := 101 // default: at least one stage succeeded (unprotected)
-	if passed == len(stages)-skipped && passed > 0 {
-		overallExit = 126 // all non-skipped stages were blocked
+	// Match framework contract (CLAUDE.md): exit 126 = at least one critical
+	// protection layer worked. ANY blocked stage breaks the kill chain → 126.
+	// All stages skipped (no evidence either way) → 999.
+	overallExit := 101
+	switch {
+	case passed > 0:
+		overallExit = 126
+	case skipped == len(stages):
+		overallExit = 999
 	}
 
 	results := &BundleResults{
