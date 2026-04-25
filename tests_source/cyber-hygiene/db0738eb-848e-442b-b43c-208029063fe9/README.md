@@ -13,18 +13,20 @@ The bundle implements 7 multi-binary validators (one per ITGC control family) fo
 
 ## Status
 
-**Phase 2.5 milestone (2026-04-25)**: 13 of 31 controls shipped + multi-binary signed build pipeline verified (orchestrator signed with F0RT1KA cert, 24 MB, SHA1 verified).
+**Phase 2.5b milestone (2026-04-25)**: **31 of 31 controls** implemented + signed multi-binary build pipeline verified (orchestrator + 7 validators signed with F0RT1KA cert, orchestrator 24 MB).
 
-| Family | Controls in scope | Implemented (Phase 2.5) | Remaining |
+| Family | Controls in scope | Implemented | Status |
 |---|---|---|---|
-| Access Management (AM) | AM-001, AM-002, AM-005 | AM-002, AM-005 | 1 (AM-001 → AD bundle) |
-| Change Management (CM) | CM-001..005 | CM-005 | 4 |
-| Logging & Monitoring (LM) | LM-001..005 | LM-002, LM-005 | 3 |
-| Endpoint Protection (EP) | EP-001..006 | **EP-001..006 (full)** | 0 |
-| Backup & Recovery (BR) | BR-001..003 | BR-003 | 2 |
-| Network Security (NS) | NS-001, NS-002, NS-004 | NS-002, NS-004 | 1 |
-| Governance & Policy (GV) | GV-001..006 | GV-002 | 5 |
-| **TOTAL** | **31** | **13** | **16** (+ 2 in companion bundles) |
+| Access Management (AM) | AM-001, AM-002, AM-005 | 3/3 | full |
+| Change Management (CM) | CM-001..005 | 5/5 | full |
+| Logging & Monitoring (LM) | LM-001..005 | 5/5 | full |
+| Endpoint Protection (EP) | EP-001..006 | 6/6 | full |
+| Backup & Recovery (BR) | BR-001..003 | 3/3 | full |
+| Network Security (NS) | NS-001, NS-002, NS-004 | 3/3 | full |
+| Governance & Policy (GV) | GV-001..006 | 6/6 | full |
+| **TOTAL** | **31** | **31** | **full** |
+
+> **Note** — AM-006 (MFA Enrollment) is in the companion `4f484076-...` Entra Tenant bundle. AM-003, AM-004, NS-003 (LAPS) are deferred to the planned AD Identity bundle (separate UUID, runs on DC/mgmt host with RSAT).
 
 Companion bundles (planned):
 - ISACA ITGC AD Identity Bundle (UUID TBD) — covers AM-001 (local admin inv), AM-003 (dormant accts), AM-004 (service accts), NS-003 (LAPS) on a DC / mgmt server

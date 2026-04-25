@@ -1,9 +1,8 @@
 //go:build ignore
 // +build ignore
 
-// checks_ns.go — ISACA ITGC Network Security control checks.
-// Phase-2.5: NS-002 RDP Security + NS-004 WinRM Exposure.
-// NS-001 Open Port Inventory ships in Phase-2.5b.
+// checks_ns.go — ISACA ITGC Network Security control checks (NS-001/002/004).
+// NS-003 LAPS deployment is in the AD Identity companion bundle.
 
 package main
 
@@ -18,8 +17,9 @@ import (
 func RunNSChecks() ValidatorResult {
 	result := ValidatorResult{Name: "Network Security"}
 	result.Checks = []CheckResult{
-		checkRDPSecurityISACA(),    // NS-002
-		checkWinRMExposureISACA(),  // NS-004
+		checkOpenPortInventoryISACA(), // NS-001
+		checkRDPSecurityISACA(),       // NS-002
+		checkWinRMExposureISACA(),     // NS-004
 	}
 	for _, c := range result.Checks {
 		result.TotalChecks++
@@ -31,6 +31,60 @@ func RunNSChecks() ValidatorResult {
 	}
 	result.IsCompliant = result.FailedCount == 0
 	return result
+}
+
+// ITGC-NS-001 — Open Port Inventory (Get-NetTCPConnection -State Listen).
+// Captures listening ports + owning processes for auditor review against approved-services baseline.
+func checkOpenPortInventoryISACA() CheckResult {
+	c := CheckResult{
+		ControlID:      "ITGC-NS-001",
+		Name:           "Open Port Inventory",
+		Category:       "network-security",
+		Description:    "Enumerate listening TCP/UDP ports + owning processes for auditor baseline comparison.",
+		Severity:       "high",
+		Techniques:     []string{"T1046"},
+		Tactics:        []string{"discovery"},
+		CisaDomain:     "D5: Protection of Information Assets",
+		CobitObjective: "DSS05.02 Manage Network and Connectivity Security",
+		CisV8Mapping:   "CIS 4.4 Implement and Manage Firewall on Servers",
+		ManualResidual: "Auditor compares evidence.listening_ports against approved-services baseline; flags unexpected listeners.",
+	}
+
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+		`$tcp = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | `+
+			`ForEach-Object { `+
+			`  $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; `+
+			`  [PSCustomObject]@{ `+
+			`    LocalAddress = $_.LocalAddress; `+
+			`    LocalPort    = $_.LocalPort; `+
+			`    Process      = if ($proc) { $proc.ProcessName } else { 'unknown' } `+
+			`  } `+
+			`} | Sort-Object LocalPort; `+
+			`$tcp | ConvertTo-Json -Compress -Depth 3`)
+	out, err := cmd.Output()
+	c.Expected = "Listening port inventory enumerated"
+	if err != nil {
+		c.Passed = false
+		c.Actual = fmt.Sprintf("Get-NetTCPConnection failed: %v", err)
+		c.Details = "Could not enumerate listening ports."
+		c.Evidence = map[string]interface{}{"query_error": err.Error()}
+		return c
+	}
+	output := strings.TrimSpace(string(out))
+	listenerCount := strings.Count(output, `"LocalPort"`)
+
+	c.Passed = listenerCount > 0
+	c.Actual = fmt.Sprintf("%d TCP listeners enumerated", listenerCount)
+	if c.Passed {
+		c.Details = fmt.Sprintf("Successfully captured %d listening TCP endpoints. Auditor reviews evidence.listening_ports against approved-services baseline.", listenerCount)
+	} else {
+		c.Details = "No listening TCP endpoints — query parse failure or unusual configuration. Review evidence."
+	}
+	c.Evidence = map[string]interface{}{
+		"listener_count":  listenerCount,
+		"listening_ports": output,
+	}
+	return c
 }
 
 // ITGC-NS-002 — RDP security: NLA on, encryption High (>=3), or RDP disabled altogether.
@@ -49,7 +103,6 @@ func checkRDPSecurityISACA() CheckResult {
 		ManualResidual: "Auditor verifies RDP-enabled hosts are restricted to approved admin groups.",
 	}
 
-	// fDenyTSConnections: 1 = RDP disabled, 0 = enabled
 	denyMatched, denyVal, denyErr := CheckRegistryDWORD(
 		registry.LOCAL_MACHINE,
 		`SYSTEM\CurrentControlSet\Control\Terminal Server`,
@@ -69,7 +122,6 @@ func checkRDPSecurityISACA() CheckResult {
 	c.Evidence["rdp_enabled"] = true
 	c.Evidence["fDenyTSConnections"] = denyVal
 
-	// RDP enabled — require NLA + encryption
 	nlaMatched, nlaVal, _ := CheckRegistryDWORD(
 		registry.LOCAL_MACHINE,
 		`SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp`,
