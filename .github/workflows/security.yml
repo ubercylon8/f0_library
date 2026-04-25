@@ -13,7 +13,7 @@ permissions:
   security-events: write
 
 jobs:
-  bandit-scan:
+  shell-security-scan:
     name: Security Scan - Shell Scripts
     runs-on: ubuntu-latest
 

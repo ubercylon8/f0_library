@@ -50,13 +50,13 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/f0_library.git
+   git clone https://github.com/ubercylon8/f0_library.git
    cd f0_library
    ```
 
 2. Install Go 1.21 or later
 
-3. Set up the Prelude libraries in `preludeorg-libraries/` directory
+3. Set up the [Prelude OpenSource libraries](https://github.com/preludeorg/libraries) in the `preludeorg-libraries/` directory
 
 ### Creating a New Test
 
@@ -65,18 +65,22 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
    uuidgen | tr '[:upper:]' '[:lower:]'
    ```
 
-2. Create the test directory structure:
+2. Choose the appropriate category (`intel-driven`, `mitre-top10`, or `cyber-hygiene`) and create the test directory:
    ```bash
-   mkdir -p tests_source/<uuid>
+   mkdir -p tests_source/<category>/<uuid>
    ```
 
-3. Create the required files:
-   - `<uuid>.go` - Main test implementation
-   - `README.md` - Brief overview
-   - `<uuid>_info.md` - Detailed information card
-   - `go.mod` - Module file
+3. Create the required files (copy `test_logger.go`, `test_logger_<platform>.go`, and `org_resolver.go` from `sample_tests/multistage_template/`):
+   - `<uuid>.go` — Main test implementation (with metadata header)
+   - `test_logger.go` — Schema v2.0 logger
+   - `test_logger_<platform>.go` — Platform constants
+   - `org_resolver.go` — Organization UUID resolver
+   - `README.md` — Brief overview with test score
+   - `<uuid>_info.md` — Detailed information card
+   - `<uuid>_references.md` — Source provenance (intel-driven/mitre-top10 only)
+   - `go.mod` — Module file
 
-4. Follow the test implementation pattern from `sample_tests/`
+4. Follow the test implementation pattern from `sample_tests/multistage_template/`
 
 5. Build your test:
    ```bash

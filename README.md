@@ -7,9 +7,11 @@
 
 A comprehensive security testing framework for evaluating endpoint detection and response (EDR) capabilities against real-world attack techniques mapped to the MITRE ATT&CK framework.
 
+> **Project naming**: **ACHILLES** is the testing framework. **F0RT1KA** is the parent organization / brand (used in repo paths, binary signing certificates, and the `f0_library` repo name). You will see both — they are not competing names.
+
 ## Overview
 
-F0RT1KA is a professional, open-source security testing framework designed to assess the effectiveness of endpoint detection and response (EDR) solutions. By simulating real-world attack techniques mapped to the MITRE ATT&CK framework, it provides security teams with a standardized approach to validate their defensive capabilities.
+ACHILLES is a professional, open-source security testing framework designed to assess the effectiveness of endpoint detection and response (EDR) solutions. By simulating real-world attack techniques mapped to the MITRE ATT&CK framework, it provides security teams with a standardized approach to validate their defensive capabilities.
 
 ## Purpose
 
@@ -21,12 +23,13 @@ F0RT1KA is a professional, open-source security testing framework designed to as
 
 ## Key Features
 
-- **46 Security Tests** across 3 categories covering attack simulation and configuration validation
+- **51 Security Tests** across 3 categories covering attack simulation and configuration validation
 - **Cross-Platform Support**: Windows (primary), Linux, and macOS test targets
 - **Agent-Driven Test Generation**: Orchestrator + specialized agents for automated test creation from threat intelligence
 - **5 Detection Rule Formats**: KQL, YARA, Sigma, Elastic EQL, and LimaCharlie D&R rules generated per test
 - **Defense Guidance**: Hardening scripts (Windows/Linux/macOS) and incident response playbooks
 - **Standardized Test Structure**: Schema v2.0 logging with Elasticsearch analytics
+- **Realism-First Scoring (Rubric v2.1)**: Tiered safety/realism/structure scoring that decouples test quality from tenant defense posture (see [Test Quality Scoring](#test-quality-scoring))
 - **Multi-Organization Support**: UUID-based organization tracking for enterprise deployments
 - **LimaCharlie Integration**: Infrastructure as Code for detection rules and certificate deployment
 - **Elasticsearch Analytics**: Pre-built dashboards and enrichment pipelines
@@ -37,13 +40,36 @@ F0RT1KA is a professional, open-source security testing framework designed to as
 
 | Category | Tests | Description |
 |----------|-------|-------------|
-| [**intel-driven**](tests_source/intel-driven/) | 28 | Threat intelligence-based tests from APT reports, ransomware analysis, and CVE exploits |
+| [**intel-driven**](tests_source/intel-driven/) | 33 | Threat intelligence-based tests from APT reports, ransomware analysis, and CVE exploits |
 | [**mitre-top10**](tests_source/mitre-top10/) | 10 | MITRE Top 10 Ransomware techniques test suite |
 | [**cyber-hygiene**](tests_source/cyber-hygiene/) | 8 | Configuration validation tests for endpoint, identity, and tenant security |
 
 ## Agent Architecture
 
-F0RT1KA uses a decomposed agent architecture to generate complete test packages from threat intelligence. The `sectest-builder` orchestrator coordinates specialized skills and sub-agents in a 4-phase execution model.
+ACHILLES uses a decomposed agent architecture to generate complete test packages from threat intelligence. The `sectest-builder` orchestrator coordinates specialized skills and sub-agents in a 4-phase execution model.
+
+```mermaid
+flowchart LR
+    TI[Threat Intel<br/>article/report/CVE] --> SB[sectest-builder<br/>orchestrator]
+    SB --> P1{Phase 1<br/>sequential}
+    P1 --> SA[source-analysis]
+    SA --> IM[implementation]
+    IM --> BS[build-sign]
+    BS --> P2{Phase 2<br/>parallel}
+    P2 --> DOC[documentation]
+    P2 --> DET[detection-rules]
+    P2 --> DEF[defense-guidance]
+    P2 --> KC[kill-chain-diagram]
+    DOC & DET & DEF & KC --> P3{Phase 3<br/>validation}
+    P3 --> VF[file verify]
+    VF --> SC[score consistency]
+    SC --> ES[ES catalog sync]
+    ES --> GC[git commit]
+    GC --> P3b{Phase 3b<br/>deployment}
+    P3b --> SSH[SSH deploy]
+    SSH --> EX[execute on target]
+    EX --> CR[capture results]
+```
 
 ### Execution Phases
 
@@ -162,9 +188,7 @@ pip install -r utils/requirements.txt  # Core deps; also install elasticsearch f
    - [Contributing Guidelines](CONTRIBUTING.md) - How to contribute
 
 4. **Set up Prelude libraries** (required for test compilation):
-```bash
-# Instructions for Prelude setup will be provided in future documentation
-```
+   Place the [Prelude OpenSource](https://github.com/preludeorg/libraries) tree under `preludeorg-libraries/` so test `go.mod` files can resolve `github.com/preludeorg/libraries/go/tests/endpoint`. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the exact directory layout used by `utils/gobuild`.
 
 5. **Install dependencies** (optional):
 ```bash
@@ -299,6 +323,22 @@ Each test generates detection rules in 5 formats and comprehensive defense guida
 | Log files | `c:\F0` | Standard location |
 | Simulation artifacts | `c:\Users\fortika-test` | NOT whitelisted - EDR detects |
 
+### Test Quality Scoring
+
+ACHILLES tests are scored under **Rubric v2.1** (active since 2026-04-25), a tiered realism-first model that separates test-property quality from tenant-defense posture:
+
+| Tier | Weight | What it scores |
+|------|--------|----------------|
+| **Safety gate** | pass/fail | Reversibility, scope containment, no destructive side effects on the target host |
+| **Realism** | 0–7 | API fidelity (2.5) + identifier fidelity (1.5) + telemetry signal quality (2.0) + execution-context fidelity (1.0) |
+| **Structure** | 0–3 | Schema v2.0 (1.0) + docs (1.0) + logging (0.5) + operational hygiene (0.5) |
+
+Realism criterion 2c (telemetry signal quality) is **capped at 1.5 without lab evidence** — tests must demonstrate all stages reach detonation, or document unreachable stages per the Lab-Bound Observability schema.
+
+Each test's `RubricVersion` field in `TestMetadata` indicates which rubric scored it: `v2.1` (current), `v2` (legacy realism-first), or `v1` (legacy co-equal 5-dimension). Existing tests are preserved at their original rubric scores — not retroactively re-scored.
+
+Full proposal: [`docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`](docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md). Methodology overview: [`docs/F0RT1KA_SCORING_METHODOLOGY.md`](docs/F0RT1KA_SCORING_METHODOLOGY.md).
+
 ### Schema v2.0 Logging
 
 All tests implement Schema v2.0 compliant logging for analytics:
@@ -349,7 +389,7 @@ Or use the automated builder: `@sectest-builder <threat intelligence article>`
 
 ## LimaCharlie Integration
 
-F0RT1KA includes Infrastructure as Code for LimaCharlie:
+ACHILLES includes Infrastructure as Code for LimaCharlie:
 
 ```bash
 # Deploy certificate installer
