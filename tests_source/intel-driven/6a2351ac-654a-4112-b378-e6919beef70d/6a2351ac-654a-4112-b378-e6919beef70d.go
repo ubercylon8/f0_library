@@ -11,7 +11,7 @@ TARGET: windows-endpoint
 COMPLEXITY: medium
 THREAT_ACTOR: Nightmare-Eclipse
 SUBCATEGORY: defender-evasion
-TAGS: defender-evasion, file-lock-race, read-directory-changes, signature-update-dos, standard-user, ntcreatefile, lockfileex, service-notification
+TAGS: defender-evasion, file-lock-race, read-directory-changes, signature-update-dos, standard-user, ntcreatefile, lockfileex, service-notification, mpavbase-name, productappdatapath, file-disposition-delete-pending, etw-correlation
 SOURCE_URL: https://github.com/Nightmare-Eclipse/UnDefend
 UNIT: response
 CREATED: 2026-04-24
@@ -24,11 +24,14 @@ import (
 	"bytes"
 	"compress/gzip"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
@@ -69,15 +72,10 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1562.001", "T1083"},
 		Tactics:       []string{"defense-evasion", "discovery"},
-		Score:         8.7,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8,
-			TechnicalSophistication: 2.7,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.6,
-			LoggingObservability:    0.6,
-		},
+		Score:         7.0, // v2 — pre-lab cap 7.5; Detection Firing capped at 0.5 until lab evidence lands. Re-score post-lab.
+		RubricVersion: "v2",
+		// ScoreBreakdown intentionally nil under v2 — v1 dimensions don't match
+		// v2's tiered structure. Breakdown lives in info.md.
 		Tags: []string{
 			"defender-evasion",
 			"file-lock-race",
@@ -86,6 +84,10 @@ func main() {
 			"standard-user",
 			"ntcreatefile",
 			"service-notification",
+			"mpavbase-name",
+			"productappdatapath",
+			"file-disposition-delete-pending",
+			"etw-correlation",
 			"nightmare-eclipse",
 			"undefend",
 		},
@@ -118,14 +120,26 @@ func main() {
 	Endpoint.Say("F0RT1KA Multi-Stage Test: %s", TEST_NAME)
 	Endpoint.Say("Test UUID: %s", TEST_UUID)
 	Endpoint.Say("Threat Actor: Nightmare-Eclipse (UnDefend PoC)")
+	Endpoint.Say("Rubric: v2 (realism-first, tiered)")
 	Endpoint.Say("=================================================================")
 	Endpoint.Say("")
 	Endpoint.Say("Simulation reproduces the UnDefend file-lock-race primitives")
-	Endpoint.Say("WITHOUT touching real Defender files. All locks are applied to")
-	Endpoint.Say("a benign test file under the ARTIFACT_DIR sandbox.")
+	Endpoint.Say("WITHOUT touching real Defender files. Sandbox files use Defender-")
+	Endpoint.Say("pattern names (mpavbase.vdm, mpengine.dll) so path-rule sensors")
+	Endpoint.Say("fire alongside behavior-rule sensors. Real Defender paths are")
+	Endpoint.Say("read from registry as telemetry only.")
 	Endpoint.Say("")
 
+	// X1 — pre-test system snapshot
+	captureSystemSnapshot("pre")
+
+	// U4 — emit a synthetic ETW correlation marker for stage boundary "test_start"
+	emitEtwMarker("test_start", "UnDefend orchestrator entering killchain")
+
 	runKillchain()
+
+	emitEtwMarker("test_end", "UnDefend orchestrator killchain complete")
+	captureSystemSnapshot("post")
 }
 
 func runKillchain() {
@@ -303,7 +317,10 @@ func executeStage(s UnDefendStage) int {
 	cmd := exec.Command(stagePath)
 	LogMessage("INFO", fmt.Sprintf("Stage %d", s.ID), fmt.Sprintf("Executing %s", s.BinaryName))
 
+	emitEtwMarker(fmt.Sprintf("stage_%d_start", s.ID), fmt.Sprintf("technique=%s", s.Technique))
 	err := cmd.Run()
+	emitEtwMarker(fmt.Sprintf("stage_%d_end", s.ID), fmt.Sprintf("technique=%s", s.Technique))
+
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			code := exitErr.ExitCode()
@@ -316,4 +333,158 @@ func executeStage(s UnDefendStage) int {
 
 	LogProcessExecution(s.BinaryName, stagePath, 0, true, 0, "")
 	return 0
+}
+
+// emitEtwMarker writes a synthetic ETW correlation marker via Event Tracing for
+// Windows. Implementation: shell out to PowerShell `Write-EventLog` against
+// the Application log under a unique source. The user-mode signal an ETW
+// collector / SIEM picks up is the value — the test's UUID is in the message,
+// so events can be correlated with the test's bundle results. (v2 lift U4)
+//
+// This is a synthetic-event emission. We register the source on first use
+// (best-effort; failure is logged but never fatal).
+//
+// The Application event log is the closest approximation of a user-mode ETW
+// provider event we can emit without registering a custom ETW manifest. A
+// real ETW provider would use TraceLogging, but that requires significant
+// scaffolding for marginal benefit; PowerShell Write-EventLog gives us the
+// SIEM-ingestion property we need in ~5 lines.
+func emitEtwMarker(phase, details string) {
+	const sourceName = "F0RT1KA-UnDefend-Sim"
+	msg := fmt.Sprintf("[F0RT1KA UnDefend] phase=%s test_uuid=%s details=%s", phase, TEST_UUID, details)
+
+	// Best-effort source registration. Idempotent.
+	regCmd := fmt.Sprintf(`if (-not [System.Diagnostics.EventLog]::SourceExists("%s")) { New-EventLog -LogName Application -Source "%s" -ErrorAction SilentlyContinue }`, sourceName, sourceName)
+	_ = exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", regCmd).Run()
+
+	writeCmd := fmt.Sprintf(`Write-EventLog -LogName Application -Source "%s" -EventId 7777 -EntryType Information -Message %q`, sourceName, msg)
+	if err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", writeCmd).Run(); err != nil {
+		LogMessage("INFO", "ETW", fmt.Sprintf("Write-EventLog phase=%s failed (likely standard-user without source registration): %v", phase, err))
+	} else {
+		LogMessage("INFO", "ETW", fmt.Sprintf("Synthetic event emitted: phase=%s", phase))
+	}
+}
+
+// captureSystemSnapshot writes a JSON dump of system-state probes to
+// LOG_DIR/<uuid>_system_snapshot_<phase>.json. (v2 lift X1)
+type systemSnapshot struct {
+	Phase                  string            `json:"phase"`
+	Timestamp              string            `json:"timestamp"`
+	DefenderStatus         map[string]string `json:"defenderStatus,omitempty"`
+	ASRRulesEnabled        []string          `json:"asrRulesEnabled,omitempty"`
+	AVExclusionPaths       []string          `json:"avExclusionPaths,omitempty"`
+	AVExclusionExtensions  []string          `json:"avExclusionExtensions,omitempty"`
+	AVExclusionProcesses   []string          `json:"avExclusionProcesses,omitempty"`
+	HotfixesInstalledCount int               `json:"hotfixesInstalledCount"`
+	WinDefendServiceState  string            `json:"winDefendServiceState,omitempty"` // UnDefend-specific: relevant to all stages
+	Errors                 []string          `json:"errors,omitempty"`
+}
+
+func captureSystemSnapshot(phase string) {
+	snap := systemSnapshot{
+		Phase:     phase,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if status, err := powerShellMap("Get-MpComputerStatus | Select-Object -Property AntivirusEnabled,AMServiceEnabled,RealTimeProtectionEnabled,IoavProtectionEnabled,BehaviorMonitorEnabled,AntivirusSignatureVersion,AntivirusSignatureLastUpdated | Format-List"); err == nil {
+		snap.DefenderStatus = status
+	} else {
+		snap.Errors = append(snap.Errors, fmt.Sprintf("Get-MpComputerStatus: %v", err))
+	}
+
+	if asr, err := powerShellList("(Get-MpPreference).AttackSurfaceReductionRules_Ids"); err == nil {
+		snap.ASRRulesEnabled = asr
+	}
+	if paths, err := powerShellList("(Get-MpPreference).ExclusionPath"); err == nil {
+		snap.AVExclusionPaths = paths
+	}
+	if exts, err := powerShellList("(Get-MpPreference).ExclusionExtension"); err == nil {
+		snap.AVExclusionExtensions = exts
+	}
+	if procs, err := powerShellList("(Get-MpPreference).ExclusionProcess"); err == nil {
+		snap.AVExclusionProcesses = procs
+	}
+	if hcount, err := powerShellInt("(Get-HotFix | Measure-Object).Count"); err == nil {
+		snap.HotfixesInstalledCount = hcount
+	}
+	if state, err := powerShellRun("(Get-Service -Name WinDefend -ErrorAction SilentlyContinue).Status"); err == nil {
+		snap.WinDefendServiceState = state
+	}
+
+	if err := os.MkdirAll(LOG_DIR, 0755); err != nil {
+		LogMessage("WARN", "Snapshot", fmt.Sprintf("MkdirAll(%s) failed: %v", LOG_DIR, err))
+		return
+	}
+	snapPath := filepath.Join(LOG_DIR, fmt.Sprintf("%s_system_snapshot_%s.json", TEST_UUID, phase))
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		LogMessage("WARN", "Snapshot", fmt.Sprintf("JSON marshal: %v", err))
+		return
+	}
+	if err := os.WriteFile(snapPath, data, 0644); err != nil {
+		LogMessage("WARN", "Snapshot", fmt.Sprintf("Write %s: %v", snapPath, err))
+		return
+	}
+	LogMessage("INFO", "Snapshot", fmt.Sprintf("System snapshot (%s) written to %s", phase, snapPath))
+}
+
+func powerShellRun(command string) (string, error) {
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return strings.TrimSpace(string(out)), err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func powerShellMap(command string) (map[string]string, error) {
+	out, err := powerShellRun(command)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]string)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		idx := strings.Index(line, ":")
+		if idx <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		val := strings.TrimSpace(line[idx+1:])
+		if key != "" {
+			result[key] = val
+		}
+	}
+	return result, nil
+}
+
+func powerShellList(command string) ([]string, error) {
+	out, err := powerShellRun(command)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return []string{}, nil
+	}
+	var items []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			items = append(items, line)
+		}
+	}
+	return items, nil
+}
+
+func powerShellInt(command string) (int, error) {
+	out, err := powerShellRun(command)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	_, scanErr := fmt.Sscanf(strings.TrimSpace(out), "%d", &n)
+	if scanErr != nil {
+		return 0, scanErr
+	}
+	return n, nil
 }

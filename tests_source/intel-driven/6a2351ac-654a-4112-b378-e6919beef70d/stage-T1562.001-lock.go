@@ -2,23 +2,35 @@
 // +build windows
 
 /*
-STAGE 2: UnDefend File-Lock Primitive (T1562.001) — Benign Target
+STAGE 2: UnDefend File-Lock Primitive (T1562.001) — Benign Target with Defender-Pattern Naming
 
 Reproduces UnDefend's core file-lock primitive (NtCreateFile with
 GENERIC_READ | SYNCHRONIZE, followed by LockFile and LockFileEx with
 LOCKFILE_EXCLUSIVE_LOCK) — but against a benign sandbox file created
 under ARTIFACT_DIR, NEVER against real Defender files.
 
-EDR/AV can flag the API pattern (NtCreateFile + exclusive Lock) as
-suspicious regardless of target, so this primitive tests whether the
-sensor catches the behavior. If the sensor only triggers on paths
-that look like Defender's Definition Updates directory, the sim will
-run clean — which is valuable intel about detection coverage gaps.
+v2 lifts applied:
+  - U1: Sandbox files use Defender-pattern names (mpavbase.vdm,
+    mpengine.dll) so path-based detection rules fire alongside
+    behavior-based ones. The CONTENTS are still benign sandbox data.
+  - U2: ProductAppDataPath is read at runtime from the real Defender
+    registry key (HKLM\SOFTWARE\Microsoft\Windows Defender) — its
+    presence in the read sequence matches UnDefend's discovery flow.
+    The path is logged but the sandbox subdir is still created under
+    ARTIFACT_DIR — we use the real value as TELEMETRY only.
+  - U3: New FileDispositionInformation + DELETE_PENDING race primitive
+    against the benign target after the lock primitives. Mirrors
+    UnDefend's delete-rename race API surface.
 
 Safety boundary:
-  - Target file lives at ARTIFACT_DIR\UnDefendSim\sig-sample.yaml
+  - Target files live under ARTIFACT_DIR\UnDefendSim\Definition Updates\
+  - Filenames mimic real Defender artifacts (mpavbase.vdm, mpengine.dll)
+    but live in our sandbox; they are NOT real Defender files
   - File is created by this stage (we always own it)
-  - Lock is released inside this function — never held after return
+  - All locks released inside this function — never held after return
+  - DELETE_PENDING is set on the sandbox file we own; defer-driven
+    cleanup ensures the file is gone whether the kernel honored the
+    pending or not
   - NO real Defender path is ever opened or locked
 */
 
@@ -30,8 +42,10 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
@@ -49,12 +63,14 @@ const (
 )
 
 const (
-	targetSubdir  = "UnDefendSim"
-	targetFile    = "sig-sample.yaml"
-	targetContent = "# F0RT1KA UnDefend simulation — benign sandbox target\n" +
-		"# This file is NOT a Defender signature. It exists solely so that a\n" +
-		"# standard-user process can exercise the NtCreateFile + LockFile /\n" +
-		"# LockFileEx API pattern against a file it owns.\n" +
+	targetSubdirRoot    = "UnDefendSim"
+	targetSubdirInner   = "Definition Updates" // mirrors real Defender layout for path-rule detection (v2 U1)
+	targetFile          = "mpavbase.vdm"       // v2 U1 — Defender-pattern filename
+	targetFileSecondary = "mpengine.dll"       // v2 U1 — second Defender-pattern filename for U3 DELETE_PENDING race
+	targetContent       = "# F0RT1KA UnDefend simulation — benign sandbox target with Defender-pattern naming\n" +
+		"# This file is NOT a Defender signature. The filename intentionally\n" +
+		"# matches a real Defender artifact name so that path-string detection\n" +
+		"# rules fire alongside the behavioral rules. The contents are benign.\n" +
 		"metadata:\n" +
 		"  source: fortika-undefend-sim\n" +
 		"  safe: true\n"
@@ -87,20 +103,43 @@ func main() {
 }
 
 func performTechnique() error {
-	// Step 1: ensure the sandbox directory exists (ARTIFACT_DIR, NOT whitelisted)
-	sandboxDir := filepath.Join(ARTIFACT_DIR, targetSubdir)
+	// v2 U2 — read the real ProductAppDataPath from Defender's registry key.
+	// We use the real value as TELEMETRY (logged + matches UnDefend's discovery
+	// flow) but the sandbox subdir is still created under ARTIFACT_DIR.
+	defenderAppDataPath := readDefenderProductAppDataPath()
+	if defenderAppDataPath != "" {
+		LogMessage("INFO", TECHNIQUE_ID,
+			fmt.Sprintf("HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\ProductAppDataPath = %q (UnDefend discovery flow telemetry)", defenderAppDataPath))
+	}
+
+	// Step 1: ensure the sandbox directory exists (ARTIFACT_DIR, NOT whitelisted).
+	// Use a layout that mirrors Defender's: <sandbox>\Definition Updates\<files>.
+	sandboxDir := filepath.Join(ARTIFACT_DIR, targetSubdirRoot, targetSubdirInner)
 	if err := os.MkdirAll(sandboxDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir sandbox %s: %w", sandboxDir, err)
 	}
 	targetPath := filepath.Join(sandboxDir, targetFile)
+	secondaryPath := filepath.Join(sandboxDir, targetFileSecondary)
 
-	// Step 2: create the benign target file (always owned by us)
+	// Step 2: create the benign target files (always owned by us)
 	if err := os.WriteFile(targetPath, []byte(targetContent), 0o644); err != nil {
 		return fmt.Errorf("write sandbox file %s: %w", targetPath, err)
 	}
+	if err := os.WriteFile(secondaryPath, []byte(targetContent), 0o644); err != nil {
+		return fmt.Errorf("write sandbox secondary file %s: %w", secondaryPath, err)
+	}
 	LogFileDropped(targetFile, targetPath, int64(len(targetContent)), false)
+	LogFileDropped(targetFileSecondary, secondaryPath, int64(len(targetContent)), false)
 	LogMessage("INFO", TECHNIQUE_ID,
-		fmt.Sprintf("Benign sandbox target created: %s", targetPath))
+		fmt.Sprintf("Benign sandbox targets created with Defender-pattern names: %s, %s", targetPath, secondaryPath))
+
+	// Defer cleanup of both sandbox files. DELETE_PENDING in step 5 may also
+	// remove targetPath; this defer is a backstop.
+	defer func() {
+		_ = os.Remove(targetPath)
+		_ = os.Remove(secondaryPath)
+		LogMessage("INFO", TECHNIQUE_ID, "Sandbox targets removed after primitive completion")
+	}()
 
 	// Brief pause so any real-time file-write sensor has room to scan.
 	time.Sleep(500 * time.Millisecond)
@@ -116,9 +155,95 @@ func performTechnique() error {
 		return fmt.Errorf("LockFileEx primitive: %w", err)
 	}
 
-	// Step 5: cleanup sandbox file (simulation hygiene — real UnDefend never cleans up)
-	_ = os.Remove(targetPath)
-	LogMessage("INFO", TECHNIQUE_ID, "Sandbox target removed after primitive completion")
+	// Step 5 (v2 U3): FileDispositionInformation + DELETE_PENDING race against
+	// the secondary sandbox file. Mirrors UnDefend's delete-rename race API
+	// surface. Operates on a sandbox file we own; cleanup is defer-driven.
+	if err := dispositionDeletePrimitive(secondaryPath); err != nil {
+		LogMessage("WARN", TECHNIQUE_ID,
+			fmt.Sprintf("FileDispositionInformation primitive errored (non-fatal): %v", err))
+	}
+
+	return nil
+}
+
+// readDefenderProductAppDataPath reads HKLM\SOFTWARE\Microsoft\Windows Defender\ProductAppDataPath.
+// Returns the empty string if the key/value isn't accessible. Read-only — does
+// not mutate the registry. (v2 U2 lift)
+func readDefenderProductAppDataPath() string {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SOFTWARE\Microsoft\Windows Defender`, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer key.Close()
+	val, _, err := key.GetStringValue("ProductAppDataPath")
+	if err != nil {
+		return ""
+	}
+	return val
+}
+
+// dispositionDeletePrimitive opens a file with DELETE access and uses
+// NtSetInformationFile(FileDispositionInformation, DeleteFile=TRUE) to mark
+// it for deletion on handle close. This is the DELETE_PENDING race API
+// surface that UnDefend's PoC exercises.
+//
+// Safety: target is always a sandbox file we created; DELETE_PENDING only
+// affects files we own. The handle is closed in defer regardless of outcome.
+// (v2 U3 lift)
+func dispositionDeletePrimitive(path string) error {
+	wpath, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return fmt.Errorf("UTF16PtrFromString: %v", err)
+	}
+
+	h, err := windows.CreateFile(
+		wpath,
+		windows.DELETE|windows.SYNCHRONIZE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
+	if err != nil {
+		return fmt.Errorf("CreateFile(DELETE) %s: %v", path, err)
+	}
+	defer windows.CloseHandle(h)
+
+	LogMessage("INFO", TECHNIQUE_ID,
+		fmt.Sprintf("Handle opened with DELETE access on %s — invoking NtSetInformationFile(FileDispositionInformation, DeleteFile=TRUE)", path))
+
+	// FILE_DISPOSITION_INFORMATION: { BOOLEAN DeleteFile; }
+	type fileDispositionInformation struct {
+		DeleteFile uint8
+	}
+	dispInfo := fileDispositionInformation{DeleteFile: 1}
+
+	// IO_STATUS_BLOCK
+	var iosb struct {
+		Status      uintptr
+		Information uintptr
+	}
+
+	// FILE_INFORMATION_CLASS: FileDispositionInformation = 13
+	const fileDispositionInformationClass = 13
+
+	ntdll := windows.NewLazySystemDLL("ntdll.dll")
+	procNtSetInformationFile := ntdll.NewProc("NtSetInformationFile")
+	r1, _, _ := procNtSetInformationFile.Call(
+		uintptr(h),
+		uintptr(unsafe.Pointer(&iosb)),
+		uintptr(unsafe.Pointer(&dispInfo)),
+		uintptr(unsafe.Sizeof(dispInfo)),
+		uintptr(fileDispositionInformationClass),
+	)
+	if r1 != 0 {
+		return fmt.Errorf("NtSetInformationFile NTSTATUS=0x%08X", uint32(r1))
+	}
+
+	LogMessage("SUCCESS", TECHNIQUE_ID,
+		"NtSetInformationFile(FileDispositionInformation, DeleteFile=TRUE) succeeded — DELETE_PENDING set on sandbox file (telemetry signal exercised)")
 	return nil
 }
 

@@ -10,8 +10,22 @@
 **Architecture**: multi-stage (3 stages)
 **Techniques**: T1562.001 (Impair Defenses: Disable or Modify Tools), T1083 (File and Directory Discovery)
 **Tactics**: defense-evasion, discovery
+**Rubric version**: v2 (tiered, realism-first)
 
-**Test Score**: **8.7/10**
+**Test Score**: **7.0/10**
+
+> Pre-lab cap. v2's Detection-Rule Firing Fidelity is capped at 0.5 until lab evidence lands. Post-lab projection: **9.3/10** — UnDefend has the strongest detection surface of the triad after the v2 lifts.
+
+## v2 Lifts (2026-04-25)
+
+| Lift | Effect |
+|---|---|
+| **U1** — Sandbox files literally named `mpavbase.vdm` and `mpengine.dll` under `ARTIFACT_DIR\UnDefendSim\Definition Updates\` | Path-based detection rules now fire alongside behavior rules |
+| **U2** — `ProductAppDataPath` read at runtime from real Defender registry key | Mirrors UnDefend's discovery flow exactly |
+| **U3** — `NtSetInformationFile(FileDispositionInformation, DeleteFile=TRUE)` against secondary sandbox file | New DELETE_PENDING race telemetry surface |
+| **U4** — Synthetic ETW correlation events at every stage boundary (Application log, source `F0RT1KA-UnDefend-Sim`) | SIEM-side test correlation |
+| **X1** — Pre/post `system_snapshot_*.json` capture (incl. WinDefend service state) | Logging dimension to 1.0 |
+| **X3** — Detection-opportunity audit cross-referencing rules with primitives | Documentation rigor |
 
 ## Summary
 
@@ -72,6 +86,24 @@ crippled between runs. This simulation:
 # or
 ./utils/gobuild build-sign tests_source/intel-driven/6a2351ac-654a-4112-b378-e6919beef70d/ --org sb
 ```
+
+## Score breakdown (Rubric v2)
+
+| Tier | Sub-dimension | Score | Notes |
+|------|---------------|-------|-------|
+| 1 | Safety Gate | PASS | All writes sandbox-only; real Defender file never opened with lock/delete intent; ETW writes only synthetic events under F0RT1KA source; service subscription torn down at return |
+| 2a | API Fidelity | 2.9/3 | All three stages mirror PoC API sequence exactly; U3 adds the missing DELETE_PENDING primitive |
+| 2b | Identifier Fidelity | 1.8/2 | Defender-pattern filenames + runtime `ProductAppDataPath` + real `WinDefend` service name. Sandbox layout deliberately under `ARTIFACT_DIR` for safety |
+| 2c | Detection Firing | **0.5 (cap)** | Pre-lab; UnDefend has the strongest projected detection surface of the triad |
+| 3a | Schema & Metadata | 1.0/1 | RubricVersion: v2; all metadata-header fields present |
+| 3b | Documentation | 1.0/1 | README + info.md scorecard + references + detection audit |
+| 3c | Logging & Plumbing | 1.0/1 | test_logger v2 + per-stage bundles + pre/post system snapshots + ETW correlation events |
+| | **Total (capped)** | **7.0/10** | Realism: 5.2/7. Structure: 3.0/3. **Post-lab projection: 9.3/10**. |
+
+## Lift history
+
+- **2026-04-24**: v1.0 (score 8.7/10 under v1 rubric)
+- **2026-04-25**: v2.0 — applied U1 (Defender-pattern filenames), U2 (runtime `ProductAppDataPath`), U3 (DELETE_PENDING race), U4 (ETW correlation), X1 (system snapshots), X3 (detection audit). Re-scored under realism-first rubric v2.
 
 ## References
 
