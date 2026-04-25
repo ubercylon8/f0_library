@@ -119,7 +119,7 @@ func main() {
 		Techniques:    []string{"T1134.001", "T1055.001", "T1003.001"},                          // Update with your techniques
 		Tactics:       []string{"privilege-escalation", "defense-evasion", "credential-access"}, // Update with your tactics
 		Score:         8.5,
-		RubricVersion: "v2", // Tiered realism-first rubric (active). See .claude/agents/sectest-documentation.md and docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md
+		RubricVersion: "v2.1", // Tiered realism-first rubric (active). Adds 2d Execution-Context Fidelity + 3d Operational Hygiene; reframes 2c as Telemetry Signal Quality (test-property, not tenant-defense). See .claude/agents/sectest-documentation.md and docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.5,
 			TechnicalSophistication: 3.0,

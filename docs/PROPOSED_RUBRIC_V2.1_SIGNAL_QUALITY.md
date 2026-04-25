@@ -1,7 +1,7 @@
-# Proposed Rubric v2.1: Signal Quality + Execution Context + Operational Hygiene
+# Rubric v2.1: Signal Quality + Execution Context + Operational Hygiene
 
-**Status:** Proposal — not yet active. v2 remains the operative rubric until this is merged.
-**Parent:** `docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md`
+**Status:** ACTIVE — activated 2026-04-25. Supersedes v2 (`docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md`).
+**Parent:** `docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md` (v2, now legacy).
 **Lab evidence motivating this:** `docs/SCORE_LIFT_ANALYSIS_NIGHTMARE_ECLIPSE_2026-04-24.md` and 2026-04-25 triad lab runs.
 **Author:** 2026-04-25
 
@@ -152,10 +152,15 @@ particular tenant's rules fire on those signals.
    `*_dr_rules.yaml`) **valid and parseable** under their respective
    schemas? *Verifiable by `kql-parser` / `sigma-cli validate` /
    `yamllint` / `yara -c`.*
-4. **Lab execution verified**: did the test actually execute end-to-end
-   in some lab environment (not "rules fired" — just "binary ran without
-   crashing/hanging")? *Verifiable by lab artifact existence:
-   `test_execution_log.json` present with `exitReason` set.*
+4. **Lab execution verified — all stages reached**: did the test actually
+   execute end-to-end with every stage reached in some lab environment?
+   *Verifiable by lab artifact existence: `test_execution_log.json`
+   present with `exitReason` set, AND every declared stage shows
+   `status: success | failed` (not `skipped`) in `bundle_results.json`.*
+   **Exception path**: if one or more stages were unreachable due to
+   defense intervention earlier in the kill chain, criterion 4 is
+   satisfied IFF a "Lab-Bound Observability" block in `info.md`
+   documents the unreachable stages per the canonical schema below.
 
 **Hard cap**: until lab execution is verified (criterion 4), this
 sub-score is capped at **1.5** regardless of the other criteria. This
@@ -165,6 +170,68 @@ somewhere — but doesn't conflate "ran" with "rules-fired-in-our-tenant."
 **Important non-criterion**: tenant rule firing. v2.1 explicitly does
 NOT score whether the repo's own rules fire in any specific tenant.
 That's a tenant-defense audit, separate from test quality.
+
+##### Lab-Bound Observability — canonical schema (criterion 4 exception)
+
+When a multi-stage test's kill chain breaks at an early stage, downstream
+stages become unreachable on that sensor stack. v2.1 treats this as a
+property of the kill-chain shape — not a test deficiency — provided it
+is explicitly documented. The author MUST consult the framework owner
+before invoking this exception, and the documentation block MUST conform
+to the schema below. BlueHammer (commit `30925d0`,
+`tests_source/intel-driven/5e59dd6a-6c87-4377-942c-ea9b5e054cb9/5e59dd6a-6c87-4377-942c-ea9b5e054cb9_info.md`
+lines 141–167) is the reference implementation.
+
+```markdown
+## Lab-Bound Observability (added <YYYY-MM-DD> after lab evidence)
+
+<Opening paragraph: 2–4 sentences naming the lab sensor stack used,
+the exact stage that broke the chain, and the detection mechanism that
+fired (content-based, behavioral, signature-based, etc.).>
+
+**Stages affected:** <list of stage IDs that became unreachable, e.g.,
+"stage 3 (T1211-vssenum + WMI shadow enum) and stage 4 (T1003.002-samsim)">
+
+**Blocked by:** <the technique/sensor that broke the chain, with enough
+specificity that a reader can replay the lab run, e.g., "Defender's
+cloud-delivered content-based detection on the T1562.001-oplock stage
+binary's FSCTL_REQUEST_BATCH_OPLOCK IOCTL constant">
+
+This is **not a test bug** and does **not warrant refactoring**.
+<2–3 numbered reasons. Each reason ~1 paragraph.>
+
+1. **<Faithfulness reason>**: <why the current implementation matches
+   the published PoC and a real attacker would be stopped at the same
+   point.>
+
+2. **<Trade-off reason>**: <why a refactor that evades the early
+   detection would lower API/identifier fidelity by simulating a
+   different (more sophisticated) attacker rather than the PoC.>
+
+3. **<Decomposition reason>**: <why downstream stages, if individually
+   detection-validation-relevant, belong in single-primitive companion
+   tests rather than this kill-chain test.>
+
+### Per-stage observability map
+
+For every declared stage, classify observability on the lab sensor
+stack and cite lab evidence:
+
+- **Stage <N>** (<technique>): <observable | partially observable |
+  unobservable>. Lab evidence: <what was/wasn't seen, with reference
+  to `bundle_results.json` or `test_execution_log.json` entries.>
+
+### Implications for 2c Telemetry Signal Quality scoring
+
+<1–2 paragraphs explaining the explicit cap rationale. Required:
+state which sub-criteria of 2c are met (signal richness, sensor
+mapping, rule-artifact validity, lab execution) and which are bounded
+by the kill-chain shape. State the resulting 2c sub-score.>
+```
+
+**Schema enforcement**: a test claiming the criterion-4 exception
+without a Lab-Bound Observability block matching this structure does
+NOT satisfy criterion 4 and remains capped at 1.5/2 in 2c.
 
 #### 2d. Execution-Context Fidelity (0–1.0) — NEW
 
@@ -342,43 +409,61 @@ change, etc.).
 
 ### Activation sequence
 
-1. ✅ Land this proposal doc (this commit)
-2. Replace v2 scoring guide block in `.claude/agents/sectest-documentation.md`
-   with v2.1 (same drop-in pattern as v2 activation; will need a manual
-   patch since `.claude/` is gitignored)
-3. Update `.claude/skills/sectest-source-analysis.md` to cite v2.1
-4. Flip canonical template default to `RubricVersion: "v2.1"`
-5. Update CLAUDE.md to mark v2.1 as active, v2 as legacy
-6. Re-score the Nightmare-Eclipse triad under v2.1 (Option B)
-7. Update `docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md` to "Superseded by
-   v2.1" status
+1. ✅ Land this proposal doc (commit `2645f34`, 2026-04-25 14:25)
+2. ✅ Lock activation decisions and add Lab-Bound Observability schema
+   (this commit, 2026-04-25)
+3. ✅ Flip canonical template default to `RubricVersion: "v2.1"`
+4. ✅ Update CLAUDE.md to mark v2.1 as active, v2 as legacy
+5. ✅ Mark `docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md` as "Superseded by v2.1"
+6. ✅ Re-score the Nightmare-Eclipse triad under v2.1 (Option B, separate commit)
+7. ⏸ Manual: replace v2 scoring guide in `.claude/agents/sectest-documentation.md`
+   with v2.1 block (see `docs/RUBRIC_V2.1_ACTIVATION_PATCH.md`).
+   `.claude/` is gitignored — requires interactive approval.
+8. ⏸ Manual: update `.claude/skills/sectest-source-analysis.md` to cite v2.1
+   (see same patch doc).
 
-### Open Questions (before merging)
+### Activation Decisions Locked (2026-04-25)
 
-1. **Are the new sub-dim weights right?** I've tentatively put 2d at 1.0
-   and 3d at 0.5. Could also be 0.5/0.5 or 1.0/1.0. The proposed
-   weights tilt slightly toward Realism (where 2d lives) over Structure
-   (where 3d lives) which matches v2's spirit. Confirm before merging.
+The following decisions were made at activation time and are recorded
+here for traceability. Future rubric revisions should note them.
 
-2. **What about the Tenant Defense Audit workflow?** v2.1 explicitly
-   defers this. Should it be its own scoring system or just a separate
-   audit deliverable per tenant? Recommend the latter — produces a
-   per-tenant report rather than a per-test score, separating
-   concerns cleanly.
+**Decision 1 — Sub-dimension weights**: 2d Execution-Context Fidelity =
+**1.0**, 3d Operational Hygiene = **0.5**. Rationale: tilts toward
+Realism (where 2d lives) over Structure (where 3d lives), matching
+v2's spirit. Total budget across rubric versions remains 10.0.
 
-3. **Lab-execution verification: how strict?** Currently 2c criterion
-   4 says "binary ran without crashing/hanging." Should it also
-   require "all stages reached" (which would penalize BlueHammer for
-   the lab-bounded stages 3+4)? **Proposal: NO** — kill-chain shape
-   is not test quality. A stage that's lab-unobservable due to early
-   detection is documented in info.md and counts as ran-cleanly for
-   scoring.
+**Decision 2 — Criterion 4 strictness**: "all stages reached" (the
+stricter of the two options proposed in the v2.1 draft). Stages
+unreachable due to defense intervention earlier in the kill chain
+require a documented Lab-Bound Observability block per the canonical
+schema in §"2c → Lab-Bound Observability". The author MUST consult
+the framework owner before invoking this exception. Rationale: forces
+kill-chain shape observations to become explicit, structured artifacts
+rather than unstated assumptions; produces consistent documentation
+across tests that hit this case.
 
-4. **What about new tests built today?** Until activation completes,
-   new tests should be authored to v2.1's criteria but stamped with
-   `RubricVersion: "v2"` until activation is formal. The criteria
-   themselves are stricter (more dimensions to cover), so v2.1-aware
-   authoring can't hurt.
+**Decision 3 — Re-scoring scope**: Option B (re-score the Nightmare-
+Eclipse triad under v2.1; leave other v2-scored tests on v2). Tests
+not yet built use v2.1 from the canonical template default. Tests
+scored before 2026-04-25 keep their v2 score with
+`RubricVersion: "v2"` and are not retroactively re-scored. Rationale:
+the triad is the proving-ground anyway and its v2-cap was a known
+artifact of the conflation v2.1 corrects; mass re-scoring would
+invalidate ES/PA trend lines for marginal benefit.
+
+### Deferred (out of scope for v2.1 activation)
+
+- **`ScoreBreakdown` Go struct refactor**: the struct in
+  `test_logger.go` (45+ per-test copies + canonical template) still
+  carries v1 field names (`RealWorldAccuracy` etc.). v2 activation
+  didn't touch it; v2.1 doesn't either. Refactoring would be a
+  breaking change for any consumer reading those JSON fields and
+  requires a coordinated sweep across all 45+ contracts. Track as
+  separate technical debt.
+- **Tenant Defense Audit workflow**: v2.1 explicitly defers this.
+  Recommended as a separate per-tenant audit deliverable rather than
+  a scoring system. Produces a per-tenant report; separates concerns
+  cleanly from per-test quality scoring.
 
 ---
 

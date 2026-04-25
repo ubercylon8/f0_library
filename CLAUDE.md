@@ -97,11 +97,12 @@ InitLogger(testID, testName string, metadata TestMetadata, executionContext Exec
 - `TestMetadata`: Version, Category, Severity, Techniques, Tactics, Score, **RubricVersion**, Tags
 - `ExecutionContext`: ExecutionID (uuid), Organization (orgInfo.UUID), Environment, DeploymentType
 
-**`RubricVersion` (active rubric: v2 — activated 2026-04-25):**
-- `"v2"` = **active rubric**. Tiered realism-first: Safety gate (pass/fail) + Realism 0–7 (API fidelity 3 + identifier fidelity 2 + detection-rule firing 2) + Structure 0–3 (schema 1 + docs 1 + logging 1). Cannot exceed 7.5 without lab-fired detection rules. See `.claude/agents/sectest-documentation.md` and `docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md`.
-- `"v1"` = **legacy**. Co-equal 5-dimension (Accuracy 3 + Sophistication 3 + Safety 2 + Detection 1 + Logging 1). Existing tests backfilled with `"v1"` on 2026-04-24 are preserved at their v1 scores — not retroactively re-scored under v2.
+**`RubricVersion` (active rubric: v2.1 — activated 2026-04-25):**
+- `"v2.1"` = **active rubric**. Tiered realism-first with separated test-property vs. tenant-defense scoring: Safety gate (pass/fail) + Realism 0–7 (API fidelity 2.5 + identifier fidelity 1.5 + telemetry signal quality 2 + execution-context fidelity 1) + Structure 0–3 (schema 1 + docs 1 + logging 0.5 + operational hygiene 0.5). 2c is capped at 1.5 without lab evidence (criterion 4: all stages reached, or unreachable stages documented per Lab-Bound Observability schema). See `.claude/agents/sectest-documentation.md` and `docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`.
+- `"v2"` = **legacy**. Tiered realism-first: Safety gate + Realism 0–7 (API fidelity 3 + identifier fidelity 2 + detection-rule firing 2) + Structure 0–3 (schema 1 + docs 1 + logging 1). Capped at 7.5 without lab-fired detection rules. Existing v2-scored tests are preserved at their v2 scores — not retroactively re-scored under v2.1 (per Decision 3 in v2.1 doc). See `docs/PROPOSED_RUBRIC_V2_REALISM_FIRST.md` (superseded).
+- `"v1"` = **legacy**. Co-equal 5-dimension (Accuracy 3 + Sophistication 3 + Safety 2 + Detection 1 + Logging 1). Existing tests backfilled with `"v1"` on 2026-04-24 are preserved at their v1 scores.
 - Empty string is treated as `"v1"` by downstream consumers.
-- New tests built from the canonical template default to `"v2"`. Use `"v1"` only when explicitly preserving a legacy score.
+- New tests built from the canonical template default to `"v2.1"`. Use `"v2"` or `"v1"` only when explicitly preserving a legacy score.
 
 **Enforcement rules:**
 1. DO NOT modify test_logger.go data structures

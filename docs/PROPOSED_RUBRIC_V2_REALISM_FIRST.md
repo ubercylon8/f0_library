@@ -1,10 +1,14 @@
 # Rubric v2: Realism-First Quality Scoring
 
-**Status:** **ACTIVE** — merged into `.claude/agents/sectest-documentation.md` on 2026-04-25.
-**Parent analysis:** `docs/SCORE_LIFT_ANALYSIS_NIGHTMARE_ECLIPSE_2026-04-24.md`
-**Author:** 2026-04-24, activated 2026-04-25
+**Status:** **SUPERSEDED by v2.1 on 2026-04-25** — see [docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md](PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md).
 
-This document is preserved as the long-form specification with worked examples. The agent prompt contains the condensed operative version. When they disagree, **the agent prompt wins** (it's what the scoring agent actually reads).
+This document is preserved as the long-form specification because tests scored before 2026-04-25 carry `RubricVersion: "v2"` and reference this rubric for their score rationale. They are not retroactively re-scored under v2.1. New tests use v2.1 (canonical template default).
+
+**Why v2 was superseded:** the 2026-04-25 lab run of the Nightmare-Eclipse triad surfaced three structural issues with v2: sub-dim 2c (Detection Firing) conflated test quality with tenant defense (capping any test at 7.5 until tenant rules fired), execution-context fidelity went unscored, and operational hygiene went unscored. v2.1 reframes 2c as Telemetry Signal Quality (a property of the test, not the tenant) and adds 2d Execution-Context Fidelity + 3d Operational Hygiene.
+
+**Original status (2026-04-25):** ACTIVE — merged into `.claude/agents/sectest-documentation.md` on 2026-04-25.
+**Parent analysis:** `docs/SCORE_LIFT_ANALYSIS_NIGHTMARE_ECLIPSE_2026-04-24.md`
+**Author:** 2026-04-24, activated 2026-04-25, superseded 2026-04-25.
 
 ## Intent
 
