@@ -2,7 +2,7 @@
 
 [![Build Status](https://github.com/ubercylon8/f0_library/actions/workflows/build.yml/badge.svg)](https://github.com/ubercylon8/f0_library/actions/workflows/build.yml)
 [![Security Scan](https://github.com/ubercylon8/f0_library/actions/workflows/security.yml/badge.svg)](https://github.com/ubercylon8/f0_library/actions/workflows/security.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Shellcheck](https://img.shields.io/badge/shellcheck-passing-brightgreen.svg)](https://www.shellcheck.net/)
 
 A comprehensive security testing framework for evaluating endpoint detection and response (EDR) capabilities against real-world attack techniques mapped to the MITRE ATT&CK framework.
@@ -464,7 +464,9 @@ We welcome contributions from the security community! Please read our [Contribut
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **Apache License, Version 2.0** — see the [LICENSE](LICENSE) and [NOTICE](NOTICE) files for the full text and contributor information.
+
+`f0_library` was relicensed from MIT to Apache 2.0 on 2026-04-25 to align with the upstream [ProjectAchilles](https://projectachilles.io/) ecosystem. Contributions accepted prior to that date remain available under MIT terms; all contributions thereafter are Apache 2.0. See `NOTICE` for the full transition statement.
 
 **Additional Notice**: This software is designed for security testing and evaluation purposes only. Users are responsible for ensuring they have proper authorization before conducting any security tests.
 

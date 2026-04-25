@@ -1,0 +1,31 @@
+f0_library
+Copyright 2024-2026 F0RT1KA Contributors
+
+This product is part of the ProjectAchilles ecosystem
+(https://projectachilles.io/).
+
+================================================================================
+Licensing transition
+================================================================================
+
+Contributions made to this repository prior to 2026-04-25 were licensed
+under the MIT License. Those contributions remain available under MIT terms
+to anyone who obtained the software prior to that date.
+
+All contributions on or after 2026-04-25, and the project as a whole going
+forward, are licensed under the Apache License, Version 2.0. The relicensing
+was applied by the project owner under inherited consent for the existing
+contributor base; contributions are accepted under Apache 2.0 by default
+per Section 5 of the License.
+
+================================================================================
+Security testing notice
+================================================================================
+
+This software is designed for security testing and evaluation purposes only.
+Users are responsible for ensuring they have proper authorization before
+conducting any security tests. The authors and contributors are not liable
+for any misuse or damage caused by this software.
+
+See SECURITY.md for the responsible-disclosure process and authorized-use
+guidance.

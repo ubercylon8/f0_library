@@ -44,6 +44,10 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 4. Make sure your code follows the existing code style
 5. Issue that pull request!
 
+### License of contributions
+
+By submitting a pull request, you agree that your contribution is licensed under the [Apache License, Version 2.0](LICENSE), per Section 5 of that license. See [`NOTICE`](NOTICE) for the project's licensing history and the relicensing transition from MIT to Apache 2.0 on 2026-04-25.
+
 ## Development Process
 
 ### Setting Up Your Environment
