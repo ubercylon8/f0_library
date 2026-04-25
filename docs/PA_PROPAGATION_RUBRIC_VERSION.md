@@ -1,5 +1,29 @@
 # PA Propagation Checklist — `rubricVersion` Field
 
+> **Status: Deferred indefinitely (2026-04-25).**
+> This patch is **not** required for user-facing accessibility in PA. After review,
+> we concluded that rubric version is a process artifact (developer/QA bookkeeping),
+> not a threat artifact — PA's defenders care what the test detects and whether
+> their stack caught it, not which scoring methodology produced the test's quality
+> score. Surfacing it as a UI badge adds clutter without changing user behavior.
+>
+> The runtime `RubricVersion` field still exists in the Go struct and JSON results
+> (audit trail, future migrations, raw API access) — that part is committed in
+> f0_library and stays.
+>
+> **The only trigger that would warrant applying this patch:** v2 rubric results
+> start coexisting with v1 in `achilles-results-*`, contaminating analytics
+> aggregations like "average score over time." When that happens, the right fix
+> is **server-side aggregation segregation in `analytics/elasticsearch.ts`** — not
+> a UI badge. The TS-interface patch below would only be needed at that point if
+> the segregation logic happens to read the field through the typed catalog
+> interface rather than directly from raw ES documents.
+>
+> Until then, this doc is preserved as a ready-to-apply reference if we ever
+> change our minds. Do not apply it preemptively.
+
+---
+
 **Date:** 2026-04-24
 **Source change:** `feat(schema): add RubricVersion to TestMetadata` in `f0_library`
 **Reason this is manual:** CLAUDE.md (lines 285–287) — *"PA lives in a separate repo with a different review cycle, so sectest-builder does NOT auto-update PA."*
