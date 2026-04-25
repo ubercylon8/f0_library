@@ -82,7 +82,7 @@ Output: `build/5e59dd6a-6c87-4377-942c-ea9b5e054cb9/5e59dd6a-6c87-4377-942c-ea9b
 | 1 | Safety Gate | PASS | Synthetic sandbox hive only, watchdog, sandbox writes only, no service start/stop |
 | 2a | API Fidelity | 2.7/3 | Stages 1, 2, 4 mirror PoC API sequence exactly; stage 3B uses PowerShell wrapper for WMI (justified deviation) |
 | 2b | Identifier Fidelity | 1.5/2 | Mimikatz-named EICAR + uniquely-named hive mount; Defender path identifiers not yet runtime-extracted |
-| 2c | Detection Firing | **0.5 (cap)** | Pre-lab; post-lab projection ≥1.5 with rule cross-reference |
+| 2c | Detection Firing | **0.5 (cap)** | Lab evidence: Defender catches stage 2 oplock binary (signing-resistant). Stages 3+4 lab-unobservable due to kill-chain break at stage 2 — see info.md *Lab-Bound Observability* section. Not a refactor target. |
 | 3a | Schema & Metadata | 1.0/1 | RubricVersion: v2; full TestMetadata; signed |
 | 3b | Documentation | 1.0/1 | README + info.md scorecard + references.md |
 | 3c | Logging & Plumbing | 1.0/1 | test_logger v2 + per-stage bundles + pre/post system snapshots |
