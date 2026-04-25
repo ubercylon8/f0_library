@@ -142,7 +142,7 @@ select_certificate() {
     local f0rt1ka_cert="$cert_dir/F0RT1KA.pfx"
     if [[ -f "$f0rt1ka_cert" ]]; then
         selected_cert="$f0rt1ka_cert"
-        print_info "Using F0RT1KA certificate (default): $(basename "$selected_cert")"
+        print_info "Using F0RT1KA certificate (default): $(basename "$selected_cert")" >&2
         echo "$selected_cert"
         return 0
     fi
@@ -161,7 +161,7 @@ select_certificate() {
         return 1
     elif [[ ${#certs[@]} -eq 1 ]]; then
         selected_cert="${certs[0]}"
-        print_info "Using certificate: $(basename "$selected_cert")"
+        print_info "Using certificate: $(basename "$selected_cert")" >&2
     else
         echo "Available certificates:" >&2
         for i in "${!certs[@]}"; do
