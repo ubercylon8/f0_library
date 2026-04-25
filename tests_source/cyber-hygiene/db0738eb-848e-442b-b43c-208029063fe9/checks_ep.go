@@ -144,17 +144,21 @@ func checkFirewallAllProfilesISACA() CheckResult {
 	output := strings.TrimSpace(string(out))
 	c.Evidence = map[string]interface{}{"firewall_profiles_raw": output}
 
-	domainOK := strings.Contains(output, `"Name":1`) || strings.Contains(output, `"Name":"Domain"`)
-	// All-enabled check: count "Enabled":true occurrences (should be 3)
-	enabledCount := strings.Count(output, `"Enabled":true`) + strings.Count(output, `"Enabled":  true`)
+	// PowerShell `ConvertTo-Json` serializes the NetFirewallProfile.Enabled enum
+	// (NetSecurity.GpoBoolean) as 0/1, NOT true/false. Get-NetFirewallProfile passes
+	// CIM objects whose primitive enum properties round-trip as ints. Tolerate both
+	// shapes for safety.
+	enabledCount := strings.Count(output, `"Enabled":1`) +
+		strings.Count(output, `"Enabled":  1`) +
+		strings.Count(output, `"Enabled":true`) +
+		strings.Count(output, `"Enabled":  true`)
 	allEnabled := enabledCount >= 3
-	// DefaultInboundAction=Block (value 4 in NetSecurity enum) appears as "DefaultInboundAction":4
+	// DefaultInboundAction=Block is value 4 in NetSecurity.Action enum.
 	domainBlocked := strings.Contains(output, `"DefaultInboundAction":4`)
 
 	c.Evidence["all_three_profiles_enabled"] = allEnabled
 	c.Evidence["enabled_profile_count"] = enabledCount
 	c.Evidence["domain_inbound_blocked"] = domainBlocked
-	_ = domainOK
 
 	c.Passed = allEnabled && domainBlocked
 	if c.Passed {

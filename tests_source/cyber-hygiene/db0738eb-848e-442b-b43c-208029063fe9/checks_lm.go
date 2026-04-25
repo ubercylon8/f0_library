@@ -65,19 +65,25 @@ func checkEventLogConfigurationISACA() CheckResult {
 	output := strings.TrimSpace(string(out))
 	c.Evidence = map[string]interface{}{"event_log_config_raw": output}
 
-	// Find Security log's MaximumSizeInBytes
+	// Find Security log's MaximumSizeInBytes.
+	// JSON shape: [{"LogName":"Security","MaximumSizeInBytes":20971520,"LogMode":0},...]
+	const sizeKey = `"MaximumSizeInBytes":`
 	secMaxBytes := int64(0)
 	if idx := strings.Index(output, `"LogName":"Security"`); idx >= 0 {
-		// search forward for MaximumSizeInBytes
 		secSection := output[idx:]
-		if mIdx := strings.Index(secSection, `"MaximumSizeInBytes":`); mIdx >= 0 {
-			rest := secSection[mIdx+20:]
-			end := 0
+		if mIdx := strings.Index(secSection, sizeKey); mIdx >= 0 {
+			rest := secSection[mIdx+len(sizeKey):]
+			// Skip optional whitespace between ':' and the digit.
+			i := 0
+			for i < len(rest) && (rest[i] == ' ' || rest[i] == '\t') {
+				i++
+			}
+			end := i
 			for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
 				end++
 			}
-			if end > 0 {
-				secMaxBytes, _ = strconv.ParseInt(rest[:end], 10, 64)
+			if end > i {
+				secMaxBytes, _ = strconv.ParseInt(rest[i:end], 10, 64)
 			}
 		}
 	}
