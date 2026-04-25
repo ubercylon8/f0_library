@@ -118,11 +118,15 @@ func performTechnique() error {
 	}
 
 	// Step 4: NotifyServiceStatusChangeW(SERVICE_NOTIFY_STOPPED).
-	// We register but do NOT SleepEx — without an alertable wait the callback
-	// will never fire, and the subscription is torn down when svc closes.
+	// Windows requires a NON-NULL function pointer for NotifyCallback —
+	// passing 0 returns ERROR_INVALID_PARAMETER. We provide a stub that
+	// will never actually fire because we don't issue SleepEx (alertable
+	// wait). The subscription is torn down when svc closes at function
+	// return. (Bug surfaced 2026-04-25 lab run: stage exited 999 because
+	// of the null-pointer check in NotifyServiceStatusChangeW.)
 	notify := windows.SERVICE_NOTIFY{
 		Version:        windows.SERVICE_NOTIFY_STATUS_CHANGE,
-		NotifyCallback: 0, // no callback needed for the simulation
+		NotifyCallback: notifyCallbackStubPtr,
 		Context:        uintptr(unsafe.Pointer(&notifyContextMarker)),
 	}
 
@@ -141,6 +145,21 @@ func performTechnique() error {
 // notifyContextMarker is a stable address so the Context field of SERVICE_NOTIFY
 // points at valid memory for as long as this stage's stack frame lives.
 var notifyContextMarker uint32
+
+// notifyCallbackStub is the PFN_SC_NOTIFY_CALLBACK that NotifyServiceStatusChangeW
+// requires. Windows refuses a NULL pointer (ERROR_INVALID_PARAMETER), but the
+// callback only fires when the calling thread enters an alertable wait state
+// (SleepEx, WaitForSingleObjectEx with bAlertable=TRUE, etc.). This simulation
+// never enters an alertable wait, so this stub will never actually be invoked
+// — its sole purpose is to satisfy the API's non-null requirement.
+//
+// Signature: VOID CALLBACK PFN_SC_NOTIFY_CALLBACK(PVOID pParameter)
+func notifyCallbackStub(pParameter uintptr) uintptr { return 0 }
+
+// notifyCallbackStubPtr is the registered Win32 callback pointer. Built once
+// at package init via syscall.NewCallback (which allocates a thunk that bridges
+// the Go calling convention to the Windows stdcall calling convention).
+var notifyCallbackStubPtr = syscall.NewCallback(notifyCallbackStub)
 
 // classifyError maps service-API errors to stage exit codes. Neutral wording.
 func classifyError(err error) int {
