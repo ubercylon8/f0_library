@@ -67,6 +67,9 @@ rules/
 # Python cache files
 utils/__pycache__/
 
+# Lab evidence pulled from remote endpoints (per-machine, not source)
+lab-results/
+
 # Python virtual environment
 .venv/
 
