@@ -1,4 +1,4 @@
-# ACHILLES Security Testing Framework
+# f0_library — Security Testing Framework
 
 [![Build Status](https://github.com/ubercylon8/f0_library/actions/workflows/build.yml/badge.svg)](https://github.com/ubercylon8/f0_library/actions/workflows/build.yml)
 [![Security Scan](https://github.com/ubercylon8/f0_library/actions/workflows/security.yml/badge.svg)](https://github.com/ubercylon8/f0_library/actions/workflows/security.yml)
@@ -7,11 +7,11 @@
 
 A comprehensive security testing framework for evaluating endpoint detection and response (EDR) capabilities against real-world attack techniques mapped to the MITRE ATT&CK framework.
 
-> **Project naming**: **ACHILLES** is the testing framework. **F0RT1KA** is the parent organization / brand (used in repo paths, binary signing certificates, and the `f0_library` repo name). You will see both — they are not competing names.
+> **Project naming**: **`f0_library`** is the framework. **F0RT1KA** is the parent organization / brand (used in binary signing certificates, the runtime path `c:\F0` / `/tmp/F0`, and elsewhere). The two are not competing names — `f0_library` is what this software is called.
 
 ## Overview
 
-ACHILLES is a professional, open-source security testing framework designed to assess the effectiveness of endpoint detection and response (EDR) solutions. By simulating real-world attack techniques mapped to the MITRE ATT&CK framework, it provides security teams with a standardized approach to validate their defensive capabilities.
+`f0_library` is a professional, open-source security testing framework designed to assess the effectiveness of endpoint detection and response (EDR) solutions. By simulating real-world attack techniques mapped to the MITRE ATT&CK framework, it provides security teams with a standardized approach to validate their defensive capabilities.
 
 ## Purpose
 
@@ -46,7 +46,7 @@ ACHILLES is a professional, open-source security testing framework designed to a
 
 ## Agent Architecture
 
-ACHILLES uses a decomposed agent architecture to generate complete test packages from threat intelligence. The `sectest-builder` orchestrator coordinates specialized skills and sub-agents in a 4-phase execution model.
+`f0_library` uses a decomposed agent architecture to generate complete test packages from threat intelligence. The `sectest-builder` orchestrator coordinates specialized skills and sub-agents in a 4-phase execution model.
 
 ```mermaid
 flowchart LR
@@ -325,7 +325,7 @@ Each test generates detection rules in 5 formats and comprehensive defense guida
 
 ### Test Quality Scoring
 
-ACHILLES tests are scored under **Rubric v2.1** (active since 2026-04-25), a tiered realism-first model that separates test-property quality from tenant-defense posture:
+`f0_library` tests are scored under **Rubric v2.1** (active since 2026-04-25), a tiered realism-first model that separates test-property quality from tenant-defense posture:
 
 | Tier | Weight | What it scores |
 |------|--------|----------------|
@@ -389,7 +389,7 @@ Or use the automated builder: `@sectest-builder <threat intelligence article>`
 
 ## LimaCharlie Integration
 
-ACHILLES includes Infrastructure as Code for LimaCharlie:
+`f0_library` includes Infrastructure as Code for LimaCharlie:
 
 ```bash
 # Deploy certificate installer
