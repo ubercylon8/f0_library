@@ -21,7 +21,7 @@ func writeDummy() bool {
 
 func credsInFiles(platform string) bool {
 	switch platform {
-	case "linux","darwin":
+	case "linux", "darwin":
 		out, err := Endpoint.Shell([]string{"/bin/bash", "-c", "grep -ri password ./"})
 		if err != nil {
 			Endpoint.Say("Got error \"%v\" when executing search commands", err)

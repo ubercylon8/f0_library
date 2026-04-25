@@ -70,7 +70,7 @@ func test() {
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)
 	}
 	Endpoint.Wait(-1)
-	
+
 	Endpoint.Say("Executing SharpHound")
 	importModule := fmt.Sprintf("Import-Module %s", Endpoint.Pwd("SharpHound.ps1"))
 	sharphoundCmd := "Invoke-BloodHound -CollectionMethod Trusts"

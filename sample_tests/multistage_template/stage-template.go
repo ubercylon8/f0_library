@@ -35,20 +35,20 @@ import (
 
 const (
 	// Test identification
-	TEST_UUID = "TEMPLATE-UUID"  // Must match main orchestrator UUID
+	TEST_UUID = "TEMPLATE-UUID" // Must match main orchestrator UUID
 
 	// Technique identification (replace with your actual technique)
-	TECHNIQUE_ID   = "T1234.001"  // MITRE ATT&CK technique ID
-	TECHNIQUE_NAME = "Technique Name"  // Human-readable name
-	STAGE_ID       = 1  // Stage number in killchain (1, 2, 3, ...)
+	TECHNIQUE_ID   = "T1234.001"      // MITRE ATT&CK technique ID
+	TECHNIQUE_NAME = "Technique Name" // Human-readable name
+	STAGE_ID       = 1                // Stage number in killchain (1, 2, 3, ...)
 )
 
 // Standardized exit codes
 const (
-	StageSuccess     = 0    // Technique executed successfully
-	StageBlocked     = 126  // Technique blocked by EDR
-	StageQuarantined = 105  // Binary quarantined
-	StageError       = 999  // Error (prerequisites not met)
+	StageSuccess     = 0   // Technique executed successfully
+	StageBlocked     = 126 // Technique blocked by EDR
+	StageQuarantined = 105 // Binary quarantined
+	StageError       = 999 // Error (prerequisites not met)
 )
 
 // ==============================================================================
@@ -141,7 +141,7 @@ func performTechnique() error {
 
 	// Simulate technique execution
 	// In real implementation, this would be replaced with actual attack code
-	return nil  // Success (technique executed)
+	return nil // Success (technique executed)
 
 	// To simulate blocking, return error:
 	// return fmt.Errorf("simulated EDR block")

@@ -1,5 +1,6 @@
 //go:build windows
-//+build windows
+// +build windows
+
 /*
 ID: b74ad239-2ddd-4b1e-b608-8397a43c7c54
 NAME: Malicious Office Document

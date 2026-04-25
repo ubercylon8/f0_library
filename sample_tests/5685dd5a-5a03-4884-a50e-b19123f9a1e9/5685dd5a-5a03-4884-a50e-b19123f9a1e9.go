@@ -55,7 +55,7 @@ func adTrustEnum() bool {
 }
 
 func fileEnum() bool {
-	enums := [][]string {
+	enums := [][]string{
 		{"cmd.exe", "/c", "dir /AH c:\\"}, {"cmd.exe", "/c", "tree"}, {"cmd.exe", "/c", "dir /s *pass* == *cred* == *vnc* == *.config*"},
 	}
 	_, err := Endpoint.ExecuteRandomCommand(enums)

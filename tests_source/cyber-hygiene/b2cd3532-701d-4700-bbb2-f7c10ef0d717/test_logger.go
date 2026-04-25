@@ -388,7 +388,19 @@ func AttachLogger(testID, stageName string) {
 		}
 	}
 
-	// Create minimal log if file doesn't exist yet (shouldn't happen in normal flow)
+	// Fallback: orchestrator hasn't flushed test_execution_log.json yet (this
+	// happens whenever a stage is launched before the orchestrator's first
+	// SaveLog call — i.e., effectively always in the multi-stage pattern).
+	// Build a minimal in-memory log so logging primitives don't panic.
+	//
+	// IMPORTANT: do NOT call captureSystemInfo() here. captureSystemInfo()
+	// shells out to `cmd /C ver`, `sc query WinDefend`, `net session`, etc.,
+	// and those exec.Command spawns hang indefinitely under Session 0 (the
+	// SSH services context, scheduled-task SYSTEM context, PsExec -s, etc.).
+	// The orchestrator already captured SystemInfo at InitLogger time; the
+	// stage binary doesn't need to re-capture it. An empty SystemInfo{}
+	// is fine because nothing in the stage's logging path consumes it.
+	// (Bug surfaced 2026-04-25 by UnDefend lab run hanging 10 minutes.)
 	globalLog = &TestLog{
 		SchemaVersion:     SCHEMA_VERSION,
 		TestID:            testID,
@@ -400,7 +412,7 @@ func AttachLogger(testID, stageName string) {
 		Messages:          []LogEntry{},
 		FilesDropped:      []FileDrop{},
 		ProcessesExecuted: []Process{},
-		SystemInfo:        captureSystemInfo(),
+		SystemInfo:        SystemInfo{}, // intentionally empty — see comment above
 		// Metadata and ExecutionContext will be set by main orchestrator
 		TestMetadata:     TestMetadata{},
 		ExecutionContext: ExecutionContext{},
