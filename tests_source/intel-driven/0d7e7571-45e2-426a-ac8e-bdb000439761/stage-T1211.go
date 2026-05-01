@@ -194,14 +194,21 @@ func performTechnique() error {
 		// fall through — maybe Defender real-time write-blocked it
 	}
 
-	// Step 3: give AV a moment to quarantine the file, then probe via os.Stat.
-	time.Sleep(3 * time.Second)
+	// Step 3: poll up to 10s for AV to quarantine the file (bug-prevention rule #3).
+	// Defender's quarantine action can fire ~5s after the drop; a single 3s sleep
+	// misses the quarantine window and reports 101 UNPROTECTED incorrectly.
 	eicarQuarantined := false
-	if _, err := os.Stat(eicarPath); os.IsNotExist(err) {
-		eicarQuarantined = true
+	for i := 0; i < 10; i++ {
+		time.Sleep(1 * time.Second)
+		if _, statErr := os.Stat(eicarPath); statErr != nil {
+			eicarQuarantined = true
+			break
+		}
+	}
+	if eicarQuarantined {
 		LogMessage("INFO", TECHNIQUE_ID, "EICAR file removed after drop — AV scanner engaged (expected)")
-	} else if err == nil {
-		LogMessage("INFO", TECHNIQUE_ID, "EICAR file still present — AV did not quarantine this file")
+	} else {
+		LogMessage("INFO", TECHNIQUE_ID, "EICAR file still present after 10s — AV did not quarantine this file")
 	}
 
 	// Step 4: unregister the sync root unconditionally so we leave no persistent

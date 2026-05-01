@@ -246,20 +246,21 @@ func performTechnique() error {
 	}
 	LogFileDropped("Mimikatz_dump_Win32_signature.txt", eicarPath, int64(len(eicarString)), false)
 
-	// Give AV a small window to react — we do not wait on the callback like
-	// BlueHammer does (which would require full oplock machinery). This is a
-	// measurement test, not a freeze.
-	time.Sleep(3 * time.Second)
-
-	// Quarantine check via os.Stat (bug-prevention rule #3)
-	if _, statErr := os.Stat(eicarPath); statErr != nil {
+	// Poll up to 10s for AV to quarantine the file (bug-prevention rule #3).
+	// Defender's quarantine action can fire ~5s after the drop; a single 3s sleep
+	// misses the quarantine window and reports 101 UNPROTECTED incorrectly.
+	eicarQuarantined := false
+	for i := 0; i < 10; i++ {
+		time.Sleep(1 * time.Second)
+		if _, statErr := os.Stat(eicarPath); statErr != nil {
+			eicarQuarantined = true
+			break
+		}
+	}
+	if eicarQuarantined {
 		LogMessage("INFO", TECHNIQUE_ID, "Mimikatz-named EICAR probe quarantined/removed by AV — expected protection signal")
-		// NOTE: we treat this as SUCCESS at the technique level — the primitive
-		// (drop-in-sandbox) ran. AV action on EICAR is ordinary behavior; the
-		// test framework exit code at orchestrator level will reflect overall
-		// EDR posture across all three stages.
 	} else {
-		LogMessage("INFO", TECHNIQUE_ID, "EICAR probe not quarantined")
+		LogMessage("INFO", TECHNIQUE_ID, "EICAR probe not quarantined after 10s")
 	}
 
 	// Quick tree probe — run `cmd /c dir <sandbox>` to surface a listing event
