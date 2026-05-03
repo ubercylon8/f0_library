@@ -441,7 +441,7 @@ The compiled test binary that gets distributed to agents has a size budget enfor
 |------|-------------------------|-----------------|
 | 🟢 Green | **≤ 10 MB** | None. Typical Go-only multi-stage test sits here. |
 | 🟡 Yellow | **10 – 25 MB** | Note in `<uuid>_info.md` why the size is justified (e.g., "embeds .NET runtime for in-process API calls — required to match adversary tradecraft"). |
-| 🟠 Red | **25 – 50 MB** | Add an explicit `## Size Justification` section to `<uuid>_info.md`. Before accepting this tier, the build agent **must** evaluate whether the refactor recipes below would shrink the binary without losing realism. If they would, refactor. |
+| 🔴 Red | **25 – 50 MB** | Add an explicit `## Size Justification` section to `<uuid>_info.md`. Before accepting this tier, the build agent **must** evaluate whether the refactor recipes below would shrink the binary without losing realism. If they would, refactor. |
 | ⛔ Forbidden | **> 50 MB** | Do not ship. The build skill will flag this and require a refactor. The only path forward is one of the recipes below. |
 
 ### Refactor Recipes (when binary exceeds budget)
