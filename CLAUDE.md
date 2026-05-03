@@ -429,6 +429,48 @@ These rules prevent recurring false-positive bugs found across multiple tests:
 6. **Use Windows service names, not display names** — `sc.exe` uses registry service names (e.g., `CSFalconService`), not display names (e.g., `CrowdStrike Falcon Sensor`).
 7. **Use gzip compression for multi-stage embedded binaries** — Embed `.exe.gz` files and decompress in memory with `compress/gzip`. NEVER use UPX or runtime packers (they trigger EDR heuristic detections for packer entropy, poisoning test results).
 
+## Binary Size Budget (MANDATORY for new tests)
+
+The compiled test binary that gets distributed to agents has a size budget enforced by both transport and operational realities, not by an arbitrary preference.
+
+**Why this matters:** Agents download the orchestrator over the public internet (often via Cloudflare tunnels in dev, customer firewalls in prod). The agent's download budget is `MaxDownloadTimeout` (default 5 minutes). A 50 MB binary on a 1 Mbps link consumes the entire budget; a 70 MB binary fails outright. Beyond download time, large binaries also slow code signing (Authenticode is per-file), bloat agent disk (`~/.projectachilles/builds/`), and create unnaturally large file drops that distort detection telemetry — real adversary loaders are typically 100 KB – 5 MB.
+
+### Size Tiers
+
+| Tier | Final orchestrator size | Required action |
+|------|-------------------------|-----------------|
+| 🟢 Green | **≤ 10 MB** | None. Typical Go-only multi-stage test sits here. |
+| 🟡 Yellow | **10 – 25 MB** | Note in `<uuid>_info.md` why the size is justified (e.g., "embeds .NET runtime for in-process API calls — required to match adversary tradecraft"). |
+| 🔴 Red | **25 – 50 MB** | Add an explicit `## Size Justification` section to `<uuid>_info.md`. Before accepting this tier, the build agent **must** evaluate whether the refactor recipes below would shrink the binary without losing realism. If they would, refactor. |
+| ⛔ Forbidden | **> 50 MB** | Do not ship. The build skill will flag this and require a refactor. The only path forward is one of the recipes below. |
+
+### Refactor Recipes (when binary exceeds budget)
+
+These exist because most oversized binaries are oversized by accident — packaging defaults, not adversary fidelity.
+
+**1. .NET self-contained → trimmed/AOT.** A `dotnet publish` self-contained build emits ~70 MB of runtime. Almost always over-engineered for security tests. Pick one:
+   - `<PublishTrimmed>true</PublishTrimmed>` + `<TrimMode>full</TrimMode>` — typically reduces 70 MB → 15 MB.
+   - `<PublishAot>true</PublishAot>` (AOT) — typically reduces 70 MB → 5 MB and removes the JIT side-channel that some EDRs alert on.
+   - `<PublishSingleFile>true</PublishSingleFile>` with `<EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>`.
+
+**2. .NET framework-dependent.** If the target host has .NET runtime (most enterprise Windows endpoints do for Defender/Office), drop `--self-contained` and ship a 1–3 MB managed exe. Adds a runtime prerequisite to the test, but the test footprint matches reality more closely.
+
+**3. Move bulk into `lab_assets/` with runtime fetch.** The orchestrator embeds only loader logic; bulk payloads live in `lab_assets/` and are fetched at runtime from a controlled URL. This is *more* realistic — real adversaries stage payloads, they don't ship a single 50 MB binary. See `tests_source/intel-driven/<uuid>/lab_assets/` for the existing pattern.
+
+**4. Split a multi-stage test.** If 6 stages each at 8 MB sum to 48 MB, ask whether all 6 are load-bearing. Sometimes a stage was added speculatively and never anchored to a specific MITRE technique.
+
+**5. Verify gzip compression is wired.** Multi-stage tests MUST use the gzip-embed pattern (see `build_all.sh` step 4). A skipped gzip step inflates the orchestrator by ~35%.
+
+### Where the Limit Is Enforced
+
+- **`sectest-builder` agent (Phase 1, Step 3):** Reads the produced binary's size and refuses to proceed past Forbidden, requires justification past Red.
+- **`sectest-build-config` skill (final step):** Reports tier alongside the SHA1 hash. Yellow/Red tiers print the refactor recipes.
+- **No CI hard-block:** Authors can override with explicit justification — the limit encodes preference, not impossibility, because some legitimate red-team scenarios genuinely need bulk.
+
+### Anchor: Why "50 MB"?
+
+The number aligns with the agent's `MaxDownloadTimeout` (5 min) at the slowest link Achilles is expected to support cleanly (~1.4 Mbps, accounting for TLS + Cloudflare overhead). Above 50 MB, you exit the supported envelope; the agent may or may not finish in time depending on network conditions, and the failure mode is ugly (`write binary: context deadline exceeded`).
+
 ## Multi-Stage Test Build Requirements (MANDATORY)
 
 All multi-stage tests MUST use the modern 8-step `build_all.sh` pattern with org registry integration, dual signing, signature verification, **gzip compression**, and SHA1 hashing.
