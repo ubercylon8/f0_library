@@ -1,0 +1,49 @@
+version: 2
+updates:
+  # GitHub Actions used by .github/workflows/*.yml
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci(deps)"
+
+  # Go modules — watch the canonical reference template.
+  # The 51 test directories under tests_source/ each have their own go.mod
+  # that pins the same Prelude library; updating the template guides
+  # the rest. Add per-test entries here if you want individual PRs.
+  - package-ecosystem: "gomod"
+    directory: "/sample_tests/multistage_template"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "deps(go)"
+
+  # Python tooling
+  - package-ecosystem: "pip"
+    directory: "/utils"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(py)"
