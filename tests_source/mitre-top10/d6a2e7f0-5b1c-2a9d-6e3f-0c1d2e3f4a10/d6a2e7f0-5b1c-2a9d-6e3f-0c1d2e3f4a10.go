@@ -431,11 +431,11 @@ func test() {
 		Score:         8.0,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5,
-			TechnicalSophistication: 2.5,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.5,
-			LoggingObservability:    0.5,
+			APIFidelity:              2.5,
+			IdentifierFidelity:       2.5,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 0.5,
+			SchemaMetadata:           0.5,
 		},
 		Tags: []string{"service-control", "smb", "netexec", "mitre-top10"},
 	}

@@ -602,11 +602,11 @@ func main() {
 		Score:         8.0,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Tests actual tools used by ransomware
-			TechnicalSophistication: 1.5, // Read-only checks (intentionally limited)
-			SafetyMechanisms:        2.0, // Full safety - no destructive operations
-			DetectionOpportunities:  1.0, // Multiple detection points documented
-			LoggingObservability:    1.0, // Comprehensive logging
+			APIFidelity:              2.5, // Tests actual tools used by ransomware
+			IdentifierFidelity:       1.5, // Read-only checks (intentionally limited)
+			TelemetrySignalQuality:   2.0, // Full safety - no destructive operations
+			ExecutionContextFidelity: 1.0, // Multiple detection points documented
+			SchemaMetadata:           1.0, // Comprehensive logging
 		},
 		Tags: []string{"ransomware", "recovery-inhibition", "vssadmin", "bcdedit", "wbadmin", "safe-mode", "native"},
 	}

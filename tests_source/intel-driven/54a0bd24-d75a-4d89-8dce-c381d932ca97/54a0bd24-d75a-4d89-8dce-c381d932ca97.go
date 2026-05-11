@@ -1009,11 +1009,11 @@ func main() {
 		Score:         9.4,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8, // Based on Perfctl/Symbiote/Auto-Color real-world TTPs
-			TechnicalSophistication: 2.8, // XOR encryption, ELF simulation, multi-technique
-			SafetyMechanisms:        2.0, // Simulation-only, cleanup script, no actual rootkit
-			DetectionOpportunities:  0.8, // 8+ distinct detection points across phases
-			LoggingObservability:    1.0, // Full test_logger with phase tracking
+			APIFidelity:              2.8, // Based on Perfctl/Symbiote/Auto-Color real-world TTPs
+			IdentifierFidelity:       2.8, // XOR encryption, ELF simulation, multi-technique
+			TelemetrySignalQuality:   2.0, // Simulation-only, cleanup script, no actual rootkit
+			ExecutionContextFidelity: 0.8, // 8+ distinct detection points across phases
+			SchemaMetadata:           1.0, // Full test_logger with phase tracking
 		},
 		Tags: []string{
 			"ld-preload", "shared-library-hijacking", "pam-hooking",

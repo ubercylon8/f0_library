@@ -83,11 +83,11 @@ func main() {
 		Score:         9.4,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.9,
-			TechnicalSophistication: 2.7,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.7,
+			APIFidelity:              2.9,
+			IdentifierFidelity:       2.7,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 1.0,
+			SchemaMetadata:           0.7,
 		},
 		Tags: []string{"wiper", "destructive", "multi-wiper", "edr-bypass", "agrius", "pink-sandstorm", "iranian-apt", "banking-infrastructure", "multi-stage"},
 	}

@@ -133,11 +133,11 @@ func main() {
 		Score:         9.4,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.9,
-			TechnicalSophistication: 3.0,
-			SafetyMechanisms:        1.8,
-			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.7,
+			APIFidelity:              2.9,
+			IdentifierFidelity:       3.0,
+			TelemetrySignalQuality:   1.8,
+			ExecutionContextFidelity: 1.0,
+			SchemaMetadata:           0.7,
 		},
 		Tags: []string{"promptflux", "llm-abuse", "gemini-api", "vbscript", "wscript", "metamorphic", "thinging", "startup-folder", "wmi-enum", "github-raw", "multi-stage"},
 	}

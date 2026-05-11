@@ -563,11 +563,11 @@ func main() {
 		Score:         9.3,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       3.0,
-			TechnicalSophistication: 2.8,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.5,
-			LoggingObservability:    1.0,
+			APIFidelity:              3.0,
+			IdentifierFidelity:       2.8,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 0.5,
+			SchemaMetadata:           1.0,
 		},
 		Tags: []string{"mde-bypass", "certificate-pinning", "network-isolation", "rootkit"},
 	}

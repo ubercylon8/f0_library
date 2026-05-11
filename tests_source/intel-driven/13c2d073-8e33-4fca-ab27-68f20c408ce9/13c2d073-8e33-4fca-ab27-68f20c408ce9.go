@@ -98,11 +98,11 @@ func main() {
 		Score:         8.7,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.7,
-			TechnicalSophistication: 3.0,
-			SafetyMechanisms:        1.5,
-			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.5,
+			APIFidelity:              2.7,
+			IdentifierFidelity:       3.0,
+			TelemetrySignalQuality:   1.5,
+			ExecutionContextFidelity: 1.0,
+			SchemaMetadata:           0.5,
 		},
 		Tags: []string{"apt33", "peach-sandstorm", "tickler", "dll-sideloading", "multi-stage", "killchain"},
 	}

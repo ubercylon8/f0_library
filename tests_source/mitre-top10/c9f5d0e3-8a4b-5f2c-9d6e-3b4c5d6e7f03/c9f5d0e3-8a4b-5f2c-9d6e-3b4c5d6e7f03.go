@@ -757,11 +757,11 @@ func main() {
 		Score:         8.0,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Real tool potential (SharpRDP), actual cmdkey manipulation
-			TechnicalSophistication: 2.0, // Multiple techniques, service/registry checks
-			SafetyMechanisms:        2.0, // Local only, immediate credential cleanup
-			DetectionOpportunities:  1.0, // 5+ detection points
-			LoggingObservability:    0.5, // Comprehensive logging
+			APIFidelity:              2.5, // Real tool potential (SharpRDP), actual cmdkey manipulation
+			IdentifierFidelity:       2.0, // Multiple techniques, service/registry checks
+			TelemetrySignalQuality:   2.0, // Local only, immediate credential cleanup
+			ExecutionContextFidelity: 1.0, // 5+ detection points
+			SchemaMetadata:           0.5, // Comprehensive logging
 		},
 		Tags: []string{"rdp", "lateral-movement", "credential-manager", "native", "sharprdp"},
 	}

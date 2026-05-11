@@ -103,11 +103,11 @@ func main() {
 		Score:         9.1,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.7,
-			TechnicalSophistication: 2.5,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.9,
-			LoggingObservability:    1.0,
+			APIFidelity:              2.7,
+			IdentifierFidelity:       2.5,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 0.9,
+			SchemaMetadata:           1.0,
 		},
 		Tags: []string{"cis-benchmark", "level-1", "macos-hardening", "compliance", "filevault", "gatekeeper", "sip", "firewall", "xprotect"},
 	}
