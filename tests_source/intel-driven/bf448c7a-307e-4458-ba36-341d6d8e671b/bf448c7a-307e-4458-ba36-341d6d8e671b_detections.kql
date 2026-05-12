@@ -1,0 +1,200 @@
+// =============================================================================
+// TclBanker Brazilian Banking Trojan — KQL Detection Rules
+// Microsoft Sentinel / Microsoft Defender for Endpoint (Advanced Hunting)
+// =============================================================================
+// These rules target TclBanker's real-world indicators as documented by
+// Elastic Security Labs. Each rule is technique-focused (not test-artifact-focused)
+// so they fire on real TclBanker activity, not just F0RT1KA test execution.
+//
+// Source: https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+// Test:   bf448c7a-307e-4458-ba36-341d6d8e671b
+
+// =============================================================================
+// 1. TclBanker — Scheduled Task "RuntimeOptimizeService" registered
+// =============================================================================
+// Matches: TclBanker's signature scheduled-task persistence move.
+// Sources: DeviceProcessEvents (schtasks.exe with /create) + DeviceEvents (Task registered).
+// Severity: HIGH
+
+DeviceProcessEvents
+| where Timestamp > ago(7d)
+| where FileName =~ "schtasks.exe"
+| where ProcessCommandLine has_all ("/create", "RuntimeOptimizeService")
+| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, FileName, ParentProcessCreationTime
+| order by Timestamp desc
+
+// =============================================================================
+// 2. TclBanker — RuntimeOptimizeService created via Task Scheduler COM
+// =============================================================================
+// Matches: ITaskService::RegisterTaskDefinition via taskhostw/svchost (the COM path
+// produces an event under "\Microsoft\Windows\TaskScheduler\Operational" channel,
+// surfaced in DeviceEvents).
+// Severity: HIGH
+
+DeviceEvents
+| where Timestamp > ago(7d)
+| where ActionType in~ ("ScheduledTaskCreated", "ScheduledTaskUpdated")
+| where AdditionalFields has "RuntimeOptimizeService"
+| project Timestamp, DeviceName, ActionType, AdditionalFields, InitiatingProcessFileName,
+          InitiatingProcessCommandLine
+| order by Timestamp desc
+
+// =============================================================================
+// 3. TclBanker — DLL Side-Loading: screen_retriever_plugin.dll from non-Program-Files path
+// =============================================================================
+// Matches: Image load of screen_retriever_plugin.dll outside the legitimate Logitech
+// install paths (\Program Files\Logitech*\ or \Program Files (x86)\Logitech*\).
+// Severity: HIGH
+
+DeviceImageLoadEvents
+| where Timestamp > ago(7d)
+| where FileName =~ "screen_retriever_plugin.dll"
+| where not(FolderPath has_any (@"\Program Files\Logi", @"\Program Files (x86)\Logi"))
+| project Timestamp, DeviceName, FolderPath, FileName, SHA256,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessFolderPath
+| order by Timestamp desc
+
+// =============================================================================
+// 4. TclBanker — LogiAiPromptBuilder.exe launched from %LocalAppData% or non-standard path
+// =============================================================================
+// Matches: The renamed host EXE running from %LocalAppData%\LogiAI\ or similar.
+// Legitimate Logitech updates run from \Program Files\.
+// Severity: HIGH
+
+DeviceProcessEvents
+| where Timestamp > ago(7d)
+| where FileName =~ "LogiAiPromptBuilder.exe"
+| where not(FolderPath has_any (@"\Program Files\Logi", @"\Program Files (x86)\Logi"))
+| project Timestamp, DeviceName, AccountName, FolderPath, FileName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, SHA256
+| order by Timestamp desc
+
+// =============================================================================
+// 5. TclBanker — Logitech_Update_*.msi dropped to user-writable path
+// =============================================================================
+// Matches: MSI file with TclBanker's branded filename shape outside legitimate
+// software-update locations.
+// Severity: MEDIUM
+
+DeviceFileEvents
+| where Timestamp > ago(7d)
+| where ActionType in~ ("FileCreated", "FileRenamed")
+| where FileName matches regex @"(?i)^Logitech_Update_[0-9A-Za-z_\-]+\.msi$"
+| where not(FolderPath has_any (@"\Program Files\", @"\Windows\Installer\"))
+| project Timestamp, DeviceName, ActionType, FolderPath, FileName, SHA256,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc
+
+// =============================================================================
+// 6. TclBanker — Cloudflare Workers C2 DNS lookup
+// =============================================================================
+// Matches: DNS resolution for *.workers.dev domains that include the TclBanker
+// account identifier "ef971a42".
+// Severity: HIGH
+
+DeviceNetworkEvents
+| where Timestamp > ago(7d)
+| where ActionType == "DnsConnectionInspected" or ActionType == "ConnectionSuccess"
+| where RemoteUrl has "workers.dev"
+| where RemoteUrl has_any ("ef971a42", "tcl-banker", "tclbanker")
+| project Timestamp, DeviceName, RemoteUrl, RemoteIP, RemotePort,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc
+
+// =============================================================================
+// 7. TclBanker — HMAC-signed C2 beacon (Authorization: Bearer pattern)
+// =============================================================================
+// Matches: outbound HTTP/S to *.workers.dev with TclBanker's User-Agent shape
+// "Tcl.WppBot" or X-Campaign-Id header carrying the campaign GUID.
+// Severity: HIGH
+
+DeviceNetworkEvents
+| where Timestamp > ago(7d)
+| where RemoteUrl has "workers.dev"
+| where AdditionalFields has_any ("Tcl.WppBot", "70e4f943-e323-4484-97d7-35401bf6812c", "X-Campaign-Id")
+| project Timestamp, DeviceName, RemoteUrl, RemoteIP, RemotePort, AdditionalFields,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc
+
+// =============================================================================
+// 8. TclBanker — Debug artifact dropped at C:\temp\tcl-debug.txt
+// =============================================================================
+// Matches: A distinctive file artifact TclBanker writes during execution.
+// Severity: MEDIUM
+
+DeviceFileEvents
+| where Timestamp > ago(7d)
+| where ActionType == "FileCreated"
+| where FolderPath =~ @"C:\temp\" and FileName =~ "tcl-debug.txt"
+| project Timestamp, DeviceName, FolderPath, FileName, SHA256,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc
+
+// =============================================================================
+// 9. TclBanker — Tcl.Agent / Tcl.WppBot .NET assemblies referenced
+// =============================================================================
+// Matches: in-memory loaded assemblies or files containing the TclBanker
+// .NET namespace tokens.
+// Severity: HIGH
+
+union DeviceFileEvents, DeviceImageLoadEvents
+| where Timestamp > ago(7d)
+| where FileName has_any ("Tcl.Agent", "Tcl.WppBot", "Tcl.Agent.dll", "Tcl.WppBot.dll")
+| project Timestamp, DeviceName, Type=tostring(coalesce(ActionType, "ImageLoad")),
+          FolderPath, FileName, SHA256, InitiatingProcessFileName
+| order by Timestamp desc
+
+// =============================================================================
+// 10. TclBanker — Browser address-bar UI Automation polling pattern
+// =============================================================================
+// Matches: an unknown process accessing UIAutomationCore.dll while a foreground
+// browser is running. TclBanker uses CUIAutomation to read URL out of address bar.
+// Severity: MEDIUM (broad — tune by joining to process-creation parentage)
+
+DeviceImageLoadEvents
+| where Timestamp > ago(7d)
+| where FileName =~ "uiautomationcore.dll"
+| where not(InitiatingProcessFileName in~ (
+    "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe",
+    "explorer.exe", "snippingtool.exe", "windowsterminal.exe",
+    "screenreaderclient.exe", "narrator.exe", "powerpnt.exe", "winword.exe",
+    "excel.exe", "outlook.exe", "code.exe", "devenv.exe"))
+| where not(InitiatingProcessFolderPath has_any (@"\Program Files\", @"\Program Files (x86)\", @"\Windows\System32\"))
+| project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessFolderPath,
+          InitiatingProcessCommandLine, FileName
+| order by Timestamp desc
+
+// =============================================================================
+// 11. TclBanker — Killchain correlation (3+ stages within 5 minutes)
+// =============================================================================
+// Matches: when at least three TclBanker indicators fire on the same host within
+// a 5-minute window — strong signal that the full chain is executing.
+// Severity: CRITICAL
+
+let timeWindow = 5min;
+let lookback = 7d;
+let tclbankerIndicators =
+    union
+    (DeviceFileEvents
+        | where Timestamp > ago(lookback)
+        | where FileName matches regex @"(?i)^Logitech_Update_.+\.msi$"
+            or FileName =~ "screen_retriever_plugin.dll"
+            or FileName =~ "tcl-debug.txt"
+        | project Timestamp, DeviceName, Indicator=strcat("file:", FileName)),
+    (DeviceProcessEvents
+        | where Timestamp > ago(lookback)
+        | where ProcessCommandLine has "RuntimeOptimizeService"
+            or FileName =~ "LogiAiPromptBuilder.exe"
+        | project Timestamp, DeviceName, Indicator=strcat("proc:", FileName)),
+    (DeviceNetworkEvents
+        | where Timestamp > ago(lookback)
+        | where RemoteUrl has "workers.dev" and RemoteUrl has "ef971a42"
+        | project Timestamp, DeviceName, Indicator=strcat("net:", RemoteUrl));
+tclbankerIndicators
+| summarize Indicators=make_set(Indicator), Count=dcount(Indicator),
+            FirstSeen=min(Timestamp), LastSeen=max(Timestamp)
+  by DeviceName, bin(Timestamp, timeWindow)
+| where Count >= 3
+| order by LastSeen desc

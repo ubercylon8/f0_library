@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TclBanker — Kill Chain Strip</title>
+<style>
+:root {
+    --bg-grad-start: #0f1218;
+    --bg-grad-end: #1b2030;
+    --panel: #181d28;
+    --card: #1f2532;
+    --card-hover: #2a3142;
+    --border: rgba(255,255,255,0.08);
+    --text-1: #f0f3f7;
+    --text-2: #b9c1cc;
+    --text-3: #7a8392;
+    --accent-blue: #4fc3f7;
+    --accent-green: #66bb6a;
+    --accent-red: #ff6b6b;
+    --accent-orange: #ff9f43;
+    --accent-purple: #a78bfa;
+}
+* { box-sizing: border-box; }
+html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, var(--bg-grad-start), var(--bg-grad-end));
+    color: var(--text-1);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+}
+.container { max-width: 1400px; margin: 0 auto; padding: 40px 32px; }
+header { margin-bottom: 32px; }
+h1 { font-size: 28px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.02em; }
+.subtitle { color: var(--text-2); font-size: 14px; font-weight: 400; }
+.subtitle code { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+.threat-meta { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 16px; }
+.meta-chip { background: var(--panel); border: 1px solid var(--border); padding: 6px 12px; border-radius: 6px; font-size: 12px; color: var(--text-2); }
+.meta-chip strong { color: var(--text-1); margin-right: 6px; }
+
+.chain {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin: 32px 0;
+}
+.stage {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+    display: flex; flex-direction: column;
+}
+.stage:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.15); }
+.stage-num {
+    position: absolute; top: -10px; left: 16px;
+    background: var(--accent-blue); color: #0f1218;
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px;
+}
+.stage-tactic {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--accent-purple); font-weight: 600; margin: 8px 0 4px;
+}
+.stage-name { font-size: 15px; font-weight: 600; margin: 0 0 12px; color: var(--text-1); }
+.stage-techniques {
+    display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px;
+}
+.tech-badge {
+    background: rgba(79,195,247,0.12);
+    color: var(--accent-blue);
+    border: 1px solid rgba(79,195,247,0.25);
+    padding: 3px 7px; border-radius: 4px;
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    font-size: 11px; font-weight: 500;
+}
+.stage-desc { font-size: 12px; color: var(--text-2); flex: 1; }
+.stage-ids {
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-3); font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+}
+.stage-ids strong { color: var(--accent-green); }
+.lift-badge {
+    display: inline-block; background: rgba(255,159,67,0.15);
+    color: var(--accent-orange); border: 1px solid rgba(255,159,67,0.3);
+    padding: 2px 6px; border-radius: 4px; font-size: 10px;
+    font-weight: 600; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+.arrow {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-3); font-size: 24px;
+    grid-column: span 1;
+}
+@media (max-width: 880px) { .arrow { display: none; } }
+
+.detection-strip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 32px;
+}
+.detection-strip h2 {
+    font-size: 18px; font-weight: 600; margin: 0 0 16px;
+    color: var(--text-1);
+}
+.detect-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;
+}
+.detect-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px;
+}
+.detect-format {
+    font-size: 12px; font-weight: 600; color: var(--accent-green);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;
+}
+.detect-count { font-size: 22px; font-weight: 700; color: var(--text-1); }
+.detect-desc { font-size: 11px; color: var(--text-2); margin-top: 4px; }
+
+.footer { color: var(--text-3); font-size: 12px; text-align: center; margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--border); }
+.footer a { color: var(--accent-blue); text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+
+.identifiers {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 24px;
+}
+.identifiers h2 { font-size: 18px; font-weight: 600; margin: 0 0 16px; }
+.id-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px;
+}
+.id-row { font-size: 12px; padding: 8px 12px; background: var(--card); border-radius: 6px; }
+.id-row strong { color: var(--accent-purple); display: block; margin-bottom: 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.id-row code { color: var(--text-2); font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace; font-size: 11px; word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>TclBanker Brazilian Banking Trojan — Kill Chain</h1>
+        <div class="subtitle">
+            Test UUID <code>bf448c7a-307e-4458-ba36-341d6d8e671b</code> · Score <strong>9.25/10</strong> (rubric v2.1) · Source <a style="color:var(--accent-blue)" href="https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan">Elastic Security Labs</a>
+        </div>
+        <div class="threat-meta">
+            <div class="meta-chip"><strong>Threat Actor:</strong> TclBanker</div>
+            <div class="meta-chip"><strong>Region:</strong> Brazil</div>
+            <div class="meta-chip"><strong>Stages:</strong> 6</div>
+            <div class="meta-chip"><strong>Techniques:</strong> 13</div>
+            <div class="meta-chip"><strong>Tactics:</strong> 7</div>
+            <div class="meta-chip"><strong>Platform:</strong> Windows endpoint</div>
+        </div>
+    </header>
+
+    <div class="chain">
+
+        <div class="stage">
+            <span class="stage-num">1</span>
+            <div class="stage-tactic">Initial Access · Execution</div>
+            <h3 class="stage-name">Delivery — Logitech_Update MSI in ZIP</h3>
+            <div class="stage-techniques">
+                <span class="tech-badge">T1218.007</span>
+                <span class="tech-badge">T1566.001</span>
+            </div>
+            <p class="stage-desc">ZIP-wrapped MSI installer masquerading as a signed Logitech update. Filename shape <code>Logitech_Update_*.msi</code>. CFB-header artifact dropped to <code>ARTIFACT_DIR\Downloads\</code>.</p>
+            <div class="stage-ids"><strong>Drops:</strong> Logitech_Update_*.msi, Logitech_Update_*.zip</div>
+        </div>
+
+        <div class="stage">
+            <span class="stage-num">2</span>
+            <div class="stage-tactic">Defense Evasion</div>
+            <h3 class="stage-name">DLL Side-Loading via LogiAiPromptBuilder.exe</h3>
+            <div class="stage-techniques">
+                <span class="tech-badge">T1574.002</span>
+            </div>
+            <p class="stage-desc">Sandbox signed host EXE calls real <code>LoadLibraryW</code> on renamed Microsoft <code>version.dll</code> placed as <code>screen_retriever_plugin.dll</code> in <code>%LocalAppData%\LogiAI\</code>.</p>
+            <div class="stage-ids"><strong>Real call:</strong> LoadLibraryW</div>
+            <span class="lift-badge">LIFT 1</span>
+        </div>
+
+        <div class="stage">
+            <span class="stage-num">3</span>
+            <div class="stage-tactic">Defense Evasion · Discovery</div>
+            <h3 class="stage-name">Deobfuscate + Brazilian Locale Gate</h3>
+            <div class="stage-techniques">
+                <span class="tech-badge">T1140</span>
+                <span class="tech-badge">T1027</span>
+                <span class="tech-badge">T1497.001</span>
+                <span class="tech-badge">T1497.003</span>
+            </div>
+            <p class="stage-desc">AES-256-CBC decrypt of simulated <code>Tcl.Agent</code> payload, <code>GetUserDefaultUILanguage</code> pt-BR check (passive), <code>QueryPerformanceCounter</code> VM-detection observation.</p>
+            <div class="stage-ids"><strong>API:</strong> GetUserDefaultUILanguage, QPC</div>
+        </div>
+
+        <div class="stage">
+            <span class="stage-num">4</span>
+            <div class="stage-tactic">Persistence</div>
+            <h3 class="stage-name">RuntimeOptimizeService COM Task</h3>
+            <div class="stage-techniques">
+                <span class="tech-badge">T1053.005</span>
+            </div>
+            <p class="stage-desc">Real <code>CoCreateInstance</code> on Task Scheduler CLSID, then schtasks XML registration. Logon trigger, hidden, LeastPrivilege. Triple cleanup: defer + watchdog + schtasks fallback.</p>
+            <div class="stage-ids"><strong>Task:</strong> RuntimeOptimizeService<br><strong>CLSID:</strong> 0F87369F-...-72DD</div>
+            <span class="lift-badge">LIFT 2</span>
+        </div>
+
+        <div class="stage">
+            <span class="stage-num">5</span>
+            <div class="stage-tactic">Credential Access · Discovery</div>
+            <h3 class="stage-name">Overlay + Browser UIA Monitoring</h3>
+            <div class="stage-techniques">
+                <span class="tech-badge">T1056.003</span>
+                <span class="tech-badge">T1010</span>
+                <span class="tech-badge">T1185</span>
+            </div>
+            <p class="stage-desc">Auto-dismiss overlay (3s, WDA_EXCLUDEFROMCAPTURE), real <code>CoCreateInstance(CUIAutomation)</code>, brief no-data <code>WH_KEYBOARD_LL</code> hook (&lt;500ms, callback ignores key data).</p>
+            <div class="stage-ids"><strong>Vishing:</strong> "Estamos entrando em contato"</div>
+        </div>
+
+        <div class="stage">
+            <span class="stage-num">6</span>
+            <div class="stage-tactic">Command & Control</div>
+            <h3 class="stage-name">Cloudflare Workers C2 Beacon</h3>
+            <div class="stage-techniques">
+                <span class="tech-badge">T1071.001</span>
+                <span class="tech-badge">T1102</span>
+            </div>
+            <p class="stage-desc">DNS observation for <code>*.workers.dev</code> (ef971a42 account), loopback (127.0.0.1) WebSocket handshake with real HMAC-SHA256 bearer using campaign GUID.</p>
+            <div class="stage-ids"><strong>Account:</strong> ef971a42<br><strong>Campaign:</strong> 70e4f943-...-6812c</div>
+        </div>
+
+    </div>
+
+    <section class="identifiers">
+        <h2>Real-World Identifiers Baked Into The Test</h2>
+        <div class="id-grid">
+            <div class="id-row"><strong>Task name</strong><code>RuntimeOptimizeService</code></div>
+            <div class="id-row"><strong>Task Scheduler CLSID</strong><code>{0F87369F-A4E5-4CFC-BD3E-73E6154572DD}</code></div>
+            <div class="id-row"><strong>Campaign GUID</strong><code>70e4f943-e323-4484-97d7-35401bf6812c</code></div>
+            <div class="id-row"><strong>Cloudflare Workers account</strong><code>ef971a42</code></div>
+            <div class="id-row"><strong>Sideloaded DLL</strong><code>screen_retriever_plugin.dll</code></div>
+            <div class="id-row"><strong>Host EXE</strong><code>LogiAiPromptBuilder.exe</code></div>
+            <div class="id-row"><strong>Install path shape</strong><code>%LocalAppData%\LogiAI\</code></div>
+            <div class="id-row"><strong>WebSocket path</strong><code>/ws</code></div>
+            <div class="id-row"><strong>Portuguese vishing string</strong><code>Estamos entrando em contato</code></div>
+            <div class="id-row"><strong>MSI prefix</strong><code>Logitech_Update_*.msi</code></div>
+            <div class="id-row"><strong>Debug artifact path</strong><code>C:\temp\tcl-debug.txt</code> (logged only)</div>
+            <div class="id-row"><strong>.NET namespaces</strong><code>Tcl.Agent</code>, <code>Tcl.WppBot</code></div>
+        </div>
+    </section>
+
+    <section class="detection-strip">
+        <h2>Detection Coverage</h2>
+        <div class="detect-grid">
+            <div class="detect-card">
+                <div class="detect-format">KQL</div>
+                <div class="detect-count">11</div>
+                <div class="detect-desc">Microsoft Sentinel / Defender Advanced Hunting</div>
+            </div>
+            <div class="detect-card">
+                <div class="detect-format">YARA</div>
+                <div class="detect-count">8</div>
+                <div class="detect-desc">File and memory scanning</div>
+            </div>
+            <div class="detect-card">
+                <div class="detect-format">Sigma</div>
+                <div class="detect-count">7</div>
+                <div class="detect-desc">Vendor-agnostic</div>
+            </div>
+            <div class="detect-card">
+                <div class="detect-format">Elastic EQL</div>
+                <div class="detect-count">7</div>
+                <div class="detect-desc">Elastic SIEM with sequence rule</div>
+            </div>
+            <div class="detect-card">
+                <div class="detect-format">LimaCharlie D&amp;R</div>
+                <div class="detect-count">7</div>
+                <div class="detect-desc">LC tenant rules</div>
+            </div>
+        </div>
+    </section>
+
+    <div class="footer">
+        F0RT1KA Security Test · TclBanker Brazilian Banking Trojan · Generated 2026-05-11 ·
+        <a href="https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan">Source: Elastic Security Labs</a>
+    </div>
+</div>
+</body>
+</html>

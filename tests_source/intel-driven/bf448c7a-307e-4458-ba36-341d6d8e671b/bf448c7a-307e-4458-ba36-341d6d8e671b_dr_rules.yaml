@@ -1,0 +1,216 @@
+# =============================================================================
+# TclBanker Brazilian Banking Trojan — LimaCharlie D&R Rules
+# Source: https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+# Test:   bf448c7a-307e-4458-ba36-341d6d8e671b
+# =============================================================================
+
+rules:
+
+  # ---------------------------------------------------------------------------
+  # TclBanker — RuntimeOptimizeService persistence task created via schtasks
+  # ---------------------------------------------------------------------------
+  - name: tclbanker-runtimeoptimizeservice-task
+    detect:
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \schtasks.exe
+        - op: matches
+          path: event/COMMAND_LINE
+          re: '(?i).*RuntimeOptimizeService.*'
+        - op: matches
+          path: event/COMMAND_LINE
+          re: '(?i).*create.*'
+    respond:
+      - action: report
+        name: tclbanker-persistence-task-created
+        priority: 1
+      - action: add tag
+        tag: tclbanker
+        ttl: 86400
+    metadata:
+      severity: high
+      mitre_tactic: TA0003
+      mitre_technique: T1053.005
+      threat_actor: TclBanker
+      reference: https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+
+  # ---------------------------------------------------------------------------
+  # TclBanker — LogiAiPromptBuilder.exe running from non-Logitech path
+  # ---------------------------------------------------------------------------
+  - name: tclbanker-logiai-nonstandard-path
+    detect:
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \LogiAiPromptBuilder.exe
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)^(?!.*\\Program Files( \(x86\))?\\Logi).*$'
+    respond:
+      - action: report
+        name: tclbanker-sideload-host-suspicious-path
+        priority: 1
+      - action: add tag
+        tag: tclbanker
+        ttl: 86400
+    metadata:
+      severity: high
+      mitre_tactic: TA0005
+      mitre_technique: T1574.002
+      threat_actor: TclBanker
+
+  # ---------------------------------------------------------------------------
+  # TclBanker — screen_retriever_plugin.dll loaded from non-Logitech path
+  # ---------------------------------------------------------------------------
+  - name: tclbanker-sideloaded-dll-load
+    detect:
+      event: MODULE_LOAD
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \screen_retriever_plugin.dll
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)^(?!.*\\Program Files( \(x86\))?\\Logi).*$'
+    respond:
+      - action: report
+        name: tclbanker-dll-sideload-detected
+        priority: 1
+      - action: add tag
+        tag: tclbanker
+        ttl: 86400
+    metadata:
+      severity: high
+      mitre_tactic: TA0005
+      mitre_technique: T1574.002
+      threat_actor: TclBanker
+
+  # ---------------------------------------------------------------------------
+  # TclBanker — Cloudflare Workers DNS lookup (account ef971a42)
+  # ---------------------------------------------------------------------------
+  - name: tclbanker-cloudflare-workers-dns
+    detect:
+      event: DNS_REQUEST
+      op: and
+      rules:
+        - op: ends with
+          path: event/DOMAIN_NAME
+          value: .workers.dev
+        - op: or
+          rules:
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: ef971a42
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: tcl-banker
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: tclbanker
+    respond:
+      - action: report
+        name: tclbanker-c2-dns-resolved
+        priority: 1
+      - action: add tag
+        tag: tclbanker-c2
+        ttl: 86400
+    metadata:
+      severity: high
+      mitre_tactic: TA0011
+      mitre_technique: T1071.001
+      threat_actor: TclBanker
+
+  # ---------------------------------------------------------------------------
+  # TclBanker — Debug artifact at C:\temp\tcl-debug.txt
+  # ---------------------------------------------------------------------------
+  - name: tclbanker-debug-artifact-dropped
+    detect:
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i).*\\temp\\tcl-debug\.txt$'
+    respond:
+      - action: report
+        name: tclbanker-debug-file-created
+        priority: 2
+      - action: add tag
+        tag: tclbanker
+        ttl: 86400
+    metadata:
+      severity: medium
+      mitre_tactic: TA0005
+      mitre_technique: T1027
+      threat_actor: TclBanker
+
+  # ---------------------------------------------------------------------------
+  # TclBanker — Logitech_Update_*.msi delivery wrapper
+  # ---------------------------------------------------------------------------
+  - name: tclbanker-msi-delivery-wrapper
+    detect:
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i).*\\Logitech_Update_[A-Za-z0-9_\-]+\.msi$'
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)^(?!.*\\Program Files\\).*$'
+        - op: matches
+          path: event/FILE_PATH
+          re: '(?i)^(?!.*\\Windows\\Installer\\).*$'
+    respond:
+      - action: report
+        name: tclbanker-msi-delivery-wrapper-dropped
+        priority: 2
+      - action: add tag
+        tag: tclbanker
+        ttl: 86400
+    metadata:
+      severity: medium
+      mitre_tactic: TA0001
+      mitre_technique: T1566.001
+      threat_actor: TclBanker
+
+  # ---------------------------------------------------------------------------
+  # TclBanker — Outbound HTTP/HTTPS to *.workers.dev with TclBanker headers/UA
+  # ---------------------------------------------------------------------------
+  - name: tclbanker-c2-http-beacon
+    detect:
+      event: NETWORK_CONNECTIONS
+      op: and
+      rules:
+        - op: ends with
+          path: event/DOMAIN_NAME
+          value: .workers.dev
+        - op: or
+          rules:
+            - op: contains
+              path: event/USER_AGENT
+              value: Tcl.WppBot
+            - op: contains
+              path: event/HTTP_HEADERS
+              value: '70e4f943-e323-4484-97d7-35401bf6812c'
+            - op: contains
+              path: event/HTTP_HEADERS
+              value: 'X-Campaign-Id'
+    respond:
+      - action: report
+        name: tclbanker-c2-beacon-detected
+        priority: 1
+      - action: add tag
+        tag: tclbanker-c2-active
+        ttl: 86400
+    metadata:
+      severity: high
+      mitre_tactic: TA0011
+      mitre_technique: T1071.001
+      threat_actor: TclBanker

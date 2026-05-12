@@ -1,0 +1,203 @@
+# =============================================================================
+# TclBanker Brazilian Banking Trojan — Sigma Rules
+# Source: https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+# Test:   bf448c7a-307e-4458-ba36-341d6d8e671b
+#
+# Vendor-agnostic detection rules. Convert to your SIEM with `sigma convert`.
+# =============================================================================
+
+title: TclBanker Scheduled Task RuntimeOptimizeService Created
+id: 1a2b3c4d-bf44-8c7a-3074-58ba36341d6d
+status: experimental
+description: >
+  Detects creation of TclBanker's signature scheduled task "RuntimeOptimizeService"
+  via schtasks.exe or the COM Task Scheduler. Real TclBanker uses this exact name
+  in the root task folder to maintain persistence at logon.
+references:
+    - https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+author: F0RT1KA
+date: 2026-05-11
+tags:
+    - attack.persistence
+    - attack.t1053.005
+    - threat.tclbanker
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_create:
+        Image|endswith: '\schtasks.exe'
+        CommandLine|contains|all:
+            - '/create'
+            - 'RuntimeOptimizeService'
+    condition: selection_create
+falsepositives:
+    - Legitimate "RuntimeOptimizeService" tasks created by enterprise tooling (uncommon)
+level: high
+---
+title: TclBanker LogiAiPromptBuilder Launched From Non-Standard Path
+id: 2a2b3c4d-bf44-8c7a-3074-58ba36341d6d
+status: experimental
+description: >
+  Detects LogiAiPromptBuilder.exe (TclBanker's renamed sideload host) running
+  outside Logitech's legitimate install directory. Legitimate Logitech updates
+  run from \Program Files\.
+references:
+    - https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+author: F0RT1KA
+date: 2026-05-11
+tags:
+    - attack.defense_evasion
+    - attack.t1574.002
+    - threat.tclbanker
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\LogiAiPromptBuilder.exe'
+    legit_paths:
+        Image|startswith:
+            - 'C:\Program Files\Logi'
+            - 'C:\Program Files (x86)\Logi'
+    condition: selection and not legit_paths
+falsepositives:
+    - User-installed Logitech tools that drop into non-standard paths (very rare)
+level: high
+---
+title: TclBanker screen_retriever_plugin.dll Loaded From Suspicious Location
+id: 3a2b3c4d-bf44-8c7a-3074-58ba36341d6d
+status: experimental
+description: >
+  Detects image load of screen_retriever_plugin.dll outside the legitimate
+  Logitech install path. This is TclBanker's signature sideloaded DLL.
+references:
+    - https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+author: F0RT1KA
+date: 2026-05-11
+tags:
+    - attack.defense_evasion
+    - attack.t1574.002
+    - threat.tclbanker
+logsource:
+    category: image_load
+    product: windows
+detection:
+    selection:
+        ImageLoaded|endswith: '\screen_retriever_plugin.dll'
+    legit_paths:
+        ImageLoaded|contains:
+            - '\Program Files\Logi'
+            - '\Program Files (x86)\Logi'
+    condition: selection and not legit_paths
+level: high
+---
+title: TclBanker Cloudflare Workers C2 DNS Lookup
+id: 4a2b3c4d-bf44-8c7a-3074-58ba36341d6d
+status: experimental
+description: >
+  Detects DNS resolution attempts for *.workers.dev subdomains containing the
+  TclBanker account identifier "ef971a42" or known TclBanker domain shapes.
+references:
+    - https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+author: F0RT1KA
+date: 2026-05-11
+tags:
+    - attack.command_and_control
+    - attack.t1071.001
+    - attack.t1102
+    - threat.tclbanker
+logsource:
+    category: dns
+    product: windows
+detection:
+    selection_acct:
+        query|contains:
+            - 'ef971a42'
+        query|endswith: '.workers.dev'
+    selection_shape:
+        query|contains:
+            - 'tcl-banker'
+            - 'tclbanker'
+        query|endswith: '.workers.dev'
+    condition: 1 of selection_*
+falsepositives:
+    - Cloudflare Workers traffic to legitimate Workers apps with matching substrings
+level: high
+---
+title: TclBanker Debug Artifact Path C\temp\tcl-debug.txt
+id: 5a2b3c4d-bf44-8c7a-3074-58ba36341d6d
+status: experimental
+description: >
+  Detects creation of the distinctive TclBanker debug-artifact file
+  C:\temp\tcl-debug.txt — present in TclBanker samples observed by Elastic.
+references:
+    - https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+author: F0RT1KA
+date: 2026-05-11
+tags:
+    - attack.execution
+    - threat.tclbanker
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '\tcl-debug.txt'
+        TargetFilename|contains: 'C:\temp\'
+    condition: selection
+level: medium
+---
+title: TclBanker Logitech_Update Branded MSI Dropped
+id: 6a2b3c4d-bf44-8c7a-3074-58ba36341d6d
+status: experimental
+description: >
+  Detects creation of MSI files matching the Logitech_Update_*.msi filename shape
+  TclBanker uses for delivery, outside legitimate software-update paths.
+references:
+    - https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+author: F0RT1KA
+date: 2026-05-11
+tags:
+    - attack.initial_access
+    - attack.t1566.001
+    - attack.t1218.007
+    - threat.tclbanker
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|re: '(?i)\\Logitech_Update_[\w\-]+\.msi$'
+    legit_paths:
+        TargetFilename|contains:
+            - '\Program Files\'
+            - '\Windows\Installer\'
+    condition: selection and not legit_paths
+level: medium
+---
+title: TclBanker C2 HTTP Header X-Campaign-Id With Known Campaign GUID
+id: 7a2b3c4d-bf44-8c7a-3074-58ba36341d6d
+status: experimental
+description: >
+  Detects outbound HTTP/HTTPS requests with X-Campaign-Id header carrying
+  TclBanker's campaign GUID 70e4f943-e323-4484-97d7-35401bf6812c, or the
+  User-Agent string "Tcl.WppBot".
+references:
+    - https://www.elastic.co/security-labs/tclbanker-brazilian-banking-trojan
+author: F0RT1KA
+date: 2026-05-11
+tags:
+    - attack.command_and_control
+    - attack.t1071.001
+    - threat.tclbanker
+logsource:
+    category: proxy
+    product: zeek
+detection:
+    sel_camp_id:
+        request_header|contains: 'X-Campaign-Id: 70e4f943-e323-4484-97d7-35401bf6812c'
+    sel_ua:
+        UserAgent|contains: 'Tcl.WppBot'
+    condition: 1 of sel_*
+level: high
