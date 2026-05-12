@@ -72,11 +72,12 @@ func main() {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Host: %s | Sideloaded DLL: %s", HostExeName, SideloadDLL))
 	LogStageStart(STAGE_ID, TECHNIQUE_ID, "TclBanker DLL sideload via LogiAiPromptBuilder.exe")
 
-	cleanup := func() {}
-	defer func() { cleanup() }()
-
-	c, err := performTechnique()
-	cleanup = c
+	// NOTE: os.Exit() bypasses deferred functions, so we cannot rely on
+	// `defer cleanup()`. Every exit path below calls cleanup() explicitly
+	// before os.Exit. This ensures LogiAiPromptBuilder.exe and the renamed
+	// screen_retriever_plugin.dll are removed from ARTIFACT_DIR\LogiAI on
+	// every stage termination — error, blocked, or success.
+	cleanup, err := performTechnique()
 	if err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
@@ -86,12 +87,14 @@ func main() {
 		} else {
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		}
+		cleanup()
 		os.Exit(exitCode)
 	}
 
 	fmt.Printf("[STAGE %s] DLL sideload completed (real LoadLibrary on renamed Microsoft DLL)\n", TECHNIQUE_ID)
 	LogMessage("SUCCESS", TECHNIQUE_ID, "Sideload host executed; image load occurred on screen_retriever_plugin.dll")
 	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "Real LoadLibrary produced — TclBanker sideload pattern observed")
+	cleanup()
 	os.Exit(StageSuccess)
 }
 

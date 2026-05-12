@@ -61,6 +61,20 @@ func main() {
 	LogMessage("INFO", TECHNIQUE_ID, "Starting deobfuscation + environment-gate simulation")
 	LogStageStart(STAGE_ID, TECHNIQUE_ID, "AES decryption of Tcl.Agent payload + locale gate")
 
+	// Idempotent cleanup of this stage's artifacts in ARTIFACT_DIR\LogiAI.
+	// os.Exit bypasses defer, so cleanup() is called explicitly on every
+	// exit path below. os.Remove on a missing file is a no-op, so this is
+	// safe even when performTechnique fails before writing anything.
+	cleanup := func() {
+		blobDir := filepath.Join(ARTIFACT_DIR, "LogiAI")
+		_ = os.Remove(filepath.Join(blobDir, "Tcl.Agent.enc"))
+		_ = os.Remove(filepath.Join(blobDir, "Tcl.Agent.dec.bin"))
+		// Best-effort dir removal — succeeds only if empty (other stages may
+		// own the directory). Failure is fine.
+		_ = os.Remove(blobDir)
+		LogMessage("INFO", TECHNIQUE_ID, "Cleanup: Tcl.Agent.* artifacts removed from ARTIFACT_DIR/LogiAI")
+	}
+
 	if err := performTechnique(); err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
@@ -70,12 +84,14 @@ func main() {
 		} else {
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		}
+		cleanup()
 		os.Exit(exitCode)
 	}
 
 	fmt.Printf("[STAGE %s] Deobfuscation + environment-gate complete\n", TECHNIQUE_ID)
 	LogMessage("SUCCESS", TECHNIQUE_ID, "AES decrypt + locale + timing gate executed (passive)")
 	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "Tcl.Agent decryption + Brazilian locale gate observed")
+	cleanup()
 	os.Exit(StageSuccess)
 }
 
