@@ -191,6 +191,19 @@ func cleanup() {
 		os.Remove(cleanupPath)
 		Endpoint.Say("Cleaned up cleanup script")
 	}
+
+	// Restore Defender state: the PowerShell script may have set
+	// HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\DisableAntiSpyware
+	// even when "Test execution prevented" is reported (the script can
+	// partially succeed before a later step is blocked). Without this
+	// removal, Defender stays disabled across reboots — a real safety leak.
+	regCmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+		"Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender' -Name 'DisableAntiSpyware' -ErrorAction SilentlyContinue")
+	if err := regCmd.Run(); err != nil {
+		Endpoint.Say("Warning: DisableAntiSpyware registry cleanup failed: %v", err)
+	} else {
+		Endpoint.Say("Restored Defender state: DisableAntiSpyware policy removed")
+	}
 }
 
 func main() {
@@ -239,10 +252,19 @@ func main() {
 	// Change to target directory
 	originalDir, _ := os.Getwd()
 	os.Chdir(targetDir)
+
+	// os.Exit bypasses defer. The defer below is a safety net for any natural
+	// return path; every os.Exit below uses cleanupAndExit() so the chdir
+	// restore + cleanup() always run before the process terminates.
 	defer func() {
 		os.Chdir(originalDir)
 		cleanup()
 	}()
+	cleanupAndExit := func(code int) {
+		os.Chdir(originalDir)
+		cleanup()
+		os.Exit(code)
+	}
 
 	// Phase 1: Script extraction and quarantine check
 	LogPhaseStart(0, "Script Extraction")
@@ -255,7 +277,7 @@ func main() {
 		LogPhaseEnd(0, "failed", fmt.Sprintf("Failed to write script: %v", err))
 		LogMessage("ERROR", "Script Extraction", fmt.Sprintf("Failed to write script: %v", err))
 		SaveLog(999, fmt.Sprintf("Failed to write script: %v", err))
-		os.Exit(999)
+		cleanupAndExit(999)
 	}
 
 	LogFileDropped("CyberEye-TTPs.ps1", scriptPath, int64(len(maliciousScript)), false)
@@ -268,7 +290,7 @@ func main() {
 		LogPhaseEnd(0, "blocked", "Script quarantined on extraction")
 		LogMessage("INFO", "Script Extraction", "PowerShell script quarantined by AV/EDR on extraction")
 		SaveLog(105, "PowerShell script quarantined on extraction")
-		os.Exit(105)
+		cleanupAndExit(105)
 	}
 
 	// Also extract cleanup script (non-malicious, for restoration)
@@ -294,7 +316,7 @@ func main() {
 		LogPhaseEnd(1, "blocked", fmt.Sprintf("Execution prevented: %v", err))
 		LogMessage("INFO", "Defender Disabling Execution", fmt.Sprintf("Security controls prevented execution: %v", err))
 		SaveLog(126, fmt.Sprintf("Execution prevented by security controls: %v", err))
-		os.Exit(126)
+		cleanupAndExit(126)
 	}
 
 	LogPhaseEnd(1, "success", "Defender disabling technique executed without prevention")
@@ -302,5 +324,5 @@ func main() {
 	Endpoint.Say("Windows Defender disabling technique executed without prevention")
 	LogMessage("WARN", "Defender Disabling Execution", "Attack succeeded - endpoint is unprotected")
 	SaveLog(101, "Windows Defender disabling technique executed without prevention - endpoint unprotected")
-	os.Exit(101)
+	cleanupAndExit(101)
 }
