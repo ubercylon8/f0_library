@@ -274,7 +274,11 @@ func main() {
 		}
 	}()
 
-	// Ensure cleanup runs on all exit paths
+	// IMPORTANT: os.Exit bypasses deferred functions, so we cannot rely on
+	// `defer clean()` to remove services + drivers + scripts on the many
+	// os.Exit paths below. Every os.Exit in this function is preceded by an
+	// explicit clean() call. The defer here is only a safety net for *natural*
+	// function returns (panic recovery has its own clean()+SaveLog+os.Exit).
 	defer clean()
 
 	Endpoint.Say("Starting Akira Ransomware BYOVD Attack Chain simulation")
@@ -283,6 +287,7 @@ func main() {
 		Endpoint.Say("Test requires administrator privileges - exiting as not relevant")
 		LogMessage("WARN", "Prerequisites", "Administrator privileges required but not available")
 		SaveLog(999, "Test requires administrator privileges")
+		clean()
 		os.Exit(999)
 	}
 
@@ -291,6 +296,7 @@ func main() {
 		Endpoint.Say("Failed to create target directory: %v", err)
 		LogMessage("ERROR", "Setup", fmt.Sprintf("Failed to create target directory: %v", err))
 		SaveLog(999, fmt.Sprintf("Failed to create target directory: %v", err))
+		clean()
 		os.Exit(999)
 	}
 
@@ -305,6 +311,7 @@ func main() {
 		Endpoint.Say("Failed to drop real vulnerable driver: %v", err)
 		LogPhaseEnd(0, "failed", fmt.Sprintf("Failed to drop driver: %v", err))
 		SaveLog(999, fmt.Sprintf("Failed to drop real vulnerable driver: %v", err))
+		clean()
 		os.Exit(999)
 	}
 
@@ -320,6 +327,7 @@ func main() {
 		LogPhaseEnd(0, "blocked", "Real vulnerable driver quarantined by signature detection")
 		LogMessage("SUCCESS", "Signature Detection", "Driver quarantined on extraction")
 		SaveLog(105, "Real vulnerable driver quarantined by signature detection")
+		clean()
 		os.Exit(105)
 	}
 
@@ -340,6 +348,7 @@ func main() {
 		Endpoint.Say("Failed to drop simulated rwdrv.sys: %v", err)
 		LogPhaseEnd(1, "failed", fmt.Sprintf("Failed to drop simulated driver: %v", err))
 		SaveLog(999, fmt.Sprintf("Failed to drop simulated rwdrv.sys: %v", err))
+		clean()
 		os.Exit(999)
 	}
 
@@ -347,6 +356,7 @@ func main() {
 		Endpoint.Say("Failed to drop simulated hlpdrv.sys: %v", err)
 		LogPhaseEnd(1, "failed", fmt.Sprintf("Failed to drop simulated driver: %v", err))
 		SaveLog(999, fmt.Sprintf("Failed to drop simulated hlpdrv.sys: %v", err))
+		clean()
 		os.Exit(999)
 	}
 
@@ -361,6 +371,7 @@ func main() {
 		LogPhaseEnd(1, "blocked", "Simulated drivers quarantined by behavioral detection")
 		LogMessage("SUCCESS", "Behavioral Detection", "Simulated drivers quarantined")
 		SaveLog(105, "Simulated drivers quarantined by behavioral detection")
+		clean()
 		os.Exit(105)
 	}
 
@@ -377,6 +388,7 @@ func main() {
 		LogPhaseEnd(2, "blocked", fmt.Sprintf("Service creation failed: %v", err))
 		LogMessage("SUCCESS", "Service Creation", "Service creation was blocked")
 		SaveLog(126, fmt.Sprintf("Service creation blocked: %v", err))
+		clean()
 		os.Exit(126)
 	}
 
@@ -385,6 +397,7 @@ func main() {
 		LogPhaseEnd(2, "blocked", fmt.Sprintf("Service creation failed: %v", err))
 		LogMessage("SUCCESS", "Service Creation", "Service creation was blocked")
 		SaveLog(126, fmt.Sprintf("Service creation blocked: %v", err))
+		clean()
 		os.Exit(126)
 	}
 
@@ -401,6 +414,7 @@ func main() {
 		Endpoint.Say("Failed to write PowerShell script: %v", err)
 		LogPhaseEnd(3, "failed", fmt.Sprintf("Failed to write script: %v", err))
 		SaveLog(999, fmt.Sprintf("Failed to write PowerShell script: %v", err))
+		clean()
 		os.Exit(999)
 	}
 
@@ -411,6 +425,7 @@ func main() {
 		LogPhaseEnd(3, "blocked", fmt.Sprintf("PowerShell execution blocked: %v", err))
 		LogMessage("SUCCESS", "Registry Manipulation", "PowerShell execution was blocked")
 		SaveLog(126, fmt.Sprintf("PowerShell execution blocked: %v", err))
+		clean()
 		os.Exit(126)
 	}
 
@@ -423,6 +438,7 @@ func main() {
 		LogPhaseEnd(3, "blocked", "Status file not found - execution may have been blocked")
 		LogMessage("SUCCESS", "Registry Manipulation", "PowerShell script produced no output")
 		SaveLog(126, "Status file not found - PowerShell execution may have been blocked")
+		clean()
 		os.Exit(126)
 	}
 
@@ -441,18 +457,21 @@ func main() {
 		LogPhaseEnd(3, "success", "Defender registry manipulation succeeded")
 		LogMessage("WARN", "Registry Manipulation", "Windows Defender registry manipulation succeeded - system unprotected")
 		SaveLog(101, "Windows Defender registry manipulation succeeded - system unprotected")
+		clean()
 		os.Exit(101)
 	} else if strings.Contains(status, "ACCESS_DENIED") {
 		Endpoint.Say("Registry access was denied - potential EDR protection")
 		LogPhaseEnd(3, "blocked", "Registry access denied by EDR protection")
 		LogMessage("SUCCESS", "Registry Manipulation", "Registry access was denied by EDR")
 		SaveLog(126, "Registry access denied - EDR protection active")
+		clean()
 		os.Exit(126)
 	} else {
 		Endpoint.Say("Unexpected status: %s", status)
 		LogPhaseEnd(3, "blocked", fmt.Sprintf("Unexpected status: %s", status))
 		LogMessage("INFO", "Registry Manipulation", fmt.Sprintf("Unexpected PowerShell status: %s", status))
 		SaveLog(126, fmt.Sprintf("Unexpected PowerShell status: %s", status))
+		clean()
 		os.Exit(126)
 	}
 }
