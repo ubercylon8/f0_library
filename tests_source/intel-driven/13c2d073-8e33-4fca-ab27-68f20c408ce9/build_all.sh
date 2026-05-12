@@ -71,8 +71,9 @@ NC='\033[0m'
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -d "${SCRIPT_DIR}/../../utils" ]; then
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# Tests live at tests_source/<category>/<uuid>/, three levels below f0_library/
+if [ -d "${SCRIPT_DIR}/../../../utils" ]; then
+    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 else
     PROJECT_ROOT=""
 fi
