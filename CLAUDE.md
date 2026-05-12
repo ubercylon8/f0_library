@@ -33,7 +33,7 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 ### Autonomous Actions (DO NOT ASK FOR PERMISSION)
 
 1. **File operations** - Create, edit, delete files in the project
-2. **Git operations** - Add, commit, push, branch, checkout
+2. **Git operations** - Add, commit, branch, checkout (push requires explicit user instruction — see below)
 3. **Build operations** - Run gobuild, go build, go mod tidy
 4. **Sign operations** - Run codesign, build_all.sh scripts
 5. **Python scripts** - Run sync scripts, validation utilities
@@ -43,6 +43,7 @@ This is the F0RT1KA security testing framework - a specialized library for evalu
 ### When TO Ask for Permission
 
 Only ask when:
+- **Any `git push` to remote** - Never push autonomously. Commit locally, surface the pending commit, wait for user to say "push" (or run `git push` themselves). This includes `main`, feature branches, and any other remote.
 - **Destructive git operations** - `git push --force`, `git reset --hard` to remote
 - **External service changes** - Modifying LimaCharlie production rules
 - **Credential operations** - Anything involving certificates or signing keys
@@ -50,10 +51,14 @@ Only ask when:
 
 ### Commit Style
 
-When committing, use conventional commit format and push without asking:
+When committing, use conventional commit format. **Do NOT push autonomously** — commit locally and surface the pending commit hash to the user. The user pushes (or instructs you to push) when ready.
+
 ```bash
-git add -A && git commit -m "fix: description" && git push
+git add <specific-files> && git commit -m "fix: description"
+# After commit: report commit hash, wait for explicit push instruction.
 ```
+
+Prefer staging specific files over `git add -A` to avoid accidentally including build artifacts, secrets, or unrelated work.
 
 ## Organization UUID Implementation (MANDATORY)
 
