@@ -91,6 +91,30 @@ func main() {
 func performTechnique() error {
 	targetDir := "c:\\F0"
 
+	// === SAFETY NET (Option α defensive cleanup) ===
+	// Every EDR service mutation below has an inline restore immediately
+	// after, so under normal execution the test never leaves state behind.
+	// A panic between a mutation and its inline restore, however, would leak
+	// — leaving an EDR service stopped or set to start=disabled. The
+	// deferred restoreEDRServices() probes every target and forces it back
+	// to start=auto + Running, plus removes the temp F0RT1KA_GMER64 service
+	// if it persisted. Idempotent: on healthy runs this is a near no-op.
+	//
+	// Defers fire during panic unwinding too, so this protects against any
+	// panic in the function body. It does NOT protect against SIGKILL /
+	// BSOD / external process kill — that would require a watchdog process.
+	//
+	// LIFO order: the panic-log defer (added second) runs first to record
+	// what happened, then restoreEDRServices runs to roll state back.
+	defer restoreEDRServices()
+	defer func() {
+		if r := recover(); r != nil {
+			LogMessage("CRITICAL", TECHNIQUE_ID,
+				fmt.Sprintf("performTechnique panic — safety-net cleanup will run: %v", r))
+			panic(r) // re-propagate; restoreEDRServices defer still fires
+		}
+	}()
+
 	// Track driver simulation and EDR service tampering separately.
 	// The critical determination is whether EDR services can be disabled/stopped,
 	// not whether a benign simulation driver can be registered.
@@ -274,4 +298,37 @@ func determineExitCode(err error) int {
 		return StageError
 	}
 	return StageBlocked
+}
+
+// restoreEDRServices is the Option α defensive safety net. It probes every
+// EDR target service that this stage might have tampered with and forces it
+// back to start=auto and Running. It also removes the temporary
+// F0RT1KA_GMER64 driver service if the inline cleanup was skipped (panic
+// between create and the inline stop+delete).
+//
+// Idempotent: safe to call multiple times. On healthy runs the inline
+// restores at the call sites have already done the work, so this is just
+// confirming. All sc.exe calls swallow errors — "service not found" or
+// "already running" return non-zero but are the desired end state here.
+func restoreEDRServices() {
+	// First: clean up the temporary GMER64 driver service if it leaked
+	if _, err := exec.Command("sc.exe", "query", "F0RT1KA_GMER64").CombinedOutput(); err == nil {
+		exec.Command("sc.exe", "stop", "F0RT1KA_GMER64").CombinedOutput()
+		exec.Command("sc.exe", "delete", "F0RT1KA_GMER64").CombinedOutput()
+		LogMessage("INFO", TECHNIQUE_ID, "Safety net: removed leftover F0RT1KA_GMER64 service")
+	}
+
+	// Probe each EDR target: ensure start=auto and Running.
+	for _, svcName := range edrServiceTargets {
+		// Skip if the service doesn't exist on this host
+		if _, err := exec.Command("sc.exe", "query", svcName).CombinedOutput(); err != nil {
+			continue
+		}
+		// Force start type back to auto (idempotent)
+		exec.Command("sc.exe", "config", svcName, "start=", "auto").CombinedOutput()
+		// Force start (idempotent — harmless if already running)
+		exec.Command("sc.exe", "start", svcName).CombinedOutput()
+	}
+
+	LogMessage("INFO", TECHNIQUE_ID, "Safety-net EDR service restoration complete")
 }
