@@ -83,6 +83,12 @@ lab-results/
 # Multi-stage test temporary binaries (cleaned after build)
 *-T*.exe
 *-T*.dll
+# Gzip-compressed signed binaries staged for //go:embed (e.g. sideload host
+# binaries like LogiAiPromptBuilder.exe.gz, per-stage <uuid>-T<technique>.exe.gz).
+# These are produced by build_all.sh and cleaned at end of build; uploaded to
+# PA out-of-band rather than committed (PE inside the gzip is signed).
+*.exe.gz
+*.dll.gz
 
 # Analysis outputs
 analysis_output/
