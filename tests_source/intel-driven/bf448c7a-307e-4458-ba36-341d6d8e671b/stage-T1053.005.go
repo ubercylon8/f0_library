@@ -75,17 +75,26 @@ func main() {
 	LogStageStart(STAGE_ID, TECHNIQUE_ID,
 		"Real ITaskService::RegisterTaskDefinition for RuntimeOptimizeService")
 
-	// Watchdog: if main returns or panics without cleanupDone == 1, force a schtasks delete.
+	// Cleanup defense-in-depth (read this carefully — the layering matters):
+	//   1. performTechnique() calls cleanupTask("normal-path") INLINE before
+	//      returning on the success path. This is the load-bearing cleanup.
+	//   2. The error-exit path below calls cleanupTask("error-exit") explicitly
+	//      — because os.Exit bypasses defer, we cannot rely on the defer here.
+	//   3. The panic handler calls cleanupTask("panic-recovery") then os.Exit.
+	//   4. defer cleanupTask("deferred") is kept as a safety net for any
+	//      natural-return refactor (currently dead — main always os.Exits) but
+	//      is also called by panic recovery if a panic occurs after the defer
+	//      registers but before the panic handler runs.
+	//   5. Watchdog goroutine fires schtasks /delete after 10s if cleanupDone
+	//      hasn't been set — but goroutines die with os.Exit, so this only
+	//      catches a *wedged* main, not a fast-exit one. Treat it as a
+	//      development-time safety net, not a production guarantee.
+	// cleanupTask uses an atomic CAS so all five paths are safe to coexist.
 	go watchdog()
-
-	// Top-level deferred cleanup — runs even on panic
 	defer cleanupTask("deferred")
-
-	// Recover from panics so cleanup runs predictably
 	defer func() {
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", TECHNIQUE_ID, fmt.Sprintf("Stage panic: %v", r))
-			// Force cleanup before re-exit
 			cleanupTask("panic-recovery")
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", fmt.Sprintf("Panic: %v", r))
 			os.Exit(StageError)
@@ -101,6 +110,9 @@ func main() {
 		} else {
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		}
+		// Explicit cleanup before os.Exit — bypasses the (dead) defer above.
+		// Critical: performTechnique may have created the task before failing.
+		cleanupTask("error-exit")
 		os.Exit(exitCode)
 	}
 
