@@ -52,7 +52,11 @@ func main() {
 	LogMessage("INFO", TECHNIQUE_ID, "Tradecraft: MSI installer in ZIP wrapper impersonating Logitech update")
 	LogStageStart(STAGE_ID, TECHNIQUE_ID, "TclBanker delivery — Logitech_Update MSI + ZIP")
 
-	if err := performTechnique(); err != nil {
+	// performTechnique returns a cleanup closure that knows the actual MSI/ZIP
+	// paths it dropped (filenames vary by date). os.Exit bypasses defer, so we
+	// call cleanup() explicitly before every exit path.
+	cleanup, err := performTechnique()
+	if err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
 
@@ -62,20 +66,40 @@ func main() {
 		} else {
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		}
+		cleanup()
 		os.Exit(exitCode)
 	}
 
 	fmt.Printf("[STAGE %s] TclBanker delivery artifacts dropped\n", TECHNIQUE_ID)
 	LogMessage("SUCCESS", TECHNIQUE_ID, "Delivery artifacts dropped successfully — would invoke msiexec /i in real chain")
 	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "Logitech_Update MSI+ZIP dropped to ARTIFACT_DIR")
+	cleanup()
 	os.Exit(StageSuccess)
 }
 
-func performTechnique() error {
+func performTechnique() (func(), error) {
+	noop := func() {}
+
 	// Create staging directory inside ARTIFACT_DIR (NOT whitelisted — EDR can scan it)
 	stagingDir := filepath.Join(ARTIFACT_DIR, "Downloads")
 	if err := os.MkdirAll(stagingDir, 0755); err != nil {
-		return fmt.Errorf("create staging dir: %v", err)
+		return noop, fmt.Errorf("create staging dir: %v", err)
+	}
+
+	// Cleanup closure: removes whatever this stage actually wrote. Captures
+	// stagingDir at definition time; msiPath/zipPath are filled in below as
+	// they're computed, so cleanup grows precise as the stage progresses.
+	var msiPath, zipPath string
+	cleanup := func() {
+		if msiPath != "" {
+			_ = os.Remove(msiPath)
+		}
+		if zipPath != "" {
+			_ = os.Remove(zipPath)
+		}
+		// Best-effort dir removal — succeeds only if empty
+		_ = os.Remove(stagingDir)
+		LogMessage("INFO", TECHNIQUE_ID, "Cleanup: Logitech_Update artifacts removed from ARTIFACT_DIR/Downloads")
 	}
 
 	// Build a timestamp suffix so the MSI filename matches the real TclBanker shape:
@@ -83,8 +107,8 @@ func performTechnique() error {
 	timestamp := time.Now().Format("20060102")
 	msiName := fmt.Sprintf("%s%s.msi", MSIFilenamePrefix, timestamp)
 	zipName := fmt.Sprintf("%s%s.zip", ZIPFilenamePrefix, timestamp)
-	msiPath := filepath.Join(stagingDir, msiName)
-	zipPath := filepath.Join(stagingDir, zipName)
+	msiPath = filepath.Join(stagingDir, msiName)
+	zipPath = filepath.Join(stagingDir, zipName)
 
 	// Synthesize an MSI-looking payload. Real MSIs are OLE/CFB compound documents;
 	// we write the CFB header signature so file-type detection identifies the artifact
@@ -99,7 +123,7 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Dropping MSI artifact: %s", msiPath))
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("MSI filename shape matches TclBanker: %s%s.msi", MSIFilenamePrefix, "<build>"))
 	if err := os.WriteFile(msiPath, msiContent, 0644); err != nil {
-		return fmt.Errorf("write MSI: %v", err)
+		return cleanup, fmt.Errorf("write MSI: %v", err)
 	}
 
 	sum := sha256.Sum256(msiContent)
@@ -109,7 +133,7 @@ func performTechnique() error {
 	time.Sleep(2 * time.Second)
 	if _, err := os.Stat(msiPath); os.IsNotExist(err) {
 		LogFileDropped(msiName, msiPath, int64(len(msiContent)), true)
-		return fmt.Errorf("quarantined: MSI artifact removed by EDR")
+		return cleanup, fmt.Errorf("quarantined: MSI artifact removed by EDR")
 	}
 	LogFileDropped(msiName, msiPath, int64(len(msiContent)), false)
 
@@ -119,22 +143,22 @@ func performTechnique() error {
 	zw := zip.NewWriter(zipBuf)
 	zf, err := zw.Create(msiName)
 	if err != nil {
-		return fmt.Errorf("create zip entry: %v", err)
+		return cleanup, fmt.Errorf("create zip entry: %v", err)
 	}
 	if _, err := zf.Write(msiContent); err != nil {
-		return fmt.Errorf("write zip entry: %v", err)
+		return cleanup, fmt.Errorf("write zip entry: %v", err)
 	}
 	if err := zw.Close(); err != nil {
-		return fmt.Errorf("close zip: %v", err)
+		return cleanup, fmt.Errorf("close zip: %v", err)
 	}
 	if err := os.WriteFile(zipPath, zipBuf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("write ZIP: %v", err)
+		return cleanup, fmt.Errorf("write ZIP: %v", err)
 	}
 
 	time.Sleep(2 * time.Second)
 	if _, err := os.Stat(zipPath); os.IsNotExist(err) {
 		LogFileDropped(zipName, zipPath, int64(zipBuf.Len()), true)
-		return fmt.Errorf("quarantined: ZIP wrapper removed by EDR")
+		return cleanup, fmt.Errorf("quarantined: ZIP wrapper removed by EDR")
 	}
 	LogFileDropped(zipName, zipPath, int64(zipBuf.Len()), false)
 
@@ -144,7 +168,7 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, "Intended invocation (not executed): msiexec /i Logitech_Update_*.msi /qn")
 
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Delivery artifacts ready at: %s", stagingDir))
-	return nil
+	return cleanup, nil
 }
 
 func determineExitCode(err error) int {
