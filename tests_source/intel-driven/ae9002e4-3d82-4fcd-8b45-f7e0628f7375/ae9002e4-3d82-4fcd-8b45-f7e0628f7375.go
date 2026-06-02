@@ -362,9 +362,23 @@ func executeStage(stage KillchainStage) int {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, stagePath)
-	cmd.Dir = "/tmp/F0"
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Dir = LOG_DIR
+
+	// Capture stage stdout/stderr to BOTH console and a per-stage file
+	// (CLAUDE.md Critical Rule 5 / "Stdout/Stderr Capture Pattern").
+	// File naming: LOG_DIR/<binary-name>_output.txt.
+	outputPath := filepath.Join(LOG_DIR, stage.BinaryName+"_output.txt")
+	if outFile, ferr := os.Create(outputPath); ferr != nil {
+		// Non-fatal: if the log file cannot be created, fall back to console-only
+		// so a logging issue never aborts (and never misclassifies) a stage.
+		Endpoint.Say("  Could not create stage output file %s: %v (continuing console-only)", outputPath, ferr)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		defer outFile.Close()
+		cmd.Stdout = io.MultiWriter(os.Stdout, outFile)
+		cmd.Stderr = io.MultiWriter(os.Stderr, outFile)
+	}
 
 	if err := cmd.Start(); err != nil {
 		errMsg := fmt.Sprintf("Failed to start stage %s: %v", stage.Technique, err)
