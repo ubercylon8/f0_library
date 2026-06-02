@@ -96,21 +96,29 @@ func cleanupSandboxKey() {
 	LogMessage("INFO", TECHNIQUE_ID, "Sandbox service key cleaned up")
 }
 
+// determineExitCode classifies an outcome. Per Bug Prevention Rules 1 and 8:
+// - Errors describe the OPERATION, never inject blame keywords.
+// - Block codes (126) require POSITIVE evidence of a real protection action.
+// - Unknown/unrecognized errors MUST map to StageError (999), NOT StageBlocked.
 func determineExitCode(err error) int {
 	if err == nil {
 		return StageSuccess
 	}
 	errStr := err.Error()
+	// OS-produced denial tokens => positive evidence a protection layer worked.
 	if containsAny(errStr, []string{"access is denied", "access denied", "permission denied", "operation not permitted"}) {
 		return StageBlocked
 	}
+	// Write-not-persisted (EDR silently dropped the operation) => treated as blocked.
 	if containsAny(errStr, []string{"not persisted", "readback mismatch"}) {
 		return StageBlocked
 	}
+	// Genuine prerequisite problems.
 	if containsAny(errStr, []string{"not found", "does not exist", "no such"}) {
 		return StageError
 	}
-	return StageBlocked
+	// Unknown/unrecognized error — per Rule 8, absence of success is NOT a block.
+	return StageError
 }
 
 func containsAny(s string, subs []string) bool {

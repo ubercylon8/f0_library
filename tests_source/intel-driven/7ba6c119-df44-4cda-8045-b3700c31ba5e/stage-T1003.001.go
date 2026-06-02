@@ -142,18 +142,21 @@ func findProcessByName(name string) (uint32, error) {
 	}
 }
 
-// determineExitCode classifies the outcome. Per Bug Prevention Rule 1, errors from
-// performTechnique describe the OPERATION, never the cause. We classify on the
-// OS-produced denial tokens (access-denied) the kernel itself emits, distinguishing
-// a real protection block from a benign prerequisite failure.
+// determineExitCode classifies the outcome. Per Bug Prevention Rules 1 and 8:
+// - Errors describe the OPERATION, never inject blame keywords.
+// - Block codes (126) require POSITIVE evidence of a real protection action.
+// - For Stage 4, access-denied on lsass OpenProcess IS positive block evidence:
+//   running as SYSTEM/admin, a denial on lsass means PPL/EDR/CredGuard acted.
+// - Unknown/unrecognized errors map to StageError (999), NOT StageBlocked.
 func determineExitCode(err error) int {
 	if err == nil {
 		return StageSuccess
 	}
 	errStr := err.Error()
 
-	// OS-produced denial tokens on the lsass handle => a protection layer worked
-	// (PPL / EDR mini-filter / Credential Guard denied the read handle).
+	// OS-produced denial tokens on the lsass handle => positive evidence a
+	// protection layer worked (PPL / EDR mini-filter / Credential Guard denied
+	// the read handle). This is legitimate as SYSTEM/admin normally succeeds.
 	if containsAny(errStr, []string{"access is denied", "access denied", "permission denied", "operation not permitted"}) {
 		return StageBlocked
 	}
@@ -161,8 +164,8 @@ func determineExitCode(err error) int {
 	if containsAny(errStr, []string{"not found", "does not exist", "no such", "enumeration returned", "snapshot creation"}) {
 		return StageError
 	}
-	// Conservative default: an unexpected interference is treated as a block.
-	return StageBlocked
+	// Unknown/unrecognized error — per Rule 8, absence of success is NOT a block.
+	return StageError
 }
 
 func equalsIgnoreCase(a, b string) bool {

@@ -11,6 +11,20 @@
 // NO DeviceIoControl memory-read IOCTL and load NO real driver. If the device is not
 // present (expected on a clean host), that is logged as a benign prerequisite miss
 // and the access-attempt telemetry has already been generated.
+//
+// BUG PREVENTION (Rule 8): A block code (126) is returned ONLY on positive evidence
+// of a real protection action. The \\.\KslD device is NEVER loaded in this test (by
+// design, for safety). Therefore, ANY failure from CreateFile on that device — whether
+// ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_ACCESS_DENIED, or any other errno
+// — is a benign prerequisite miss, NOT an EDR block. The Object Manager returns
+// ERROR_ACCESS_DENIED when a device object does not exist in \\Global?? (the DosDevices
+// namespace), indistinguishably from a real ACL denial. Without the driver loaded,
+// we have no positive evidence of a protection action; classifying this as a block
+// would be a false positive.
+//
+// The ONLY genuine block signal in Stage 3 is: we dropped the vKslD.sys artifact on
+// disk and it subsequently disappeared (quarantined by AV/EDR). That is checked via
+// os.Stat per Bug Prevention Rule 3.
 
 //go:build windows
 
@@ -20,6 +34,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -62,22 +77,43 @@ func main() {
 }
 
 func performTechnique() error {
-	// Step 1: Drop a benign vKslD.sys artifact (on-disk detection surface).
-	if err := dropDriverArtifact(); err != nil {
-		// A quarantine of the dropped artifact is itself a protection signal.
-		return fmt.Errorf("driver artifact drop returned: %v", err)
+	// Step 1: Drop a benign vKslD.sys artifact (on-disk detection surface) and
+	// check for quarantine. The quarantine check IS the protection-block signal;
+	// the device-open failure is NOT.
+	artifactQuarantined, err := dropAndCheckArtifact()
+	if err != nil {
+		// Write failed entirely — genuine prerequisite problem (disk full, permission
+		// on ARTIFACT_DIR denied, etc.). Not a protection block.
+		return fmt.Errorf("artifact write returned: %v", err)
+	}
+	if artifactQuarantined {
+		// The artifact was written to disk then disappeared — positive evidence that
+		// AV/EDR quarantined it. This is the real block signal for Stage 3.
+		LogMessage("WARN", TECHNIQUE_ID, "vKslD.sys artifact quarantined after drop — AV/EDR removed the file (positive protection evidence)")
+		return fmt.Errorf("artifact quarantined after drop")
 	}
 
 	// Step 2: Attempt to open the \\.\KslD kernel device. The OPEN ATTEMPT is the
 	// detection signal — we issue no memory-read IOCTL.
+	//
+	// CLASSIFICATION RULE (Rule 8): This test NEVER loads a real KslD driver. The
+	// \\.\KslD device object therefore does NOT exist in the Object Manager namespace.
+	// The Windows Object Manager returns ERROR_ACCESS_DENIED (ERROR 5) when a device
+	// object is absent from \\Global?? — identically to a real ACL denial. Without
+	// the driver loaded we cannot distinguish "EDR blocked the open" from "device was
+	// never created". Per Rule 8, absence of success is NOT evidence of a block.
+	// ALL CreateFile failure paths below are therefore benign prerequisites — we log
+	// the raw errno for MDE telemetry corroboration and return nil (StageSuccess).
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Attempting CreateFile on kernel device: %s (open-only, no IOCTL)", kslDevicePath))
 
 	devicePtr, err := windows.UTF16PtrFromString(kslDevicePath)
 	if err != nil {
-		return fmt.Errorf("device path encode returned: %v", err)
+		// Encoding failure — benign, cannot even form the path.
+		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Device path encode failed (benign): %v", err))
+		return nil
 	}
 
-	handle, err := windows.CreateFile(
+	handle, openErr := windows.CreateFile(
 		devicePtr,
 		windows.GENERIC_READ|windows.GENERIC_WRITE,
 		0,
@@ -87,64 +123,84 @@ func performTechnique() error {
 		0,
 	)
 
-	if err != nil {
-		// ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND => the vulnerable driver is
-		// not loaded on this host. Expected on a clean endpoint: the access-attempt
-		// telemetry was generated; this is a benign prerequisite miss, not a block.
-		if err == windows.ERROR_FILE_NOT_FOUND || err == windows.ERROR_PATH_NOT_FOUND {
-			LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Device %s not present (vulnerable driver not loaded) - benign prerequisite miss; access attempt telemetry generated", kslDevicePath))
-			return nil
-		}
-		// ERROR_ACCESS_DENIED => a protection layer blocked the device open.
-		return fmt.Errorf("device open returned: %v", err)
+	if openErr != nil {
+		// Log the raw Windows errno for MDE DeviceEvents corroboration.
+		// The caller (determineExitCode) will never see this path because we return nil.
+		winErrno, _ := openErr.(windows.Errno)
+		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf(
+			"CreateFile(%s) returned error (benign prerequisite miss — driver not loaded): errno=%d (%v); access-attempt telemetry generated",
+			kslDevicePath, uint32(winErrno), openErr,
+		))
+		// Return nil unconditionally. Any error here is a prerequisite miss, not a block.
+		// Rule 8: we have no positive evidence of a protection action from the device open.
+		return nil
 	}
 
-	// Device unexpectedly opened — close immediately, issue NO IOCTL.
+	// Device unexpectedly opened (would only happen if a real KslD driver were
+	// loaded, which does not occur in this test). Close immediately, no IOCTL.
 	defer windows.CloseHandle(handle)
-	LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("Device %s opened successfully - handle acquired, NO memory IOCTL issued (safety)", kslDevicePath))
+	LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("Device %s opened successfully — handle acquired, NO memory IOCTL issued (safety boundary)", kslDevicePath))
 	return nil
 }
 
-func dropDriverArtifact() error {
-	if err := os.MkdirAll(ARTIFACT_DIR, 0755); err != nil {
-		return fmt.Errorf("artifact directory creation returned: %v", err)
+// dropAndCheckArtifact writes the benign vKslD.sys placeholder to ARTIFACT_DIR,
+// waits briefly, then checks (via os.Stat per Bug Prevention Rule 3) whether the
+// file still exists. Returns (quarantined=true, nil) if the file was removed by
+// AV/EDR, (false, nil) on normal success, or (false, err) if the write itself
+// failed (a prerequisite problem, not a protection block).
+func dropAndCheckArtifact() (quarantined bool, err error) {
+	if mkErr := os.MkdirAll(ARTIFACT_DIR, 0755); mkErr != nil {
+		return false, fmt.Errorf("artifact directory creation returned: %v", mkErr)
 	}
 	artifactPath := filepath.Join(ARTIFACT_DIR, vulnerableDriverArtifact)
 
-	// Benign placeholder content — NOT a real driver. Marked so any analyst
-	// inspecting the artifact understands it is an inert simulation file.
+	// Benign placeholder content — NOT a real driver. Inert simulation artifact.
 	content := []byte("F0RT1KA-SIMULATION-ARTIFACT: inert placeholder for KslKatz vKslD.sys (no driver code)\n")
-	if err := os.WriteFile(artifactPath, content, 0644); err != nil {
-		return fmt.Errorf("artifact write returned: %v", err)
+	if writeErr := os.WriteFile(artifactPath, content, 0644); writeErr != nil {
+		return false, fmt.Errorf("artifact write returned: %v", writeErr)
 	}
 	LogFileDropped(vulnerableDriverArtifact, artifactPath, int64(len(content)), false)
 	LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("Dropped vulnerable-driver artifact (inert): %s", artifactPath))
 
-	// Best-effort cleanup at stage end.
-	defer func() {
-		if _, statErr := os.Stat(artifactPath); statErr == nil {
-			_ = os.Remove(artifactPath)
-		}
-	}()
-	return nil
+	// Wait briefly for AV/EDR to react (Rule 3: use os.Stat for quarantine detection).
+	time.Sleep(3 * time.Second)
+	_, statErr := os.Stat(artifactPath)
+	if statErr != nil {
+		// File is gone — positive evidence of quarantine by AV/EDR.
+		LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("vKslD.sys artifact removed after drop (os.Stat returned: %v) — quarantine positive", statErr))
+		return true, nil
+	}
+
+	// File still present — clean up and continue.
+	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("vKslD.sys artifact present after 3s sleep — not quarantined"))
+	_ = os.Remove(artifactPath)
+	return false, nil
 }
 
+// determineExitCode classifies Stage 3 outcomes. Per Bug Prevention Rules 1 and 8:
+// - Block codes (126/105) require POSITIVE evidence of a real protection action.
+// - Absence of success is NOT a block — unknown errors map to StageError (999).
+// - Error messages describe the OPERATION, never inject blame keywords.
+//
+// The ONLY block-positive signal in Stage 3 is artifact quarantine (file dropped
+// then gone via os.Stat check). Device-open failures are never a block signal here
+// because the KslD device object is intentionally absent.
 func determineExitCode(err error) int {
 	if err == nil {
 		return StageSuccess
 	}
 	errStr := err.Error()
-	if containsAny(errStr, []string{"access is denied", "access denied", "permission denied", "operation not permitted"}) {
-		return StageBlocked
-	}
-	// Artifact disappeared after drop => likely quarantined.
-	if containsAny(errStr, []string{"cannot find the file", "file not found", "being used by another process"}) {
+
+	// Positive quarantine evidence: artifact was written then removed by AV/EDR.
+	if containsAny(errStr, []string{"artifact quarantined after drop"}) {
 		return StageQuarantined
 	}
-	if containsAny(errStr, []string{"not found", "does not exist", "no such"}) {
+	// Genuine prerequisite problems (directory creation failed, etc.).
+	if containsAny(errStr, []string{"artifact write returned", "artifact directory creation returned"}) {
 		return StageError
 	}
-	return StageBlocked
+	// Unknown/unrecognized error — per Rule 8, NOT a block; report as error.
+	return StageError
 }
 
 func containsAny(s string, subs []string) bool {
