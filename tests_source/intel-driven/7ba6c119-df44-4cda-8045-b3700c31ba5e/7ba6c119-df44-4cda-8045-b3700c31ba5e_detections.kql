@@ -1,0 +1,457 @@
+// ============================================================
+// KslKatz LSASS BYOVD Credential Dumping — Detection Queries
+// Test ID: 7ba6c119-df44-4cda-8045-b3700c31ba5e
+// MITRE ATT&CK: T1543.003, T1112, T1068, T1003.001
+// Platform: Microsoft Sentinel / Microsoft Defender for Endpoint (Advanced Hunting)
+// Source Intel: https://detect.fyi/ghost-in-lsass-detecting-kslkatz-credential-dumping-framework-8645f246aec9
+// ============================================================
+//
+// CRITICAL DETECTION PHILOSOPHY:
+//   KslKatz bypasses LSA Protection (PPL) by performing MmCopyMemory reads from
+//   kernel mode via a no-fix Microsoft-signed Defender driver (KslD.sys). This means:
+//     - Sysmon EID 10 / DeviceEvents OpenProcess alerts on lsass are a LATE signal
+//       and will be ABSENT on a successful kslkatz run (the read originates in ring 0).
+//     - The highest-value detections target the BYOVD PRECURSOR CHAIN:
+//         1. AllowedProcessName registry write under a KslD service key (T1112)
+//         2. ImagePath redirect of a KslD-shaped kernel service (T1543.003)
+//         3. Drop of a KslD.sys driver outside \drivers\wd\ (T1068)
+//         4. CreateFile open of \\.\KslD device by user-mode process (T1068)
+//     - Detections 1-4 catch the attack BEFORE credential extraction occurs.
+// ============================================================
+
+// ============================================================
+// Query 1: AllowedProcessName Written Under Any KslD Service Key
+// MITRE: T1112 (Modify Registry)
+// Confidence: HIGH
+// ============================================================
+// Purpose: Detects ANY process writing the AllowedProcessName registry value under
+//   a Services\KslD-shaped key. This is the primary kslkatz signal per the source
+//   article. The value contains an NT device path (\Device\HarddiskVolumeN\...) that
+//   the KslD driver uses for a plain-string actor check — no further verification.
+//   Writing this value is high-confidence malicious for any non-Defender binary.
+//   Targets REAL path: HKLM\SYSTEM\CurrentControlSet\Services\KslD
+//   (not sandbox key — real attacker writes the real service key).
+// False Positives: Microsoft Defender updates (HealthService, MsMpEng) legitimately
+//   own KslD registry values; filter on InitiatingProcessFileName.
+// Threshold: Alert on any single occurrence — no threshold needed given specificity.
+// ============================================================
+DeviceRegistryEvents
+| where Timestamp > ago(7d)
+| where ActionType == "RegistryValueSet"
+| where RegistryValueName =~ "AllowedProcessName"
+| where RegistryKey has_any (
+    "\\Services\\KslD",
+    "\\Services\\ksld",
+    "\\Services\\KSLD"
+)
+// The KslD service key lives under CurrentControlSet (and ControlSet001/002).
+// Broaden to any Services subkey named KslD to catch ControlSet variant paths.
+| where RegistryKey matches regex @"\\SYSTEM\\(CurrentControlSet|ControlSet\d+)\\Services\\KslD"
+    or RegistryKey has "Services\\KslD"
+// Filter out known-good Defender processes that legitimately manage this key.
+| where InitiatingProcessFileName !in~ (
+    "MsMpEng.exe",
+    "HealthService.exe",
+    "svchost.exe",
+    "services.exe",
+    "MpDefenderCoreService.exe"
+)
+// NT device path payload shape: value starts with \Device\ — attacker writes their own image path.
+| extend IsNTDevicePath = RegistryValueData matches regex @"^\\Device\\"
+| extend
+    Severity = "Critical",
+    ThreatType = "BYOVD-Trust-Tampering",
+    MitreAttack = "T1112",
+    TestID = "7ba6c119-df44-4cda-8045-b3700c31ba5e",
+    RuleName = "KslD-AllowedProcessName-Write"
+| project
+    TimeGenerated = Timestamp,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessSHA256,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData,
+    IsNTDevicePath,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    TestID
+
+// ============================================================
+// Query 2: KslD Kernel Service ImagePath Redirected Outside Defender Protected Path
+// MITRE: T1543.003 (Create or Modify System Service)
+// Confidence: HIGH
+// ============================================================
+// Purpose: Detects ImagePath of the KslD Defender kernel service being rewritten to
+//   point outside the protected \Windows\System32\drivers\wd\ directory. KslKatz
+//   redirects ImagePath (via ChangeServiceConfigW) toward a vulnerable 333KB KslD.sys
+//   placed in an attacker-controlled location. The KslD service config is editable by
+//   local admin and is NOT covered by Defender tamper protection.
+// False Positives: Legitimate Microsoft updates may rewrite this value. Tune by
+//   excluding InitiatingProcessFileName in {MsMpEng.exe, TrustedInstaller.exe}.
+// Threshold: Single occurrence is sufficient to alert.
+// ============================================================
+DeviceRegistryEvents
+| where Timestamp > ago(7d)
+| where ActionType == "RegistryValueSet"
+| where RegistryValueName =~ "ImagePath"
+| where RegistryKey matches regex @"\\SYSTEM\\(CurrentControlSet|ControlSet\d+)\\Services\\KslD$"
+// Flag redirects that go OUTSIDE the normal Defender driver path.
+| extend ImagePathValue = tolower(tostring(RegistryValueData))
+| extend IsOutsideWDPath = not(
+    ImagePathValue has "\\drivers\\wd\\" or
+    ImagePathValue has "\\system32\\drivers\\wd\\"
+)
+| where IsOutsideWDPath == true
+| where InitiatingProcessFileName !in~ (
+    "TrustedInstaller.exe",
+    "MsMpEng.exe",
+    "services.exe",
+    "MpDefenderCoreService.exe"
+)
+| extend
+    Severity = "High",
+    ThreatType = "KernelServiceTampering-BYOVD",
+    MitreAttack = "T1543.003",
+    TestID = "7ba6c119-df44-4cda-8045-b3700c31ba5e",
+    RuleName = "KslD-ImagePath-Redirect"
+| project
+    TimeGenerated = Timestamp,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessSHA256,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData,
+    IsOutsideWDPath,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    TestID
+
+// ============================================================
+// Query 3: Kernel Driver Service Values Written to Any Defender-Associated Service Key
+// MITRE: T1543.003 / T1112
+// Confidence: MEDIUM
+// ============================================================
+// Purpose: Broader rule catching any process writing service-descriptor values
+//   (Type=1 kernel driver, ImagePath, Start) under Defender-associated kernel service
+//   keys when the writing process is not a known Defender binary. Covers the
+//   ChangeServiceConfig pattern across KslD and related Defender driver service keys.
+// False Positives: Windows Update, TrustedInstaller. Tune the exclusion list.
+// Threshold: Two or more distinct value writes within 5 minutes from the same process.
+// ============================================================
+DeviceRegistryEvents
+| where Timestamp > ago(7d)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey matches regex @"\\SYSTEM\\(CurrentControlSet|ControlSet\d+)\\Services\\(KslD|WdFilter|WdNisDrv|WdBoot|WindowsDefender)"
+| where RegistryValueName in~ ("ImagePath", "AllowedProcessName", "Type", "Start", "ErrorControl")
+| where InitiatingProcessFileName !in~ (
+    "TrustedInstaller.exe",
+    "MsMpEng.exe",
+    "svchost.exe",
+    "services.exe",
+    "HealthService.exe",
+    "MpDefenderCoreService.exe",
+    "WaaSMedicAgent.exe"
+)
+| summarize
+    ValueNames = make_set(RegistryValueName),
+    WriteCount = count(),
+    FirstSeen = min(Timestamp),
+    LastSeen = max(Timestamp),
+    RegistryKeys = make_set(RegistryKey)
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessSHA256, bin(Timestamp, 5m)
+| where WriteCount >= 2
+| extend
+    Severity = "High",
+    ThreatType = "DefenderServiceKeyTampering",
+    MitreAttack = "T1543.003",
+    TestID = "7ba6c119-df44-4cda-8045-b3700c31ba5e",
+    RuleName = "DefenderServiceKey-MultiValueWrite"
+| project
+    TimeGenerated = FirstSeen,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessSHA256,
+    ValueNames,
+    WriteCount,
+    RegistryKeys,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    TestID
+
+// ============================================================
+// Query 4: KslD.sys / Vulnerable Driver Dropped Outside Protected Driver Path
+// MITRE: T1068 (Exploitation for Privilege Escalation — BYOVD)
+// Confidence: HIGH
+// ============================================================
+// Purpose: Detects a file named KslD.sys (or variant) being written to any location
+//   outside the protected Windows driver directory. KslKatz deploys a no-fix
+//   Microsoft-signed 333KB KslD.sys to an attacker-controlled path, then configures
+//   the KslD service to load it from there.
+//   NOTE: Hash-based detection of the specific vulnerable KslD.sys is the most
+//   reliable signal when combined with path-based detection. The known-vulnerable
+//   driver SHA256 should be maintained against the Microsoft Vulnerable Driver Blocklist.
+// False Positives: Legitimate driver installations by Microsoft update may drop
+//   KslD.sys to System32\drivers\wd\ — filter on FolderPath.
+// Threshold: Single occurrence at an unusual path warrants immediate investigation.
+// ============================================================
+DeviceFileEvents
+| where Timestamp > ago(7d)
+| where ActionType in ("FileCreated", "FileModified")
+| where FileName =~ "KslD.sys" or FileName =~ "vKslD.sys"
+// Flag drops OUTSIDE the legitimate Defender driver directory.
+| extend IsProtectedDriverPath = FolderPath has_any (
+    "\\drivers\\wd\\",
+    "\\system32\\drivers\\wd\\"
+)
+| where IsProtectedDriverPath == false
+| extend
+    Severity = "Critical",
+    ThreatType = "BYOVD-DriverDrop",
+    MitreAttack = "T1068",
+    TestID = "7ba6c119-df44-4cda-8045-b3700c31ba5e",
+    RuleName = "KslD-Driver-Dropped-Outside-WDPath"
+| project
+    TimeGenerated = Timestamp,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessSHA256,
+    FolderPath,
+    FileName,
+    SHA256,
+    FileSize,
+    IsProtectedDriverPath,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    TestID
+
+// ============================================================
+// Query 5: User-Mode Process Opening \\.\KslD Device Object
+// MITRE: T1068 (BYOVD — driver interaction)
+// Confidence: HIGH
+// ============================================================
+// Purpose: Detects any user-mode process issuing CreateFile to the \\.\KslD device
+//   object. This is a necessary step in kslkatz: the framework opens this kernel
+//   device to issue its SubCmd 12 MmCopyMemory IOCTL for physical LSASS memory reads.
+//   A user-mode open of this device by a non-Defender binary is anomalous.
+// False Positives: Extremely rare. MsMpEng, WdFilter, and Defender health services
+//   communicate via named pipes / WMI, not device file opens.
+// Threshold: Any single occurrence warrants alert.
+// ============================================================
+DeviceFileEvents
+| where Timestamp > ago(7d)
+| where ActionType == "FileCreated"
+| where FileName =~ "KslD" or FolderPath has "KslD"
+    or InitiatingProcessCommandLine has "KslD"
+// Alternatively, correlate via DeviceEvents for IOCTL / device object access:
+union DeviceEvents
+| where Timestamp > ago(7d)
+| where ActionType == "OpenProcessApiCall" or ActionType == "DeviceIoControl"
+| where AdditionalFields has "KslD"
+| extend
+    Severity = "Critical",
+    ThreatType = "BYOVD-DeviceOpen",
+    MitreAttack = "T1068",
+    TestID = "7ba6c119-df44-4cda-8045-b3700c31ba5e",
+    RuleName = "KslD-DeviceOpen-UserMode"
+| where InitiatingProcessFileName !in~ (
+    "MsMpEng.exe",
+    "HealthService.exe",
+    "WdNisDrv.exe"
+)
+| project
+    TimeGenerated = Timestamp,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessSHA256,
+    ActionType,
+    AdditionalFields,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    TestID
+
+// ============================================================
+// Query 6: LSASS OpenProcess with PROCESS_VM_READ from Non-Whitelisted Binary
+// MITRE: T1003.001 (OS Credential Dumping: LSASS Memory)
+// Confidence: HIGH (but see PPL caveat below)
+// ============================================================
+// Purpose: Detects a process requesting PROCESS_VM_READ access to lsass.exe via
+//   OpenProcess. This is a classical EDR signal for credential dumping.
+//
+// CRITICAL CAVEAT: kslkatz's actual PPL bypass performs the LSASS read from kernel
+//   mode via the KslD driver MmCopyMemory path. This BYPASSES the user-mode OpenProcess
+//   call entirely — so a SUCCESSFUL kslkatz run will NOT generate this event.
+//   This detection catches:
+//     (a) Non-kslkatz dumpers (Mimikatz user-mode, ProcDump, etc.)
+//     (b) The kslkatz fallback or non-PPL-bypass code path
+//     (c) Test simulations that exercise the OpenProcess access primitive
+//   Highest-value kslkatz detections are Queries 1-5 (BYOVD precursor chain).
+//
+// False Positives: EDRs, AV products, debuggers, crash-dump tools. Tune aggressively.
+// Threshold: Any alert from a non-whitelisted binary running as SYSTEM or admin.
+// ============================================================
+DeviceEvents
+| where Timestamp > ago(7d)
+| where ActionType == "OpenProcessApiCall"
+| where FileName =~ "lsass.exe"
+// PROCESS_VM_READ = 0x0010; PROCESS_QUERY_INFORMATION = 0x0400.
+// MDE records desired access in ProcessAccessRights field (hex string).
+| extend AccessRightsHex = tolower(tostring(AdditionalFields))
+| where AccessRightsHex has "vm_read"
+    or AccessRightsHex has "0x10"
+    or AccessRightsHex has "0x0010"
+// Exclude known-good credential-access sources.
+| where InitiatingProcessFileName !in~ (
+    "MsMpEng.exe",
+    "csrss.exe",
+    "werfault.exe",
+    "WerFault.exe",
+    "svchost.exe",
+    "taskmgr.exe",
+    "perfmon.exe",
+    "MpDefenderCoreService.exe",
+    "SenseIR.exe",
+    "SenseCncProxy.exe"
+)
+| extend
+    Severity = "Critical",
+    ThreatType = "CredentialAccess-LSASSRead",
+    MitreAttack = "T1003.001",
+    PPLCaveat = "If LSA Protection (PPL) is active, a successful kslkatz run bypasses PPL via kernel MmCopyMemory and will NOT generate this event. Correlate with Queries 1-4 (BYOVD chain) for kslkatz-specific attribution.",
+    TestID = "7ba6c119-df44-4cda-8045-b3700c31ba5e",
+    RuleName = "LSASS-OpenProcess-VMRead"
+| project
+    TimeGenerated = Timestamp,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessSHA256,
+    FileName,
+    ProcessId,
+    AdditionalFields,
+    PPLCaveat,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    TestID
+
+// ============================================================
+// Query 7: Kernel Driver Load from Non-Standard Path (Driver Signature / BYOVD)
+// MITRE: T1068
+// Confidence: MEDIUM
+// ============================================================
+// Purpose: Detects kernel driver load events (Sysmon EID 6 equivalent in MDE) where
+//   the driver image path is outside the standard Windows driver directories, with
+//   specific focus on KslD/WdFilter-named drivers. Complements the file-drop detection
+//   with the actual load event.
+// False Positives: Third-party security products, VPN drivers, hardware drivers that
+//   install to ProgramFiles or custom paths.
+// Threshold: Alert if driver name matches KslD; otherwise combine with BYOVD chain
+//   indicators for higher confidence.
+// ============================================================
+DeviceEvents
+| where Timestamp > ago(7d)
+| where ActionType == "DriverLoad"
+| where AdditionalFields has_any ("KslD", "ksld", "KSLD")
+    or (
+        // Catch any kernel driver loaded from outside System32\drivers\
+        AdditionalFields !has "system32\\drivers" and
+        AdditionalFields !has "SysWOW64\\drivers"
+    )
+| extend DriverPath = tostring(parse_json(AdditionalFields).ImageName)
+| extend IsOutsideSystem32 = not(DriverPath has "\\system32\\drivers")
+| extend IsKslDNamed = DriverPath has_any ("KslD", "ksld")
+| where IsKslDNamed or IsOutsideSystem32
+| extend
+    Severity = iff(IsKslDNamed, "Critical", "Medium"),
+    ThreatType = "BYOVD-DriverLoad",
+    MitreAttack = "T1068",
+    TestID = "7ba6c119-df44-4cda-8045-b3700c31ba5e",
+    RuleName = "KernelDriver-Load-NonStandardPath"
+| project
+    TimeGenerated = Timestamp,
+    DeviceName,
+    InitiatingProcessFileName,
+    DriverPath,
+    IsKslDNamed,
+    IsOutsideSystem32,
+    AdditionalFields,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    TestID
+
+// ============================================================
+// Query 8: Full BYOVD Kill-Chain Correlation (High-Confidence Multi-Stage)
+// MITRE: T1543.003 + T1112 + T1068 + T1003.001
+// Confidence: VERY HIGH
+// ============================================================
+// Purpose: Correlates ALL four kslkatz precursor behaviors on the same device within
+//   a 30-minute window. Any device showing this sequence is almost certainly under
+//   active kslkatz attack or simulation. Designed as a scheduled query for SIEM
+//   alerting.
+// False Positives: Extremely low — this specific combination of behaviors has no
+//   legitimate baseline.
+// Threshold: Any single correlation hit warrants immediate incident response.
+// ============================================================
+let RegistryTampers = DeviceRegistryEvents
+| where Timestamp > ago(1d)
+| where ActionType == "RegistryValueSet"
+| where (
+    (RegistryValueName =~ "AllowedProcessName" and RegistryKey has "Services\\KslD") or
+    (RegistryValueName =~ "ImagePath" and RegistryKey has "Services\\KslD")
+)
+| where InitiatingProcessFileName !in~ ("MsMpEng.exe", "TrustedInstaller.exe", "services.exe")
+| project TamperTime = Timestamp, DeviceName, RegistryKey, RegistryValueName, InitiatingProcessFileName;
+
+let DriverDrops = DeviceFileEvents
+| where Timestamp > ago(1d)
+| where ActionType == "FileCreated"
+| where FileName =~ "KslD.sys" and not(FolderPath has "\\drivers\\wd\\")
+| project DropTime = Timestamp, DeviceName, FolderPath, FileName;
+
+let LSASSAccess = DeviceEvents
+| where Timestamp > ago(1d)
+| where ActionType == "OpenProcessApiCall"
+| where FileName =~ "lsass.exe"
+| where InitiatingProcessFileName !in~ ("MsMpEng.exe", "csrss.exe", "werfault.exe", "svchost.exe")
+| project LSASSTime = Timestamp, DeviceName, InitiatingProcessFileName;
+
+RegistryTampers
+| join kind=inner (DriverDrops) on DeviceName
+| join kind=inner (LSASSAccess) on DeviceName
+| where abs(datetime_diff('minute', TamperTime, DropTime)) < 30
+    and abs(datetime_diff('minute', TamperTime, LSASSTime)) < 30
+| extend
+    Severity = "Critical",
+    ThreatType = "BYOVD-KslKatz-FullChain",
+    MitreAttack = "T1543.003,T1112,T1068,T1003.001",
+    TestID = "7ba6c119-df44-4cda-8045-b3700c31ba5e",
+    RuleName = "KslKatz-KillChain-Correlation"
+| project
+    TimeGenerated = TamperTime,
+    DeviceName,
+    RegistryKey,
+    RegistryValueName,
+    InitiatingProcessFileName,
+    DriverPath = FolderPath,
+    DriverFileName = FileName,
+    LSASSAccessBy = InitiatingProcessFileName1,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    TestID

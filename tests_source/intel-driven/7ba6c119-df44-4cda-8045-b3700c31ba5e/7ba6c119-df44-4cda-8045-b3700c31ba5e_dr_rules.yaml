@@ -1,0 +1,300 @@
+# ============================================================
+# LimaCharlie D&R Rules: KslKatz BYOVD LSASS Credential Dumping Framework
+# Test ID: 7ba6c119-df44-4cda-8045-b3700c31ba5e
+# MITRE ATT&CK: T1543.003, T1112, T1068, T1003.001
+# Format: FILE FORMAT (for limacharlie dr add -f <file> -r <rule-name>)
+# Source: https://detect.fyi/ghost-in-lsass-detecting-kslkatz-credential-dumping-framework-8645f246aec9
+# ============================================================
+#
+# Detection Philosophy:
+#   kslkatz reads LSASS memory from kernel mode via KslD.sys MmCopyMemory,
+#   bypassing LSA Protection (PPL). The OpenProcess-to-lsass signal is ABSENT
+#   on a successful kslkatz run. Prioritize detection of the BYOVD precursor
+#   chain (rules 1-3) over the credential-access event (rule 4).
+#
+# Deployment (per rule, using file format):
+#   limacharlie dr add -f 7ba6c119-df44-4cda-8045-b3700c31ba5e_dr_rules.yaml -r kslkatz-allowed-process-name
+#   (Repeat for each rule name below with the same file)
+#
+# ============================================================
+
+rules:
+
+  # ===========================================================
+  # Rule 1: AllowedProcessName Written Under KslD Service Key
+  # MITRE: T1112 (Modify Registry)
+  # Confidence: Critical / Highest-value signal
+  # ===========================================================
+  # Detects any non-Defender process writing the AllowedProcessName registry value
+  # under a Services\KslD key. The KslD driver uses this value for a plain-string
+  # caller-authentication check. Writing it to an attacker NT device path defeats
+  # the check. NOT covered by Defender tamper protection.
+  # Real target: HKLM\SYSTEM\CurrentControlSet\Services\KslD\AllowedProcessName
+  # ===========================================================
+  kslkatz-allowed-process-name:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        # Match the KslD service registry subtree (any ControlSet variant).
+        - op: contains
+          path: event/REGISTRY_KEY
+          value: "\\Services\\KslD"
+        # The value name must be AllowedProcessName.
+        - op: is
+          path: event/VALUE_NAME
+          value: "AllowedProcessName"
+        # Exclude known-legitimate Defender management processes.
+        - op: and
+          rules:
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "MsMpEng.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "HealthService.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "TrustedInstaller.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "MpDefenderCoreService.exe"
+              case_sensitive: false
+
+    respond:
+      - action: report
+        name: kslkatz-allowed-process-name-write
+      - action: add tag
+        tag: kslkatz-byovd-chain
+        ttl: 3600
+
+  # ===========================================================
+  # Rule 2: KslD Kernel Service ImagePath Redirected Outside Protected Driver Path
+  # MITRE: T1543.003 (Create or Modify System Service)
+  # Confidence: High
+  # ===========================================================
+  # Detects the ImagePath value under HKLM\SYSTEM\...\Services\KslD being rewritten
+  # to a path outside the protected Windows Defender driver directory (\drivers\wd\).
+  # KslKatz uses ChangeServiceConfigW to redirect ImagePath toward a vulnerable
+  # 333KB KslD.sys at an attacker-controlled location for BYOVD exploitation.
+  # ===========================================================
+  kslkatz-ksld-imagepath-redirect:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        # Registry key must be under Services\KslD.
+        - op: contains
+          path: event/REGISTRY_KEY
+          value: "\\Services\\KslD"
+        # Value name is ImagePath (the service binary path).
+        - op: is
+          path: event/VALUE_NAME
+          value: "ImagePath"
+        # The new value must NOT point to the legitimate protected Defender driver directory.
+        - op: is not
+          path: event/VALUE
+          value: "*\\drivers\\wd\\*"
+        # Exclude legitimate update processes.
+        - op: and
+          rules:
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "TrustedInstaller.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "MsMpEng.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "services.exe"
+              case_sensitive: false
+
+    respond:
+      - action: report
+        name: kslkatz-ksld-imagepath-redirect
+      - action: add tag
+        tag: kslkatz-byovd-chain
+        ttl: 3600
+
+  # ===========================================================
+  # Rule 3: KslD.sys Vulnerable Driver Dropped Outside Protected Directory
+  # MITRE: T1068 (Exploitation for Privilege Escalation — BYOVD)
+  # Confidence: High
+  # ===========================================================
+  # Detects creation of a file named KslD.sys at any path outside the protected
+  # Windows Defender driver directory (\System32\drivers\wd\). KslKatz deploys a
+  # no-fix Microsoft-signed vulnerable KslD.sys to an attacker-controlled path.
+  # The file being legitimately signed does not exempt it — BYOVD specifically
+  # exploits legitimately signed but vulnerable kernel drivers.
+  # Note: Complement with hash-based detection using the Microsoft Vulnerable
+  # Driver Blocklist entry for this specific KslD.sys build.
+  # ===========================================================
+  kslkatz-ksld-driver-drop:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # File name matches the vulnerable driver name variants.
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\KslD.sys"
+              case_sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\vKslD.sys"
+              case_sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\ksld.sys"
+              case_sensitive: false
+        # Exclude legitimate Defender-managed locations.
+        - op: is not
+          path: event/FILE_PATH
+          value: "*\\drivers\\wd\\*"
+        # Exclude known-good writers.
+        - op: and
+          rules:
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "TrustedInstaller.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "WaaSMedicAgent.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "MsMpEng.exe"
+              case_sensitive: false
+
+    respond:
+      - action: report
+        name: kslkatz-ksld-driver-drop-outside-wd
+      - action: add tag
+        tag: kslkatz-byovd-chain
+        ttl: 3600
+
+  # ===========================================================
+  # Rule 4: LSASS OpenProcess with VM_READ from Non-Whitelisted Binary
+  # MITRE: T1003.001 (OS Credential Dumping: LSASS Memory)
+  # Confidence: High (but see PPL caveat)
+  # ===========================================================
+  # Detects a process accessing lsass.exe via SENSITIVE_PROCESS_ACCESS.
+  #
+  # CRITICAL CAVEAT: kslkatz reads LSASS from KERNEL MODE (KslD.sys MmCopyMemory),
+  # bypassing PPL. A SUCCESSFUL kslkatz run will NOT trigger this rule because
+  # the read bypasses user-mode OpenProcess. This rule catches:
+  #   (a) Non-kslkatz dumpers (Mimikatz, ProcDump, etc.)
+  #   (b) kslkatz fallback to user-mode path
+  #   (c) Test simulations that exercise the OpenProcess primitive
+  # Highest-value kslkatz detections: rules 1-3 (BYOVD precursor chain).
+  # When rule 4 fires alongside tag kslkatz-byovd-chain (from rules 1-3),
+  # that is near-certain kslkatz activity requiring immediate response.
+  # ===========================================================
+  kslkatz-lsass-access-primitive:
+    detect:
+      target: edr
+      event: SENSITIVE_PROCESS_ACCESS
+      op: and
+      rules:
+        # Target process is lsass.exe.
+        - op: ends with
+          path: event/TARGET/FILE_PATH
+          value: "\\lsass.exe"
+          case_sensitive: false
+        # Exclude known-legitimate callers.
+        - op: and
+          rules:
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "MsMpEng.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "csrss.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "werfault.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "svchost.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "taskmgr.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "SenseIR.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "SecurityHealthService.exe"
+              case_sensitive: false
+
+    respond:
+      - action: report
+        name: kslkatz-lsass-access-primitive
+
+  # ===========================================================
+  # Rule 5: BYOVD Precursor Chain Tag — Escalate on Chain Completion
+  # MITRE: T1543.003 + T1112 + T1068 + T1003.001
+  # Confidence: Very High (behavioral correlation)
+  # ===========================================================
+  # Elevated response when LSASS is accessed by a process on a host that already
+  # carries the kslkatz-byovd-chain tag (set by rules 1-3 above within 1 hour).
+  # This correlation triggers incident-escalation actions because it indicates the
+  # full BYOVD kill chain was attempted, not merely an isolated registry write.
+  # ===========================================================
+  kslkatz-byovd-chain-lsass-escalation:
+    detect:
+      target: edr
+      event: SENSITIVE_PROCESS_ACCESS
+      op: and
+      rules:
+        # Target must be lsass.
+        - op: ends with
+          path: event/TARGET/FILE_PATH
+          value: "\\lsass.exe"
+          case_sensitive: false
+        # Sensor must have the byovd-chain tag set by rules 1-3.
+        - op: is tagged
+          tag: kslkatz-byovd-chain
+        # Exclude same known-good callers.
+        - op: and
+          rules:
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "MsMpEng.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "csrss.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "werfault.exe"
+              case_sensitive: false
+            - op: is not
+              path: event/PROCESS/FILE_PATH
+              value: "svchost.exe"
+              case_sensitive: false
+
+    respond:
+      - action: report
+        name: kslkatz-byovd-fullchain-lsass-escalation
+      - action: add tag
+        tag: kslkatz-incident-escalation
+        ttl: 86400
