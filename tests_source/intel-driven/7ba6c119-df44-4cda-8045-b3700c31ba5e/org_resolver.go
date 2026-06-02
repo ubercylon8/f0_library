@@ -163,8 +163,13 @@ func ResolveOrganization(orgIdentifier string) OrganizationInfo {
 	// Try to load registry
 	registry, err := loadRegistry()
 
-	// If registry not available, return fallback with identifier as-is
+	// If registry not available, return fallback with identifier as-is.
+	// Guard against an empty identifier producing an empty UUID (which fails
+	// the schema pattern requiring at least one character).
 	if err != nil {
+		if orgIdentifier == "" {
+			orgIdentifier = "unknown"
+		}
 		return OrganizationInfo{
 			UUID:      orgIdentifier,
 			ShortName: orgIdentifier,
