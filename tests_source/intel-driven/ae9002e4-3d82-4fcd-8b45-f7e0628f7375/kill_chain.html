@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini Shai-Hulud npm Supply Chain — Kill Chain Strip</title>
+<style>
+  :root{
+    --bg-start:#0e1117; --bg-end:#161b26; --panel:#1b2130; --border:rgba(255,255,255,.10);
+    --card:#222a3a; --text-1:#f2f5fa; --text-2:#9aa6bb; --text-3:#6b7689;
+    --accent:#4fc3f7; --crit:#ff4d4f; --crit-bg:rgba(255,77,79,.10);
+    --high:#ff9f43; --high-bg:rgba(255,159,67,.10); --safe:#3ddc84;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:linear-gradient(135deg,var(--bg-start),var(--bg-end));color:var(--text-1);
+    min-height:100vh;padding:2rem;line-height:1.5}
+  .container{max-width:1500px;margin:0 auto;display:flex;flex-direction:column;gap:1.5rem}
+  .header{padding:1.5rem 2rem;background:var(--panel);border:1px solid var(--border);border-radius:14px}
+  .header h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
+  .header h1 .alias{color:var(--text-2);font-weight:400}
+  .header .meta{margin-top:.5rem;color:var(--text-2);font-size:.9rem}
+  .badges{margin-top:.75rem;display:flex;flex-wrap:wrap;gap:.4rem}
+  .badge{font-size:.72rem;padding:.2rem .55rem;border-radius:999px;background:var(--card);
+    border:1px solid var(--border);color:var(--text-2)}
+  .badge.crit{color:var(--crit);background:var(--crit-bg);border-color:var(--crit)}
+  .safety{padding:1rem 1.25rem;background:rgba(61,220,132,.07);border:1px solid var(--safe);
+    border-radius:12px;font-size:.88rem}
+  .safety b{color:var(--safe)}
+  .strip{display:flex;gap:0;flex-wrap:wrap;align-items:stretch}
+  .stage{flex:1 1 220px;min-width:220px;background:var(--card);border:1px solid var(--border);
+    border-radius:12px;padding:1rem;margin:.35rem;position:relative;display:flex;flex-direction:column;gap:.5rem}
+  .stage .num{position:absolute;top:-12px;left:14px;width:26px;height:26px;border-radius:50%;
+    background:var(--accent);color:#06121b;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:.85rem}
+  .stage .tech{font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:var(--accent);margin-top:.35rem}
+  .stage .title{font-weight:700;font-size:.98rem}
+  .stage .tactic{font-size:.72rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em}
+  .stage .desc{font-size:.82rem;color:var(--text-2)}
+  .stage .det{font-size:.74rem;color:var(--text-2);border-top:1px dashed var(--border);padding-top:.45rem}
+  .stage .det b{color:var(--text-1)}
+  .stage .sim{font-size:.7rem;color:var(--safe);font-weight:600}
+  .arrow{align-self:center;color:var(--text-3);font-size:1.4rem;padding:0 .15rem}
+  .legend{display:flex;gap:1.25rem;flex-wrap:wrap;color:var(--text-2);font-size:.8rem;
+    background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:.9rem 1.25rem}
+  footer{color:var(--text-3);font-size:.78rem;text-align:center;margin-top:.5rem}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>Mini Shai-Hulud npm Supply Chain <span class="alias">— @redhat-cloud-services compromise</span></h1>
+    <div class="meta">Test ID: ae9002e4-3d82-4fcd-8b45-f7e0628f7375 · Threat Actor: Shai-Hulud · Target: Linux developer workstation / CI runner · Severity: CRITICAL</div>
+    <div class="badges">
+      <span class="badge crit">CRITICAL</span>
+      <span class="badge">T1195.002</span><span class="badge">T1480.001</span><span class="badge">T1105</span>
+      <span class="badge">T1552.001</span><span class="badge">T1071.001</span><span class="badge">T1567.001</span>
+      <span class="badge">supply-chain</span><span class="badge">npm</span><span class="badge">worm</span>
+    </div>
+  </div>
+
+  <div class="safety">
+    <b>Simulation-only safety model:</b> decoy credentials only (real <code>~/.aws</code>, <code>~/.ssh</code>,
+    <code>gh auth token</code> never touched) · loopback-only beacon (no real C2) · no real download or
+    second-stage execution · log-only worm propagation (no repos/registries modified).
+  </div>
+
+  <div class="strip">
+    <div class="stage">
+      <div class="num">1</div>
+      <div class="tactic">Initial Access · Execution</div>
+      <div class="tech">T1195.002 / T1059.007</div>
+      <div class="title">npm Install-Hook &amp; Staged Deobfuscation</div>
+      <div class="desc"><code>preinstall: node index.js</code> runs during <code>npm install</code>; char-code map → AES-128-GCM blobs deobfuscated.</div>
+      <div class="det"><b>Detect:</b> npm→node→index.js at install time; <code>/tmp/p&lt;rand&gt;.js</code> write-then-delete.</div>
+      <div class="sim">SIM: benign payload, inert loader text</div>
+    </div>
+    <div class="arrow">→</div>
+
+    <div class="stage">
+      <div class="num">2</div>
+      <div class="tactic">Defense Evasion</div>
+      <div class="tech">T1480.001 / T1497.001</div>
+      <div class="title">Execution Guardrails</div>
+      <div class="desc">Locale evasion (<code>ru-*</code>), CI detection (<code>GITHUB_ACTIONS</code>), daemonize decision, lock-file canary.</div>
+      <div class="det"><b>Detect:</b> <code>tmp.0987654321.lock</code>; <code>__IS_DAEMON</code>; env probing.</div>
+      <div class="sim">SIM: decisions logged, not enforced</div>
+    </div>
+    <div class="arrow">→</div>
+
+    <div class="stage">
+      <div class="num">3</div>
+      <div class="tactic">Command and Control</div>
+      <div class="tech">T1105 / T1059.004</div>
+      <div class="title">JS Runtime Acquisition (Bun)</div>
+      <div class="desc"><code>curl -sSL …bun-linux-x64.zip</code> + <code>unzip</code> to <code>/tmp/b-*</code>, then run payload with bun.</div>
+      <div class="det"><b>Detect:</b> node/bun→curl/unzip for <code>oven-sh/bun</code>; <code>/tmp/b-*</code> staging.</div>
+      <div class="sim">SIM: stubbed, no network, no exec</div>
+    </div>
+    <div class="arrow">→</div>
+
+    <div class="stage">
+      <div class="num">4</div>
+      <div class="tactic">Credential Access</div>
+      <div class="tech">T1552.001/.004/.005</div>
+      <div class="title">Secret Discovery &amp; Theft</div>
+      <div class="desc">Reads cloud creds, SSH/Git keys, npm/docker/k8s tokens; <code>gh auth token</code>; IMDS at <code>169.254.169.254</code>.</div>
+      <div class="det"><b>Detect:</b> node/bun reading 3+ cred files; IMDS access; <code>gh auth token</code>.</div>
+      <div class="sim">SIM: decoy tree only, real creds untouched</div>
+    </div>
+    <div class="arrow">→</div>
+
+    <div class="stage">
+      <div class="num">5</div>
+      <div class="tactic">C2 · Exfiltration</div>
+      <div class="tech">T1071.001 / T1041</div>
+      <div class="title">Encrypted Beacon &amp; Exfil</div>
+      <div class="desc">gzip + AES-256-GCM + RSA-OAEP-wrap envelope; HTTPS POST with <code>python-requests/2.31.0</code> UA.</div>
+      <div class="det"><b>Detect:</b> node/bun POST with python-requests UA; encrypted egress to non-standard endpoint.</div>
+      <div class="sim">SIM: loopback 127.0.0.1 only, synthetic data</div>
+    </div>
+    <div class="arrow">→</div>
+
+    <div class="stage">
+      <div class="num">6</div>
+      <div class="tactic">Exfiltration · Lateral Movement</div>
+      <div class="tech">T1567.001 / T1080</div>
+      <div class="title">Worm Propagation</div>
+      <div class="desc">Inject <code>.github/workflows/codeql.yml</code> &amp; <code>setup.js</code>; publish trojanized npm versions; GitHub-commit exfil fallback.</div>
+      <div class="det"><b>Detect:</b> writes to workflow/loader files; commit marker <code>IfYouInvalidate…</code>.</div>
+      <div class="sim">SIM: log-only, no repos/registries touched</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><b style="color:var(--accent)">Each stage = a detection opportunity.</b> Blocking any one interrupts the chain (Exit 126).</span>
+    <span style="color:var(--safe)">SIM = benign simulation boundary for that stage.</span>
+  </div>
+
+  <footer>
+    Source: Socket Research Team — <a href="https://socket.dev/blog/mini-shai-hulud-campaign-hits-red-hat-cloud-services-npm-packages">Mini Shai-Hulud Campaign Hits Red Hat Cloud Services npm Packages</a> ·
+    F0RT1KA Security Testing Framework
+  </footer>
+</div>
+</body>
+</html>
