@@ -240,8 +240,19 @@ func test() {
 		if exitCode == 126 || exitCode == 105 {
 			stageResults[idx].ExitCode = exitCode
 			stageResults[idx].Status = "blocked"
-			stageResults[idx].Details = fmt.Sprintf("EDR blocked %s (exit code: %d)", stage.Technique, exitCode)
-			LogPhaseEnd(stage.ID, "blocked", fmt.Sprintf("EDR blocked %s (exit code: %d)", stage.Technique, exitCode))
+			// For stage-level block attribution: check for a sidecar attribution
+			// file written by the stage binary (e.g. stage-T1003.001-attribution.txt).
+			// This survives the subprocess boundary and enriches the result JSON with
+			// the analyst-readable cause (PPL / Credential Guard / EDR handle-strip).
+			blockedDetails := fmt.Sprintf("EDR blocked %s (exit code: %d)", stage.Technique, exitCode)
+			attributionFile := filepath.Join(LOG_DIR, fmt.Sprintf("stage-%s-attribution.txt", stage.Technique))
+			if attrBytes, err := os.ReadFile(attributionFile); err == nil && len(attrBytes) > 0 {
+				blockedDetails = fmt.Sprintf("Stage %s exit %d | %s", stage.Technique, exitCode, string(attrBytes))
+				// Clean up the sidecar so it doesn't linger on the host.
+				_ = os.Remove(attributionFile)
+			}
+			stageResults[idx].Details = blockedDetails
+			LogPhaseEnd(stage.ID, "blocked", blockedDetails)
 
 			Endpoint.Say("")
 			Endpoint.Say("=================================================================")
@@ -264,7 +275,7 @@ func test() {
 			Endpoint.Say("=================================================================")
 			Endpoint.Say("")
 
-			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("EDR blocked at stage %d: %s (%s)", stage.ID, stage.Name, stage.Technique))
+			SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("Blocked at stage %d: %s (%s) | %s", stage.ID, stage.Name, stage.Technique, stageResults[idx].Details))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "killchain", stageResults)
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
 
