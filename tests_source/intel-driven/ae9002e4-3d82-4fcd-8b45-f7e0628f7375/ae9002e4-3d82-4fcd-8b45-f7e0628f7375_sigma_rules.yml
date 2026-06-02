@@ -1,0 +1,205 @@
+# ==============================================================================
+# Sigma Rules — Mini Shai-Hulud npm Supply Chain Kill Chain
+# UUID: ae9002e4-3d82-4fcd-8b45-f7e0628f7375
+# Platform: Linux endpoint (developer workstation / CI runner)
+# Targets REAL campaign behaviors. Tune for your data source field mappings.
+# ==============================================================================
+---
+title: npm Install Hook Spawns Node Loader (Supply Chain)
+id: 9a1c0d11-0001-4a01-9001-aebc7f001001
+status: experimental
+description: Detects an npm lifecycle hook (preinstall/postinstall) spawning node to run index.js/setup.js, the mini Shai-Hulud entry vector.
+references:
+  - https://socket.dev/blog/mini-shai-hulud-campaign-hits-red-hat-cloud-services-npm-packages
+author: sectest-builder
+date: 2026/06/01
+tags:
+  - attack.initial_access
+  - attack.t1195.002
+  - attack.execution
+  - attack.t1059.007
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_parent:
+    ParentImage|endswith:
+      - '/npm'
+      - '/node'
+  selection_child:
+    Image|endswith: '/node'
+    CommandLine|contains:
+      - 'index.js'
+      - 'setup.js'
+  selection_ctx:
+    ParentCommandLine|contains:
+      - 'install'
+      - 'preinstall'
+      - 'postinstall'
+      - ' ci'
+  condition: selection_parent and selection_child and selection_ctx
+falsepositives:
+  - Legitimate packages with custom build steps in node_modules
+level: high
+---
+title: Node Spawns Curl/Unzip to Stage Bun Runtime
+id: 9a1c0d11-0002-4a02-9002-aebc7f001002
+status: experimental
+description: Detects node/npm spawning curl or unzip to download and extract the Bun runtime to a temp directory (ingress tool transfer).
+references:
+  - https://socket.dev/blog/mini-shai-hulud-campaign-hits-red-hat-cloud-services-npm-packages
+author: sectest-builder
+date: 2026/06/01
+tags:
+  - attack.command_and_control
+  - attack.t1105
+  - attack.execution
+  - attack.t1059.004
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_parent:
+    ParentImage|endswith:
+      - '/node'
+      - '/npm'
+      - '/bun'
+  selection_child:
+    Image|endswith:
+      - '/curl'
+      - '/wget'
+      - '/unzip'
+      - '/tar'
+  selection_target:
+    CommandLine|contains:
+      - 'oven-sh/bun'
+      - 'bun-linux'
+      - 'bun-darwin'
+      - '/tmp/b-'
+  condition: selection_parent and selection_child and selection_target
+falsepositives:
+  - Build tooling that legitimately fetches runtimes
+level: high
+---
+title: Broad Credential File Sweep by Node Process
+id: 9a1c0d11-0003-4a03-9003-aebc7f001003
+status: experimental
+description: Detects a node/bun process reading multiple high-value credential files in a short window (credential harvesting).
+references:
+  - https://socket.dev/blog/mini-shai-hulud-campaign-hits-red-hat-cloud-services-npm-packages
+author: sectest-builder
+date: 2026/06/01
+tags:
+  - attack.credential_access
+  - attack.t1552.001
+  - attack.t1552.004
+logsource:
+  category: file_event
+  product: linux
+detection:
+  selection_proc:
+    Image|endswith:
+      - '/node'
+      - '/bun'
+  selection_paths:
+    TargetFilename|contains:
+      - '.aws/credentials'
+      - '.aws/config'
+      - '.ssh/id_rsa'
+      - '.ssh/id_ed25519'
+      - '.npmrc'
+      - '.git-credentials'
+      - '.docker/config.json'
+      - '.kube/config'
+      - 'gcloud/application_default_credentials.json'
+  filter_decoy:
+    TargetFilename|contains: 'shaihulud_decoys'
+  condition: selection_proc and selection_paths and not filter_decoy
+falsepositives:
+  - Cloud CLIs and CI agents legitimately reading single credential files
+level: high
+---
+title: gh auth token Invoked by Node/Bun
+id: 9a1c0d11-0004-4a04-9004-aebc7f001004
+status: experimental
+description: Detects 'gh auth token' executed by a node/bun/shell process to steal the live GitHub CLI session token.
+references:
+  - https://socket.dev/blog/mini-shai-hulud-campaign-hits-red-hat-cloud-services-npm-packages
+author: sectest-builder
+date: 2026/06/01
+tags:
+  - attack.credential_access
+  - attack.t1552.001
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection:
+    CommandLine|contains: 'gh auth token'
+  selection_parent:
+    ParentImage|endswith:
+      - '/node'
+      - '/bun'
+      - '/sh'
+      - '/bash'
+  condition: selection and selection_parent
+falsepositives:
+  - Developer scripts that print the gh token intentionally
+level: medium
+---
+title: Cloud Instance Metadata Access by Node/Bun
+id: 9a1c0d11-0005-4a05-9005-aebc7f001005
+status: experimental
+description: Detects node/bun/curl contacting the cloud instance metadata endpoint (169.254.169.254) or cloud secret services.
+references:
+  - https://socket.dev/blog/mini-shai-hulud-campaign-hits-red-hat-cloud-services-npm-packages
+author: sectest-builder
+date: 2026/06/01
+tags:
+  - attack.credential_access
+  - attack.t1552.005
+logsource:
+  category: network_connection
+  product: linux
+detection:
+  selection_proc:
+    Image|endswith:
+      - '/node'
+      - '/bun'
+      - '/curl'
+  selection_dst:
+    DestinationIp: '169.254.169.254'
+  condition: selection_proc and selection_dst
+falsepositives:
+  - Legitimate cloud SDK metadata lookups (correlate with credential file sweep)
+level: high
+---
+title: Worm Workflow Injection / Exfil Marker
+id: 9a1c0d11-0006-4a06-9006-aebc7f001006
+status: experimental
+description: Detects writes to GitHub Actions workflow/loader files by node/bun, or the distinctive GitHub-commit exfil marker string.
+references:
+  - https://socket.dev/blog/mini-shai-hulud-campaign-hits-red-hat-cloud-services-npm-packages
+author: sectest-builder
+date: 2026/06/01
+tags:
+  - attack.exfiltration
+  - attack.t1567.001
+  - attack.lateral_movement
+  - attack.t1080
+logsource:
+  category: file_event
+  product: linux
+detection:
+  selection_proc:
+    Image|endswith:
+      - '/node'
+      - '/bun'
+  selection_files:
+    TargetFilename|contains:
+      - '.github/workflows/codeql.yml'
+      - '.github/setup.js'
+  condition: selection_proc and selection_files
+falsepositives:
+  - Legitimate CI maintenance touching codeql.yml (correlate with install-time origin)
+level: high

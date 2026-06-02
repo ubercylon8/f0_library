@@ -1,0 +1,264 @@
+# ============================================================
+# Mini Shai-Hulud npm Supply Chain Kill Chain - LimaCharlie D&R Rules
+# Test ID: ae9002e4-3d82-4fcd-8b45-f7e0628f7375
+# MITRE ATT&CK: T1195.002, T1059.007, T1480.001, T1497.001, T1105,
+#               T1552.001, T1552.004, T1552.005, T1071.001, T1041, T1567.001, T1080
+# Platform: Linux (developer workstation / CI runner)
+# ============================================================
+#
+# FILE FORMAT: For use with `limacharlie dr add` or `config push`
+#   limacharlie dr add ae9002e4-3d82-4fcd-8b45-f7e0628f7375_dr_rules.yaml
+#
+# Rules target REAL campaign behaviors, not F0RT1KA test artifacts.
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: npm Install Hook Spawns Node Loader (T1195.002 / T1059.007)
+  # ============================================================
+  shaihulud-npm-install-hook-node:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: /node
+          case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: /npm
+              case sensitive: false
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: /node
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: index.js
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: setup.js
+              case sensitive: false
+    respond:
+      - action: report
+        name: Shai-Hulud npm Install Hook Executes Node Loader
+        metadata:
+          severity: high
+          mitre_attack: T1195.002,T1059.007
+          test_id: ae9002e4-3d82-4fcd-8b45-f7e0628f7375
+          description: npm lifecycle hook spawned node to run index.js/setup.js - supply-chain compromise entry vector
+
+  # ============================================================
+  # Rule 2: Node Spawns Curl/Unzip to Stage Bun Runtime (T1105 / T1059.004)
+  # ============================================================
+  shaihulud-bun-runtime-staging:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: /node
+              case sensitive: false
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: /bun
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: oven-sh/bun
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: bun-linux
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: /tmp/b-
+              case sensitive: false
+    respond:
+      - action: report
+        name: Shai-Hulud Bun Runtime Staging
+        metadata:
+          severity: high
+          mitre_attack: T1105,T1059.004
+          test_id: ae9002e4-3d82-4fcd-8b45-f7e0628f7375
+          description: node/bun staging the Bun JS runtime via download+extract - ingress tool transfer
+
+  # ============================================================
+  # Rule 3: Credential File Access by Node/Bun (T1552.001 / T1552.004)
+  # ============================================================
+  shaihulud-credential-file-access:
+    detect:
+      target: edr
+      event: FILE_TYPE_ACCESSED
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: /node
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: /bun
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: /.aws/credentials
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: /.ssh/id_ed25519
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: /.ssh/id_rsa
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: /.npmrc
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: /.git-credentials
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: /.kube/config
+              case sensitive: false
+        - op: contains
+          not: true
+          path: event/FILE_PATH
+          value: shaihulud_decoys
+          case sensitive: false
+    respond:
+      - action: report
+        name: Shai-Hulud Credential File Access by Node/Bun
+        metadata:
+          severity: high
+          mitre_attack: T1552.001,T1552.004
+          test_id: ae9002e4-3d82-4fcd-8b45-f7e0628f7375
+          description: node/bun accessed high-value credential file - credential harvesting (decoy path excluded)
+
+  # ============================================================
+  # Rule 4: gh auth token Invocation (T1552.001)
+  # ============================================================
+  shaihulud-gh-auth-token-theft:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: gh auth token
+          case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: /node
+              case sensitive: false
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: /bun
+              case sensitive: false
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: /sh
+              case sensitive: false
+    respond:
+      - action: report
+        name: Shai-Hulud gh auth token Theft
+        metadata:
+          severity: medium
+          mitre_attack: T1552.001
+          test_id: ae9002e4-3d82-4fcd-8b45-f7e0628f7375
+          description: gh auth token invoked by node/bun/shell - live GitHub session token theft
+
+  # ============================================================
+  # Rule 5: Cloud Instance Metadata Access (T1552.005)
+  # ============================================================
+  shaihulud-cloud-metadata-access:
+    detect:
+      target: edr
+      event: NETWORK_CONNECTIONS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: /node
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: /bun
+              case sensitive: false
+        - op: contains
+          path: event/NETWORK_ACTIVITY/DESTINATION/IP_ADDRESS
+          value: 169.254.169.254
+          case sensitive: false
+    respond:
+      - action: report
+        name: Shai-Hulud Cloud Metadata Access
+        metadata:
+          severity: high
+          mitre_attack: T1552.005
+          test_id: ae9002e4-3d82-4fcd-8b45-f7e0628f7375
+          description: node/bun contacted cloud instance metadata endpoint - cloud credential theft
+
+  # ============================================================
+  # Rule 6: Worm Workflow Injection (T1567.001 / T1080)
+  # ============================================================
+  shaihulud-worm-workflow-injection:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: /node
+              case sensitive: false
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: /bun
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: .github/workflows/codeql.yml
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: .github/setup.js
+              case sensitive: false
+    respond:
+      - action: report
+        name: Shai-Hulud Worm Workflow Injection
+        metadata:
+          severity: high
+          mitre_attack: T1567.001,T1080
+          test_id: ae9002e4-3d82-4fcd-8b45-f7e0628f7375
+          description: node/bun wrote to GitHub Actions workflow/loader file - worm self-propagation

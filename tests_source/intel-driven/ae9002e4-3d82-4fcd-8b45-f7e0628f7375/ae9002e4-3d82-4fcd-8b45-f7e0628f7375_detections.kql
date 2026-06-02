@@ -1,0 +1,105 @@
+// ==============================================================================
+// Detection Rules (KQL — Microsoft Sentinel / Defender for Endpoint Advanced Hunting)
+// Test: Mini Shai-Hulud npm Supply Chain Kill Chain (@redhat-cloud-services)
+// UUID: ae9002e4-3d82-4fcd-8b45-f7e0628f7375
+// Platform: Linux endpoint (developer workstation / CI runner)
+//
+// These rules target the REAL campaign's technique behaviors, not the F0RT1KA
+// test artifacts. Tune lookbacks and exclusions for your environment.
+// ==============================================================================
+
+// ------------------------------------------------------------------------------
+// 1) T1195.002 — npm install lifecycle hook spawning node (preinstall execution)
+// ------------------------------------------------------------------------------
+DeviceProcessEvents
+| where Timestamp > ago(7d)
+| where InitiatingProcessFileName in~ ("npm", "npm-cli.js", "node")
+| where FileName =~ "node"
+| where InitiatingProcessCommandLine has_any ("install", "ci", "preinstall", "postinstall")
+| where ProcessCommandLine has_any ("index.js", "setup.js")
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine, InitiatingProcessCommandLine, FolderPath
+| order by Timestamp desc
+
+// ------------------------------------------------------------------------------
+// 2) T1105 / T1059.004 — node spawning curl/unzip to stage a JS runtime (Bun)
+// ------------------------------------------------------------------------------
+DeviceProcessEvents
+| where Timestamp > ago(7d)
+| where InitiatingProcessFileName in~ ("node", "npm", "bun")
+| where FileName in~ ("curl", "wget", "unzip", "tar")
+| where ProcessCommandLine has_any ("oven-sh/bun", "bun-linux", "bun-darwin", "/tmp/b-", ".zip")
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc
+
+// ------------------------------------------------------------------------------
+// 3) T1552.001/.004 — process reading credential files shortly after npm install
+// ------------------------------------------------------------------------------
+let credPaths = dynamic([".aws/credentials",".aws/config",".ssh/id_rsa",".ssh/id_ed25519",
+  ".npmrc",".git-credentials",".docker/config.json",".kube/config",
+  "gcloud/application_default_credentials.json",".env",".pypirc",".azure/accessTokens.json"]);
+DeviceFileEvents
+| where Timestamp > ago(7d)
+| where ActionType in ("FileAccessed", "FileOpened")
+| where InitiatingProcessFileName in~ ("node", "bun", "sh", "bash")
+| where FolderPath has_any (credPaths) or FileName in~ (".npmrc", ".git-credentials", ".env")
+| summarize CredFilesTouched = dcount(FolderPath), Paths = make_set(FolderPath, 25)
+    by DeviceName, InitiatingProcessId, InitiatingProcessFileName, bin(Timestamp, 5m)
+| where CredFilesTouched >= 3   // broad sweep = harvesting, not normal dev use
+| order by Timestamp desc
+
+// ------------------------------------------------------------------------------
+// 4) T1552.005 — outbound to cloud instance metadata endpoint from node/bun
+// ------------------------------------------------------------------------------
+DeviceNetworkEvents
+| where Timestamp > ago(7d)
+| where InitiatingProcessFileName in~ ("node", "bun", "curl")
+| where RemoteIP == "169.254.169.254"
+   or RemoteUrl has_any ("169.254.169.254", "metadata.google.internal", "vault.azure.net", "secretmanager.googleapis.com")
+| project Timestamp, DeviceName, AccountName, InitiatingProcessFileName, RemoteIP, RemoteUrl, ProcessCommandLine = InitiatingProcessCommandLine
+| order by Timestamp desc
+
+// ------------------------------------------------------------------------------
+// 5) T1059.004 — `gh auth token` invocation (live GitHub token theft)
+// ------------------------------------------------------------------------------
+DeviceProcessEvents
+| where Timestamp > ago(7d)
+| where (FileName =~ "gh" and ProcessCommandLine has "auth token")
+   or ProcessCommandLine has "gh auth token"
+| where InitiatingProcessFileName in~ ("node", "bun", "sh", "bash")
+| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc
+
+// ------------------------------------------------------------------------------
+// 6) T1071.001 / T1041 — encrypted beacon with python-requests UA from node/bun
+// ------------------------------------------------------------------------------
+DeviceNetworkEvents
+| where Timestamp > ago(7d)
+| where InitiatingProcessFileName in~ ("node", "bun")
+| where RemotePort in (443, 80)
+| where ActionType == "ConnectionSuccess"
+// Correlate with UA spoof seen at proxy/EDR network telemetry where available
+| extend SuspectUA = "python-requests/2.31.0"
+| project Timestamp, DeviceName, AccountName, InitiatingProcessFileName, RemoteUrl, RemoteIP, RemotePort, SuspectUA
+| order by Timestamp desc
+
+// ------------------------------------------------------------------------------
+// 7) T1567.001 — GitHub-commit exfil marker / worm workflow injection
+// ------------------------------------------------------------------------------
+DeviceFileEvents
+| where Timestamp > ago(7d)
+| where FolderPath has ".github/workflows" or FileName in~ ("codeql.yml", "setup.js")
+| where InitiatingProcessFileName in~ ("node", "bun", "git")
+| project Timestamp, DeviceName, AccountName, ActionType, FolderPath, FileName, InitiatingProcessFileName
+| order by Timestamp desc
+
+// ------------------------------------------------------------------------------
+// 8) T1195.002 — anti-forensic /tmp/p<random>.js write-then-delete by node/bun
+// ------------------------------------------------------------------------------
+DeviceFileEvents
+| where Timestamp > ago(7d)
+| where InitiatingProcessFileName in~ ("node", "bun")
+| where FolderPath startswith "/tmp/"
+| where FileName matches regex @"^p[0-9]+\.js$"
+| summarize Actions = make_set(ActionType), n = count() by DeviceName, FolderPath, FileName, bin(Timestamp, 1m)
+| where Actions has "FileCreated" and (Actions has "FileDeleted" or Actions has "FileRenamed")
+| order by Timestamp desc
