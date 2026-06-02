@@ -169,6 +169,22 @@ File format vs Web UI format differ significantly in indentation and wrapper str
 powershell -ExecutionPolicy Bypass -File ./utils/Check-DefenderProtection.ps1
 ```
 
+## Lab / Test Environment
+
+Tests are built locally and deployed to lab endpoints over SSH (see `@agent-sectest-deploy-test` and the `sectest-deploy` skill). Target machines are referenced by stable SSH aliases — never by raw IP.
+
+| Alias | Platform | Machine | Connection | Privilege | Status |
+|-------|----------|---------|------------|-----------|--------|
+| `debian` | Linux | Debian 13 (trixie), x86_64, kernel 6.12 — VM `debianix` | `~/.ssh/config` → `localhost:2223`, user `jimx` | **passwordless `sudo`** | ✅ active |
+| `win` | Windows | Windows endpoint | SSH alias | — | placeholder |
+| `mac` | macOS | `192.168.4.30` | SSH alias `mac` | — | placeholder |
+
+**`debian` — active Linux lab (verified 2026-06-01):**
+- **Purpose: behavior / smoke validation.** There is **no EDR** on the box (`auditd` inactive; no Falcon/Sysmon-for-Linux). A clean run confirms the binary executes, all stages reach, and exit-code logic is correct — it does **NOT** prove detection rules fire. Do not raise a v2.1 *telemetry-signal-quality* score past the no-lab-evidence cap based on a `debian` run alone; that requires a protected (EDR-instrumented) host.
+- **Provision ARTIFACT_DIR before every Linux/macOS run.** Both `/opt/f0` (deploy path) and `/home/fortika-test` (ARTIFACT_DIR) are root-owned and not writable by `jimx`. Tests run in user context and write decoys into ARTIFACT_DIR, so the deploy step must `sudo mkdir -p /home/fortika-test && sudo chmod 777 /home/fortika-test` first. Skipping it makes the test abort with exit `999` (prerequisite not met) — a lab-setup failure, not an EDR block. `LOG_DIR` (`/tmp/F0`) needs no provisioning (`/tmp` is world-writable; the test creates it).
+- **Build locally, ship the binary.** Go is not installed on the lab host. Cross-compile (`GOOS=linux GOARCH=amd64`) on the dev machine and SCP the binary; never build on the lab box.
+- Linux binaries are not code-signed (signing is a no-op on Linux).
+
 ## Project Structure
 
 ```
