@@ -176,7 +176,7 @@ Tests are built locally and deployed to lab endpoints over SSH (see `@agent-sect
 | Alias | Platform | Machine | Connection | Privilege | Status |
 |-------|----------|---------|------------|-----------|--------|
 | `debian` | Linux | Debian 13 (trixie), x86_64, kernel 6.12 — VM `debianix` | `~/.ssh/config` → `localhost:2223`, user `jimx` | **passwordless `sudo`** | ✅ active |
-| `win` | Windows | Windows endpoint | SSH alias | — | placeholder |
+| `win` | Windows | Windows 11 Pro, x86_64, 4 vCPU — host `win-81o55oa6lo0` | SSH alias `win`, login user `jimx` (**admin**) | jimx = admin; **`james` = local non-admin user** | ✅ active |
 | `mac` | macOS | `192.168.4.30` | SSH alias `mac` | — | placeholder |
 
 **`debian` — active Linux lab (verified 2026-06-01):**
@@ -184,6 +184,16 @@ Tests are built locally and deployed to lab endpoints over SSH (see `@agent-sect
 - **Provision ARTIFACT_DIR before every Linux/macOS run.** Both `/opt/f0` (deploy path) and `/home/fortika-test` (ARTIFACT_DIR) are root-owned and not writable by `jimx`. Tests run in user context and write decoys into ARTIFACT_DIR, so the deploy step must `sudo mkdir -p /home/fortika-test && sudo chmod 777 /home/fortika-test` first. Skipping it makes the test abort with exit `999` (prerequisite not met) — a lab-setup failure, not an EDR block. `LOG_DIR` (`/tmp/F0`) needs no provisioning (`/tmp` is world-writable; the test creates it).
 - **Build locally, ship the binary.** Go is not installed on the lab host. Cross-compile (`GOOS=linux GOARCH=amd64`) on the dev machine and SCP the binary; never build on the lab box.
 - Linux binaries are not code-signed (signing is a no-op on Linux).
+
+**`win` — active Windows lab (verified 2026-06-09):**
+- **Purpose: real Defender/AV detonation.** Windows 11 Pro (client SKU → standard users *can* mount ISOs), **4 vCPUs**, **Defender real-time protection ON**. This is a *protected host* — a clean exploit run here is meaningful telemetry/detection evidence (unlike `debian`, which has no EDR). Suitable for raising the v2.1 telemetry-signal-quality score past the no-lab cap when detection is actually observed.
+- **SSH login is `jimx` (admin), in an RDP session.** `ssh win` lands in a **non-interactive** session as `jimx`, who is a **local administrator** — NOT SYSTEM and NOT the desired test identity for LPE tests.
+- **Run privilege-escalation / non-admin tests as `james`.** `james` is a **local non-admin (medium-IL) user**. LPE PoCs (e.g. RoguePlanet) must run as `james` to be valid — running as `jimx` (admin) or SYSTEM voids the escalation premise or trips the binary's re-entry path. Launch options over SSH:
+  - `runas /user:james <binary>` — gives the correct non-admin token, but **prompts for james's password on the console (not stdin)** → won't pipe over a non-interactive SSH command. Use `runas /savecred /user:james …` (prime the credential once interactively) or `CreateProcessWithLogonW` with the password supplied.
+  - **No-password path:** have `james` log in via RDP/console first, then run the F0RT1KA orchestrator **as SYSTEM** (`schtasks`/PsExec `-s`) — its built-in `WTSQueryUserToken` drop lands the payload in james's interactive session (exercises the production token-drop code path).
+  - The most *faithful* run (visible SYSTEM console + best race odds) is from `james`'s own **interactive RDP/console session**, not an SSH-spawned non-interactive window station.
+- **Build locally, ship the binary.** Cross-compile (`GOOS=windows GOARCH=amd64`) on the dev machine, sign, then SCP. Provision `ARTIFACT_DIR` (`c:\Users\fortika-test`) if the test writes decoys there; `LOG_DIR` (`C:\F0`) is created by the test.
+- **Destructive tests = snapshot first.** Some tests (e.g. RoguePlanet) really modify the host (overwrite `System32\wermgr.exe`, spawn a SYSTEM console). Snapshot/revert the VM around such runs.
 
 ## Project Structure
 
