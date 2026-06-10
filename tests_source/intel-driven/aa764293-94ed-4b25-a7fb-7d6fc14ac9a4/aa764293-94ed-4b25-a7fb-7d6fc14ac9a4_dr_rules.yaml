@@ -1,0 +1,132 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: aa764293-94ed-4b25-a7fb-7d6fc14ac9a4
+# Test Name: RoguePlanet — Windows Defender Remediation TOCTOU LPE (wermgr.exe SYSTEM hijack)
+# MITRE ATT&CK: T1068, T1036.005, T1053.005
+# Created: 2026-06-09
+# Author: sectest-builder
+# Format: LimaCharlie file format (for: limacharlie dr add -f <file>)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These rules detect the RoguePlanet-class Defender-remediation TOCTOU LPE behavior
+# (analysis section 7), NOT the F0RT1KA test harness. They will fire on a real attacker
+# planting a binary in System32\wermgr.exe and abusing the WER QueueReporting task,
+# regardless of whether the payload is code-signed.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f aa764293-94ed-4b25-a7fb-7d6fc14ac9a4_dr_rules.yaml
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: System32 wermgr.exe integrity change (HIGHEST VALUE)
+  # ==========================================================================
+  rogueplanet-wermgr-system32-write:
+    detect:
+      target: edr
+      event: FILE_MODIFIED
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)\\windows\\system32\\wermgr\.exe(\.rp_old)?$
+        - op: is windows
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: contains
+                  path: event/PARENT/FILE_PATH
+                  value: \windows\servicing\
+                - op: matches
+                  path: event/PARENT/FILE_PATH
+                  re: (?i)\\(tiworker|trustedinstaller|msmpeng)\.exe$
+                - op: contains
+                  path: event/PARENT/FILE_PATH
+                  value: \Windows Defender\
+    respond:
+      - action: report
+        name: RoguePlanet - System32 wermgr.exe overwritten (LPE plant)
+        priority: 4
+      - action: add tag
+        tag: rogueplanet-lpe-plant
+        ttl: 86400
+
+  # ==========================================================================
+  # RULE 2: MpClient.dll loaded by a non-Defender process
+  # ==========================================================================
+  rogueplanet-mpclient-nondefender-load:
+    detect:
+      target: edr
+      event: CODE_IDENTITY
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)\\mpclient\.dll$
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: contains
+                  path: event/PROCESS/FILE_PATH
+                  value: \Windows Defender\
+                - op: matches
+                  path: event/PROCESS/FILE_PATH
+                  re: (?i)\\(msmpeng|mpcmdrun|nissrv|smartscreen)\.exe$
+    respond:
+      - action: report
+        name: RoguePlanet - MpClient.dll loaded by non-Defender process
+        priority: 3
+
+  # ==========================================================================
+  # RULE 3: wermgr.exe (SYSTEM) spawns an interactive console (the payoff)
+  # ==========================================================================
+  rogueplanet-wermgr-spawns-system-console:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: matches
+          path: event/PARENT/FILE_PATH
+          re: (?i)\\wermgr\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)\\(conhost|cmd|powershell)\.exe$
+        - op: matches
+          path: event/USER_NAME
+          re: (?i)(nt authority\\)?system$
+    respond:
+      - action: report
+        name: RoguePlanet - wermgr.exe spawned interactive SYSTEM console
+        priority: 4
+      - action: add tag
+        tag: rogueplanet-system-shell
+        ttl: 86400
+
+  # ==========================================================================
+  # RULE 4: ISO staging / junction race indicators (supporting)
+  # ==========================================================================
+  rogueplanet-iso-stage-junction:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: AttachVirtualDisk
+        - op: contains
+          path: event/COMMAND_LINE
+          value: Mount-DiskImage
+        - op: matches
+          path: event/COMMAND_LINE
+          re: (?i)\\RP_[0-9a-f\-]{8,}
+    respond:
+      - action: report
+        name: RoguePlanet - ISO stage / junction race indicators
+        priority: 2

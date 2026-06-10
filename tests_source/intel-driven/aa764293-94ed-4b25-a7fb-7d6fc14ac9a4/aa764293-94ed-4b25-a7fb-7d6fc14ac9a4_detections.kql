@@ -1,0 +1,82 @@
+// KQL detection rules — RoguePlanet Windows Defender Remediation TOCTOU LPE
+// UUID: aa764293-94ed-4b25-a7fb-7d6fc14ac9a4
+// Platforms: Microsoft Sentinel / Microsoft Defender XDR (advanced hunting)
+// Techniques: T1068, T1036.005, T1053.005
+//
+// These rules target the ADVERSARY BEHAVIOR (analysis §7), not the F0RT1KA test
+// harness. They do not reference the orchestrator binary, C:\F0, or RoguePlanet.exe.
+
+// =====================================================================
+// 1. HIGHEST VALUE — System32\wermgr.exe integrity change (FileModified)
+//    A protected System32 binary being overwritten is the crux of this LPE.
+// =====================================================================
+DeviceFileEvents
+| where ActionType in ("FileModified", "FileCreated", "FileRenamed")
+| where FolderPath has @"\Windows\System32\wermgr.exe"
+    or FileName =~ "wermgr.exe.rp_old"
+| where not(InitiatingProcessFolderPath has @"\Windows\servicing\")     // exclude legit servicing/CBS
+| where InitiatingProcessFileName !in~ ("TiWorker.exe", "TrustedInstaller.exe", "msmpeng.exe")
+| project Timestamp, DeviceName, FolderPath, FileName, ActionType,
+          InitiatingProcessFileName, InitiatingProcessAccountName,
+          InitiatingProcessIntegrityLevel, SHA256
+| sort by Timestamp desc
+
+// =====================================================================
+// 2. HIGH VALUE — MpClient.dll loaded by a NON-Defender process
+//    Programmatic Defender scan/clean (MpManagerOpen/MpScanStart/MpCleanStart)
+//    from a random user process is a strong signal of remediation-path abuse.
+// =====================================================================
+DeviceImageLoadEvents
+| where FileName =~ "MpClient.dll"
+| where InitiatingProcessFolderPath !has @"\Windows Defender\"
+    and InitiatingProcessFolderPath !has @"\Microsoft\Windows Defender\"
+| where InitiatingProcessFileName !in~ ("MsMpEng.exe", "MpCmdRun.exe", "NisSrv.exe",
+        "MpDlpService.exe", "smartscreen.exe")
+| project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessFolderPath,
+          InitiatingProcessAccountName, InitiatingProcessCommandLine
+| sort by Timestamp desc
+
+// =====================================================================
+// 3. HIGH VALUE — WER QueueReporting task spawns wermgr.exe -> SYSTEM console
+//    Process-tree anomaly: wermgr.exe (as SYSTEM) parenting conhost/cmd in an
+//    interactive session shortly after the System32 write.
+// =====================================================================
+DeviceProcessEvents
+| where InitiatingProcessFileName =~ "wermgr.exe"
+| where FileName in~ ("conhost.exe", "cmd.exe", "powershell.exe")
+| where InitiatingProcessAccountName in~ ("system", "nt authority\\system")
+| where SessionId != 0    // interactive session, not session 0
+| project Timestamp, DeviceName, FileName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessAccountName, SessionId,
+          InitiatingProcessParentFileName
+| sort by Timestamp desc
+
+// =====================================================================
+// 4. SUPPORTING — Scheduled Task Run of QueueReporting via COM from a user proc
+// =====================================================================
+DeviceEvents
+| where ActionType in ("ScheduledTaskCreated", "ScheduledTaskUpdated", "AppControlExecutableAudited", "PnpDeviceConnected")
+| where AdditionalFields has "QueueReporting" or AdditionalFields has @"Windows Error Reporting"
+| project Timestamp, DeviceName, ActionType, InitiatingProcessFileName,
+          InitiatingProcessAccountName, AdditionalFields
+| sort by Timestamp desc
+
+// =====================================================================
+// 5. SUPPORTING — Correlated chain: MpClient load + wermgr write within 5 min
+//    Raises confidence by joining signal (2) and signal (1) on the same device.
+// =====================================================================
+let mpLoads =
+    DeviceImageLoadEvents
+    | where FileName =~ "MpClient.dll"
+    | where InitiatingProcessFolderPath !has @"\Windows Defender\"
+    | project DeviceName, mpTime = Timestamp, mpProc = InitiatingProcessFileName;
+let wermgrWrites =
+    DeviceFileEvents
+    | where FolderPath has @"\Windows\System32\wermgr.exe"
+    | where ActionType in ("FileModified", "FileCreated")
+    | project DeviceName, wTime = Timestamp, wProc = InitiatingProcessFileName;
+mpLoads
+| join kind=inner wermgrWrites on DeviceName
+| where wTime between (mpTime .. (mpTime + 5m))
+| project DeviceName, mpTime, mpProc, wTime, wProc
+| sort by wTime desc

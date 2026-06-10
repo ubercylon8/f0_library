@@ -1,0 +1,137 @@
+# Sigma detection rules — RoguePlanet Windows Defender Remediation TOCTOU LPE
+# UUID: aa764293-94ed-4b25-a7fb-7d6fc14ac9a4
+# Techniques: T1068, T1036.005, T1053.005
+# Vendor-agnostic; rules target adversary behavior (analysis §7), not the test harness.
+---
+title: System32 wermgr.exe Integrity Change (RoguePlanet LPE plant)
+id: 5e1d2a40-3c7b-4a91-9f2e-aa7642930001
+status: experimental
+description: >
+  A protected System32 binary (wermgr.exe) is created/modified/renamed by a process
+  that is not a legitimate Windows servicing/Defender component. Crux signal of the
+  RoguePlanet Defender-remediation TOCTOU LPE — the planted binary is later run as
+  SYSTEM by the WER QueueReporting task.
+references:
+  - ROGUEPLANET_ANALYSIS.md (sections 7, 10)
+author: sectest-builder
+tags:
+  - attack.privilege-escalation
+  - attack.t1068
+  - attack.defense-evasion
+  - attack.t1036.005
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_target:
+    TargetFilename|endswith:
+      - '\Windows\System32\wermgr.exe'
+      - '\Windows\System32\wermgr.exe.rp_old'
+  filter_legit:
+    Image|contains:
+      - '\Windows\servicing\'
+      - '\Windows Defender\'
+    Image|endswith:
+      - '\TiWorker.exe'
+      - '\TrustedInstaller.exe'
+      - '\MsMpEng.exe'
+  condition: selection_target and not filter_legit
+falsepositives:
+  - Legitimate OS servicing outside the standard servicing path (rare)
+level: critical
+---
+title: MpClient.dll Loaded by Non-Defender Process (Defender remediation abuse)
+id: 5e1d2a40-3c7b-4a91-9f2e-aa7642930002
+status: experimental
+description: >
+  MpClient.dll (the Defender management/scan/clean client) is loaded by a process that
+  is not part of Windows Defender. RoguePlanet drives MpManagerOpen/MpScanStart/
+  MpCleanStart from a user process to race the SYSTEM clean path.
+references:
+  - ROGUEPLANET_ANALYSIS.md (section 7, signal 3)
+author: sectest-builder
+tags:
+  - attack.privilege-escalation
+  - attack.t1068
+  - attack.defense-evasion
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection:
+    ImageLoaded|endswith: '\MpClient.dll'
+  filter_defender:
+    Image|contains:
+      - '\Windows Defender\'
+      - '\Microsoft\Windows Defender\'
+    Image|endswith:
+      - '\MsMpEng.exe'
+      - '\MpCmdRun.exe'
+      - '\NisSrv.exe'
+      - '\smartscreen.exe'
+  condition: selection and not filter_defender
+falsepositives:
+  - Security tooling that legitimately wraps the Defender management API
+level: high
+---
+title: WER wermgr.exe Spawns Interactive Console as SYSTEM (RoguePlanet payoff)
+id: 5e1d2a40-3c7b-4a91-9f2e-aa7642930003
+status: experimental
+description: >
+  wermgr.exe running as SYSTEM spawns conhost/cmd/powershell in a non-zero (interactive)
+  session. After the System32 plant, the WER QueueReporting task runs the planted
+  wermgr.exe as SYSTEM, which opens an interactive SYSTEM console — a process-tree anomaly.
+references:
+  - ROGUEPLANET_ANALYSIS.md (section 7, signal 8)
+author: sectest-builder
+tags:
+  - attack.privilege-escalation
+  - attack.t1068
+  - attack.execution
+  - attack.t1053.005
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    ParentImage|endswith: '\wermgr.exe'
+    Image|endswith:
+      - '\conhost.exe'
+      - '\cmd.exe'
+      - '\powershell.exe'
+    User|contains:
+      - 'SYSTEM'
+  filter_session0:
+    # Legit WER reporting runs in session 0; the payoff is an interactive session.
+    SessionId: 0
+  condition: selection and not filter_session0
+falsepositives:
+  - Rare legitimate WER interactive flows
+level: high
+---
+title: ISO Mount and Junction Race by Non-Elevated Process (RoguePlanet staging)
+id: 5e1d2a40-3c7b-4a91-9f2e-aa7642930004
+status: experimental
+description: >
+  A non-elevated process stages an ISO in %TEMP%, mounts it (no drive letter), and
+  creates/deletes NTFS junctions around a Defender operation. Supporting signal of the
+  RoguePlanet remediation race.
+references:
+  - ROGUEPLANET_ANALYSIS.md (section 7, signals 1 and 4)
+author: sectest-builder
+tags:
+  - attack.privilege-escalation
+  - attack.t1068
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_iso:
+    CommandLine|contains:
+      - 'AttachVirtualDisk'
+      - 'Mount-DiskImage'
+      - '\RP_'
+  condition: selection_iso
+falsepositives:
+  - Legitimate ISO mounting by deployment tooling
+level: medium
