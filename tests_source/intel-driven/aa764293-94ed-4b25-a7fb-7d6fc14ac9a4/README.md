@@ -6,7 +6,7 @@
 **Target**: windows-endpoint
 **Severity**: critical
 **Architecture**: standard single-binary (prebuilt-payload deployment)
-**Test Score**: **8.7/10**
+**Test Score**: **9.5/10**
 
 > ⚠️ **REAL DETONATION.** This test does not simulate the attack — it embeds and
 > detonates a prebuilt local-privilege-escalation PoC ("RoguePlanet") that
