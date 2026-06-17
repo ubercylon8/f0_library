@@ -90,6 +90,27 @@ lab-results/
 *.exe.gz
 *.dll.gz
 
+# ------------------------------------------------------------------------------
+# Prebuilt-payload deployment tests: committed *input* binaries (allowlist)
+# ------------------------------------------------------------------------------
+# These raw, UNSIGNED PEs are build INPUTS: build_all.sh signs them with the
+# tenant cert, gzips them, and //go:embed's them at build time. Unlike the
+# signed *.exe.gz artifacts above (regenerated per build), the raw payload must
+# reach every git-synced tenant -- otherwise the build aborts at
+# "Prebuilt payload <name> not found" (surfaced as a clamped "Command failed:
+# bash .../build_all.sh" in the UI). The blanket *.exe rule (line 2) hides them,
+# so each payload is re-included explicitly. Add ONE line per new prebuilt test.
+#
+# Keep entries < 50 MB. Larger payloads (e.g. e5472cd5 lab_assets/
+# stage2_payload.exe, 66 MB) must NOT be committed here -- migrate those to
+# git-LFS or keep them on the out-of-band Upload Binary path.
+!tests_source/intel-driven/aa764293-94ed-4b25-a7fb-7d6fc14ac9a4/RoguePlanet.exe
+# PENDING unsigned source: the only LogiAiPromptBuilder.exe copies on hand are
+# F0RT1KA-signed (build_all.sh signs the sideload host in place). Drop the
+# pristine unsigned vendor binary in place, verify with `osslsigncode verify`,
+# then uncomment to commit:
+# !tests_source/intel-driven/bf448c7a-307e-4458-ba36-341d6d8e671b/sideload_host/LogiAiPromptBuilder.exe
+
 # Analysis outputs
 analysis_output/
 
