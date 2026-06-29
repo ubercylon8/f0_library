@@ -30,7 +30,7 @@ TARGET: windows-endpoint
 COMPLEXITY: high
 THREAT_ACTOR: N/A
 SUBCATEGORY: apt
-TAGS: defender-bypass, toctou, junction, oplock, lpe, wermgr, vss, privilege-escalation
+TAGS: defender-exploit, toctou, junction, oplock, lpe, wermgr, vss, privilege-escalation, cve-2026-50656
 SOURCE_URL: N/A
 UNIT: response
 CREATED: 2026-06-09

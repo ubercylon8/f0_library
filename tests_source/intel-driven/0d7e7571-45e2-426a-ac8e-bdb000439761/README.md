@@ -1,9 +1,9 @@
-# Nightmare-Eclipse RedSun Cloud Files Rewrite Primitive Chain
+# RedSun — Windows Defender Cloud-File Rewrite LPE (Nightmare-Eclipse)
 
 **UUID**: `0d7e7571-45e2-426a-ac8e-bdb000439761`
 **Category**: `intel-driven`
 **Target**: `windows-endpoint`
-**Threat Actor**: Nightmare-Eclipse (RedSun PoC, 2026)
+**Threat Actor**: Nightmare-Eclipse (RedSun PoC, CVE-2026-41091, 2026)
 **Severity**: high
 **Architecture**: multi-stage (4 stages)
 **Rubric version**: v2.1 (tiered, realism-first; signal-quality-not-tenant-defense)
@@ -14,9 +14,9 @@
 
 ## Purpose
 
-This test gives EDR/AV products a safe, controlled workload that exercises the
-same API surface as the Nightmare-Eclipse RedSun PoC, including the COM-broker
-activation primitive that's central to RedSun's file-replacement chain.
+**RedSun (CVE-2026-41091) is a local privilege escalation exploit** that achieves `NT AUTHORITY\SYSTEM` from a standard user by weaponizing Windows Defender's cloud-file handling branch: when Defender detects a malicious file carrying a Cloud Files placeholder reparse tag (`IO_REPARSE_TAG_CLOUD_*`), it performs a privileged file rewrite instead of a normal quarantine. The attacker hijacks that rewrite via an oplock-controlled junction swap, landing attacker bytes in `System32\TieringEngineService.exe` under SYSTEM authority. Defender must be active throughout — it is the privileged write actor, not the target.
+
+This F0RT1KA test gives EDR/AV products a safe, controlled workload that exercises the same API surface as the RedSun PoC, including the COM-broker activation primitive central to RedSun's file-replacement chain.
 
 It does **not** reproduce the end-to-end exploit — no privilege escalation
 occurs, no real Windows system files are touched, no service is started.
@@ -50,10 +50,11 @@ so defenders can measure their detection coverage for:
 
 ## MITRE ATT&CK Mapping
 
-- **T1211 — Exploitation for Defense Evasion** (stages 1, 2): Cloud Files API abuse + VSS reconnaissance.
+- **T1068 — Exploitation for Privilege Escalation** (primary): The full RedSun chain exploits a vulnerability (CVE-2026-41091) in Defender's cloud-file handling to achieve SYSTEM from a standard user. This is the root objective.
+- **T1211 — Exploitation for Defense Evasion** (stages 1, 2): Cloud Files API abuse triggers Defender's aberrant rewrite-instead-of-quarantine code path; VSS reconnaissance provides timing signal.
 - **T1006 — Direct Volume Access** (stage 2): `\Device` enumeration + batch oplock on a sandbox file mirrors the PoC's VSS-attack surface.
-- **T1574 — Hijack Execution Flow** (stage 3): Mount-point reparse + supersede race is the hijack mechanism in the PoC.
-- **T1559.001 — Inter-Process Communication: Component Object Model** (stage 4 — new in v2): The `CoCreateInstance` call against the CFAPI Sync Root Manager broker is the IPC primitive RedSun uses to trigger the broker-mediated rewrite.
+- **T1574 — Hijack Execution Flow** (stage 3): Mount-point reparse + supersede race is the hijack mechanism the PoC uses to redirect Defender's privileged write to `System32\TieringEngineService.exe`.
+- **T1559.001 — Inter-Process Communication: Component Object Model** (stage 4): The `CoCreateInstance` call against the CFAPI Sync Root Manager broker triggers the broker-mediated write that delivers SYSTEM execution.
 
 ## Safety Boundaries (Tier 1 v2 Gate)
 

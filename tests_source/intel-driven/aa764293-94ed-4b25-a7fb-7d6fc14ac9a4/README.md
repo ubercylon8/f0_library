@@ -3,6 +3,7 @@
 **UUID**: `aa764293-94ed-4b25-a7fb-7d6fc14ac9a4`
 **Category**: intel-driven
 **Subcategory**: apt (vulnerability-exploit PoC)
+**CVE**: CVE-2026-50656 — **unpatched as of 2026-06-29** (Microsoft acknowledged, patch in development, no timeline)
 **Target**: windows-endpoint
 **Severity**: critical
 **Architecture**: standard single-binary (prebuilt-payload deployment)

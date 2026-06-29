@@ -1,10 +1,10 @@
-# BlueHammer Early-Stage Behavioral Pattern (Nightmare-Eclipse)
+# BlueHammer — Windows Defender LPE via VSS TOCTOU SAM-Leak Chain (Nightmare-Eclipse)
 
 **Test UUID**: `5e59dd6a-6c87-4377-942c-ea9b5e054cb9`
 **Category**: intel-driven / apt
 **Platform**: windows-endpoint
-**Techniques**: T1211 (Exploitation for Defense Evasion), T1562.001 (Impair Defenses), T1003.002 (OS Credential Dumping: SAM), T1134.001 (Token Manipulation: Token Impersonation/Theft)
-**Tactics**: defense-evasion, credential-access, privilege-escalation
+**Techniques**: T1068 (Exploitation for Privilege Escalation), T1211 (Exploitation for Defense Evasion), T1562.001 (Impair Defenses), T1003.002 (OS Credential Dumping: SAM), T1134.001 (Token Manipulation: Token Impersonation/Theft)
+**Tactics**: privilege-escalation, defense-evasion, credential-access
 **Severity**: high
 **Threat actor**: Nightmare-Eclipse (BlueHammer PoC, 2026)
 **Rubric version**: v2.1 (tiered, realism-first; signal-quality-not-tenant-defense)
@@ -15,7 +15,9 @@
 
 ## Overview
 
-This test exercises the **observable API surface of BlueHammer's full kill-chain primitives** — including the SAM-hive read API surface that BlueHammer's PoC ultimately uses, but executed against a **synthetic sandbox hive** rather than any real Windows hive. Defenders can measure EDR/AV detection coverage on every primitive BlueHammer touches, with strict safety guarantees ensuring no real credential material is ever accessed.
+**BlueHammer (CVE-2026-33825, patched April 2026) is a local privilege escalation exploit** that achieves `NT AUTHORITY\SYSTEM` from a standard user account by weaponizing Windows Defender's own quarantine and RPC-triggered signature-update workflows. Defender is the exploit mechanism — not the target — and must be active throughout. The SAM credential dump is instrumental to the LPE (used to temporarily compromise a local admin hash to obtain a SYSTEM token); it is not the end goal.
+
+This F0RT1KA test exercises the **observable API surface of BlueHammer's kill-chain primitives** — including the SAM-hive read API surface — executed against a **synthetic sandbox hive** rather than any real Windows hive. The primitives are detectable by any EDR running on the endpoint, but the real-world BlueHammer attack chain hard-requires Microsoft Defender (its quarantine workflow, RPC endpoint, and VSS side-effect are non-substitutable). Strict safety guarantees ensure no real credential material is ever accessed.
 
 All operations target a sandbox directory under `C:\Users\fortika-test\BlueHammerSandbox\` (the F0RT1KA non-whitelisted artifact dir) — no system-sensitive path is ever touched.
 

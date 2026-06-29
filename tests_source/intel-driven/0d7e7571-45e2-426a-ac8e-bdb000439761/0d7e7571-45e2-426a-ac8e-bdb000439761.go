@@ -3,15 +3,15 @@
 
 /*
 ID: 0d7e7571-45e2-426a-ac8e-bdb000439761
-NAME: Nightmare-Eclipse RedSun Cloud Files Rewrite Primitive Chain
-TECHNIQUES: T1211, T1006, T1574, T1559.001
-TACTICS: defense-evasion, collection, persistence, execution
+NAME: RedSun — Windows Defender Cloud-File Rewrite LPE (CVE-2026-41091)
+TECHNIQUES: T1068, T1211, T1006, T1574, T1559.001
+TACTICS: privilege-escalation, defense-evasion, execution
 SEVERITY: high
 TARGET: windows-endpoint
 COMPLEXITY: medium
 THREAT_ACTOR: Nightmare-Eclipse
 SUBCATEGORY: apt
-TAGS: cloud-files-api, cfapi, vss-enumeration, batch-oplock, mount-point-reparse, reparse-readback, file-supersede, ntqueryinformationfile, com-activation, tieringengine-precheck, eicar, redsun, primitive-chain
+TAGS: lpe, cve-2026-41091, cloud-files-api, cfapi, vss-enumeration, batch-oplock, mount-point-reparse, reparse-readback, file-supersede, ntqueryinformationfile, com-activation, tieringengine-precheck, eicar, redsun, primitive-chain, defender-exploit
 SOURCE_URL: https://github.com/Nightmare-Eclipse/RedSun
 UNIT: response
 CREATED: 2026-04-24
@@ -68,7 +68,7 @@ import (
 
 const (
 	TEST_UUID = "0d7e7571-45e2-426a-ac8e-bdb000439761"
-	TEST_NAME = "Nightmare-Eclipse RedSun Cloud Files Rewrite Primitive Chain"
+	TEST_NAME = "RedSun — Windows Defender Cloud-File Rewrite LPE (CVE-2026-41091)"
 )
 
 // Embedded gzip-compressed signed stage binaries (signed BEFORE embed)
@@ -106,14 +106,16 @@ func main() {
 		Category: "defense_evasion",
 		Severity: "high",
 		Techniques: []string{
+			"T1068",
 			"T1211",
 			"T1006",
 			"T1574",
+			"T1559.001",
 		},
 		Tactics: []string{
+			"privilege-escalation",
 			"defense-evasion",
-			"collection",
-			"persistence",
+			"execution",
 		},
 		Score:         8.7, // v2.1 — lab-verified 2026-04-25 (4/4 stages reached, exit 101); R6 3d Op Hygiene lift (watchdogs+budgets) + R7 2b Identifier Fidelity lift (sandbox files renamed FakeTarget → TieringEngineService.exe under ARTIFACT_DIR for path-rule detection without touching System32). See info.md Score Breakdown.
 		RubricVersion: "v2.1",
@@ -242,7 +244,7 @@ func test() {
 
 	// Bundle results for ES fan-out
 	stageSeverity := "high"
-	stageTactics := []string{"defense-evasion", "collection", "persistence", "execution"}
+	stageTactics := []string{"privilege-escalation", "defense-evasion", "execution"}
 	stageResults := make([]StageBundleDef, len(killchain))
 	for i, stage := range killchain {
 		stageResults[i] = StageBundleDef{

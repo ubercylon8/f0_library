@@ -1,5 +1,5 @@
 // F0RT1KA Multi-Stage Test Orchestrator
-// BlueHammer Early-Stage Behavioral Simulation (Nightmare-Eclipse, 2026)
+// BlueHammer LPE Simulation — Windows Defender VSS TOCTOU SAM-Leak Chain (CVE-2026-33825)
 //
 // Simulates only the OBSERVABLE primitives of BlueHammer's initial phases:
 //   Stage 1 (T1211):     Cloud Files sync-root + fetch-placeholder callback + Mimikatz-named EICAR drop
@@ -31,15 +31,15 @@
 
 /*
 ID: 5e59dd6a-6c87-4377-942c-ea9b5e054cb9
-NAME: BlueHammer Early-Stage Behavioral Pattern
-TECHNIQUES: T1211, T1562.001, T1003.002, T1134.001
-TACTICS: defense-evasion, credential-access, privilege-escalation
+NAME: BlueHammer — Windows Defender LPE via VSS TOCTOU SAM-Leak Chain (CVE-2026-33825)
+TECHNIQUES: T1068, T1211, T1562.001, T1003.002, T1134.001
+TACTICS: privilege-escalation, defense-evasion, credential-access
 SEVERITY: high
 TARGET: windows-endpoint
 COMPLEXITY: medium
 THREAT_ACTOR: Nightmare-Eclipse
 SUBCATEGORY: apt
-TAGS: cloud-files, oplock, vss-enum, wmi-shadow-enum, mimikatz-signature, sam-sim, sebackup-privilege, transacted-open, defender-evasion, watchdog
+TAGS: lpe, cve-2026-33825, cloud-files, oplock, vss-enum, wmi-shadow-enum, mimikatz-signature, sam-sim, sebackup-privilege, transacted-open, defender-exploit, watchdog
 SOURCE_URL: https://github.com/Nightmare-Eclipse/BlueHammer
 UNIT: response
 CREATED: 2026-04-24
@@ -72,7 +72,7 @@ import (
 
 const (
 	TEST_UUID = "5e59dd6a-6c87-4377-942c-ea9b5e054cb9"
-	TEST_NAME = "BlueHammer Early-Stage Behavioral Pattern"
+	TEST_NAME = "BlueHammer — Windows Defender LPE via VSS TOCTOU SAM-Leak Chain (CVE-2026-33825)"
 )
 
 // Embedded gzip-compressed SIGNED stage binaries
@@ -99,8 +99,8 @@ func main() {
 		Version:       "2.0.0",
 		Category:      "defense_evasion",
 		Severity:      "high",
-		Techniques:    []string{"T1211", "T1562.001", "T1003.002", "T1134.001"},
-		Tactics:       []string{"defense-evasion", "credential-access", "privilege-escalation"},
+		Techniques:    []string{"T1068", "T1211", "T1562.001", "T1003.002", "T1134.001"},
+		Tactics:       []string{"privilege-escalation", "defense-evasion", "credential-access"},
 		Score:         9.2, // v2.1 — lab-verified 2026-04-25 via Lab-Bound Observability exception (stages 3-4 unreachable due to MDE stage-2 block); B6 3d Op Hygiene lift (watchdogs+budgets) + B7 2b Identifier Fidelity lift (runtime extraction of real Defender registry paths via golang.org/x/sys/windows/registry — surfaced in snapshot JSON + INFO logs). See info.md Score Breakdown.
 		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2 — the v1 dimensions in
