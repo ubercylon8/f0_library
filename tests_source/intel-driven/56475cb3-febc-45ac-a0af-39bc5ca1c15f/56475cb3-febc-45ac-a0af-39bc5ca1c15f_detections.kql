@@ -1,0 +1,154 @@
+// ============================================================
+// Behavioral Detection Queries for 3CX 3CXDesktopApp Cascading Supply-Chain Compromise
+// Test ID: 56475cb3-febc-45ac-a0af-39bc5ca1c15f
+// MITRE ATT&CK: T1195.002, T1574.002, T1497, T1027.003, T1071.001, T1555.003
+// Threat Actor: Lazarus / UNC4736 (DPRK)
+// Platform: Microsoft Sentinel / Microsoft Defender XDR (Advanced Hunting)
+// ============================================================
+// FOCUS: Technique-level attack behaviors only.
+// These queries target the underlying 3CX/Lazarus tradecraft (a trusted signed
+// vendor app side-loading an untrusted DLL, ICO-based steganographic C2, and
+// browser credential collection) — NOT the F0RT1KA test framework, the test
+// UUID, or any decoy/sentinel content.
+// ============================================================
+
+
+// ============================================================
+// QUERY 1: Signed vendor app side-loading a non-system DLL (T1574.002)
+// Confidence: High
+// Purpose: Detect a desktop application (3CXDesktopApp-class VoIP/collab client)
+//          loading d3dcompiler_47.dll or ffmpeg.dll from a user-writable app
+//          directory rather than from Windows/system paths. This is the exact
+//          3CX trojan side-load primitive.
+// False Positives: Legitimately bundled runtime DLLs shipped inside a vendor's
+//          own Program Files install directory (excluded below).
+// ============================================================
+DeviceImageLoadEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("d3dcompiler_47.dll", "ffmpeg.dll")
+| where FolderPath !startswith "C:\\Windows\\"
+    and FolderPath !startswith "C:\\Program Files\\"
+    and FolderPath !startswith "C:\\Program Files (x86)\\"
+| where FolderPath has_any ("\\Users\\", "\\AppData\\", "\\ProgramData\\", "\\Temp\\", "\\Public\\")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessVersionInfoCompanyName, InitiatingProcessVersionInfoOriginalFileName,
+    InitiatingProcessSHA256, FileName, FolderPath
+| extend Severity = "High", ThreatType = "DLL Side-Loading (supply-chain trojan)",
+    Technique = "T1574.002"
+
+
+// ============================================================
+// QUERY 2: Signed process loading a DLL from its own writable directory (T1574.002)
+// Confidence: Medium-High
+// Purpose: Generic side-load hunt — a code-signed EXE loads a non-Microsoft DLL
+//          from the SAME user-writable folder it runs from. Catches the class of
+//          "trusted signed binary behaves anomalously" beyond the specific DLL names.
+// ============================================================
+DeviceImageLoadEvents
+| where TimeGenerated > ago(1h)
+| where InitiatingProcessFolderPath has_any ("\\Users\\", "\\AppData\\", "\\ProgramData\\", "\\Public\\")
+| where FolderPath =~ InitiatingProcessFolderPath          // DLL loaded from the app's own dir
+| where FileName endswith ".dll"
+| where not(FolderPath startswith "C:\\Program Files")
+| where InitiatingProcessVersionInfoCompanyName != ""      // process is code-signed / has version info
+| summarize LoadedDlls = make_set(FileName, 25), FirstSeen = min(TimeGenerated), Loads = count()
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessFolderPath, InitiatingProcessSHA256
+| where Loads >= 1
+| extend Severity = "Medium", ThreatType = "Signed-binary side-load from writable path",
+    Technique = "T1574.002"
+
+
+// ============================================================
+// QUERY 3: Desktop-app HTTPS retrieval of .ico from a code-hosting CDN (T1071.001/T1027.003)
+// Confidence: Medium
+// Purpose: The 3CX second stage pulled *.ico from raw.githubusercontent.com
+//          (IconStorages repo). Detect processes fetching .ico resources from
+//          raw.githubusercontent.com / github CDNs, especially non-browser apps.
+// False Positives: Developer tooling and browsers fetching icons from GitHub.
+//          Tune by excluding known browser images.
+// ============================================================
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemoteUrl has_any ("raw.githubusercontent.com", "githubusercontent.com", "objects.githubusercontent.com")
+| where RemoteUrl endswith ".ico" or RemoteUrl has "/IconStorages/"
+| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "code.exe", "git.exe")
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath, InitiatingProcessSHA256,
+    RemoteUrl, RemoteIP
+| extend Severity = "Medium", ThreatType = "Steganographic C2 config retrieval (ICO)",
+    Technique = "T1071.001 / T1027.003"
+
+
+// ============================================================
+// QUERY 4: Non-browser process reading multiple browser credential stores (T1555.003)
+// Confidence: High
+// Purpose: Detect a single non-browser process opening credential/history stores
+//          across multiple browser families in quick succession — the ICONIC
+//          stealer collection pattern.
+// ============================================================
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileAccessed", "FileOpened", "FileRead", "FileCopied")
+| where FileName in~ ("Login Data", "Web Data", "Cookies", "logins.json", "key4.db", "History")
+    or FolderPath has_any ("\\Google\\Chrome\\User Data", "\\Microsoft\\Edge\\User Data",
+                           "\\BraveSoftware\\Brave-Browser\\User Data", "\\Mozilla\\Firefox\\Profiles")
+| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe")
+| summarize StoresTouched = make_set(FileName, 25),
+    BrowserFamilies = dcount(tostring(extract(@"(Chrome|Edge|Brave-Browser|Firefox)", 1, FolderPath))),
+    FirstSeen = min(TimeGenerated), Accesses = count()
+    by DeviceName, AccountName, InitiatingProcessFileName, InitiatingProcessFolderPath, InitiatingProcessSHA256
+| where Accesses >= 3 or BrowserFamilies >= 2
+| extend Severity = "High", ThreatType = "Browser credential collection (ICONIC stealer)",
+    Technique = "T1555.003 / T1217"
+
+
+// ============================================================
+// QUERY 5: Sandbox/VM fingerprinting via registry firmware reads (T1497)
+// Confidence: Low-Medium (best correlated with the above stages)
+// Purpose: The implant fingerprints the host (BIOS/disk/guest-additions,
+//          uptime) before beaconing. Surface non-system processes reading
+//          hypervisor artifact keys. Use as an enrichment signal.
+// ============================================================
+DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "RegistryValueRead" or ActionType == "RegistryKeyOpened"
+| where RegistryKey has_any (
+    "HARDWARE\\DESCRIPTION\\System\\BIOS",
+    "SYSTEM\\CurrentControlSet\\Services\\Disk\\Enum",
+    "SYSTEM\\CurrentControlSet\\Services\\VBoxGuest",
+    "SYSTEM\\CurrentControlSet\\Services\\vmtools",
+    "SYSTEM\\CurrentControlSet\\Services\\vmci")
+| where InitiatingProcessFolderPath !startswith "C:\\Windows\\"
+| summarize FirmwareKeys = make_set(RegistryKey, 15), FirstSeen = min(TimeGenerated), Reads = count()
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessFolderPath, InitiatingProcessSHA256
+| where Reads >= 2
+| extend Severity = "Low", ThreatType = "Sandbox / VM evasion fingerprinting",
+    Technique = "T1497"
+
+
+// ============================================================
+// QUERY 6: Correlation — supply-chain chain progression on one host (multi-technique)
+// Confidence: High when 2+ stages correlate within a short window.
+// Purpose: Tie the stages together: same device shows a writable-path side-load
+//          AND browser-store collection AND/OR GitHub .ico egress within 30 min.
+// ============================================================
+let window = 30m;
+let sideloads =
+    DeviceImageLoadEvents
+    | where TimeGenerated > ago(3h)
+    | where FileName in~ ("d3dcompiler_47.dll", "ffmpeg.dll")
+    | where FolderPath !startswith "C:\\Program Files" and FolderPath !startswith "C:\\Windows\\"
+    | project DeviceName, T1 = TimeGenerated, Sig1 = "sideload";
+let credtheft =
+    DeviceFileEvents
+    | where TimeGenerated > ago(3h)
+    | where FileName in~ ("Login Data", "key4.db", "logins.json")
+    | where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe")
+    | project DeviceName, T2 = TimeGenerated, Sig2 = "credtheft";
+sideloads
+| join kind=inner credtheft on DeviceName
+| where abs(datetime_diff('minute', T1, T2)) <= 30
+| project DeviceName, SideloadTime = T1, CredTheftTime = T2
+| extend Severity = "Critical", ThreatType = "Multi-stage supply-chain compromise correlated",
+    Technique = "T1195.002 + T1574.002 + T1555.003"
