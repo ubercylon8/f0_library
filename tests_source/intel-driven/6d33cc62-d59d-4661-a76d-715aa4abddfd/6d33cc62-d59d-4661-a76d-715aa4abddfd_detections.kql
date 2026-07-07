@@ -1,0 +1,105 @@
+// ============================================================
+// Behavioral Detection Queries — PII Exfiltration to External Inference Services
+// Test ID: 6d33cc62-d59d-4661-a76d-715aa4abddfd
+// MITRE ATT&CK: T1552.001, T1119, T1005, T1567
+// Tactics: credential-access, collection, exfiltration
+// Platforms: Windows, Linux
+// Generated: 2026-07-07
+// ============================================================
+// FOCUS: Technique-level "shadow-AI" data-governance behaviors only.
+// These queries target the underlying tradecraft — unsanctioned processes
+// sending sensitive data to real AI inference vendors, and local harvesting
+// of AI-service API keys — NOT this test's specific artifact filenames.
+// A real employee/app leaking PII to ChatGPT/Claude/Gemini/Copilot, or a
+// script harvesting AI keys, will trigger these regardless of tooling.
+// ============================================================
+
+
+// ============================================================
+// QUERY 1: Non-Browser Process Egress to AI Inference Vendors (T1567)
+// Confidence: Medium-High
+// Purpose: Outbound connections to real AI inference endpoints from a process
+//          that is NOT a sanctioned browser or approved AI client. This is the
+//          core shadow-AI egress behavior. Tune the sanctioned-process allowlist
+//          and the AI-host list to your environment.
+// False Positives: Approved AI integrations, dev tooling (VS Code + Copilot),
+//                  vendor SDKs on sanctioned hosts — allowlist these.
+// ============================================================
+let aiVendorDomains = dynamic([
+    "api.openai.com", "chatgpt.com", "openai.com",
+    "api.anthropic.com", "claude.ai", "anthropic.com",
+    "generativelanguage.googleapis.com", "gemini.google.com",
+    "api.githubcopilot.com", "copilot.microsoft.com"
+]);
+let sanctionedProcesses = dynamic([
+    "msedge.exe", "chrome.exe", "firefox.exe"   // add approved AI clients here
+]);
+DeviceNetworkEvents
+| where Timestamp > ago(1h)
+| where RemoteUrl has_any (aiVendorDomains) or RemoteUrl has_any ("openai", "anthropic", "githubcopilot", "generativelanguage")
+| where InitiatingProcessFileName !in~ (sanctionedProcesses)
+| project Timestamp, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine, InitiatingProcessSHA256,
+    RemoteUrl, RemoteIP, RemotePort
+| extend Severity = "High", ThreatType = "Shadow-AI PII Egress", Technique = "T1567"
+
+
+// ============================================================
+// QUERY 2: Automated Harvesting of AI-Service API Keys (T1552.001, T1119)
+// Confidence: Medium
+// Purpose: A single non-interactive process reading many known credential/config
+//          stores in quick succession — the automated-collection pattern a
+//          shadow-AI helper uses to harvest OpenAI/Anthropic/Gemini keys.
+// False Positives: Backup agents, secret scanners (gitleaks/trufflehog on CI),
+//                  legitimate config-management tooling — allowlist by process.
+// ============================================================
+DeviceFileEvents
+| where Timestamp > ago(1h)
+| where ActionType == "FileAccessed" or ActionType == "FileOpened"
+| where FileName in~ (".env", "credentials", "auth.json", "hosts.json", "settings.json",
+                      ".bash_history", ".zsh_history", ".netrc", "config.json")
+    or FolderPath has_any (@"\.aws", @"\.config\openai", @"\.config\anthropic",
+                           @"\github-copilot", @"\.continue", @"\.ollama")
+| summarize SecretStoresTouched = dcount(FolderPath), Files = make_set(FolderPath, 25),
+            FirstSeen = min(Timestamp), LastSeen = max(Timestamp)
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessSHA256, InitiatingProcessCommandLine
+| where SecretStoresTouched >= 3 and (LastSeen - FirstSeen) < 2m
+| extend Severity = "Medium", ThreatType = "AI Credential Harvesting", Technique = "T1552.001"
+
+
+// ============================================================
+// QUERY 3: Staged Shadow-AI Helper Tool (T1552.001 / T1119)
+// Confidence: Medium
+// Purpose: Creation of a script/tool that both references AI inference endpoints
+//          and iterates environment variables for provider keys — the signature
+//          of a shadow-AI harvester/paster being staged on the host.
+// False Positives: Legitimately-developed AI integration code — correlate with
+//                  the author process and code-repo provenance.
+// ============================================================
+DeviceProcessEvents
+| where Timestamp > ago(1h)
+| where ProcessCommandLine has_any ("api.openai.com", "api.anthropic.com",
+        "generativelanguage.googleapis.com", "api.githubcopilot.com")
+| where ProcessCommandLine has_any ("os.environ", "getenv", "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "harvest")
+| project Timestamp, DeviceName, AccountName, ProcessCommandLine,
+    InitiatingProcessFileName, FolderPath, SHA256
+| extend Severity = "Medium", ThreatType = "Shadow-AI Tool Staging", Technique = "T1119"
+
+
+// ============================================================
+// QUERY 4: PII-Bearing Payload to AI Endpoint (T1005 -> T1567)
+// Confidence: High (requires DLP/proxy body inspection or network content logs)
+// Purpose: Where a forward proxy / CASB / DLP logs request bodies, flag outbound
+//          AI-vendor requests whose body matches PII patterns (SSN, PAN, email
+//          volume). This is the true leak signal. Adapt the table/fields to your
+//          proxy log source (e.g., CommonSecurityLog, Zscaler, Netskope).
+// ============================================================
+// Example against a generic proxy content-log table (rename to your source):
+// ProxyContentLogs
+// | where Timestamp > ago(1h)
+// | where DestinationHostName has_any ("openai.com","anthropic.com","googleapis.com","githubcopilot.com")
+// | where RequestBody matches regex @"\b\d{3}-\d{2}-\d{4}\b"          // SSN
+//      or RequestBody matches regex @"\b(?:4[0-9]{12}(?:[0-9]{3})?)\b" // Visa PAN
+// | extend Severity = "Critical", ThreatType = "PII Leak to AI Service", Technique = "T1567"
