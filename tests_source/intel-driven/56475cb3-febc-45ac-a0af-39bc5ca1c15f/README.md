@@ -9,7 +9,7 @@
 **Threat actor**: Lazarus / UNC4736 (DPRK)
 **Rubric version**: v2.1 (tiered, realism-first; signal-quality-not-tenant-defense)
 
-**Test Score**: **7.3/10**
+**Test Score**: **7.6/10**
 
 > Not yet lab-detonated — Telemetry Signal Quality (2c) is capped at 1.5/2.0 per the v2.1 no-lab-evidence rule until this test is run end-to-end on an instrumented sensor stack. See `56475cb3-febc-45ac-a0af-39bc5ca1c15f_info.md` for the full Score Breakdown and Improvement Opportunities that would lift this score.
 
@@ -35,7 +35,7 @@ Simulates the 4-stage 3CX cascading supply-chain kill chain to evaluate defensiv
 
 | Stage | Technique | What happens |
 |-------|-----------|---------------|
-| 1 | T1574.002 | A signed stand-in for `3CXDesktopApp.exe` (a copy of `notepad.exe`) is staged in `ARTIFACT_DIR` alongside benign marker DLLs named `d3dcompiler_47.dll` and `ffmpeg.dll` (the real 3CX side-load companions) and launched from that directory. |
+| 1 | T1574.002 | A signed `3CXDesktopApp.exe` (a copy of the F0RT1KA-signed stage binary) is staged in `ARTIFACT_DIR` alongside real, benign Microsoft-signed DLLs planted under the 3CX companion names (`d3dcompiler_47.dll`, `ffmpeg.dll`), then relaunched in host mode where it `LoadLibrary`s them from its own directory — emitting a genuine side-load image-load event. |
 | 2 | T1497 | Read-only VM-artifact (BIOS/disk/guest-service registry), CPU-count, uptime (`GetTickCount64`), and domain-join checks. The real implant's 7-day dormancy is logged as intended but compressed to seconds. |
 | 3 | T1027.003 + T1071.001 | Real DNS lookup + HTTPS GET shaped like `https://raw.githubusercontent.com/IconStorages/images/main/icon0.ico` (body discarded). A real on-disk `.ico` is built locally with a valid ICONDIR/ICONDIRENTRY header plus AES-256-CBC ciphertext appended after the icon image, then decoded/decrypted to a benign C2 descriptor. |
 | 4 | T1555.003 (+T1217) | Decoy Chrome/Edge/Brave/Firefox credential and history stores are staged under `ARTIFACT_DIR` in the real relative layout, then enumerated and copied to a collection buffer — mirroring the ICONIC stealer's access pattern. Real profile paths are logged as discovery targets but never opened. |
