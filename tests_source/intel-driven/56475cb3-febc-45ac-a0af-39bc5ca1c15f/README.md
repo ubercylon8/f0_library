@@ -9,9 +9,9 @@
 **Threat actor**: Lazarus / UNC4736 (DPRK)
 **Rubric version**: v2.1 (tiered, realism-first; signal-quality-not-tenant-defense)
 
-**Test Score**: **7.6/10**
+**Test Score**: **7.9/10**
 
-> Not yet lab-detonated — Telemetry Signal Quality (2c) is capped at 1.5/2.0 per the v2.1 no-lab-evidence rule until this test is run end-to-end on an instrumented sensor stack. See `56475cb3-febc-45ac-a0af-39bc5ca1c15f_info.md` for the full Score Breakdown and Improvement Opportunities that would lift this score.
+> Lab-detonated on the `win` lab (Win11 Pro, Defender RTP ON) 2026-07-07: clean exit 101 (unprotected), all 4 stages reached, and the Stage-1 side-load image-load confirmed (`LOADED d3dcompiler_47.dll` / `ffmpeg.dll`). This cleared the v2.1 no-lab-evidence cap on Telemetry Signal Quality (2c). Remaining upside: load the custom detection rules into a sensor and confirm they fire against the emitted telemetry. See `56475cb3-febc-45ac-a0af-39bc5ca1c15f_info.md` → Lab Detonation Results and Score Breakdown.
 
 ## Overview
 

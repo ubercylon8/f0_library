@@ -92,7 +92,7 @@ func main() {
 		Severity:      "critical",
 		Techniques:    []string{"T1195.002", "T1574.002", "T1497", "T1027.003", "T1071.001", "T1555.003"},
 		Tactics:       []string{"initial-access", "defense-evasion", "command-and-control", "credential-access"},
-		Score:         7.6,    // v2.1 — Realism 5.0/7.0 (API 2.0/2.5 [Stage 1 now emits a real LoadLibrary/image-load event], Identifier 1.2/1.5, Telemetry Signal Quality 1.3/2.0 capped pending lab run, Execution-Context 0.5/1.0) + Structure 2.6/3.0 (Schema 1.0/1.0, Docs 1.0/1.0, Logging 0.25/0.5, Op Hygiene 0.35/0.5). Not yet lab-detonated. See info.md Score Breakdown.
+		Score:         7.9,    // v2.1 — Realism 5.3/7.0 (API 2.0/2.5 [Stage 1 emits a real LoadLibrary/image-load event], Identifier 1.2/1.5, Telemetry Signal Quality 1.6/2.0 [lab cap lifted — see below], Execution-Context 0.5/1.0) + Structure 2.6/3.0 (Schema 1.0/1.0, Docs 1.0/1.0, Logging 0.25/0.5, Op Hygiene 0.35/0.5). Lab-detonated on the win lab 2026-07-07: exit 101, all 4 stages reached, Stage-1 image-load confirmed (LOADED d3dcompiler_47.dll/ffmpeg.dll), no Defender reaction. See info.md Score Breakdown + Lab Detonation Results.
 		RubricVersion: "v2.1", // Tiered realism-first rubric (active). Safety gate + Realism 0-7 + Structure 0-3.
 		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
 		// the struct don't match v2.1's tiered structure. The v2.1 breakdown
