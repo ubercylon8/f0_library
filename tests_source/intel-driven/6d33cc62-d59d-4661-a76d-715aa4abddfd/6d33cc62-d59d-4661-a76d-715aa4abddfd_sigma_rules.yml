@@ -1,0 +1,120 @@
+# ============================================================
+# PII Exfiltration to External Inference Services — Sigma Rules
+# Test ID: 6d33cc62-d59d-4661-a76d-715aa4abddfd
+# MITRE ATT&CK: T1552.001, T1119, T1005, T1567
+# Platforms: Windows, Linux
+# Generated: 2026-07-07
+# ============================================================
+# FOCUS: Technique-level shadow-AI PII-egress behaviors, NOT test artifacts.
+# ============================================================
+---
+title: Non-Browser Process Connecting to AI Inference Vendor
+id: 6d33cc62-sigma-001
+status: experimental
+description: |
+  Detects a process that is not a sanctioned browser or approved AI client
+  establishing a network connection to a real AI inference vendor host
+  (OpenAI, Anthropic, Gemini, GitHub Copilot). This is the core shadow-AI
+  data-egress behavior — sensitive data leaving the org boundary to an
+  external LLM — and is technique-inherent regardless of tooling.
+references:
+  - https://attack.mitre.org/techniques/T1567/
+  - https://genai.owasp.org/llmrisk/llm06-sensitive-information-disclosure/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-07-07
+tags:
+  - attack.exfiltration
+  - attack.t1567
+  - shadow-ai
+  - data-governance
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    DestinationHostname|contains:
+      - 'api.openai.com'
+      - 'api.anthropic.com'
+      - 'generativelanguage.googleapis.com'
+      - 'api.githubcopilot.com'
+  filter_sanctioned:
+    Image|endswith:
+      - '\msedge.exe'
+      - '\chrome.exe'
+      - '\firefox.exe'
+  condition: selection and not filter_sanctioned
+falsepositives:
+  - Approved AI integrations and vendor SDKs (allowlist by process/signer)
+  - VS Code + GitHub Copilot on sanctioned developer hosts
+level: high
+---
+title: Automated Harvesting of AI-Service API Keys
+id: 6d33cc62-sigma-002
+status: experimental
+description: |
+  Detects a process reading multiple known credential/config stores in quick
+  succession, targeting AI-service API keys (.env, ~/.aws/credentials, shell
+  history, VS Code settings, github-copilot hosts.json). Reflects the automated
+  collection (T1119) + credentials-in-files (T1552.001) behavior of a shadow-AI
+  harvester.
+references:
+  - https://attack.mitre.org/techniques/T1552/001/
+  - https://attack.mitre.org/techniques/T1119/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-07-07
+tags:
+  - attack.credential-access
+  - attack.t1552.001
+  - attack.collection
+  - attack.t1119
+logsource:
+  category: file_event
+  product: linux
+detection:
+  selection_files:
+    TargetFilename|endswith:
+      - '/.env'
+      - '/.aws/credentials'
+      - '/.bash_history'
+      - '/.zsh_history'
+      - '/.netrc'
+      - '/.config/openai/auth.json'
+      - '/.config/anthropic/config.json'
+  condition: selection_files | count() by Image > 3
+falsepositives:
+  - Backup agents and secret scanners (gitleaks, trufflehog) on CI hosts
+  - Config-management tooling
+level: medium
+---
+title: Shadow-AI Helper Tool Referencing AI Endpoints and Env Keys
+id: 6d33cc62-sigma-003
+status: experimental
+description: |
+  Detects creation/execution of a script that both references AI inference
+  endpoints and iterates environment variables for provider API keys — the
+  signature of a shadow-AI harvester/paster being staged on a host.
+references:
+  - https://attack.mitre.org/techniques/T1119/
+author: F0RT1KA Defense Guidance Builder
+date: 2026-07-07
+tags:
+  - attack.collection
+  - attack.t1119
+  - shadow-ai
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_cmd:
+    CommandLine|contains|all:
+      - 'openai.com'
+      - 'OPENAI_API_KEY'
+  selection_harvest:
+    CommandLine|contains:
+      - 'os.environ'
+      - 'getenv'
+      - 'harvest'
+  condition: selection_cmd and selection_harvest
+falsepositives:
+  - Legitimately-developed AI integration code (correlate with repo provenance)
+level: medium

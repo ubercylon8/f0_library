@@ -1,0 +1,164 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 6d33cc62-d59d-4661-a76d-715aa4abddfd
+# Test Name: PII Exfiltration to External Inference Services
+# MITRE ATT&CK: T1552.001, T1119, T1005, T1567
+# Created: 2026-07-07
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for: limacharlie dr add -f <file>)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying shadow-AI PII-egress tradecraft — an
+# unsanctioned process sending data to real AI inference vendors, and local
+# harvesting of AI-service API keys — NOT the F0RT1KA test artifacts. They will
+# catch real-world data leakage to ChatGPT/Claude/Gemini/Copilot regardless of
+# the specific tool used.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 6d33cc62-d59d-4661-a76d-715aa4abddfd_dr_rules.yaml
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: Egress to AI Inference Vendor from Non-Browser Process (T1567)
+  # Confidence: MEDIUM-HIGH
+  # ==========================================================================
+  shadow-ai-egress-nonbrowser:
+    detect:
+      target: edr
+      event: NETWORK_CONNECTIONS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: "api.openai.com"
+              case sensitive: false
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: "api.anthropic.com"
+              case sensitive: false
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: "generativelanguage.googleapis.com"
+              case sensitive: false
+            - op: contains
+              path: event/DOMAIN_NAME
+              value: "api.githubcopilot.com"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: is
+              not: true
+              path: event/FILE_PATH
+              value: "\\msedge.exe"
+              case sensitive: false
+            - op: is
+              not: true
+              path: event/FILE_PATH
+              value: "\\chrome.exe"
+              case sensitive: false
+            - op: is
+              not: true
+              path: event/FILE_PATH
+              value: "\\firefox.exe"
+              case sensitive: false
+    respond:
+      - action: report
+        name: Shadow-AI Egress to Inference Vendor (Non-Browser Process)
+        metadata:
+          severity: high
+          mitre_attack: T1567
+          confidence: medium
+          description: A non-browser process connected to a real AI inference vendor host; possible PII/data leakage to shadow AI.
+          investigation: Identify the process and user, inspect the outbound request body (via proxy/DLP) for PII, confirm whether the AI usage is sanctioned.
+
+  # ==========================================================================
+  # RULE 2: Automated Read of AI-Credential Stores (T1552.001 / T1119)
+  # Confidence: MEDIUM
+  # ==========================================================================
+  shadow-ai-key-harvest-file-read:
+    detect:
+      target: edr
+      event: FILE_TYPE_ACCESSED
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "/.env"
+        - op: ends with
+          path: event/FILE_PATH
+          value: "/.aws/credentials"
+        - op: ends with
+          path: event/FILE_PATH
+          value: "/.bash_history"
+        - op: ends with
+          path: event/FILE_PATH
+          value: "/.zsh_history"
+        - op: contains
+          path: event/FILE_PATH
+          value: "/.config/openai/"
+        - op: contains
+          path: event/FILE_PATH
+          value: "/github-copilot/"
+    respond:
+      - action: report
+        name: AI-Credential Store Accessed
+        metadata:
+          severity: medium
+          mitre_attack: T1552.001
+          confidence: medium
+          description: A process read a store commonly holding AI-service API keys. Correlate with subsequent AI-vendor egress (Rule 1) to confirm harvesting.
+          investigation: Determine whether the reading process is a sanctioned secret scanner/backup agent; if not, treat as credential harvesting.
+
+  # ==========================================================================
+  # RULE 3: Shadow-AI Helper Tool Staging (T1119)
+  # Confidence: MEDIUM
+  # ==========================================================================
+  shadow-ai-helper-staging:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "openai.com"
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "OPENAI_API_KEY"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "os.environ"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "getenv"
+    respond:
+      - action: report
+        name: Shadow-AI Helper Tool Staged
+        metadata:
+          severity: medium
+          mitre_attack: T1119
+          confidence: medium
+          description: A process both references an AI inference endpoint and iterates environment variables for provider keys.
+          investigation: Review the tool's provenance and whether it is an approved integration; capture the binary/script for analysis.
+
+# ============================================================================
+# OUTPUTS CONFIGURATION
+# ============================================================================
+# Route detections to SIEM for correlation with proxy/DLP telemetry (which
+# provides the request-body PII inspection these EDR rules cannot see).
+
+outputs:
+  shadow-ai-pii-egress-detections:
+    module: syslog
+    for: detections
+    host: siem.example.com
+    port: 514
