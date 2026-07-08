@@ -76,8 +76,14 @@ jobs:
     - name: Build tests (Linux/macOS only)
       if: steps.check-tests.outputs.has_tests == 'true' && runner.os != 'Windows'
       run: |
-        FIRST_TEST=$(find tests_source -name "go.mod" -not -path "*/multistage_template/*" -not -path "*/sample*" | head -1 | xargs dirname)
-        if [ -n "$FIRST_TEST" ]; then
+        # `find ... -print -quit` stops at the first match. The previous
+        # `find ... | head -1` closed the pipe after one line, so `find` errored
+        # writing its remaining output ("find: write error"), which `set -o
+        # pipefail` promoted to a step failure — a race that flaked as more tests
+        # were added. `-print -quit` is broken-pipe-safe on both GNU and BSD find.
+        FIRST_GOMOD=$(find tests_source -name "go.mod" -not -path "*/multistage_template/*" -not -path "*/sample*" -print -quit)
+        if [ -n "$FIRST_GOMOD" ]; then
+          FIRST_TEST=$(dirname "$FIRST_GOMOD")
           ./utils/gobuild build "$FIRST_TEST" || echo "Build failed (may be due to missing prelude libraries)"
         fi
       shell: bash
