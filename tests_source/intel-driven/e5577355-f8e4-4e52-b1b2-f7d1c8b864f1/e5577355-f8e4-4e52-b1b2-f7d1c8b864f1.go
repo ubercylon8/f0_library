@@ -308,11 +308,11 @@ func main() {
 		Score:         9.2,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8, // Uses actual WFP technique from real threat actors
-			TechnicalSophistication: 2.8, // WFP API usage, multi-EDR targeting
-			SafetyMechanisms:        2.0, // Non-persistent filters, auto-cleanup
-			DetectionOpportunities:  0.6, // WFP events, service disruption signals
-			LoggingObservability:    1.0, // Full test_logger implementation
+			APIFidelity:              2.8, // Uses actual WFP technique from real threat actors
+			IdentifierFidelity:       2.8, // WFP API usage, multi-EDR targeting
+			TelemetrySignalQuality:   2.0, // Non-persistent filters, auto-cleanup
+			ExecutionContextFidelity: 0.6, // WFP events, service disruption signals
+			SchemaMetadata:           1.0, // Full test_logger implementation
 		},
 		Tags: []string{"wfp", "network-isolation", "edr-evasion", "silentbutdeadly"},
 	}

@@ -108,11 +108,11 @@ func main() {
 		Score:         9.4,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.9,
-			TechnicalSophistication: 2.8,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.7,
-			LoggingObservability:    1.0,
+			APIFidelity:              2.9,
+			IdentifierFidelity:       2.8,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 0.7,
+			SchemaMetadata:           1.0,
 		},
 		Tags: []string{"cis-benchmark", "level-1", "windows-hardening", "compliance", "password-policy", "firewall", "audit-logging"},
 	}

@@ -502,11 +502,11 @@ func main() {
 		Score:         8.0,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Uses actual LOLBINs (certutil, bitsadmin, curl, PowerShell)
-			TechnicalSophistication: 2.0, // Multiple download methods, proper cleanup
-			SafetyMechanisms:        2.0, // Only downloads benign content, auto-cleanup
-			DetectionOpportunities:  1.0, // 5 distinct detection points (one per LOLBIN)
-			LoggingObservability:    0.5, // Comprehensive logging with output capture
+			APIFidelity:              2.5, // Uses actual LOLBINs (certutil, bitsadmin, curl, PowerShell)
+			IdentifierFidelity:       2.0, // Multiple download methods, proper cleanup
+			TelemetrySignalQuality:   2.0, // Only downloads benign content, auto-cleanup
+			ExecutionContextFidelity: 1.0, // 5 distinct detection points (one per LOLBIN)
+			SchemaMetadata:           0.5, // Comprehensive logging with output capture
 		},
 		Tags: []string{"lolbin", "download", "certutil", "bitsadmin", "powershell", "curl", "native"},
 	}

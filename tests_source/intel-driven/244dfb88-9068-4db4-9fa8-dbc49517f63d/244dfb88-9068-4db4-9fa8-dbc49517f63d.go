@@ -103,11 +103,11 @@ func main() {
 		Score:         9.2,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8,
-			TechnicalSophistication: 3.0,
-			SafetyMechanisms:        1.8,
-			DetectionOpportunities:  0.8,
-			LoggingObservability:    0.8,
+			APIFidelity:              2.8,
+			IdentifierFidelity:       3.0,
+			TelemetrySignalQuality:   1.8,
+			ExecutionContextFidelity: 0.8,
+			SchemaMetadata:           0.8,
 		},
 		Tags: []string{
 			"multi-stage", "dprk", "lazarus", "bluenoroff",

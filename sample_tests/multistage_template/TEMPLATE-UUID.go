@@ -121,11 +121,14 @@ func main() {
 		Score:         8.5,
 		RubricVersion: "v2.1", // Tiered realism-first rubric (active). Adds 2d Execution-Context Fidelity + 3d Operational Hygiene; reframes 2c as Telemetry Signal Quality (test-property, not tenant-defense). See .claude/agents/sectest-documentation.md and docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5,
-			TechnicalSophistication: 3.0,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.5,
-			LoggingObservability:    1.0,
+			APIFidelity:               2.0, // 2a: API surface matches real adversary tooling
+			IdentifierFidelity:        1.2, // 2b: stage names/artefact paths reflect real TTPs
+			TelemetrySignalQuality:    1.5, // 2c: capped at 1.5 until lab execution verified
+			ExecutionContextFidelity:  0.5, // 2d: context-aware branching present/partial
+			SchemaMetadata:            1.0, // 3a: schema v2.0 fully compliant
+			DocumentationCompleteness: 1.0, // 3b: info.md + references complete
+			LoggingPlumbing:           0.5, // 3c: stdout/stderr captured via io.MultiWriter
+			OperationalHygiene:        0.3, // 3d: size ✅, stage budgets undocumented ❌
 		},
 		Tags: []string{"multi-stage", "killchain"}, // Add relevant tags
 	}

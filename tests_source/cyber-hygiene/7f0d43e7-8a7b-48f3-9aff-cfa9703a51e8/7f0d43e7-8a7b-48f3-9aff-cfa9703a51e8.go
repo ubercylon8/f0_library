@@ -106,11 +106,11 @@ func main() {
 		Score:         9.2,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8,
-			TechnicalSophistication: 2.5,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.9,
-			LoggingObservability:    1.0,
+			APIFidelity:              2.8,
+			IdentifierFidelity:       2.5,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 0.9,
+			SchemaMetadata:           1.0,
 		},
 		Tags: []string{"cis-benchmark", "level-1", "linux-hardening", "compliance", "ssh", "firewall", "audit", "pam"},
 	}

@@ -513,11 +513,11 @@ func main() {
 		Score:         7.5,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Authentic webshell recon patterns
-			TechnicalSophistication: 2.0, // Multiple recon commands + C2
-			SafetyMechanisms:        1.5, // Read-only commands, safe C2 endpoint
-			DetectionOpportunities:  1.0, // 6+ recon commands + C2 = many detection points
-			LoggingObservability:    0.5, // Full Schema v2.0 logging
+			APIFidelity:              2.5, // Authentic webshell recon patterns
+			IdentifierFidelity:       2.0, // Multiple recon commands + C2
+			TelemetrySignalQuality:   1.5, // Read-only commands, safe C2 endpoint
+			ExecutionContextFidelity: 1.0, // 6+ recon commands + C2 = many detection points
+			SchemaMetadata:           0.5, // Full Schema v2.0 logging
 		},
 		Tags: []string{"webshell", "post-exploitation", "reconnaissance", "c2", "native"},
 	}

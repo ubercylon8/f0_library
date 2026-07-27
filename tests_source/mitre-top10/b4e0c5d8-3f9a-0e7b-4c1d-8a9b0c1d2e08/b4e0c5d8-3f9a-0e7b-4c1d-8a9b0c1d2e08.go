@@ -472,11 +472,11 @@ func main() {
 		Score:         8.5,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Simulates realistic ransomware behavior patterns
-			TechnicalSophistication: 2.5, // AES key generation, file operations, ransom note
-			SafetyMechanisms:        2.0, // Full safety - no actual encryption, auto-cleanup
-			DetectionOpportunities:  1.0, // Multiple detection points
-			LoggingObservability:    0.5, // Comprehensive logging
+			APIFidelity:              2.5, // Simulates realistic ransomware behavior patterns
+			IdentifierFidelity:       2.5, // AES key generation, file operations, ransom note
+			TelemetrySignalQuality:   2.0, // Full safety - no actual encryption, auto-cleanup
+			ExecutionContextFidelity: 1.0, // Multiple detection points
+			SchemaMetadata:           0.5, // Comprehensive logging
 		},
 		Tags: []string{"ransomware", "safe-simulation", "file-operations", "impact"},
 	}
