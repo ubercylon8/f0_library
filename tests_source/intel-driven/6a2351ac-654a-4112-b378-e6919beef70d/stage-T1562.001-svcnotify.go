@@ -31,6 +31,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -56,6 +58,16 @@ func main() {
 
 	LogMessage("INFO", TECHNIQUE_ID, "Starting WinDefend service-notification subscription simulation")
 	LogStageStart(STAGE_ID, TECHNIQUE_ID, TECHNIQUE_NAME)
+
+	// NotifyServiceStatusChangeW on WinDefend requires SYSTEM context or SeServiceLogonRight.
+	// Under a non-elevated user the API call will fail with access denied, which the
+	// classifyError() mapping would promote to StageBlocked — a false positive that
+	// inflates the exit-code roll-up. Detect and skip cleanly instead.
+	if !isSystemContext() {
+		LogMessage("INFO", TECHNIQUE_ID, "prerequisite-not-met: NotifyServiceStatusChangeW requires SYSTEM context")
+		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "skipped", "requires SYSTEM context")
+		os.Exit(0)
+	}
 
 	if err := performTechnique(); err != nil {
 		fmt.Printf("[STAGE %s] Subscription reported a condition: %v\n", TECHNIQUE_ID, err)
@@ -194,6 +206,16 @@ func classifyError(err error) int {
 	}
 
 	return StageError
+}
+
+func isSystemContext() bool {
+	cmd := exec.Command("whoami")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	username := strings.TrimSpace(strings.ToLower(string(output)))
+	return strings.Contains(username, "nt authority\\system") || strings.Contains(username, "system")
 }
 
 func containsFold(haystack, needle string) bool {
