@@ -252,7 +252,7 @@ func determineExitCode(err error) int {
 		return StageSuccess
 	}
 	errStr := err.Error()
-	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted", "was prevented"}) {
+	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted"}) {
 		return StageBlocked
 	}
 	if containsAny(errStr, []string{"quarantined", "virus", "threat"}) {

