@@ -169,6 +169,32 @@ func test() {
 		},
 	}
 
+	// Preflight: ARTIFACT_DIR must exist AND be writable by this process before any
+	// stage runs. Verifying here rather than per-stage means an unmet prerequisite is
+	// reported before Phase 0 drops three signed stage PEs into LOG_DIR — no file-drop
+	// telemetry is generated for a run that was never viable.
+	Endpoint.Say("[*] Preflight: provisioning ARTIFACT_DIR (%s) ...", ARTIFACT_DIR)
+	if err := EnsureArtifactDir(); err != nil {
+		LogMessage("ERROR", "Preflight", fmt.Sprintf("ARTIFACT_DIR prerequisite not met: %v", err))
+		Endpoint.Say("    [!] %v", err)
+		Endpoint.Say("")
+		Endpoint.Say("FATAL: prerequisite not met — INCONCLUSIVE, not a protection verdict.")
+		Endpoint.Say("")
+		Endpoint.Say("The test needs a writable, non-whitelisted artifact directory to drop")
+		Endpoint.Say("simulation files into. It did not run, and nothing was blocked.")
+		Endpoint.Say("")
+		Endpoint.Say("Remediation (run once, elevated):")
+		for _, cmd := range ArtifactDirRemediation() {
+			Endpoint.Say("    %s", cmd)
+		}
+		Endpoint.Say("")
+
+		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("ARTIFACT_DIR prerequisite not met: %v", err))
+		Endpoint.Stop(Endpoint.UnexpectedTestError)
+	}
+	Endpoint.Say("    [+] %s is provisioned and writable", ARTIFACT_DIR)
+	Endpoint.Say("")
+
 	// Phase 0: extract all stage binaries
 	LogPhaseStart(0, "Stage Binary Extraction")
 	Endpoint.Say("[*] Phase 0: Extracting %d stage binaries to %s ...", len(killchain), LOG_DIR)
