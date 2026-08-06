@@ -180,8 +180,8 @@ mkdir -p "${BUILD_DIR}"
 for GOOS in "${TARGETS[@]}"; do
     if [ "$GOOS" = "windows" ]; then EXT=".exe"; else EXT=""; fi
     platform_files "$GOOS"
-    STAGE_SHARED="canary.go ${PATHS} test_logger.go ${LOGGER} org_resolver.go"
-    ORCH_SHARED="${EMBED} test_logger.go ${LOGGER} org_resolver.go"
+    STAGE_SHARED="canary.go artifact_dir.go ${PATHS} test_logger.go ${LOGGER} org_resolver.go"
+    ORCH_SHARED="${EMBED} artifact_dir.go test_logger.go ${LOGGER} org_resolver.go"
     print_header "Target: ${GOOS}/${GOARCH}"
 
     # Step 1: build unsigned stage binaries

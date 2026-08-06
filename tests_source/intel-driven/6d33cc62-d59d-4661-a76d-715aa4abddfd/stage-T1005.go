@@ -64,8 +64,9 @@ func main() {
 }
 
 func runStage() (int, string) {
-	if err := os.MkdirAll(ARTIFACT_DIR, 0755); err != nil {
-		return StageError, fmt.Sprintf("ARTIFACT_DIR %s not provisioned: %v", ARTIFACT_DIR, err)
+	// Existence alone is not enough — see EnsureArtifactDir in artifact_dir.go.
+	if err := EnsureArtifactDir(); err != nil {
+		return StageError, fmt.Sprintf("ARTIFACT_DIR prerequisite not met: %v", err)
 	}
 	if err := os.MkdirAll(LOG_DIR, 0755); err != nil {
 		return StageError, fmt.Sprintf("LOG_DIR %s not provisioned: %v", LOG_DIR, err)

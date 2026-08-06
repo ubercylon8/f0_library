@@ -45,7 +45,7 @@ This test simulates the most common real-world "shadow AI" data-loss scenario: a
 - No lab execution evidence yet — deploying this test against a real DLP/CASB/forward-proxy stack (see `debian`/`win` lab hosts) and recording `test_execution_log.json` + `bundle_results.json` would satisfy 2c criterion 4; since criteria 1–3 are now fully met, this is the *only* remaining lever on Telemetry Signal Quality (it would lift the cap itself, taking 2c from 1.5 to up to 2.0).
 - No pre/post `<uuid>_system_snapshot_{pre,post}.json` capture — wiring this (Defender status, AV exclusions, hotfixes) would raise 3c to full credit.
 - No per-stage watchdog goroutine — stage 3's 15s HTTP timeout bounds the only network operation, but adding a `time.AfterFunc`-based watchdog around each stage (matching the pattern used elsewhere in the repo) and documenting enforced per-stage time budgets would raise 3d.
-- The three `TODO(user-adjudication)` branches in `classifyEgress` (captive-portal/SSO redirect, transparent-MITM 200 with corporate-DLP header, timeout-with-no-reset) are intentionally left as inconclusive pending an explicit user decision on their leak-vs-block mapping — resolving these (with the documented trade-offs in mind) would tighten classification precision without affecting the current score.
+- The three ambiguous egress branches (captive-portal/SSO redirect, transparent-MITM 200 with corporate-DLP header, timeout-with-no-reset) have been adjudicated and deliberately resolved to inconclusive — see the Classification Integrity table below. Tightening any of them further requires evidence the client cannot observe (e.g. whether an in-path DLP gateway dropped or forwarded the request), so this is a lab-evidence problem rather than a code problem.
 
 ## Technical Details
 
@@ -84,9 +84,9 @@ This test simulates the most common real-world "shadow AI" data-loss scenario: a
 | TLS certificate verification fails against a host that is normally publicly trusted | **BLOCK** | The real vendor's cert is publicly trusted; a verification failure means something re-signed the connection — an inline TLS-inspection proxy. |
 | TCP connection refused/reset to a public vendor IP | **BLOCK** | An inline egress proxy or firewall actively rejected the connection to a real, routable vendor address. |
 | DNS resolution failure (NXDOMAIN, resolver down, no network) | **ERROR (999)** | Ambiguous — could be a genuine network outage unrelated to any control. |
-| Connection timeout with no reset | **ERROR (999)**, `TODO(user-adjudication)` | Cannot distinguish a silent egress-firewall drop from ordinary vendor slowness from the client side alone. |
-| 3xx redirect to a non-vendor host (captive portal / SSO) | **ERROR (999)**, `TODO(user-adjudication)` | Cannot be certain the request body wasn't already forwarded before the redirect; mapping this to "block" risks hiding a real leak. |
-| HTTP 200 carrying a narrow, known corporate-DLP header signature (Zscaler/Bluecoat/Forcepoint/Netskope/Umbrella/etc.) | **ERROR (999)**, `TODO(user-adjudication)` | Could be a transparent MITM proxy that stripped PII before forwarding, or a false positive from a benign CDN header; the narrow signature set avoids misclassifying real vendor CDN traffic (OpenAI/Anthropic sit behind Cloudflare) as interception. |
+| Connection timeout with no reset | **ERROR (999)** — adjudicated | Cannot distinguish a silent egress-firewall drop from ordinary vendor slowness from the client side alone. |
+| 3xx redirect to a non-vendor host (captive portal / SSO) | **ERROR (999)** — adjudicated | Cannot be certain the request body wasn't already forwarded before the redirect; mapping this to "block" risks hiding a real leak. |
+| HTTP 200 carrying a narrow, known corporate-DLP header signature (Zscaler/Bluecoat/Forcepoint/Netskope/Umbrella/etc.) | **ERROR (999)** — adjudicated | Could be a transparent MITM proxy that stripped PII before forwarding, or a false positive from a benign CDN header; the narrow signature set avoids misclassifying real vendor CDN traffic (OpenAI/Anthropic sit behind Cloudflare) as interception. |
 | Anything else (unrecognized transport error) | **ERROR (999)** | Never defaults to a block. |
 
 The stage- and orchestrator-level aggregation is **leak-dominates**: if even one of the four vendors received the PII, the run is reported as a leak, even if another vendor's attempt was independently blocked. This prevents the false-reassurance failure mode CLAUDE.md Bug Prevention Rule 8 exists to catch — a partial block is not "protected."
@@ -113,7 +113,7 @@ All three stages execute without any DLP/CASB/egress control intervening; canary
 
 ### Protected System
 - **Code 126 (`Endpoint.ExecutionPrevented`)**: A control positively intervened at some stage — most commonly Stage 3 returning positive block evidence (DNS sinkhole, TLS-interception certificate failure, or a refused/reset connection to a public vendor IP), but also possible at Stage 1 or 2 if the staged artifact/canary DB is quarantined (confirmed via `os.Stat`).
-- **Code 999 (`Endpoint.UnexpectedTestError`)**: Prerequisites were not met (e.g. `ARTIFACT_DIR` not provisioned/writable — see the `debian` lab host's provisioning requirement) or Stage 3's egress outcome was genuinely ambiguous (DNS failure, unrecognized transport error, or one of the three `TODO(user-adjudication)` edge cases). This is explicitly **not** a protection verdict — it means the test could not reach a confident conclusion, not that a control fired.
+- **Code 999 (`Endpoint.UnexpectedTestError`)**: Prerequisites were not met (e.g. `ARTIFACT_DIR` not provisioned/writable — see the `debian` lab host's provisioning requirement) or Stage 3's egress outcome was genuinely ambiguous (DNS failure, unrecognized transport error, or one of the three adjudicated-ambiguous edge cases). This is explicitly **not** a protection verdict — it means the test could not reach a confident conclusion, not that a control fired.
 
 ## References
 

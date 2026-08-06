@@ -80,9 +80,12 @@ func main() {
 }
 
 func runStage() (int, string) {
-	// Prerequisite: ARTIFACT_DIR must be writable.
-	if err := os.MkdirAll(ARTIFACT_DIR, 0755); err != nil {
-		return StageError, fmt.Sprintf("ARTIFACT_DIR %s not provisioned: %v", ARTIFACT_DIR, err)
+	// Prerequisite: ARTIFACT_DIR must exist AND be writable. The orchestrator already
+	// verified this in preflight; repeated here so the stage stays correct when run
+	// standalone. See EnsureArtifactDir in artifact_dir.go for why existence alone
+	// is not a sufficient check.
+	if err := EnsureArtifactDir(); err != nil {
+		return StageError, fmt.Sprintf("ARTIFACT_DIR prerequisite not met: %v", err)
 	}
 
 	artifactPath := filepath.Join(ARTIFACT_DIR, "ai-assistant-helper.py")
