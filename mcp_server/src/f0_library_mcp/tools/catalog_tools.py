@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ..catalog import Anomaly, TestRecord, get_index
 
@@ -40,10 +40,11 @@ class CoverageEntry(BaseModel):
 
 
 class CoverageResult(BaseModel):
-    group_by: str
-    total_tests: int
-    distinct_keys: int
-    entries: list[CoverageEntry]
+    group_by: str = ""
+    total_tests: int = 0
+    distinct_keys: int = 0
+    entries: list[CoverageEntry] = []
+    error: str = ""
 
 
 def _matches(rec: TestRecord, *, technique, tactic, actor, platform,
@@ -137,7 +138,9 @@ def register(server, root: Path) -> None:
         category: str = "",  # plain str/"" default: see list_tests note re: pre_parse_json
     ) -> CoverageResult:
         if group_by not in ("technique", "tactic"):
-            raise ValueError("group_by must be 'technique' or 'tactic'")
+            return CoverageResult(
+                error=(f"invalid group_by '{group_by}': must be one of "
+                       "'technique', 'tactic'"))
         index = get_index(root)
         tests = [r for r in index.tests if not category or r.category == category]
         buckets: dict[str, list[str]] = defaultdict(list)

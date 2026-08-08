@@ -88,6 +88,16 @@ async def test_mitre_coverage_reconciles_with_list_tests():
         assert entry["test_count"] == len(entry["test_uuids"])
 
 
+async def test_mitre_coverage_rejects_bad_group_by():
+    """An invalid group_by must yield a STRUCTURED rejection (like every other
+    tool), not an MCP protocol-level error carrying no structured content."""
+    async with Client(build_server(caps=NO_CAPS)) as c:
+        r = await c.call_tool("mitre_coverage", {"group_by": "bogus"})
+    assert r.structured_content is not None
+    assert "bogus" in r.structured_content["error"]
+    assert r.structured_content["entries"] == []
+
+
 async def test_list_tests_query_accepts_json_shaped_string():
     """A JSON-shaped query must not trip mcp's pre_parse_json into a dict and
     fail str-field validation (is_error, structured_content=None)."""

@@ -31,7 +31,12 @@ class BuildResult(BaseModel):
     size_bytes: int | None = None
     size_tier: str = ""
     sha1: str = ""
-    signed: bool = False
+    # Records what was ASKED FOR, not what was achieved: True whenever an `org`
+    # was supplied (build-sign was requested). It does NOT assert the signature
+    # succeeded -- a build-sign that fails still returns signing_requested=True
+    # alongside ok=False. `ok` is the field that tells you whether the
+    # build-sign actually succeeded.
+    signing_requested: bool = False
     # True when a binary already sits at build/<uuid>/ but was NOT produced by
     # this invocation (build failed, or the on-disk file did not change). The
     # artifact_* / sha1 fields are left empty in that case so a stale hash can
@@ -145,7 +150,7 @@ def register(server, root: Path, caps=None) -> None:
             exit_code=proc.returncode,
             stdout=_clip(proc.stdout),
             stderr=_clip(proc.stderr),
-            signed=bool(org),
+            signing_requested=bool(org),
         )
 
         artifact = _locate_artifact(root, uuid)
