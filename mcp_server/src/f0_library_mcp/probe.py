@@ -33,14 +33,27 @@ def _ok(cmd: list[str]) -> bool:
 
 
 def _alias_resolves(alias: str) -> bool:
-    """ssh -G prints the effective config; exit 0 means the alias is known."""
+    """Report whether ``alias`` is configured in the local SSH config.
+
+    ``ssh -G <alias>`` renders the effective config offline and exits 0 even for
+    an unknown name, defaulting the ``hostname`` value to the alias itself. So
+    exit 0 alone proves nothing; the alias is only genuinely configured when the
+    rendered ``hostname`` differs from the alias. This checks *configuration*, not
+    reachability — it never connects to the host.
+    """
     try:
         proc = subprocess.run(
             ["ssh", "-G", alias], capture_output=True, text=True, timeout=_TIMEOUT
         )
     except Exception:
         return False
-    return proc.returncode == 0 and "hostname" in proc.stdout
+    if proc.returncode != 0:
+        return False
+    for line in proc.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[0].lower() == "hostname":
+            return parts[1].strip().lower() != alias.strip().lower()
+    return False
 
 
 def detect(root: Path) -> Capabilities:

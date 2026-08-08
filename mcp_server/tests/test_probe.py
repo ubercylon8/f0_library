@@ -47,13 +47,31 @@ def test_signing_requires_both_pfx_and_osslsigncode(tmp_path, monkeypatch):
 
 
 def test_ssh_aliases_only_include_resolvable(tmp_path, monkeypatch):
+    # Mirror real `ssh -G`: every alias exits 0. An unconfigured alias renders
+    # its hostname back to the alias itself; only a configured alias (debian)
+    # renders a different hostname.
     def run(cmd, *a, **kw):
-        if cmd[0] == "ssh" and "debian" in cmd:
-            return subprocess.CompletedProcess(cmd, 0, stdout="hostname localhost\n", stderr="")
+        if cmd[0] == "ssh":
+            alias = cmd[-1]
+            host = "localhost" if alias == "debian" else alias
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"hostname {host}\n", stderr="")
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
     monkeypatch.setattr(probe.subprocess, "run", run)
     monkeypatch.setattr(probe.shutil, "which", lambda n: None)
     assert detect(tmp_path).ssh_aliases == ["debian"]
+
+
+def test_unconfigured_alias_excluded_despite_exit_zero(tmp_path, monkeypatch):
+    # All aliases exit 0 with hostname == alias (ssh -G's default for an unknown
+    # name). None are genuinely configured, so none should be reported.
+    def run(cmd, *a, **kw):
+        if cmd[0] == "ssh":
+            alias = cmd[-1]
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"hostname {alias}\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+    monkeypatch.setattr(probe.subprocess, "run", run)
+    monkeypatch.setattr(probe.shutil, "which", lambda n: None)
+    assert detect(tmp_path).ssh_aliases == []
 
 
 def test_probe_failure_never_raises(tmp_path, monkeypatch):
