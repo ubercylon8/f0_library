@@ -85,3 +85,58 @@ async def test_build_test_rejects_unknown_uuid(monkeypatch):
         r = await c.call_tool("build_test", {"uuid": "00000000-0000-0000-0000-000000000000"})
     assert r.structured_content["ok"] is False
     assert "not found" in r.structured_content["error"].lower()
+
+
+async def test_failed_build_does_not_report_stale_artifact(monkeypatch, tmp_path):
+    """A failed build must not surface a pre-existing binary as its output."""
+    leftover = tmp_path / f"{UUID}.exe"
+    leftover.write_bytes(b"MZ" + b"\x00" * 1024)  # prior build's artifact
+
+    monkeypatch.setattr(bt.subprocess, "run",
+                        lambda cmd, *a, **kw: subprocess.CompletedProcess(
+                            cmd, 2, stdout="", stderr="undefined: fooBar"))
+    # mtime does NOT advance: both locate calls return the same untouched file.
+    monkeypatch.setattr(bt, "_locate_artifact", lambda root, uuid: leftover)
+
+    async with Client(build_server(caps=GO_CAPS)) as c:
+        r = await c.call_tool("build_test", {"uuid": UUID})
+
+    sc = r.structured_content
+    assert sc["ok"] is False
+    assert sc["artifact_path"] == ""
+    assert sc["sha1"] == ""
+    assert sc["size_bytes"] is None
+    assert sc["stale_artifact_present"] is True
+
+
+async def test_successful_build_reports_fresh_artifact(monkeypatch, tmp_path):
+    """A successful build whose artifact mtime advances is reported in full."""
+    import os
+
+    artifact = tmp_path / f"{UUID}.exe"
+    artifact.write_bytes(b"MZ" + b"\x00" * 4096)
+
+    state = {"n": 0}
+
+    def fake_locate(root, uuid):
+        # Advance mtime on each lookup so post-call > pre-call.
+        state["n"] += 1
+        ns = state["n"] * 1_000_000_000
+        os.utime(artifact, ns=(ns, ns))
+        return artifact
+
+    monkeypatch.setattr(bt, "_locate_artifact", fake_locate)
+    monkeypatch.setattr(bt.subprocess, "run",
+                        lambda cmd, *a, **kw: subprocess.CompletedProcess(
+                            cmd, 0, stdout="built ok", stderr=""))
+
+    async with Client(build_server(caps=GO_CAPS)) as c:
+        r = await c.call_tool("build_test", {"uuid": UUID})
+
+    sc = r.structured_content
+    assert sc["ok"] is True
+    assert sc["artifact_path"] == str(artifact)
+    assert sc["sha1"] != ""
+    assert sc["size_bytes"] == 4098
+    assert sc["size_tier"] == "green"
+    assert sc["stale_artifact_present"] is False

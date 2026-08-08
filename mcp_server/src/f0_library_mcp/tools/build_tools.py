@@ -32,6 +32,32 @@ class BuildResult(BaseModel):
     size_tier: str = ""
     sha1: str = ""
     signed: bool = False
+    # True when a binary already sits at build/<uuid>/ but was NOT produced by
+    # this invocation (build failed, or the on-disk file did not change). The
+    # artifact_* / sha1 fields are left empty in that case so a stale hash can
+    # never masquerade as this build's output (CLAUDE.md Bug Prevention Rule 8).
+    stale_artifact_present: bool = False
+
+
+_CLIP_MAX = 8000
+_CLIP_HALF = 4000
+
+
+def _clip(text: str) -> str:
+    """Preserve head+tail of long captured output.
+
+    A tail-only slice can drop the *first* compiler error, which for Go builds
+    is usually the root cause (an error cascade pushes it out of the window,
+    leaving only "too many errors"). Keep the first and last 4000 chars with a
+    marked elision line between. ``text=True`` output is already-decoded ``str``,
+    so slicing cuts characters, not multibyte sequences.
+    """
+    if len(text) <= _CLIP_MAX:
+        return text
+    dropped = len(text) - 2 * _CLIP_HALF
+    return (text[:_CLIP_HALF]
+            + f"\n... [{dropped} characters elided] ...\n"
+            + text[-_CLIP_HALF:])
 
 
 def size_tier(nbytes: int) -> str:
@@ -48,6 +74,19 @@ def _locate_artifact(root: Path, uuid: str) -> Path | None:
         return None
     candidates = [p for p in out_dir.iterdir() if p.is_file() and p.stem == uuid]
     return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
+
+
+def _mtime_ns(path: Path | None) -> int | None:
+    """Nanosecond mtime of ``path``, or ``None`` if absent/unstattable.
+
+    Wrapped so a race between locate and stat cannot raise into the tool body.
+    """
+    if path is None:
+        return None
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
 
 
 def register(server, root: Path, caps=None) -> None:
@@ -88,6 +127,10 @@ def register(server, root: Path, caps=None) -> None:
         cmd += ["--os", os_target, "--arch", arch,
                 "build-sign" if org else "build", rec.path]
 
+        # Record any pre-existing artifact's mtime BEFORE building, so we can
+        # tell a freshly produced binary from a leftover of a prior build.
+        pre_mtime = _mtime_ns(_locate_artifact(root, uuid))
+
         try:
             proc = subprocess.run(cmd, cwd=str(root), capture_output=True,
                                   text=True, timeout=_TIMEOUT)
@@ -100,15 +143,25 @@ def register(server, root: Path, caps=None) -> None:
             uuid=uuid,
             command=cmd,
             exit_code=proc.returncode,
-            stdout=proc.stdout[-8000:],
-            stderr=proc.stderr[-8000:],
+            stdout=_clip(proc.stdout),
+            stderr=_clip(proc.stderr),
             signed=bool(org),
         )
+
         artifact = _locate_artifact(root, uuid)
-        if artifact is not None:
+        post_mtime = _mtime_ns(artifact)
+        # An artifact counts as *this build's* output only if the build
+        # succeeded AND a file exists AND it is genuinely new (no prior artifact,
+        # or its mtime advanced). Anything else that leaves a file on disk is a
+        # stale leftover -- report its presence, but never its hash/size.
+        is_fresh = (proc.returncode == 0 and post_mtime is not None
+                    and (pre_mtime is None or post_mtime > pre_mtime))
+        if is_fresh:
             data = artifact.read_bytes()
             result.artifact_path = str(artifact)
             result.size_bytes = len(data)
             result.size_tier = size_tier(len(data))
             result.sha1 = hashlib.sha1(data).hexdigest()
+        elif post_mtime is not None:
+            result.stale_artifact_present = True
         return result
