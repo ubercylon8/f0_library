@@ -1,185 +1,98 @@
 #!/usr/bin/env python3
+"""F0RT1KA Get Tests Utility.
+
+Thin presentation layer over the MCP server's catalog parser. Categories are
+discovered from the filesystem, so this cannot drift out of sync with the
+corpus the way the previous hardcoded category list did.
 """
-F0RT1KA Get Tests Utility
-
-Fast Python script to display F0RT1KA security tests in a formatted table.
-Replaces the slow bash-based get-tests command for better performance.
-
-Usage:
-    python3 utils/get_tests.py [page_number]
-
-Examples:
-    python3 utils/get_tests.py        # Show first page
-    python3 utils/get_tests.py 2      # Show page 2
-"""
-
+import argparse
+import json
 import os
 import sys
-import re
-import glob
 from pathlib import Path
-from datetime import datetime
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "mcp_server" / "src"))
 
 
-class TestsDisplay:
-    def __init__(self, tests_per_page=10):
-        self.tests_per_page = tests_per_page
-        self.tests_source_dir = Path("tests_source")
-        self.categories = ["intel-driven", "phase-aligned"]
+def _ensure_deps() -> None:
+    """Make the catalog parser importable regardless of how we were launched.
 
-    def get_test_name(self, category, uuid):
-        """Extract test name from *_info.md files"""
-        try:
-            info_files = list(self.tests_source_dir.glob(f"{category}/{uuid}/*_info.md"))
-            if info_files:
-                info_file = info_files[0]
-                with open(info_file, 'r', encoding='utf-8') as f:
-                    first_line = f.readline().strip()
-                    # Remove markdown heading formatting
-                    return first_line.lstrip('# ').rstrip()
-            return "No info card found"
-        except Exception:
-            return "Error reading info card"
-
-    def get_mod_time(self, category, uuid):
-        """Get directory modification time"""
-        try:
-            test_dir = self.tests_source_dir / category / uuid
-            if test_dir.exists():
-                mod_time = test_dir.stat().st_mtime
-                return datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M")
-            return "Unknown"
-        except Exception:
-            return "Unknown"
-
-    def scan_tests(self):
-        """Scan for valid UUID test directories in all categories"""
-        uuid_pattern = re.compile(r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$')
-
-        if not self.tests_source_dir.exists():
-            return []
-
-        tests = []
-        for category in self.categories:
-            category_dir = self.tests_source_dir / category
-            if category_dir.exists():
-                for item in category_dir.iterdir():
-                    if item.is_dir() and uuid_pattern.match(item.name):
-                        tests.append((category, item.name))
-
-        # Sort by category, then UUID
-        return sorted(tests, key=lambda x: (x[0], x[1]))
-
-    def print_table_header(self):
-        """Print formatted table header"""
-        print("+" + "-" * 16 + "+" + "-" * 38 + "+" + "-" * 42 + "+" + "-" * 17 + "+")
-        print(f"| {'Category':<14} | {'Test UUID':<36} | {'Test Name':<40} | {'Last Modified':<15} |")
-        print("+" + "-" * 16 + "+" + "-" * 38 + "+" + "-" * 42 + "+" + "-" * 17 + "+")
-
-    def print_table_footer(self):
-        """Print formatted table footer"""
-        print("+" + "-" * 16 + "+" + "-" * 38 + "+" + "-" * 42 + "+" + "-" * 17 + "+")
-
-    def print_test_row(self, category, uuid, test_name, mod_time):
-        """Print a single test row"""
-        # Truncate test name if too long
-        if len(test_name) > 40:
-            test_name = test_name[:37] + "..."
-
-        # Shorten category for display
-        cat_display = category[:14] if len(category) <= 14 else category[:11] + "..."
-
-        print(f"| {cat_display:<14} | {uuid:<36} | {test_name:<40} | {mod_time:<15} |")
-
-    def display_tests(self, page=1):
-        """Display tests with pagination"""
-        print("🔍 Scanning tests_source/{intel-driven,phase-aligned}/ directories...")
-
-        tests = self.scan_tests()
-        total_tests = len(tests)
-
-        if total_tests == 0:
-            print("❌ No tests found in tests_source/ directories")
-            return False
-
-        # Calculate pagination
-        total_pages = (total_tests + self.tests_per_page - 1) // self.tests_per_page
-
-        # Validate page number
-        if page < 1 or page > total_pages:
-            print(f"❌ Invalid page number. Please use a number between 1 and {total_pages}")
-            print(f"Total tests: {total_tests}")
-            return False
-
-        # Calculate indices
-        start_idx = (page - 1) * self.tests_per_page
-        end_idx = min(start_idx + self.tests_per_page, total_tests)
-
-        # Count tests per category
-        intel_count = len([t for t in tests if t[0] == "intel-driven"])
-        phase_count = len([t for t in tests if t[0] == "phase-aligned"])
-
-        # Display header
-        print()
-        print("📋 F0RT1KA Security Tests")
-        print(f"Page {page} of {total_pages} | Showing tests {start_idx + 1}-{end_idx} of {total_tests}")
-        print(f"Categories: intel-driven ({intel_count}) | phase-aligned ({phase_count})")
-        print()
-
-        # Display table
-        self.print_table_header()
-
-        for i in range(start_idx, end_idx):
-            category, uuid = tests[i]
-            test_name = self.get_test_name(category, uuid)
-            mod_time = self.get_mod_time(category, uuid)
-            self.print_test_row(category, uuid, test_name, mod_time)
-
-        self.print_table_footer()
-        print()
-
-        # Navigation info
-        if total_pages > 1:
-            print("📖 Navigation:")
-            if page > 1:
-                print(f"   Previous page: python3 utils/get_tests.py {page - 1}")
-            if page < total_pages:
-                print(f"   Next page: python3 utils/get_tests.py {page + 1}")
-            print()
-
-        # Tips
-        print("💡 Tips:")
-        print("   • Use '/stage-test <uuid> <cert>' to build and sign a test")
-        print("   • Use '/check-test <uuid>' to deploy and run a test")
-        print("   • Test info cards contain detailed MITRE ATT&CK mappings")
-        print()
-        print("✅ Scan complete!")
-
-        return True
+    The parser depends on ``pydantic``, whose native ``pydantic_core`` extension
+    is compiled per Python minor version. When this script runs inside the
+    mcp_server venv (as the test suite does via ``sys.executable``) the deps are
+    already satisfied — no-op. But ``/get-tests`` invokes the system ``python3``,
+    which has no third-party packages and may be a different minor version than
+    the venv, so path-splicing the venv site-packages would load an ABI-mismatched
+    ``.so``. Instead, re-exec under the mcp_server venv's own interpreter, which
+    is guaranteed ABI-compatible with its site-packages. Guarded against
+    re-exec loops so a genuinely broken venv surfaces the real ImportError.
+    """
+    try:
+        import pydantic  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+    if os.environ.get("_F0_GET_TESTS_REEXEC"):
+        return  # already re-exec'd once; let the import fail loudly below
+    venv_python = REPO_ROOT / "mcp_server" / ".venv" / "bin" / "python"
+    if venv_python.is_file() and Path(sys.executable).resolve() != venv_python.resolve():
+        os.environ["_F0_GET_TESTS_REEXEC"] = "1"
+        os.execv(str(venv_python), [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
-def main():
-    """Main function"""
-    # Parse command line arguments
-    page = 1
-    if len(sys.argv) > 1:
-        try:
-            page = int(sys.argv[1])
-        except ValueError:
-            print("❌ Invalid page number. Please provide a valid integer.")
-            sys.exit(1)
+_ensure_deps()
 
-    # Change to script directory for relative path resolution
-    script_dir = Path(__file__).parent.parent
-    os.chdir(script_dir)
+from f0_library_mcp.catalog import build_index  # noqa: E402
 
-    # Create and run tests display
-    display = TestsDisplay()
-    success = display.display_tests(page)
+TESTS_PER_PAGE = 10
 
-    if not success:
-        sys.exit(1)
+
+def rows():
+    index = build_index(REPO_ROOT)
+    return [
+        {
+            "uuid": t.uuid,
+            "category": t.category,
+            "name": t.name or "(no name in header)",
+            "techniques": ",".join(t.techniques),
+            "severity": t.severity,
+            "score": t.score,
+        }
+        for t in sorted(index.tests, key=lambda t: (t.category, t.name))
+    ]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="List F0RT1KA security tests")
+    parser.add_argument("page", nargs="?", type=int, default=1)
+    parser.add_argument("--count", action="store_true", help="print the test count only")
+    parser.add_argument("--json", action="store_true", help="emit JSON")
+    args = parser.parse_args()
+
+    data = rows()
+
+    if args.count:
+        print(len(data))
+        return 0
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+
+    total_pages = max(1, (len(data) + TESTS_PER_PAGE - 1) // TESTS_PER_PAGE)
+    page = min(max(args.page, 1), total_pages)
+    start = (page - 1) * TESTS_PER_PAGE
+    chunk = data[start:start + TESTS_PER_PAGE]
+
+    print(f"{'UUID':<38} {'CATEGORY':<15} {'SEV':<9} {'SCORE':<6} NAME")
+    print("-" * 110)
+    for row in chunk:
+        score = f"{row['score']:.1f}" if row["score"] is not None else "-"
+        print(f"{row['uuid']:<38} {row['category']:<15} "
+              f"{row['severity']:<9} {score:<6} {row['name'][:44]}")
+    print(f"\nPage {page}/{total_pages} — {len(data)} tests total")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

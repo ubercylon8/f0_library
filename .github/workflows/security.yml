@@ -60,7 +60,13 @@ jobs:
     - name: Run TruffleHog
       uses: trufflesecurity/trufflehog@main
       with:
-        extra_args: --only-verified
+        # The Lob detector pattern is `test_` plus exactly 35 more characters, so
+        # it collides with ordinary pytest function names of that length -- for
+        # example test_mitre_coverage_rejects_bad_group_by. Those collisions are
+        # reported as confirmed matches, which breaks CI on a naming coincidence.
+        # This project has no Lob integration, so the detector adds no coverage
+        # here. Every other detector remains enabled.
+        extra_args: --only-verified --exclude-detectors=Lob
 
   powershell-scan:
     name: PowerShell Security Scan

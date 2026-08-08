@@ -4,6 +4,12 @@
       "command": "powershell.exe",
       "args": ["-Command", "docker mcp gateway run"],
       "type": "stdio"
+    },
+    "f0_library": {
+      "command": "uv",
+      "args": ["run", "--directory", "/home/jimx/F0RT1KA/f0_library/mcp_server", "f0-library-mcp"],
+      "type": "stdio",
+      "env": { "F0_LIBRARY_ROOT": "/home/jimx/F0RT1KA/f0_library" }
     }
   }
 }
