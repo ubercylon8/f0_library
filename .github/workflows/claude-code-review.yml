@@ -25,6 +25,24 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
+          # Pin the model. Left unset, the action defaults to Sonnet, which
+          # reliably trips a model-side cybersecurity safeguard on this
+          # repository's content and returns is_error with ZERO assistant turns
+          # -- the review never runs, and the job fails in ~2s having produced
+          # nothing. That is what happened on PR #69: the run logged
+          # "model": "claude-sonnet-5", went straight from system/init to
+          # result(is_error:true), and reproduced identically on re-run.
+          #
+          # This is a false positive: f0_library is an authorized AV/EDR
+          # detection-validation framework, but its diffs are dense with
+          # offensive-technique vocabulary that the safeguard keys on.
+          #
+          # Fable is provisioned for authorized dual-use security work and does
+          # not trip here. If a future model default becomes safe for this repo,
+          # this pin can be removed -- verify by re-running a PR review and
+          # confirming the log shows assistant turns rather than num_turns: 1.
+          claude_args: --model claude-fable-5
+
           use_sticky_comment: true
 
           prompt: |
