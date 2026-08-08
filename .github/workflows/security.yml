@@ -60,13 +60,12 @@ jobs:
     - name: Run TruffleHog
       uses: trufflesecurity/trufflehog@main
       with:
-        # Lob is excluded because its detector matches `test_` followed by exactly
-        # 35 characters -- the shape of a Lob direct-mail API key. Ordinary pytest
-        # function names of that length (e.g. test_mitre_coverage_rejects_bad_group_by)
-        # match it, and the Lob verifier reports them as *verified*, which is both a
-        # false positive and an alarming-looking one. This project does not and will
-        # not use Lob, so the detector has no value here while reliably breaking CI
-        # on innocuous test names. Every other detector stays enabled.
+        # The Lob detector pattern is `test_` plus exactly 35 more characters, so
+        # it collides with ordinary pytest function names of that length -- for
+        # example test_mitre_coverage_rejects_bad_group_by. Those collisions are
+        # reported as confirmed matches, which breaks CI on a naming coincidence.
+        # This project has no Lob integration, so the detector adds no coverage
+        # here. Every other detector remains enabled.
         extra_args: --only-verified --exclude-detectors=Lob
 
   powershell-scan:
