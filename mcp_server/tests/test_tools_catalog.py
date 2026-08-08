@@ -87,3 +87,12 @@ async def test_mitre_coverage_reconciles_with_list_tests():
     assert cov["total_tests"] == lst["total"]
     for entry in cov["entries"]:
         assert entry["test_count"] == len(entry["test_uuids"])
+
+
+async def test_list_tests_query_accepts_json_shaped_string():
+    """A JSON-shaped query must not trip mcp's pre_parse_json into a dict and
+    fail str-field validation (is_error, structured_content=None)."""
+    async with Client(build_server(caps=NO_CAPS)) as c:
+        r = await c.call_tool("list_tests", {"query": '{"a":1}'})
+    assert r.structured_content is not None
+    assert r.structured_content["total"] == 0

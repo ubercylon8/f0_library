@@ -77,15 +77,22 @@ def register(server, root: Path) -> None:
             "case-insensitive substring over name, actor, tags and techniques."
         )
     )
+    # Filter params are annotated as plain `str` defaulting to `""` (not
+    # `str | None`). mcp 2.0.0's func_metadata.pre_parse_json JSON-parses any
+    # string argument whose annotation `is not str`, so a Union annotation would
+    # turn a JSON-shaped value like query='{"a":1}' into a dict and fail
+    # `str`-field validation (is_error=True, no structured result). Plain `str`
+    # opts out of that pre-parse; `""` is a valid schema default. `_matches`
+    # already treats "" as absent via its falsy `if field and ...` checks.
     def list_tests(
-        category: str | None = None,
-        technique: str | None = None,
-        tactic: str | None = None,
-        actor: str | None = None,
-        platform: str | None = None,
-        severity: str | None = None,
-        subcategory: str | None = None,
-        query: str | None = None,
+        category: str = "",
+        technique: str = "",
+        tactic: str = "",
+        actor: str = "",
+        platform: str = "",
+        severity: str = "",
+        subcategory: str = "",
+        query: str = "",
         limit: int = 200,
     ) -> ListTestsResult:
         index = get_index(root)
@@ -127,7 +134,7 @@ def register(server, root: Path) -> None:
     )
     def mitre_coverage(
         group_by: str = "technique",
-        category: str | None = None,
+        category: str = "",  # plain str/"" default: see list_tests note re: pre_parse_json
     ) -> CoverageResult:
         if group_by not in ("technique", "tactic"):
             raise ValueError("group_by must be 'technique' or 'tactic'")

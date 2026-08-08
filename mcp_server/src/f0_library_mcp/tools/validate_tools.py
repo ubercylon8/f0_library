@@ -42,12 +42,26 @@ class ValidateResultsResult(BaseModel):
     verdict: Verdict | None = None
 
 
+# Cache the imported validator module per repo root. Without this, every
+# validate_results call re-ran spec_from_file_location + exec_module (rebuilding
+# a fresh module object and re-reading the schema JSON) since the module is
+# never registered in sys.modules under this by-path import.
+_VALIDATOR_CACHE: dict[Path, object] = {}
+
+
 def _load_repo_validator(root: Path):
-    """Import utils/validate_test_results.py by path (it is not a package)."""
+    """Import utils/validate_test_results.py by path (it is not a package).
+
+    Memoized by root so the by-path import happens at most once per repo.
+    """
+    cached = _VALIDATOR_CACHE.get(root)
+    if cached is not None:
+        return cached
     path = root / "utils" / "validate_test_results.py"
     spec = importlib.util.spec_from_file_location("f0_repo_validator", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    _VALIDATOR_CACHE[root] = module
     return module
 
 
@@ -112,21 +126,29 @@ def register(server, root: Path, caps=None) -> None:
             "exit code. Supply exactly one of `path` or `content`."
         )
     )
-    # NOTE: `path`/`content` are annotated as plain `str` (not `str | None`)
-    # deliberately. mcp 2.0.0's func_metadata.pre_parse_json JSON-parses any
-    # string argument whose annotation `is not str` -- so a `str | None`
-    # annotation would silently turn a valid-JSON `content` (e.g. '{"exitCode":
-    # 126}') into a dict before it reaches this body, breaking the "supply a raw
-    # results JSON string" contract. Plain `str` with a None default keeps the
-    # params optional while opting out of that pre-parse.
-    def validate_results(path: str = None,
-                         content: str = None) -> ValidateResultsResult:
-        if (path is None) == (content is None):
+    # NOTE: `path`/`content` are annotated as plain `str` with a `""` default,
+    # and both halves of that are load-bearing:
+    #   * The annotation must be *exactly* `str` (not `str | None`, not
+    #     `Annotated[str | None, ...]`). mcp 2.0.0's func_metadata.pre_parse_json
+    #     JSON-parses any string argument whose annotation `is not str` -- so a
+    #     Union annotation would silently turn a valid-JSON `content` (e.g.
+    #     '{"exitCode": 126}') into a dict before it reaches this body, breaking
+    #     the "supply a raw results JSON string" contract.
+    #   * The default is `""`, not `None`. A `str` field defaulting to `None`
+    #     emits a schema (`{"type":"string","default":null}`) whose own default
+    #     violates its declared type, and a client that serializes an unset
+    #     optional as explicit `null` then trips a hard pydantic ValidationError
+    #     (is_error=True, no structured result) instead of the graceful
+    #     `ok=False` below. `""` is a valid string, so the schema is consistent
+    #     and "unset" is expressed as empty rather than null.
+    def validate_results(path: str = "",
+                         content: str = "") -> ValidateResultsResult:
+        if bool(path) == bool(content):
             return ValidateResultsResult(
                 ok=False, error="Supply exactly one of `path` or `content`.")
 
         raw = content
-        if path is not None:
+        if path:
             target = Path(path)
             if not target.is_file():
                 return ValidateResultsResult(ok=False, error=f"no such file: {path}")

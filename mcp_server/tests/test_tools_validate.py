@@ -59,3 +59,11 @@ async def test_validate_results_reports_malformed_json():
         r = await c.call_tool("validate_results", {"content": "{not json"})
     assert r.structured_content["ok"] is False
     assert "json" in r.structured_content["error"].lower()
+
+
+async def test_validate_results_rejects_explicit_empty_strings():
+    async with Client(build_server(caps=NO_CAPS)) as c:
+        r = await c.call_tool("validate_results", {"path": "", "content": ""})
+    assert r.structured_content is not None
+    assert r.structured_content["ok"] is False
+    assert "exactly one" in r.structured_content["error"].lower()
