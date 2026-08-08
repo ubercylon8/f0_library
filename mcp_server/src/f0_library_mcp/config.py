@@ -22,10 +22,19 @@ def _is_root(path: Path) -> bool:
 def resolve_root(explicit: Path | None = None) -> Path:
     """Locate the f0_library repo root.
 
-    Order: explicit argument, F0_LIBRARY_ROOT env var, then walk up from this
-    file. Raises RootNotFoundError rather than returning a wrong root -- a
-    server that silently serves an empty catalog is worse than one that
-    refuses to start.
+    These tiers are authoritative, not a fallback chain -- the first tier that
+    applies decides the outcome, including failure:
+
+    - If ``explicit`` is supplied it is authoritative: valid -> returned;
+      invalid -> ``RootNotFoundError``. The env var is NOT consulted.
+    - Else if ``F0_LIBRARY_ROOT`` is set it is authoritative, same valid/invalid
+      rule. Walk-up is NOT attempted.
+    - Only when neither is supplied does resolution walk up from this package
+      file.
+
+    A supplied-but-wrong root fails loudly rather than silently resolving to a
+    different repository, which would serve another repo's catalog under this
+    caller's assertion of correctness.
     """
     candidates: list[Path] = []
     if explicit is not None:

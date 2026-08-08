@@ -30,3 +30,33 @@ def test_raises_when_unresolvable(tmp_path, monkeypatch):
     with pytest.raises(RootNotFoundError) as exc:
         resolve_root()
     assert "F0_LIBRARY_ROOT" in str(exc.value)
+
+
+def _make_valid_root(path):
+    (path / "CLAUDE.md").write_text("x")
+    (path / "tests_source").mkdir()
+    return path
+
+
+def test_invalid_explicit_does_not_fall_back_to_env(tmp_path_factory, monkeypatch):
+    """An invalid explicit root is authoritative: it must NOT fall back to a valid env var."""
+    invalid = tmp_path_factory.mktemp("invalid_explicit")
+    valid_env = _make_valid_root(tmp_path_factory.mktemp("valid_env"))
+    monkeypatch.setenv("F0_LIBRARY_ROOT", str(valid_env))
+    with pytest.raises(RootNotFoundError):
+        resolve_root(invalid)
+
+
+def test_invalid_env_does_not_fall_back_to_walkup(tmp_path, monkeypatch):
+    """An invalid env var is authoritative: it must NOT fall back to walk-up from the package file."""
+    monkeypatch.setenv("F0_LIBRARY_ROOT", str(tmp_path))
+    with pytest.raises(RootNotFoundError):
+        resolve_root()
+
+
+def test_explicit_takes_precedence_over_valid_env(tmp_path_factory, monkeypatch):
+    """With explicit and env both valid but different, explicit wins."""
+    valid_explicit = _make_valid_root(tmp_path_factory.mktemp("valid_explicit"))
+    valid_env = _make_valid_root(tmp_path_factory.mktemp("valid_env"))
+    monkeypatch.setenv("F0_LIBRARY_ROOT", str(valid_env))
+    assert resolve_root(valid_explicit) == valid_explicit
