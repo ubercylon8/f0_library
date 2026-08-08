@@ -86,3 +86,100 @@ def test_exit_code_parser():
     assert dt._parse_exit_code("noise\nEXIT_CODE: 126\n") == 126
     assert dt._parse_exit_code("EXIT_CODE: 0") == 0
     assert dt._parse_exit_code("no marker here") is None
+
+
+async def test_windows_execute_uses_delayed_expansion(monkeypatch, tmp_path):
+    """Item 1: the Windows execute line must use !ERRORLEVEL! (delayed
+    expansion), never %ERRORLEVEL% -- cmd expands the latter at parse time,
+    before the .exe runs, echoing the inherited 0 instead of the real code."""
+    calls = []
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(" ".join(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="EXIT_CODE: 126\n", stderr="")
+
+    monkeypatch.setattr(dt.subprocess, "run", fake_run)
+    artifact = tmp_path / f"{UUID}.exe"
+    artifact.write_bytes(b"binary")
+    monkeypatch.setattr(dt, "_find_binary", lambda root, uuid, plat: artifact)
+
+    async with Client(build_server(caps=CAPS)) as c:
+        r = await c.call_tool("deploy_and_run",
+                              {"uuid": UUID, "host": "win", "confirm_host": "win"})
+
+    execute = calls[-1]
+    assert "!ERRORLEVEL!" in execute
+    assert "%ERRORLEVEL%" not in execute
+    assert "cmd /v:on" in execute
+    # exit 126 must survive as a block verdict, not be flattened to 0/unprotected
+    assert r.structured_content["exit_code"] == 126
+    assert r.structured_content["verdict"]["verdict"] == "execution_prevented"
+
+
+async def test_windows_provisions_artifact_dir(monkeypatch, tmp_path):
+    """Item 2: the Windows branch must provision c:\\Users\\fortika-test, not
+    just recreate LOG_DIR."""
+    calls = []
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(" ".join(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="EXIT_CODE: 101\n", stderr="")
+
+    monkeypatch.setattr(dt.subprocess, "run", fake_run)
+    artifact = tmp_path / f"{UUID}.exe"
+    artifact.write_bytes(b"binary")
+    monkeypatch.setattr(dt, "_find_binary", lambda root, uuid, plat: artifact)
+
+    async with Client(build_server(caps=CAPS)) as c:
+        await c.call_tool("deploy_and_run",
+                          {"uuid": UUID, "host": "win", "confirm_host": "win"})
+
+    joined = "\n".join(calls)
+    assert r"c:\Users\fortika-test" in joined
+    assert "icacls" in joined
+
+
+async def test_timeout_returns_structured_result_not_exception(monkeypatch, tmp_path):
+    """Item 3: a hung host (TimeoutExpired) must yield ok=False, not raise."""
+    def fake_run(cmd, *a, **kw):
+        raise subprocess.TimeoutExpired(cmd, dt._TIMEOUT)
+
+    monkeypatch.setattr(dt.subprocess, "run", fake_run)
+    artifact = tmp_path / UUID
+    artifact.write_bytes(b"binary")
+    monkeypatch.setattr(dt, "_find_binary", lambda root, uuid, plat: artifact)
+
+    async with Client(build_server(caps=CAPS)) as c:
+        r = await c.call_tool("deploy_and_run",
+                              {"uuid": UUID, "host": "debian", "confirm_host": "debian"})
+    sc = r.structured_content
+    assert sc["ok"] is False
+    assert "timed out" in sc["error"].lower()
+
+
+async def test_scp_failure_aborts_before_execute(monkeypatch, tmp_path):
+    """Item 4: a failed scp must abort with the real cause and never issue the
+    execute command."""
+    calls = []
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(" ".join(cmd))
+        if cmd[0] == "scp":
+            return subprocess.CompletedProcess(cmd, 1, stdout="",
+                                               stderr="scp: No space left on device")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(dt.subprocess, "run", fake_run)
+    artifact = tmp_path / UUID
+    artifact.write_bytes(b"binary")
+    monkeypatch.setattr(dt, "_find_binary", lambda root, uuid, plat: artifact)
+
+    async with Client(build_server(caps=CAPS)) as c:
+        r = await c.call_tool("deploy_and_run",
+                              {"uuid": UUID, "host": "debian", "confirm_host": "debian"})
+    sc = r.structured_content
+    assert sc["ok"] is False
+    assert "copy" in sc["error"].lower()
+    assert "No space left on device" in sc["stderr"]
+    # the execute command (which runs the test binary) must NOT have been issued
+    assert not any(f"{UUID}; echo EXIT_CODE" in call for call in calls)
