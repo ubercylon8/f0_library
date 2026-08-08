@@ -9,7 +9,6 @@ NO_CAPS = Capabilities(go=False, signing=False, ssh_aliases=[])
 FULL_CAPS = Capabilities(go=True, signing=True, ssh_aliases=["debian", "win"])
 
 
-@pytest.mark.xfail(reason="validate_test/validate_results land in Task 6", strict=True)
 async def test_tier_a_always_advertised():
     async with Client(build_server(caps=NO_CAPS)) as c:
         names = {t.name for t in (await c.list_tools()).tools}
