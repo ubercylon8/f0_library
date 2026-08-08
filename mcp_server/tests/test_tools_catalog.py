@@ -23,7 +23,6 @@ async def test_tier_b_hidden_without_capabilities():
     assert "deploy_and_run" not in names
 
 
-@pytest.mark.xfail(reason="build_test lands in Task 7, deploy_and_run in Task 8", strict=True)
 async def test_tier_b_advertised_with_capabilities():
     async with Client(build_server(caps=FULL_CAPS)) as c:
         names = {t.name for t in (await c.list_tools()).tools}
