@@ -26,10 +26,13 @@ REQUIRED_HEADER_FIELDS: tuple[str, ...] = (
     "ID", "NAME", "TECHNIQUES", "TACTICS", "SEVERITY", "TARGET",
     "COMPLEXITY", "THREAT_ACTOR", "SUBCATEGORY", "TAGS", "AUTHOR",
 )
-_LIST_FIELDS = {"TECHNIQUES", "TACTICS", "TARGET", "TAGS"}
 
 
 class TestRecord(BaseModel):
+    # Not a pytest test class despite the ``Test`` prefix -- this is a
+    # pydantic model. Tell pytest to skip collecting it.
+    __test__ = False
+
     uuid: str
     category: str
     path: str
@@ -140,12 +143,32 @@ def build_index(root: Path) -> Index:
     return index
 
 
-_CACHE: dict[Path, tuple[frozenset[tuple[str, int]], Index]] = {}
+_Fingerprint = frozenset[tuple[str, int, tuple[tuple[str, int], ...]]]
+_CACHE: dict[Path, tuple[_Fingerprint, Index]] = {}
 
 
-def _fingerprint(root: Path) -> frozenset[tuple[str, int]]:
-    """Cheap signature of the corpus: every candidate dir plus its mtime."""
-    out: set[tuple[str, int]] = set()
+def _fingerprint(root: Path) -> _Fingerprint:
+    """Cheap, stat-only signature of the corpus for cache invalidation.
+
+    A ``TestRecord`` is derived from more than ``<uuid>.go``: ``score`` comes
+    from ``README.md``, ``architecture`` from the presence of ``build_all.sh``,
+    and ``files_present`` from the directory listing. Fingerprinting only the
+    ``.go`` mtime would let a long-lived server serve stale records whenever any
+    of those other inputs changed. So for every candidate dir we capture:
+
+      * the directory path,
+      * the directory's own ``st_mtime_ns`` (catches files added/removed, i.e.
+        changes to ``files_present`` and to ``architecture``), and
+      * every top-level file's ``(name, st_mtime_ns)`` (catches in-place edits
+        to ``README.md`` -> ``score``, ``build_all.sh``, and header fields in
+        ``<uuid>.go``).
+
+    Stat-only by design: it never reads file contents, so it stays cheap. The
+    result is a frozenset of ``(path, dir_mtime, sorted_files)`` tuples, which
+    is hashable and order-independent. Per-entry stat calls are wrapped so a
+    file vanishing mid-scan (a race) is treated as absent, not fatal.
+    """
+    out: set[tuple[str, int, tuple[tuple[str, int], ...]]] = set()
     source_root = Path(root) / "tests_source"
     if not source_root.is_dir():
         return frozenset()
@@ -153,10 +176,24 @@ def _fingerprint(root: Path) -> frozenset[tuple[str, int]]:
         if not category.is_dir():
             continue
         for cand in category.iterdir():
-            if cand.is_dir() and UUID_RE.match(cand.name):
-                go = cand / f"{cand.name}.go"
-                mtime = go.stat().st_mtime_ns if go.is_file() else 0
-                out.add((str(cand), mtime))
+            if not (cand.is_dir() and UUID_RE.match(cand.name)):
+                continue
+            try:
+                dir_mtime = cand.stat().st_mtime_ns
+            except OSError:
+                dir_mtime = 0
+            try:
+                entries = sorted(cand.iterdir())
+            except OSError:
+                entries = []
+            files: list[tuple[str, int]] = []
+            for entry in entries:
+                try:
+                    if entry.is_file():
+                        files.append((entry.name, entry.stat().st_mtime_ns))
+                except OSError:
+                    continue
+            out.add((str(cand), dir_mtime, tuple(files)))
     return frozenset(out)
 
 

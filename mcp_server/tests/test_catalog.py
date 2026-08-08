@@ -63,3 +63,21 @@ def test_memoization_invalidates_on_mtime(tmp_path):
     import os, time
     os.utime(go, (time.time() + 10, time.time() + 10))
     assert get_index(root).tests[0].name == "Second"
+
+
+def test_memoization_invalidates_on_readme_change(tmp_path):
+    root = tmp_path
+    (root / "CLAUDE.md").write_text("x")
+    uid = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+    d = root / "tests_source" / "intel-driven" / uid
+    d.mkdir(parents=True)
+    go = d / f"{uid}.go"
+    go.write_text("/*\nID: %s\nNAME: First\nTECHNIQUES: T1001\n*/\n" % uid)
+    readme = d / "README.md"
+    readme.write_text("**Test Score**: **7.0/10**\n")
+
+    assert get_index(root).tests[0].score == 7.0
+    readme.write_text("**Test Score**: **9.5/10**\n")
+    import os, time
+    os.utime(readme, (time.time() + 10, time.time() + 10))
+    assert get_index(root).tests[0].score == 9.5
