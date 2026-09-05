@@ -43,8 +43,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
-	"encoding/hex"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -95,10 +95,10 @@ var roguePlanetCompressed []byte
 type classification int
 
 const (
-	clsInconclusive classification = iota // -> 999 (lost race OR prerequisite not met). DEFAULT.
-	clsUnprotected                        // -> 101 (exploit succeeded: marker + wermgr hash change)
-	clsExecPrevented                      // -> 126 (execution prevented on a written binary)
-	clsQuarantined                        // -> 105 (dropped binary quarantined on extraction)
+	clsInconclusive  classification = iota // -> 999 (lost race OR prerequisite not met). DEFAULT.
+	clsUnprotected                         // -> 101 (exploit succeeded: marker + wermgr hash change)
+	clsExecPrevented                       // -> 126 (execution prevented on a written binary)
+	clsQuarantined                         // -> 105 (dropped binary quarantined on extraction)
 )
 
 // runState accumulates evidence across the retry loop. Benign counters (attempts)

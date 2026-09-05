@@ -16,12 +16,12 @@ import (
 func RunGVChecks() ValidatorResult {
 	result := ValidatorResult{Name: "Governance & Policy"}
 	result.Checks = []CheckResult{
-		checkDomainJoinAndGPOISACA(),     // GV-001
-		checkNTPSyncISACA(),              // GV-002
-		checkAssetInventoryISACA(),       // GV-003
-		checkLogonBannerISACA(),          // GV-004
-		checkScreenLockPolicyISACA(),     // GV-005
-		checkLicenseActivationISACA(),    // GV-006
+		checkDomainJoinAndGPOISACA(),  // GV-001
+		checkNTPSyncISACA(),           // GV-002
+		checkAssetInventoryISACA(),    // GV-003
+		checkLogonBannerISACA(),       // GV-004
+		checkScreenLockPolicyISACA(),  // GV-005
+		checkLicenseActivationISACA(), // GV-006
 	}
 	for _, c := range result.Checks {
 		result.TotalChecks++

@@ -8,11 +8,11 @@ import (
 
 // Config represents the collector configuration
 type Config struct {
-	Version        string              `json:"version"`
-	Collector      CollectorConfig     `json:"collector"`
-	Elasticsearch  ElasticsearchConfig `json:"elasticsearch"`
-	Logging        LoggingConfig       `json:"logging"`
-	Validation     ValidationConfig    `json:"validation"`
+	Version       string              `json:"version"`
+	Collector     CollectorConfig     `json:"collector"`
+	Elasticsearch ElasticsearchConfig `json:"elasticsearch"`
+	Logging       LoggingConfig       `json:"logging"`
+	Validation    ValidationConfig    `json:"validation"`
 }
 
 // CollectorConfig holds collector-specific settings

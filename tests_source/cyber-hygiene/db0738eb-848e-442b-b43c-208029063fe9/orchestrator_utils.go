@@ -255,11 +255,11 @@ func ConvertOutputToControls(validatorName, category, subcategory string, output
 
 // ITGCEvidence is the per-control auditor workpaper record.
 type ITGCEvidence struct {
-	ControlID      string                 `json:"control_id"`       // e.g. "ITGC-AM-001"
-	ControlName    string                 `json:"control_name"`     // human-readable name
-	Description    string                 `json:"description"`      // what the control validates
-	Status         string                 `json:"status"`           // "PASS" | "FAIL" | "SKIPPED"
-	Severity       string                 `json:"severity"`         // critical/high/medium/low
+	ControlID      string                 `json:"control_id"`   // e.g. "ITGC-AM-001"
+	ControlName    string                 `json:"control_name"` // human-readable name
+	Description    string                 `json:"description"`  // what the control validates
+	Status         string                 `json:"status"`       // "PASS" | "FAIL" | "SKIPPED"
+	Severity       string                 `json:"severity"`     // critical/high/medium/low
 	CisaDomain     string                 `json:"cisa_domain,omitempty"`
 	CobitObjective string                 `json:"cobit_objective,omitempty"`
 	CisV8Mapping   string                 `json:"cis_v8_mapping,omitempty"`

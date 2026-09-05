@@ -293,7 +293,9 @@ func probePPLRegistry() (effectiveLevel int, runAsPPL int, runAsPPLBoot int) {
 
 // probeWinInitEvent12 queries the System event log for the most recent WinInit
 // Event ID 12, which records the lsass protection level at boot:
-//   "LSASS.exe was started as a protected process with level: N"
+//
+//	"LSASS.exe was started as a protected process with level: N"
+//
 // Returns the protection level integer, or -1 if the event is not found or
 // wevtutil is unavailable.
 func probeWinInitEvent12() int {
@@ -358,11 +360,11 @@ func probeCredentialGuard() bool {
 }
 
 // determineExitCode classifies the outcome. Per Bug Prevention Rules 1 and 8:
-// - Errors describe the OPERATION, never inject blame keywords.
-// - Block codes (126) require POSITIVE evidence of a real protection action.
-// - For Stage 4, access-denied on lsass OpenProcess IS positive block evidence:
-//   running as SYSTEM/admin, a denial on lsass means PPL/EDR/CredGuard acted.
-// - Unknown/unrecognized errors map to StageError (999), NOT StageBlocked.
+//   - Errors describe the OPERATION, never inject blame keywords.
+//   - Block codes (126) require POSITIVE evidence of a real protection action.
+//   - For Stage 4, access-denied on lsass OpenProcess IS positive block evidence:
+//     running as SYSTEM/admin, a denial on lsass means PPL/EDR/CredGuard acted.
+//   - Unknown/unrecognized errors map to StageError (999), NOT StageBlocked.
 func determineExitCode(err error) int {
 	if err == nil {
 		return StageSuccess

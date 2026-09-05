@@ -51,8 +51,8 @@ const (
 
 // Brazilian locale identifiers TclBanker checks
 const (
-	pt_BR_LCID    = 0x0416 // Portuguese (Brazil)
-	BrazilTZName  = "E. South America Standard Time"
+	pt_BR_LCID     = 0x0416 // Portuguese (Brazil)
+	BrazilTZName   = "E. South America Standard Time"
 	IntendedTarget = "Brazilian banking customers"
 )
 

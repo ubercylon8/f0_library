@@ -61,7 +61,7 @@ const (
 	PortugueseVishingString = "Estamos entrando em contato"
 	OverlayWatermark        = "F0RT1KA TEST — TclBanker simulation"
 	OverlayTimeoutSec       = 3
-	KeyboardHookDurationMs  = 400 // < 500ms per safety contract
+	KeyboardHookDurationMs  = 400                                      // < 500ms per safety contract
 	CUIAutomationCLSID      = "{FF48DBA4-60EF-4201-AA87-54103EEF594E}" // CLSID_CUIAutomation
 )
 
@@ -245,23 +245,23 @@ func comCreateUIAutomation() error {
 // =============================================================================
 
 var (
-	user32              = syscall.NewLazyDLL("user32.dll")
-	procCreateWindowExW = user32.NewProc("CreateWindowExW")
-	procShowWindow      = user32.NewProc("ShowWindow")
-	procDestroyWindow   = user32.NewProc("DestroyWindow")
+	user32                    = syscall.NewLazyDLL("user32.dll")
+	procCreateWindowExW       = user32.NewProc("CreateWindowExW")
+	procShowWindow            = user32.NewProc("ShowWindow")
+	procDestroyWindow         = user32.NewProc("DestroyWindow")
 	procSetWindowDispAffinity = user32.NewProc("SetWindowDisplayAffinity")
-	procRegisterClassW  = user32.NewProc("RegisterClassW")
-	procDefWindowProcW  = user32.NewProc("DefWindowProcW")
-	procPostQuitMessage = user32.NewProc("PostQuitMessage")
+	procRegisterClassW        = user32.NewProc("RegisterClassW")
+	procDefWindowProcW        = user32.NewProc("DefWindowProcW")
+	procPostQuitMessage       = user32.NewProc("PostQuitMessage")
 )
 
 const (
-	WS_POPUP        = 0x80000000
-	WS_VISIBLE      = 0x10000000
-	WS_EX_TOPMOST   = 0x00000008
-	WS_EX_TOOLWINDOW = 0x00000080
-	SW_SHOW         = 5
-	SW_HIDE         = 0
+	WS_POPUP               = 0x80000000
+	WS_VISIBLE             = 0x10000000
+	WS_EX_TOPMOST          = 0x00000008
+	WS_EX_TOOLWINDOW       = 0x00000080
+	SW_SHOW                = 5
+	SW_HIDE                = 0
 	WDA_EXCLUDEFROMCAPTURE = 0x11
 )
 

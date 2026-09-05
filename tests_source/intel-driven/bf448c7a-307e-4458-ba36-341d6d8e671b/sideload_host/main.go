@@ -36,9 +36,9 @@ import (
 )
 
 const (
-	logDir       = `C:\F0`
-	markerPath   = `C:\F0\sideload_host_loaded.txt`
-	dllToLoad    = "screen_retriever_plugin.dll"
+	logDir     = `C:\F0`
+	markerPath = `C:\F0\sideload_host_loaded.txt`
+	dllToLoad  = "screen_retriever_plugin.dll"
 )
 
 func writeMarker(line string) {

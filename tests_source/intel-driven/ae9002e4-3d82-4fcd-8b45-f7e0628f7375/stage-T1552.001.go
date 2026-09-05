@@ -144,13 +144,13 @@ func performTechnique() error {
 // plantDecoys writes a synthetic, clearly-fake credential tree under the artifact dir.
 func plantDecoys() error {
 	files := map[string]string{
-		".aws/credentials":       "[default]\naws_access_key_id = AKIAFAKE0000DECOY1234\naws_secret_access_key = wJalrFAKE/DECOY/EXAMPLEKEYNOTREAL00000000\n",
-		".ssh/id_ed25519":        "-----BEGIN OPENSSH PRIVATE KEY-----\nDECOY-NOT-A-REAL-KEY-F0RT1KA-SIMULATION-ONLY\n-----END OPENSSH PRIVATE KEY-----\n",
-		".npmrc":                 "//registry.npmjs.org/:_authToken=npm_FAKEDECOYTOKEN000000000000000000000\n",
-		".git-credentials":       "https://decoy-user:ghp_FAKEDECOYGITHUBTOKEN0000000000000000@github.com\n",
-		".docker/config.json":    "{\"auths\":{\"registry.example.com\":{\"auth\":\"ZGVjb3k6ZGVjb3k=\"}}}\n",
-		".env":                   "GITHUB_TOKEN=ghs_FAKEDECOY000000000000000000000000000\nAPI_KEY=decoy-not-real\n",
-		".kube/config":           "apiVersion: v1\nkind: Config\nusers:\n- name: decoy\n  user:\n    token: decoy-k8s-token-not-real\n",
+		".aws/credentials":        "[default]\naws_access_key_id = AKIAFAKE0000DECOY1234\naws_secret_access_key = wJalrFAKE/DECOY/EXAMPLEKEYNOTREAL00000000\n",
+		".ssh/id_ed25519":         "-----BEGIN OPENSSH PRIVATE KEY-----\nDECOY-NOT-A-REAL-KEY-F0RT1KA-SIMULATION-ONLY\n-----END OPENSSH PRIVATE KEY-----\n", //gitleaks:allow synthetic decoy planted by this test; not a real key
+		".npmrc":                  "//registry.npmjs.org/:_authToken=npm_FAKEDECOYTOKEN000000000000000000000\n",
+		".git-credentials":        "https://decoy-user:ghp_FAKEDECOYGITHUBTOKEN0000000000000000@github.com\n", //gitleaks:allow synthetic decoy planted by this test; not a real token
+		".docker/config.json":     "{\"auths\":{\"registry.example.com\":{\"auth\":\"ZGVjb3k6ZGVjb3k=\"}}}\n",
+		".env":                    "GITHUB_TOKEN=ghs_FAKEDECOY000000000000000000000000000\nAPI_KEY=decoy-not-real\n",
+		".kube/config":            "apiVersion: v1\nkind: Config\nusers:\n- name: decoy\n  user:\n    token: decoy-k8s-token-not-real\n",
 		".config/gcloud/adc.json": "{\"type\":\"authorized_user\",\"refresh_token\":\"decoy-not-real\",\"_note\":\"F0RT1KA decoy\"}\n",
 	}
 	for rel, content := range files {

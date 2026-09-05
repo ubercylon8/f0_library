@@ -23,9 +23,9 @@ import (
 func RunADIdentityChecks() ValidatorResult {
 	result := ValidatorResult{Name: "AD Identity Controls"}
 	result.Checks = []CheckResult{
-		checkDormantAccountsISACA(),         // AM-003
+		checkDormantAccountsISACA(),           // AM-003
 		checkServiceAccountPermissionsISACA(), // AM-004
-		checkLAPSDeploymentISACA(),          // NS-003
+		checkLAPSDeploymentISACA(),            // NS-003
 	}
 	for _, c := range result.Checks {
 		result.TotalChecks++

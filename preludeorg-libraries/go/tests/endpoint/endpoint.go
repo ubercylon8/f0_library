@@ -28,8 +28,8 @@ const (
 	UnexpectedExecutionError int = 256
 
 	// Not Relevant
-	NotRelevant       	int = 104
-	InsufficientPrivileges 	int = 109
+	NotRelevant            int = 104
+	InsufficientPrivileges int = 109
 
 	// Protected
 	TestCompletedNormally       int = 100
