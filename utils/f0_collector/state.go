@@ -18,11 +18,11 @@ type CollectorState struct {
 
 // CollectedFile represents a successfully collected file
 type CollectedFile struct {
-	FilePath   string   `json:"filePath"`
-	FileHash   string   `json:"fileHash"`
+	FilePath    string   `json:"filePath"`
+	FileHash    string   `json:"fileHash"`
 	CollectedAt string   `json:"collectedAt"`
-	ExportedTo []string `json:"exportedTo"`
-	Status     string   `json:"status"`
+	ExportedTo  []string `json:"exportedTo"`
+	Status      string   `json:"status"`
 }
 
 // FailedFile represents a file that failed to collect

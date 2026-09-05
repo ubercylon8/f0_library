@@ -20,12 +20,12 @@ import (
 func RunEPChecks() ValidatorResult {
 	result := ValidatorResult{Name: "Endpoint Protection"}
 	result.Checks = []CheckResult{
-		checkAVEDRStatusISACA(),    // EP-001
+		checkAVEDRStatusISACA(),         // EP-001
 		checkFirewallAllProfilesISACA(), // EP-002
-		checkBitLockerISACA(),      // EP-003
-		checkSMBv1DisabledISACA(),  // EP-004
-		checkPowerShellSecurityISACA(), // EP-005
-		checkASRRulesISACA(),       // EP-006 (rolled-up: 5 ASR rules)
+		checkBitLockerISACA(),           // EP-003
+		checkSMBv1DisabledISACA(),       // EP-004
+		checkPowerShellSecurityISACA(),  // EP-005
+		checkASRRulesISACA(),            // EP-006 (rolled-up: 5 ASR rules)
 	}
 
 	for _, c := range result.Checks {
@@ -311,12 +311,12 @@ func checkPowerShellSecurityISACA() CheckResult {
 
 	c.Expected = "ScriptBlockLogging=1 AND ModuleLogging=1"
 	c.Evidence = map[string]interface{}{
-		"script_block_logging":      sblVal,
-		"module_logging":            mlVal,
-		"language_mode":             clmMode,
-		"clm_active":                clmMode == "ConstrainedLanguage",
-		"sbl_compliant":             sblOK,
-		"module_logging_compliant":  mlOK,
+		"script_block_logging":     sblVal,
+		"module_logging":           mlVal,
+		"language_mode":            clmMode,
+		"clm_active":               clmMode == "ConstrainedLanguage",
+		"sbl_compliant":            sblOK,
+		"module_logging_compliant": mlOK,
 	}
 
 	c.Passed = sblOK && mlOK

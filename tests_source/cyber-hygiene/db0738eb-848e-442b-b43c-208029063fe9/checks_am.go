@@ -25,8 +25,8 @@ import (
 func RunAMChecks() ValidatorResult {
 	result := ValidatorResult{Name: "Access Management"}
 	result.Checks = []CheckResult{
-		checkLocalAdminInventoryISACA(), // AM-001
-		checkPasswordPolicyISACA(),      // AM-002
+		checkLocalAdminInventoryISACA(),  // AM-001
+		checkPasswordPolicyISACA(),       // AM-002
 		checkGuestAccountDisabledISACA(), // AM-005
 	}
 	for _, c := range result.Checks {

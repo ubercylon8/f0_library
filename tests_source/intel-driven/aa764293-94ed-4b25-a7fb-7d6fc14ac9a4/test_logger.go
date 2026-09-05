@@ -107,9 +107,9 @@ type TestMetadata struct {
 
 	// ITGC / compliance bundle metadata (populated by ISACA, CIS, ISO27001 bundles for auditor-facing reporting).
 	// All omitempty — non-bundle tests leave these empty and behavior is unchanged downstream.
-	IsacaControlIDs  []string `json:"isacaControlIds,omitempty"`  // ITGC-* control IDs covered by this test (e.g., ["ITGC-AM-001","ITGC-EP-002"])
-	CisaDomains      []string `json:"cisaDomains,omitempty"`      // CISA 2024 ECO domains (e.g., ["D5","D2"])
-	CobitObjectives  []string `json:"cobitObjectives,omitempty"`  // COBIT 2019 management objectives (e.g., ["DSS05.04","APO13.01"])
+	IsacaControlIDs []string `json:"isacaControlIds,omitempty"` // ITGC-* control IDs covered by this test (e.g., ["ITGC-AM-001","ITGC-EP-002"])
+	CisaDomains     []string `json:"cisaDomains,omitempty"`     // CISA 2024 ECO domains (e.g., ["D5","D2"])
+	CobitObjectives []string `json:"cobitObjectives,omitempty"` // COBIT 2019 management objectives (e.g., ["DSS05.04","APO13.01"])
 }
 
 // ScoreBreakdown provides detailed test quality scoring

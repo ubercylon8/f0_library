@@ -16,9 +16,9 @@ import (
 func RunBRChecks() ValidatorResult {
 	result := ValidatorResult{Name: "Backup & Recovery"}
 	result.Checks = []CheckResult{
-		checkVSSStatusISACA(),                  // BR-001
-		checkBackupAgentStatusISACA(),          // BR-002
-		checkControlledFolderAccessISACA(),     // BR-003
+		checkVSSStatusISACA(),              // BR-001
+		checkBackupAgentStatusISACA(),      // BR-002
+		checkControlledFolderAccessISACA(), // BR-003
 	}
 	for _, c := range result.Checks {
 		result.TotalChecks++

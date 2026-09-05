@@ -56,10 +56,10 @@ const (
 
 // Real TclBanker identifiers — these drive detection fidelity
 const (
-	TaskName            = "RuntimeOptimizeService"
-	TaskFolderRoot      = `\`
-	TaskSchedulerCLSID  = "{0F87369F-A4E5-4CFC-BD3E-73E6154572DD}"
-	WatchdogTimeoutSec  = 10
+	TaskName           = "RuntimeOptimizeService"
+	TaskFolderRoot     = `\`
+	TaskSchedulerCLSID = "{0F87369F-A4E5-4CFC-BD3E-73E6154572DD}"
+	WatchdogTimeoutSec = 10
 )
 
 // Atomic flag set when cleanup has completed — watchdog uses this to know
@@ -326,12 +326,12 @@ func buildTaskXML() string {
 // =============================================================================
 
 var (
-	ole32          = syscall.NewLazyDLL("ole32.dll")
-	procCoInit     = ole32.NewProc("CoInitializeEx")
-	procCoUninit   = ole32.NewProc("CoUninitialize")
-	procCoCreate   = ole32.NewProc("CoCreateInstance")
-	procCLSIDStr   = ole32.NewProc("CLSIDFromString")
-	procIIDStr     = ole32.NewProc("IIDFromString")
+	ole32        = syscall.NewLazyDLL("ole32.dll")
+	procCoInit   = ole32.NewProc("CoInitializeEx")
+	procCoUninit = ole32.NewProc("CoUninitialize")
+	procCoCreate = ole32.NewProc("CoCreateInstance")
+	procCLSIDStr = ole32.NewProc("CLSIDFromString")
+	procIIDStr   = ole32.NewProc("IIDFromString")
 )
 
 const (

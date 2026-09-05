@@ -60,11 +60,11 @@ const (
 
 // Real TclBanker identifiers — drive detection fidelity
 const (
-	CloudflareAccount     = "ef971a42"
-	CampaignGUID          = "70e4f943-e323-4484-97d7-35401bf6812c"
-	WebSocketPath         = "/ws"
-	WorkersDomainShape    = "tcl-banker-c2-ef971a42.workers.dev"
-	HMACSecret            = "F0RT1KA-TclBanker-Sim-HMAC-Secret-NotRealKey"
+	CloudflareAccount  = "ef971a42"
+	CampaignGUID       = "70e4f943-e323-4484-97d7-35401bf6812c"
+	WebSocketPath      = "/ws"
+	WorkersDomainShape = "tcl-banker-c2-ef971a42.workers.dev"
+	HMACSecret         = "F0RT1KA-TclBanker-Sim-HMAC-Secret-NotRealKey"
 )
 
 func main() {
@@ -234,10 +234,10 @@ type ctxBg struct {
 	deadline time.Time
 }
 
-func (c ctxBg) Deadline() (time.Time, bool)         { return c.deadline, true }
-func (c ctxBg) Done() <-chan struct{}               { return nil }
-func (c ctxBg) Err() error                          { return nil }
-func (c ctxBg) Value(key interface{}) interface{}   { return nil }
+func (c ctxBg) Deadline() (time.Time, bool)       { return c.deadline, true }
+func (c ctxBg) Done() <-chan struct{}             { return nil }
+func (c ctxBg) Err() error                        { return nil }
+func (c ctxBg) Value(key interface{}) interface{} { return nil }
 
 func determineExitCode(err error) int {
 	if err == nil {

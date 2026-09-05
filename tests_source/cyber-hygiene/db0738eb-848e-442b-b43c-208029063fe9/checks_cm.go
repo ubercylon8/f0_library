@@ -18,11 +18,11 @@ import (
 func RunCMChecks() ValidatorResult {
 	result := ValidatorResult{Name: "Change Management"}
 	result.Checks = []CheckResult{
-		checkUnauthorizedSoftwareISACA(),  // CM-001
-		checkPatchComplianceISACA(),       // CM-002
-		checkWindowsUpdateConfigISACA(),   // CM-003
-		checkGPOModificationAuditISACA(),  // CM-004
-		checkScheduledTaskInventoryISACA(),// CM-005
+		checkUnauthorizedSoftwareISACA(),   // CM-001
+		checkPatchComplianceISACA(),        // CM-002
+		checkWindowsUpdateConfigISACA(),    // CM-003
+		checkGPOModificationAuditISACA(),   // CM-004
+		checkScheduledTaskInventoryISACA(), // CM-005
 	}
 	for _, c := range result.Checks {
 		result.TotalChecks++
@@ -215,9 +215,9 @@ func checkWindowsUpdateConfigISACA() CheckResult {
 	}
 
 	c.Evidence = map[string]interface{}{
-		"wsus_server":     wsusServer,
-		"au_options":      auOption,
-		"use_wu_server":   useWUServer,
+		"wsus_server":   wsusServer,
+		"au_options":    auOption,
+		"use_wu_server": useWUServer,
 	}
 
 	wsusOK := wsusServer != "" && useWUServer == 1
