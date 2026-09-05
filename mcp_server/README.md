@@ -18,10 +18,18 @@ header, logger, org resolver, detection rules, and documentation — is the
 `sectest-builder` agent's job, and it runs inside Claude Code.
 
 For clients that have no access to that agent (Claude Desktop, ProjectAchilles),
-the server ships a `build_sectest` **prompt** that carries the authoring
-workflow to the client as guided instructions. The prompt describes the
-workflow; it does not run the agent. Use it as a starting scaffold, not a
-substitute for the agent.
+the server carries the authoring workflow to the client as guided instructions
+through two equivalent surfaces:
+
+- the `build_sectest` **prompt**, for clients that implement `prompts/list`
+  (Claude Code, Claude Desktop);
+- the `get_build_workflow` **tool**, for clients that consume tools but not
+  prompts — Hermes, Pi and OpenCode all fall in this group, so without the tool
+  the procedure is unreachable there.
+
+Both render the same text from `workflows.py`, and a test asserts they stay
+byte-identical. Either way it describes the workflow; it does not run the
+agent. Use it as a starting scaffold, not a substitute for the agent.
 
 ## Tool tiers and capability gating
 
@@ -42,6 +50,7 @@ unconditionally:
 | `mitre_coverage` | Aggregate MITRE ATT&CK technique/tactic coverage. |
 | `validate_test` | Validate a test's source, metadata header, and file layout. |
 | `validate_results` | Validate a results document against Schema v2.0. |
+| `get_build_workflow` | Return the test-authoring procedure as text, for runtimes that cannot consume MCP prompts. Does not author anything. |
 
 ### Tier B — capability-gated (mutating / host-dependent)
 
@@ -56,9 +65,9 @@ the server detects at startup (`probe.py`):
 ### What each host advertises
 
 - A **read-only host** (no Go, no signing cert, no configured SSH aliases) sees
-  **5 tools** — Tier A only.
+  **6 tools** — Tier A only.
 - A **full build host** (Go toolchain, signing cert, configured SSH aliases like
-  `debian` / `win`) sees **7 tools** — Tier A plus `build_test` and
+  `debian` / `win`) sees **8 tools** — Tier A plus `build_test` and
   `deploy_and_run`.
 
 Because the gating happens before `initialize` responds, the tool list is
@@ -152,7 +161,8 @@ not this one:
 ```
 
 PA has no access to the `sectest-builder` agent, so for authoring workflows it
-relies on the server's `build_sectest` prompt.
+relies on the server's `build_sectest` prompt — or, if its MCP client does not
+implement prompts, the `get_build_workflow` tool, which returns the same text.
 
 ## Known caveats
 

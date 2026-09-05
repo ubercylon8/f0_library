@@ -43,6 +43,9 @@ def build_server(root: Path | None = None,
     from .tools import validate_tools
     validate_tools.register(server, root)
 
+    from .tools import workflow_tools
+    workflow_tools.register(server, root)
+
     if caps.go:
         from .tools import build_tools
         build_tools.register(server, root, caps)
