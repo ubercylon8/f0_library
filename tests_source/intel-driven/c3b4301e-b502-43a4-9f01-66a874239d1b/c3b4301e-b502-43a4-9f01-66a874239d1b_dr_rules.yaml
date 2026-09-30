@@ -1,0 +1,527 @@
+# ============================================================================
+# F0RT1KA Detection & Response Rules — LimaCharlie (FILE format,
+# for `limacharlie dr add`)
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# Test Name: Star Blizzard RedFlick CosmicPulse Espionage Chain
+# Threat Actor: Star Blizzard (SEABORGIUM/Callisto, FSB-linked)
+# MITRE ATT&CK: T1204.002, T1105, T1059.001, T1218.007, T1053.005,
+#               T1218.011, T1071.001
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-09-30
+# Reference: https://www.microsoft.com/en-us/security/blog/2026/09/29/
+#            star-blizzard-refines-phishing-and-malware-delivery-with-the-redflick-technique/
+#
+# All detections below are TECHNIQUE-FOCUSED (behavioral): they catch any
+# attacker using the RedFlick/CosmicPulse tradecraft, regardless of
+# infrastructure. Campaign domains (etia[.]ca, groy[.]cc, muvb[.]net,
+# matjk[.]click, bpdaersa[.]click, Itechx[.]tel, guach[.]net, byveo[.]org,
+# cynra[.]top, gliderrompercycl[.]com, divekickspolic[.]org,
+# stuseamandesilt[.]org, ruten[.]observer, secure-dns-hub[.]com,
+# qumel[.]link, drasw[.]club) are deliberately NOT used as match criteria.
+#
+# The adversarial identifiers that ARE matched (scheduled task names,
+# .mollis registry key, ssh PermitLocalCommand flag surface, /agent/poll
+# path, cAB marker, CPL launch surface) come from the Microsoft disclosure
+# and are technique artifacts.
+# ============================================================================
+
+# ============================================================
+# Detection Rule: RedFlick LNK double-extension masquerade
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1204.002 (User Execution: Malicious File)
+# Confidence: High
+# Description: A shortcut created with a double extension masquerading as a
+#   document (.pdf.lnk etc.) — the RedFlick event-invite lure delivered in
+#   password-protected archives.
+# ============================================================
+rules:
+  starblizzard_redflick_lnk_masquerade:
+    detect:
+      events:
+        - FILE_CREATE
+      op: matches
+      path: event/file_path
+      re: (?i)\\.(pdf|docx?|xlsx?|jpe?g|png|txt)\\.lnk$
+    respond:
+      - action: report
+        name: sb-redflick-lnk-document-masquerade
+
+  # ============================================================
+  # Detection Rule: WScript.Shell LNK weaponization targeting conhost.exe
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1204.002
+  # Confidence: High
+  # Description: PowerShell building a shortcut via WScript.Shell COM whose
+  #   target is conhost.exe with --headless / hidden WindowStyle.
+  # ============================================================
+  starblizzard_redflick_lnk_weaponization:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/process_name
+          value: powershell.exe
+        - op: contains
+          path: event/command_line
+          value: WScript.Shell
+        - op: contains
+          path: event/command_line
+          value: CreateShortcut
+        - op: contains
+          path: event/command_line
+          value: conhost.exe
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: --headless
+            - op: contains
+              path: event/command_line
+              value: WindowStyle
+    respond:
+      - action: report
+        name: sb-redflick-lnk-weaponization-conhost
+
+  # ============================================================
+  # Detection Rule: Explicit conhost.exe --headless execution
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1204.002, T1059.003
+  # Confidence: High
+  # Description: conhost.exe spawned explicitly with --headless running a
+  #   cmd.exe / script chain — the no-window-flash LNK execution primitive.
+  # ============================================================
+  starblizzard_conhost_headless_chain:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/process_name
+          value: conhost.exe
+        - op: contains
+          path: event/command_line
+          value: --headless
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: cmd.exe
+            - op: contains
+              path: event/command_line
+              value: .bat
+            - op: contains
+              path: event/command_line
+              value: .cmd
+    respond:
+      - action: report
+        name: sb-redflick-conhost-headless-chain
+
+  # ============================================================
+  # Detection Rule: ssh.exe PermitLocalCommand download cradle
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1105 (Ingress Tool Transfer)
+  # Confidence: High
+  # Description: Windows OpenSSH client with PermitLocalCommand=yes and a
+  #   LocalCommand= download/execution command — ssh abused as a transfer
+  #   cradle (client-side command fires on connect).
+  # ============================================================
+  starblizzard_ssh_localcommand_cradle:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/process_name
+          value: ssh.exe
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: PermitLocalCommand=yes
+            - op: contains
+              path: event/command_line
+              value: PermitLocalCommand yes
+        - op: contains
+          path: event/command_line
+          value: LocalCommand=
+    respond:
+      - action: report
+        name: sb-redflick-ssh-permitlocalcommand-cradle
+
+  # ============================================================
+  # Detection Rule: System curl.exe ingress transfer of payloads
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1105
+  # Confidence: Medium
+  # Description: System32 curl.exe writing MSI/EXE/PDF/ZIP files to disk
+  #   from a remote URL (setup.msi / invite.pdf style fetches).
+  # ============================================================
+  starblizzard_curl_ingress_transfer:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/process_name
+          value: curl.exe
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: " -o "
+            - op: contains
+              path: event/command_line
+              value: --output
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: .msi
+            - op: contains
+              path: event/command_line
+              value: .exe
+            - op: contains
+              path: event/command_line
+              value: .pdf
+            - op: contains
+              path: event/command_line
+              value: .zip
+    respond:
+      - action: report
+        name: sb-redflick-curl-ingress-transfer
+
+  # ============================================================
+  # Detection Rule: PowerShell base64 decode + IEX from a document
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1059.001 (PowerShell)
+  # Confidence: High
+  # Description: PowerShell reading a document (ReadAllText/.pdf),
+  #   base64-decoding it (FromBase64String, cAB marker) and executing via
+  #   Invoke-Expression — encoded-command execution from a weaponized PDF.
+  # ============================================================
+  starblizzard_powershell_b64_doc_exec:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/process_name
+          value: powershell.exe
+        - op: contains
+          path: event/command_line
+          value: FromBase64String
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: Invoke-Expression
+            - op: contains
+              path: event/command_line
+              value: IEX
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: ReadAllText
+            - op: contains
+              path: event/command_line
+              value: .pdf
+            - op: contains
+              path: event/command_line
+              value: cAB
+    respond:
+      - action: report
+        name: sb-redflick-powershell-b64-document-exec
+
+  # ============================================================
+  # Detection Rule: msiexec silent install
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1218.007 (Msiexec)
+  # Confidence: Medium
+  # Description: msiexec.exe /i with /q-style silent flags — the RedFlick
+  #   MSI install step (escalate when the package path is user-writable or
+  #   the parent is not explorer/installer infrastructure).
+  # ============================================================
+  starblizzard_msiexec_silent_install:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/process_name
+          value: msiexec.exe
+        - op: contains
+          path: event/command_line
+          value: " /i"
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: /q
+            - op: contains
+              path: event/command_line
+              value: /quiet
+    respond:
+      - action: report
+        name: sb-redflick-msiexec-silent-install
+
+  # ============================================================
+  # Detection Rule: RedFlick persistence task names (masquerading)
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1053.005 (Scheduled Task)
+  # Confidence: High
+  # Description: Creation of the scheduled tasks disclosed for the RedFlick
+  #   persistence layer under their REAL adversarial names — "Internet
+  #   Quality Test Connection", "Network Configuration Manager", "System
+  #   Health Monitor" — masquerading as network components (DAILY 09:30 and
+  #   ONLOGON triggers, user context). These are technique artifacts from
+  #   the Microsoft disclosure, not test identifiers.
+  # ============================================================
+  starblizzard_redflick_task_names:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/process_name
+          value: schtasks.exe
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: /Create
+            - op: contains
+              path: event/command_line
+              value: /create
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: Internet Quality Test Connection
+            - op: contains
+              path: event/command_line
+              value: Network Configuration Manager
+            - op: contains
+              path: event/command_line
+              value: System Health Monitor
+    respond:
+      - action: report
+        name: sb-redflick-masquerading-scheduled-tasks
+
+  # ============================================================
+  # Detection Rule: CPL applet execution from user-writable path
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1218.011 (Rundll32)
+  # Confidence: High
+  # Description: rundll32.exe shell32.dll,Control_RunDLL or control.exe
+  #   launching a .cpl staged outside System32 (user profile / Temp /
+  #   AppData) — the CosmicPulse execution surface driven by its scheduled
+  #   task, including WebDAV/UNC remote applet variants.
+  # ============================================================
+  cosmicpulse_cpl_userpath_execution:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: and
+      rules:
+        - op: contains
+          path: event/command_line
+          value: .cpl
+        - op: or
+          rules:
+            - op: and
+              rules:
+                - op: is
+                  path: event/process_name
+                  value: rundll32.exe
+                - op: contains
+                  path: event/command_line
+                  value: Control_RunDLL
+            - op: is
+              path: event/process_name
+              value: control.exe
+        - op: or
+          rules:
+            - op: contains
+              path: event/command_line
+              value: \Users\
+            - op: contains
+              path: event/command_line
+              value: \AppData\
+            - op: contains
+              path: event/command_line
+              value: \Temp\
+            - op: contains
+              path: event/command_line
+              value: \Downloads\
+            - op: contains
+              path: event/command_line
+              value: \ProgramData\
+    respond:
+      - action: report
+        name: sb-cosmicpulse-cpl-userpath-execution
+
+  # ============================================================
+  # Detection Rule: CosmicPulse .mollis registry payload staging
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1218.011, T1012
+  # Confidence: High
+  # Description: Value written under HKCU\Software\Classes\.mollis — the
+  #   CosmicPulse downloader's staging key holding an AES-ECB-encrypted,
+  #   base64-encoded payload recovered later by the bootstrapper. ".mollis"
+  #   is a real campaign identifier; a Classes key shaped like a benign
+  #   file extension storing base64 payload is the behavioral shape.
+  # ============================================================
+  cosmicpulse_mollis_registry_staging:
+    detect:
+      events:
+        - REGISTRY_VALUE_SET
+      op: contains
+      path: event/key_path
+      value: \Software\Classes\.mollis
+    respond:
+      - action: report
+        name: sb-cosmicpulse-mollis-registry-staging
+
+  # ============================================================
+  # Detection Rule: CosmicPulse HTTP beacon (spoofed UA / poll endpoint)
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1071.001 (Web Protocols)
+  # Confidence: Medium-High
+  # Description: curl.exe invoked with a spoofed Edge/Chrome User-Agent
+  #   (-A/--user-agent) and/or polling an agent-style endpoint carrying an
+  #   id= parameter (UTF-16LE+Base64 hostname|username registration data).
+  # ============================================================
+  cosmicpulse_http_beacon_profile:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/process_name
+          value: curl.exe
+        - op: or
+          rules:
+            - op: and
+              rules:
+                - op: or
+                  rules:
+                    - op: contains
+                      path: event/command_line
+                      value: "-A "
+                    - op: contains
+                      path: event/command_line
+                      value: --user-agent
+                - op: or
+                  rules:
+                    - op: contains
+                      path: event/command_line
+                      value: Mozilla/
+                    - op: contains
+                      path: event/command_line
+                      value: Edg/
+                    - op: contains
+                      path: event/command_line
+                      value: Chrome/
+            - op: and
+              rules:
+                - op: contains
+                  path: event/command_line
+                  value: id=
+                - op: or
+                  rules:
+                    - op: contains
+                      path: event/command_line
+                      value: /agent/
+                    - op: contains
+                      path: event/command_line
+                      value: /poll
+    respond:
+      - action: report
+        name: sb-cosmicpulse-http-beacon-profile
+
+  # ============================================================
+  # Detection Rule: Python runtime + bootstrapper staging in update dir
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: T1071.001, T1105
+  # Confidence: Medium
+  # Description: python38.zip / bootstrapper.zip staged into a \bin\update
+  #   subdirectory of a video-conference-app-style folder under
+  #   user-writable paths — the CosmicPulse installer prep step.
+  # ============================================================
+  cosmicpulse_python_bootstrapper_staging:
+    detect:
+      events:
+        - FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/file_path
+              value: python38.zip
+            - op: contains
+              path: event/file_path
+              value: bootstrapper.zip
+        - op: or
+          rules:
+            - op: contains
+              path: event/file_path
+              value: \AppData\
+            - op: contains
+              path: event/file_path
+              value: \Users\
+            - op: contains
+              path: event/file_path
+              value: \Temp\
+            - op: contains
+              path: event/file_path
+              value: \ProgramData\
+        - op: or
+          rules:
+            - op: contains
+              path: event/file_path
+              value: \bin\update
+            - op: contains
+              path: event/file_path
+              value: \update
+    respond:
+      - action: report
+        name: sb-cosmicpulse-installer-staging
+
+  # ============================================================
+  # Detection Rule: F0RT1KA Test Attribution (TEST-FRAMEWORK-SPECIFIC)
+  # Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+  # MITRE ATT&CK: N/A (test-framework telemetry, not a technique detection)
+  # Confidence: N/A
+  # Description: The ONLY rule in this file that matches F0RT1KA test
+  #   framework artifacts — the per-stage test executables whose names begin
+  #   with the test UUID. It exists solely to attribute sandbox executions of
+  #   THIS test during purple-team exercises and must never be treated as a
+  #   threat detection. All rules above it are technique-focused and contain
+  #   no framework identifiers.
+  # ============================================================
+  f0rt1ka_test_attribution:
+    detect:
+      events:
+        - NEW_PROCESS
+      op: or
+      rules:
+        - op: starts_with
+          path: event/process_name
+          value: c3b4301e-
+        - op: contains
+          path: event/command_line
+          value: c3b4301e-
+    respond:
+      - action: report
+        name: f0rt1ka-test-attribution-not-a-threat
