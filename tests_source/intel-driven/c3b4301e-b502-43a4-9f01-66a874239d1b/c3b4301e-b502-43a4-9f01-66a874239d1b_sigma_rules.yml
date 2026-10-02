@@ -1,0 +1,606 @@
+# ============================================================================
+# F0RT1KA Sigma Rules — Star Blizzard RedFlick / CosmicPulse Espionage Chain
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# Threat Actor: Star Blizzard (SEABORGIUM/Callisto, FSB-linked)
+# MITRE ATT&CK: T1204.002, T1105, T1059.001, T1218.007, T1053.005,
+#               T1218.011, T1071.001
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-09-30
+# Reference: https://www.microsoft.com/en-us/security/blog/2026/09/29/
+#            star-blizzard-refines-phishing-and-malware-delivery-with-the-redflick-technique/
+#
+# Rules are technique-focused (behavioral). Campaign infrastructure
+# (etia[.]ca, groy[.]cc, muvb[.]net, matjk[.]click, bpdaersa[.]click,
+# Itechx[.]tel, guach[.]net, byveo[.]org, cynra[.]top,
+# gliderrompercycl[.]com, divekickspolic[.]org, stuseamandesilt[.]org,
+# ruten[.]observer, secure-dns-hub[.]com, qumel[.]link, drasw[.]club)
+# is intentionally NOT used as detection criteria.
+# ============================================================================
+
+---
+# ============================================================
+# Sigma Rule: LNK shortcut masquerading as a document (double extension)
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1204.002, T1036.008
+# ============================================================
+title: LNK File Masquerading as PDF or Office Document via Double Extension
+id: 5e1a7c2f-8b3d-4f69-9a42-1c7e5d0b3f81
+status: experimental
+description: >
+    Detects the creation of a Windows shortcut using a double extension to
+    masquerade as a document (e.g. Event_Invitation.pdf.lnk), the RedFlick
+    initial-access lure delivered in password-protected archives attached to
+    event-invite phishing against think tanks and NGOs.
+references:
+    - https://attack.mitre.org/techniques/T1204/002/
+    - https://www.microsoft.com/en-us/security/blog/2026/09/29/star-blizzard-refines-phishing-and-malware-delivery-with-the-redflick-technique/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.execution
+    - attack.t1204.002
+    - attack.defense_evasion
+    - attack.t1036.008
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith: '.lnk'
+    selection_docext:
+        TargetFilename|contains:
+            - '.pdf.lnk'
+            - '.doc.lnk'
+            - '.docx.lnk'
+            - '.xls.lnk'
+            - '.xlsx.lnk'
+            - '.jpg.lnk'
+            - '.png.lnk'
+            - '.txt.lnk'
+    condition: selection and 1 of selection_docext_*
+falsepositives:
+    - Users manually renaming shortcuts
+    - Rare third-party software distribution shortcuts
+level: high
+
+---
+# ============================================================
+# Sigma Rule: WScript.Shell-built LNK targeting hidden conhost.exe
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1204.002
+# ============================================================
+title: Weaponized LNK Creation via WScript.Shell Targeting conhost.exe Headless Chain
+id: 6f2b8d30-9c4e-4a71-8b53-2d8f6e1c4a92
+status: experimental
+description: >
+    Detects PowerShell using the WScript.Shell COM interface (CreateShortcut)
+    to build a shortcut whose target is conhost.exe with a --headless argument
+        and hidden WindowStyle — the construction pattern of the RedFlick lure LNK
+    that launches a hidden cmd.exe chain without a console window flash.
+references:
+    - https://attack.mitre.org/techniques/T1204/002/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.execution
+    - attack.t1204.002
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_pwsh:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_com:
+        CommandLine|contains:
+            - 'WScript.Shell'
+            - 'CreateShortcut'
+    selection_target:
+        CommandLine|contains:
+            - 'conhost.exe'
+    selection_hidden:
+        CommandLine|contains:
+            - '--headless'
+            - 'WindowStyle'
+    condition: all of selection_*
+falsepositives:
+    - Legitimate installer scripts creating shortcuts (very rarely target conhost.exe)
+level: high
+
+---
+# ============================================================
+# Sigma Rule: conhost.exe executed explicitly with --headless
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1204.002, T1059.003
+# ============================================================
+title: Explicit conhost.exe Execution with Headless Flag Spawning cmd.exe
+id: 7a3c9e41-0d5f-4b82-9c64-3e9a7f2d5b03
+status: experimental
+description: >
+    conhost.exe is normally spawned implicitly by the OS. An explicit
+    conhost.exe process creation carrying --headless that spawns cmd.exe to
+    run a script is the RedFlick no-window execution primitive launched from
+    the malicious LNK.
+references:
+    - https://attack.mitre.org/techniques/T1204/002/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.execution
+    - attack.t1204.002
+    - attack.t1059.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\conhost.exe'
+        CommandLine|contains:
+            - '--headless'
+    selection_chain:
+        CommandLine|contains:
+            - 'cmd.exe'
+            - '.bat'
+            - '.cmd'
+    condition: selection and 1 of selection_chain_*
+falsepositives:
+    - Extremely rare; some terminal emulation tooling
+level: high
+
+---
+# ============================================================
+# Sigma Rule: ssh.exe PermitLocalCommand download cradle
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1105
+# ============================================================
+title: ssh.exe with PermitLocalCommand and LocalCommand Used as Download Cradle
+id: 8b4d0f52-1e6a-4c93-8d75-4f0b8a3e6c14
+status: experimental
+description: >
+    Detects the Windows OpenSSH client invoked with PermitLocalCommand=yes
+    and a LocalCommand= option carrying a download/execution command — the
+    RedFlick ingress-tool-transfer cradle where ssh client options execute a
+    client-side command (e.g. curl.exe download of an MSI) upon connect.
+references:
+    - https://attack.mitre.org/techniques/T1105/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.command_and_control
+    - attack.t1105
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith:
+            - '\ssh.exe'
+    selection_permit:
+        CommandLine|contains:
+            - 'PermitLocalCommand=yes'
+            - 'PermitLocalCommand yes'
+    selection_local:
+        CommandLine|contains: 'LocalCommand='
+    condition: all of selection_*
+falsepositives:
+    - Uncommon legitimate admin automation using ssh LocalCommand; whitelist dedicated admin accounts and jump-host tooling
+level: high
+
+---
+# ============================================================
+# Sigma Rule: System curl.exe downloading payload files
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1105
+# ============================================================
+title: System curl.exe Ingress Transfer of MSI/EXE/PDF Payload to Disk
+id: 9c5e1a63-2f7b-4da4-9e86-5a1c9b4f7d25
+status: experimental
+description: >
+    The System32 curl.exe binary invoked with an output flag to write
+    executables, installers or documents to disk from a remote URL — the
+    RedFlick transfer primitive used to fetch setup.msi and the weaponized
+    invite.pdf.
+references:
+    - https://attack.mitre.org/techniques/T1105/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.command_and_control
+    - attack.t1105
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|startswith: 'C:\Windows\System32\curl.exe'
+    selection_output:
+        CommandLine|contains:
+            - ' -o '
+            - ' --output '
+    selection_payload:
+        CommandLine|contains:
+            - '.msi'
+            - '.exe'
+            - '.pdf'
+            - '.zip'
+            - '.rar'
+            - '.ps1'
+            - '.bat'
+    selection_remote:
+        CommandLine|contains:
+            - 'http://'
+            - 'https://'
+            - 'ftp://'
+    condition: all of selection_*
+falsepositives:
+    - Software updaters and package managers using system curl
+    - Legitimate administrator download scripts
+level: medium
+
+---
+# ============================================================
+# Sigma Rule: PowerShell base64 extraction and execution from a document
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1059.001
+# ============================================================
+title: PowerShell Reads Document, Decodes Base64 and Invoke-Expressions Result
+id: 0d6f2b74-3a8c-4eb5-8f97-6b2d0a5e8e36
+status: experimental
+description: >
+    Detects PowerShell reading a PDF/document from disk via
+    [IO.File]::ReadAllText, decoding an embedded base64 blob with
+    [Convert]::FromBase64String and executing it with Invoke-Expression —
+    the RedFlick July-chain execution where a weaponized PDF carries a
+    cAB-marked base64 command.
+references:
+    - https://attack.mitre.org/techniques/T1059/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.execution
+    - attack.t1059.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_pwsh:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_read:
+        CommandLine|contains:
+            - 'ReadAllText'
+            - 'Get-Content'
+    selection_doc:
+        CommandLine|contains:
+            - '.pdf'
+            - '.doc'
+            - '.rtf'
+    selection_decode:
+        CommandLine|contains: 'FromBase64String'
+    selection_exec:
+        CommandLine|contains:
+            - 'Invoke-Expression'
+            - 'IEX '
+    condition: all of selection_*
+falsepositives:
+    - Very rare; enterprise reporting tools reading documents do not base64-decode and IEX them
+level: high
+
+---
+# ============================================================
+# Sigma Rule: msiexec silent install from user-writable path or unusual parent
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1218.007
+# ============================================================
+title: Silent msiexec Installation of Package from User-Writable Path
+id: 1e7a3c85-4b9d-4fc6-90a8-7c3e1b6f9f47
+status: experimental
+description: >
+    msiexec.exe invoked with /i and silent flags (/q, /qn, /quiet) to install
+    an MSI located in a user-writable path or spawned by a non-standard
+    parent — the RedFlick MSI install step whose custom actions establish
+    persistence.
+references:
+    - https://attack.mitre.org/techniques/T1218/007/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.defense_evasion
+    - attack.t1218.007
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith: '\msiexec.exe'
+    selection_install:
+        CommandLine|contains: ' /i'
+    selection_silent:
+        CommandLine|contains:
+            - '/q'
+            - '/quiet'
+    selection_userpath:
+        CommandLine|contains:
+            - '\Users\'
+            - '\AppData\'
+            - '\Temp\'
+            - '\Downloads\'
+            - '\ProgramData\'
+    filter_legit_parents:
+        ParentImage|endswith:
+            - '\explorer.exe'
+            - '\msiexec.exe'
+            - '\ccmexec.exe'
+            - '\TrustedInstaller.exe'
+            - '\svchost.exe'
+    condition: selection_image and selection_install and selection_silent and selection_userpath and not 1 of filter_*
+falsepositives:
+    - User-initiated silent installs of legitimate software
+    - Chocolatey and similar package managers
+level: medium
+
+---
+# ============================================================
+# Sigma Rule: RedFlick persistence scheduled task names
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1053.005
+# ============================================================
+title: Scheduled Task Creation with RedFlick Masquerading Network Component Names
+id: 2f8b4d96-5c0e-4ad7-91b9-8d4f2c7a0a58
+status: experimental
+description: >
+    Detects creation of the scheduled tasks disclosed for the RedFlick
+    persistence layer, using their real adversarial names masquerading as
+    network components — "Internet Quality Test Connection", "Network
+    Configuration Manager", "System Health Monitor" — registered with DAILY
+    or ONLOGON triggers in user context.
+references:
+    - https://attack.mitre.org/techniques/T1053/005/
+    - https://www.microsoft.com/en-us/security/blog/2026/09/29/star-blizzard-refines-phishing-and-malware-delivery-with-the-redflick-technique/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.persistence
+    - attack.t1053.005
+    - attack.defense_evasion
+    - attack.t1036.004
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith: '\schtasks.exe'
+        CommandLine|contains: '/Create'
+    selection_task:
+        CommandLine|contains:
+            - 'Internet Quality Test Connection'
+            - 'Network Configuration Manager'
+            - 'System Health Monitor'
+    condition: all of selection_*
+falsepositives:
+    - None expected — these task names are not used by legitimate Windows or networking software
+level: critical
+
+---
+# ============================================================
+# Sigma Rule: Logon/daily trigger task running user-path action
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1053.005
+# ============================================================
+title: Scheduled Task with Logon or Daily Trigger Executing from User-Writable Path
+id: 3a9c5e07-6d1f-4be8-82ca-9e5a3d8b1b69
+status: experimental
+description: >
+    Generic behavioral layer beneath the task-name rule: schtasks /Create
+    with ONLOGON or DAILY trigger whose action points into a user-writable
+    directory — the shape of the RedFlick persistence tasks (DAILY 09:30 and
+    ONLOGON) and of most malware installers.
+references:
+    - https://attack.mitre.org/techniques/T1053/005/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.persistence
+    - attack.t1053.005
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith: '\schtasks.exe'
+        CommandLine|contains: '/Create'
+    selection_trigger:
+        CommandLine|contains:
+            - '/SC ONLOGON'
+            - '/SC DAILY'
+            - '/SC ONSTART'
+    selection_user_action:
+        CommandLine|contains:
+            - '\Users\'
+            - '\AppData\'
+            - '\Temp\'
+            - '\ProgramData\'
+    condition: all of selection_*
+falsepositives:
+    - User-authored legitimate automation and per-user updater tasks
+level: medium
+
+---
+# ============================================================
+# Sigma Rule: Control Panel applet (CPL) executed from user-writable path
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1218.011
+# ============================================================
+title: Rundll32 Control_RunDLL or control.exe Executing CPL Outside System32
+id: 4b0d6f18-7e2a-4cf9-93db-0f6b4e9c2c7a
+status: experimental
+description: >
+    rundll32.exe shell32.dll,Control_RunDLL (or control.exe) invoked against
+    a .cpl file located in a user-writable path — the CosmicPulse execution
+    surface driven by its scheduled task, including execution of remote
+    DLLs/CPLs over WebDAV-style paths. Legitimate applets reside in System32.
+references:
+    - https://attack.mitre.org/techniques/T1218/011/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.defense_evasion
+    - attack.t1218.011
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_rundll:
+        Image|endswith: '\rundll32.exe'
+        CommandLine|contains:
+            - 'Control_RunDLL'
+            - 'shell32.dll'
+    selection_control:
+        Image|endswith: '\control.exe'
+    selection_cpl_userpath:
+        CommandLine|contains:
+            - '.cpl'
+        CommandLine|contains:
+            - '\Users\'
+            - '\AppData\'
+            - '\Temp\'
+            - '\Downloads\'
+            - '\ProgramData\'
+    condition: 1 of selection_rundll_* or (selection_control and selection_cpl_userpath)
+falsepositives:
+    - Rare hardware vendor control panel applets installed outside System32
+level: high
+
+---
+# ============================================================
+# Sigma Rule: CosmicPulse .mollis registry payload staging
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1218.011
+# ============================================================
+title: Payload Staging in HKCU Software Classes .mollis Registry Key
+id: 5c1e7a29-8f3b-4d0a-84ec-1a7c5f0d3d8b
+status: experimental
+description: >
+    Detects writes to HKCU\Software\Classes\.mollis — the CosmicPulse
+    downloader's staging key holding an AES-ECB-encrypted, base64-encoded
+    payload/config (often in the default value) that the bootstrapper later
+    recovers and decrypts. A Classes key shaped like a benign file extension
+    holding a large base64 blob is both a campaign identifier and a fileless
+    payload-staging behavior.
+references:
+    - https://attack.mitre.org/techniques/T1218/011/
+    - https://www.microsoft.com/en-us/security/blog/2026/09/29/star-blizzard-refines-phishing-and-malware-delivery-with-the-redflick-technique/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.defense_evasion
+    - attack.t1218.011
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection:
+        TargetObject|contains: '\Software\Classes\.mollis'
+    condition: selection
+falsepositives:
+    - None known — .mollis is not a registered file extension
+level: critical
+
+---
+# ============================================================
+# Sigma Rule: curl.exe with spoofed browser User-Agent or agent-poll URL
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1071.001
+# ============================================================
+title: curl.exe Beaconing with Spoofed Browser User-Agent to Poll Endpoint with ID Parameter
+id: 6d2f8b3a-0a4c-4e1b-95fd-2b8d6a1e4e9c
+status: experimental
+description: >
+    The CosmicPulse registration/poll beacon: curl.exe invoked with an
+    explicitly set browser User-Agent (-A/--user-agent spoofing Edge/Chrome)
+    and/or GET requests to agent-poll-style paths carrying an id= parameter
+    that encodes UTF-16LE+Base64 "hostname|username" system profiling data.
+references:
+    - https://attack.mitre.org/techniques/T1071/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.command_and_control
+    - attack.t1071.001
+    - attack.defense_evasion
+    - attack.t1036.005
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith: '\curl.exe'
+    selection_spoofed_ua:
+        CommandLine|contains:
+            - '-A '
+            - '--user-agent'
+        CommandLine|contains:
+            - 'Mozilla/'
+            - 'Edg/'
+            - 'Chrome/'
+    selection_poll_url:
+        CommandLine|contains:
+            - '/agent/poll'
+            - '/agent/'
+            - '/gate'
+        CommandLine|contains:
+            - 'id='
+    condition: selection_image and 1 of selection_spoofed_ua_* or (selection_image and selection_poll_url)
+falsepositives:
+    - Developers testing endpoints with custom user agents
+    - Monitoring scripts polling agent-style update endpoints
+level: medium
+
+---
+# ============================================================
+# Sigma Rule: Python runtime and bootstrapper archives staged in update folder
+# Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+# MITRE ATT&CK: T1071.001, T1105
+# ============================================================
+title: Python Runtime and Bootstrapper Archives Staged in App Update Subdirectory
+id: 7e3a9c4b-1b5d-4f2c-860e-3c9e7b2f5f0d
+status: experimental
+description: >
+    Staging of python38.zip and bootstrapper.zip archives into a \bin\update
+    subdirectory of a video-conference-app-style folder under user-writable
+    paths — the CosmicPulse installer prep that lays a portable Python 3.8
+    runtime before the backdoor is dropped.
+references:
+    - https://attack.mitre.org/techniques/T1071/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026/09/30
+tags:
+    - attack.command_and_control
+    - attack.t1071.001
+    - attack.t1105
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_files:
+        TargetFilename|endswith:
+            - '\python38.zip'
+            - '\bootstrapper.zip'
+    selection_path:
+        TargetFilename|contains:
+            - '\AppData\'
+            - '\Users\'
+            - '\Temp\'
+            - '\ProgramData\'
+    selection_update_dir:
+        TargetFilename|contains:
+            - '\bin\update'
+            - '\update'
+    condition: 1 of selection_files_* and selection_path and selection_update_dir
+falsepositives:
+    - Legitimate video-conference clients and portable Python tooling shipping update folders
+level: medium

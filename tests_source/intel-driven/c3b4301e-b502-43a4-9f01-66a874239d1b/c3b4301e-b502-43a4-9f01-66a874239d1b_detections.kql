@@ -1,0 +1,457 @@
+// ============================================================================
+// F0RT1KA Detection Queries (KQL — Microsoft 365 Defender Advanced Hunting)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// Test Name: Star Blizzard RedFlick CosmicPulse Espionage Chain
+// Threat Actor: Star Blizzard (SEABORGIUM/Callisto, FSB-linked)
+// MITRE ATT&CK: T1204.002, T1105, T1059.001, T1218.007, T1053.005, T1218.011, T1071.001
+// Author: F0RT1KA Detection Rules Generator
+// Date: 2026-09-30
+//
+// Threat-intel context (Microsoft Threat Intelligence, 2026-09-29 — "Star
+// Blizzard refines phishing and malware delivery with the RedFlick
+// technique"): C2/transfer domains observed in the campaign include
+// etia[.]ca, groy[.]cc, muvb[.]net, matjk[.]click, bpdaersa[.]click,
+// Itechx[.]tel, guach[.]net, byveo[.]org, cynra[.]top and download hosts
+// gliderrompercycl[.]com, divekickspolic[.]org, stuseamandesilt[.]org,
+// ruten[.]observer, secure-dns-hub[.]com, qumel[.]link, drasw[.]club.
+// These IOCs are provided for enrichment only — every query below is
+// BEHAVIORAL (technique-focused) and catches the technique regardless of
+// which infrastructure a copycat attacker uses.
+// ============================================================================
+
+// ============================================================
+// Detection 1: LNK Double-Extension Masquerading as Document (File System)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1204.002 (User Execution: Malicious File), T1036.008 (Masquerade File Type)
+// Confidence: High
+// ============================================================
+// Purpose: Detects .lnk shortcuts that masquerade as PDF documents via a
+//          double extension (e.g. "Event_Invitation.pdf.lnk"), the RedFlick
+//          initial-access lure delivered inside password-protected archives
+//          attached to event-invite phishing (think-tank/NGO impersonation).
+// False Positives: Rare — users renaming shortcuts; some software installers.
+//          Tune by excluding IT-managed software-distribution directories.
+// Threshold: Any single hit is worth triage; >=3 on one device = incident.
+// ============================================================
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FileName =~ ".lnk" or FileName has ".lnk"
+| where FileName matches regex @"(?i)\.(pdf|docx?|xlsx?|jpg|png|txt)\.lnk$"
+| extend DoubleExtension = extract(@"(?i)(\.[a-z0-9]{2,4}\.lnk)$", 1, FileName)
+| extend
+    Severity = "High",
+    ThreatType = "InitialAccess-LNK-Masquerade",
+    MitreAttack = "T1204.002",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, DoubleExtension, FileName, FolderPath, InitiatingProcessFileName, InitiatingProcessCommandLine, Severity, ThreatType, MitreAttack
+| extend tooltip = strcat("Double-extension LNK lure (RedFlick-style). Parent: ", InitiatingProcessFileName)
+
+// ============================================================
+// Detection 2: WScript.Shell LNK Weaponization Targeting conhost.exe (Process)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1204.002, T1059.001 (PowerShell)
+// Confidence: High
+// ============================================================
+// Purpose: Detects PowerShell creating a shortcut via the WScript.Shell COM
+//          interface (CreateShortcut) whose target is conhost.exe with a
+//          hidden window style (7) and a shell32.dll PDF icon — the exact
+//          weaponization pattern used to build the RedFlick lure LNK.
+// False Positives: Legitimate installers/script-driven shortcut creation.
+//          The conhost.exe target + WindowStyle 7 combination is the
+//          discriminator — very rare in legitimate tooling.
+// Threshold: Single hit = triage; verify the .lnk path is user-writable.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine contains "WScript.Shell" and ProcessCommandLine contains "CreateShortcut"
+| where ProcessCommandLine contains "conhost.exe"
+| where ProcessCommandLine contains "--headless" or ProcessCommandLine contains "WindowStyle"
+| extend LNKPath = extract(@"CreateShortcut\('?(.*?)'?\)", 1, ProcessCommandLine)
+| extend
+    Severity = "High",
+    ThreatType = "Execution-LNK-Weaponization",
+    MitreAttack = "T1204.002",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, LNKPath, ProcessCommandLine, InitiatingProcessFileName, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 3: conhost.exe Invoked with --headless Flag (Process)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1204.002, T1059.003 (Windows Command Shell)
+// Confidence: High
+// ============================================================
+// Purpose: conhost.exe is normally spawned implicitly by the OS when a
+//          console process starts; an EXPLICIT conhost.exe process creation
+//          carrying --headless and spawning cmd.exe is the RedFlick
+//          no-window-flash execution primitive launched from the LNK.
+// False Positives: Extremely rare — some terminal tooling and Windows
+//          internals variants. Validate the parent (explorer.exe indicates
+//          shortcut double-click; an LNK target indicates the lure).
+// Threshold: Any hit = triage.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "conhost.exe"
+| where ProcessCommandLine has "--headless" or ProcessCommandLine has "--server"
+| where ProcessCommandLine contains "cmd.exe" or ProcessCommandLine contains ".bat" or ProcessCommandLine contains ".cmd"
+| extend SpawnedCommand = extract(@"cmd\.exe\s+(.*)$", 1, ProcessCommandLine)
+| extend
+    Severity = "High",
+    ThreatType = "Execution-HiddenConsole",
+    MitreAttack = "T1204.002",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, SpawnedCommand, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 4: ssh.exe PermitLocalCommand Download Cradle (Process / C2)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1105 (Ingress Tool Transfer)
+// Confidence: High
+// ============================================================
+// Purpose: ssh.exe on an endpoint with PermitLocalCommand=yes plus a
+//          LocalCommand= carrying a download/execution command is the
+//          RedFlick "January variant" transfer cradle — ssh client options
+//          abused so a client-side command fires after connect. ssh.exe is
+//          rare on endpoints to begin with; this flag surface is a strong
+//          technique signal, independent of destination host.
+// False Positives: Legitimate admin automation using ssh LocalCommand
+//          (uncommon). Tune: whitelist known jump-host management tools and
+//          dedicated admin accounts.
+// Threshold: Any hit on a user workstation = triage.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "ssh.exe"
+| where ProcessCommandLine contains "PermitLocalCommand=yes" or ProcessCommandLine contains "PermitLocalCommand yes"
+| where ProcessCommandLine contains "LocalCommand="
+| extend LocalCmd = extract(@"LocalCommand=(.{0,300})", 1, ProcessCommandLine)
+| extend RemoteHost = extract(@"([A-Za-z0-9._%+-]+@[0-9A-Za-z.\-]+|\b\d{1,3}(\.\d{1,3}){3})", 0, ProcessCommandLine)
+| extend
+    Severity = "High",
+    ThreatType = "CommandAndControl-SSH-Cradle",
+    MitreAttack = "T1105",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, LocalCmd, RemoteHost, ProcessCommandLine, ProcessIntegrityLevel, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 5: System curl.exe Ingress Transfer of Payload Files (Process / Network)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1105 (Ingress Tool Transfer)
+// Confidence: Medium
+// ============================================================
+// Purpose: The System32 curl.exe binary invoked to write MSI/EXE/PDF files
+//          to disk from a remote URL — the RedFlick "July variant" transfer
+//          primitive (setup.msi / invite.pdf fetches). Detects the LOLBin
+//          download, not the host, so it catches any copycat server.
+// False Positives: Software updaters and package managers invoking system
+//          curl; legitimate admin scripts. Tune: exclude known updater
+//          parent processes; raise severity when the destination is a
+//          user-writable path (Temp/AppData/Downloads).
+// Threshold: >5 downloads/day/device is anomalous for user workstations.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "curl.exe"
+| where FolderPath startswith @"C:\Windows\System32"
+| where ProcessCommandLine has_any ("-o ", "--output")
+| where ProcessCommandLine has_any (".msi", ".exe", ".pdf", ".zip", ".rar", ".ps1", ".bat")
+| where ProcessCommandLine has_any ("http://", "https://", "ftp://")
+| extend FetchURL = extract(@"(https?://[^\s\"']+)", 1, ProcessCommandLine)
+| extend DestFile = extract(@"(?:-o|--output)\s+\"?([^\s\"]+)", 1, ProcessCommandLine)
+| extend UserWritableDest = iff(DestFile has_any (@"\Users\", @"\Temp\", @"AppData\"), true, false)
+| extend
+    Severity = iff(UserWritableDest, "High", "Medium"),
+    ThreatType = "CommandAndControl-Ingress-Transfer",
+    MitreAttack = "T1105",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, FetchURL, DestFile, UserWritableDest, InitiatingProcessFileName, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 6: PowerShell Base64 Payload Extraction from a Document (Process)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1059.001 (PowerShell), T1027 (Obfuscated Files)
+// Confidence: High
+// ============================================================
+// Purpose: powershell.exe reading a PDF (or any document) from disk via
+//          [IO.File]::ReadAllText, decoding a base64 blob
+//          ([Convert]::FromBase64String) and executing it
+//          (Invoke-Expression/IEX) — the RedFlick July-chain execution where
+//          a weaponized PDF carries a 'cAB'-prefixed base64 command.
+// False Positives: Rare in legitimate scripts. Enterprise reporting tools
+//          occasionally read PDFs but almost never FromBase64String+IEX them.
+// Threshold: Any hit = triage; combine with Detection 5 for near-certain
+//          confirmation (curl .pdf fetch followed by this pattern).
+// ============================================================
+DeviceProcessEvents
+| where FileName in~ ("powershell.exe", "powershell_ise.exe", "pwsh.exe")
+| where ProcessCommandLine contains "ReadAllText" or ProcessCommandLine contains "Get-Content"
+| where ProcessCommandLine has_any (".pdf", ".doc", ".docx", ".rtf", ".txt", ".jpg")
+| where ProcessCommandLine contains "FromBase64String"
+| where ProcessCommandLine has_any ("Invoke-Expression", "IEX ")
+| extend SourceDoc = extract(@"ReadAllText\('?(.*?)'?\)", 1, ProcessCommandLine)
+| extend B64Marker = iff(ProcessCommandLine contains "cAB", "cAB-magic (base64 of 'p')", "generic-base64")
+| extend
+    Severity = "High",
+    ThreatType = "Execution-EncodedCommand-From-Document",
+    MitreAttack = "T1059.001",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, SourceDoc, B64Marker, ProcessCommandLine, InitiatingProcessFileName, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 7: msiexec.exe Silent Installation from Non-Standard Context (Process)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1218.007 (Msiexec)
+// Confidence: Medium
+// ============================================================
+// Purpose: msiexec.exe /i with silent flags (/q, /qn, /quiet) installing a
+//          package fetched to a user-writable path, or spawned by a
+//          non-standard parent (not explorer.exe/sccm/trustedinstaller) —
+//          the RedFlick MSI install step whose custom actions lay down
+//          persistence.
+// False Positives: Legitimate unattended software deployment (SCCM/Intune/
+//          chocolatey). Tune: whitelist the standard parent set and
+//          software-center processes; escalate only user-context installs
+//          from Temp/AppData/Downloads paths.
+// Threshold: Silent install from \Users\ path = High; SYSTEM context from
+//          ProgramData distribution share = likely benign.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "msiexec.exe"
+| where ProcessCommandLine has "/i" or ProcessCommandLine has "/a"
+| where ProcessCommandLine has_any ("/q", "/qn", "/qb", "/qr", "/quiet")
+| extend PkgPath = extract(@"/i\s+\"?([^\s\"]+\.msi)", 1, ProcessCommandLine)
+| extend UserWritablePkg = iff(PkgPath has_any (@"\Users\", @"\Temp\", @"AppData\", @"\Downloads\"), true, false)
+| extend NonStdParent = iff(InitiatingProcessFileName in~ ("explorer.exe","svchost.exe","trustedinstaller.exe","msiexec.exe","ccmexec.exe","remoteapplication.exe"), false, true)
+| where UserWritablePkg or NonStdParent
+| extend
+    Severity = iff(UserWritablePkg and NonStdParent, "High", "Medium"),
+    ThreatType = "DefenseEvasion-Msiexec-Silent-Install",
+    MitreAttack = "T1218.007",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, PkgPath, UserWritablePkg, InitiatingProcessFileName, ProcessCommandLine, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 8: RedFlick Scheduled Task Names — Masquerading Network Components (Scheduled Task)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1053.005 (Scheduled Task), T1036.004 (Masquerade Task Name)
+// Confidence: High
+// ============================================================
+// Purpose: Creation of the scheduled tasks disclosed for the RedFlick
+//          persistence layer, using their REAL adversarial names
+//          ("Internet Quality Test Connection", "Network Configuration
+//          Manager", "System Health Monitor") — masquerading as network
+//          components. >=2 of the 3 on one host is a strong campaign
+//          signature; a single one still warrants triage.
+// False Positives: None expected — these specific task names are not used
+//          by legitimate Windows/networking software. Verify the task action
+//          (/TR) path: a user-writable path confirms compromise.
+// Threshold: 1 = triage; 2+ = incident. Also monitor Security Event 4698
+//          and TaskScheduler operational log 106 for the same names.
+// ============================================================
+let redflickTasks = dynamic([
+    "Internet Quality Test Connection",
+    "Network Configuration Manager",
+    "System Health Monitor"
+]);
+DeviceProcessEvents
+| where FileName =~ "schtasks.exe"
+| where ProcessCommandLine has_any ("/Create", "/create")
+| where ProcessCommandLine has_any (redflickTasks)
+| extend TaskName = extract(@"/TN\s+\"?([^\"/]+?)\"?\s+/", 1, ProcessCommandLine)
+| extend TaskAction = extract(@"/TR\s+\"?(.+?)\"?\s+/SC", 1, ProcessCommandLine)
+| extend
+    Severity = "Critical",
+    ThreatType = "Persistence-ScheduledTask-Masquerade",
+    MitreAttack = "T1053.005",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, TaskName, TaskAction, ProcessCommandLine, ProcessIntegrityLevel, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 9: Scheduled Task with Logon/Daily Trigger Running User-Path Action (Scheduled Task)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1053.005 (Scheduled Task)
+// Confidence: Medium
+// ============================================================
+// Purpose: Generic behavioral layer beneath Detection 8: schtasks /Create
+//          with an ONLOGON or DAILY trigger whose action (/TR) points into
+//          a user-writable path (profile/Temp/AppData) — the shape of the
+//          RedFlick tasks (DAILY 09:30 and ONLOGON, user context) and of
+//          countless other malware installers.
+// False Positives: User-authored legitimate automation; some installers
+//          register per-user update tasks. Tune: whitelist signed updater
+//          binaries in /TR; require action extension .cmd/.bat/.ps1/.exe
+//          from a profile directory for the alert.
+// Threshold: 3+ in 1h on one device = automated triage queue.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "schtasks.exe"
+| where ProcessCommandLine has "/Create"
+| where ProcessCommandLine has_any ("/SC ONLOGON", "/SC DAILY", "/SC ONSTART", "/SC ONIDLE")
+| extend TaskAction = extract(@"/TR\s+\"?(.+?)\"?\s+/", 1, ProcessCommandLine)
+| where isnotempty(TaskAction)
+| where TaskAction has_any (@"\Users\", @"\Temp\", @"AppData\", @"\ProgramData\")
+| extend Trigger = extract(@"/SC\s+(\w+)", 1, ProcessCommandLine)
+| extend StartTime = extract(@"/ST\s+(\d{2}:\d{2})", 1, ProcessCommandLine)
+| extend
+    Severity = "Medium",
+    ThreatType = "Persistence-ScheduledTask-UserPath",
+    MitreAttack = "T1053.005",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, TaskName = extract(@"/TN\s+\"?([^\"/]+?)\"?\s+/", 1, ProcessCommandLine), Trigger, StartTime, TaskAction, ProcessCommandLine, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 10: CPL Applet Execution from User-Writable Path (Process)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1218.011 (Rundll32)
+// Confidence: High
+// ============================================================
+// Purpose: rundll32.exe shell32.dll,Control_RunDLL (or control.exe) invoked
+//          against a .cpl file located OUTSIDE System32 — from a user
+//          profile / Temp / AppData path. This is the CosmicPulse launch
+//          surface driven by the "System Health Monitor" task; legitimate
+//          control panel applets live in System32.
+// False Positives: Rare — some hardware vendor applets ship elsewhere.
+//          Tune: whitelist specific signed vendor CPL paths.
+// Threshold: Any hit on an endpoint = triage; check the parent task/process.
+// ============================================================
+DeviceProcessEvents
+| where FileName in~ ("rundll32.exe", "control.exe")
+| where ProcessCommandLine has ".cpl"
+| where FileName =~ "rundll32.exe" ? (ProcessCommandLine contains "Control_RunDLL") : (true)
+| where ProcessCommandLine has_any (@"\Users\", @"\Temp\", @"AppData\", @"\Downloads\", @"\ProgramData\")
+| extend CplPath = extract(@"([A-Za-z]:\\[^\s\"']+\.cpl)", 1, ProcessCommandLine)
+| extend
+    Severity = "High",
+    ThreatType = "DefenseEvasion-CPL-Execution",
+    MitreAttack = "T1218.011",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, CplPath, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 11: Payload Staged in Benign-Extension Registry Key .mollis (Registry)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1218.011, T1012 (Query Registry), T1027 (Obfuscated Files)
+// Confidence: High
+// ============================================================
+// Purpose: Creation/write of HKCU\Software\Classes\.mollis — the CosmicPulse
+//          downloader's staging registry key where an AES-ECB-encrypted,
+//          base64-encoded payload/config is stored for the bootstrapper to
+//          recover and decrypt. A Classes key named like a file extension
+//          holding a large base64 blob is a real campaign identifier AND a
+//          behavioral anomaly (registry used as fileless payload storage).
+// False Positives: None known — ".mollis" is not a registered file
+//          extension. The base64-length check is the behavioral fallback.
+// Threshold: Any hit = incident.
+// ============================================================
+DeviceRegistryEvents
+| where RegistryKey has @"\Software\Classes\.mollis"
+| where ActionType in~ ("RegistryValueSet", "RegistryKeyCreated", "Added", "Replaced")
+| extend IsB64Blob = iff(RegistryValueData matches regex @"^[A-Za-z0-9+/=]{40,}$", true, false)
+| extend
+    Severity = "Critical",
+    ThreatType = "DefenseEvasion-Registry-Payload-Staging",
+    MitreAttack = "T1218.011",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, RegistryKey, RegistryValueName, IsB64Blob, RegistryValueData, InitiatingProcessFileName, InitiatingProcessCommandLine, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 12: curl.exe Beaconing with Spoofed Browser User-Agent / Poll Endpoint (Network / C2)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1071.001 (Web Protocols), T1036.005 (Masquerade Legit Name)
+// Confidence: Medium-High
+// ============================================================
+// Purpose: The CosmicPulse registration/polling beacon: system curl.exe
+//          invoked with an explicitly set (-A/--user-agent) browser
+//          User-Agent and/or a GET URL carrying an id= parameter to an
+//          agent-poll-style path (e.g. /agent/poll?id=<base64 of UTF-16LE
+//          "hostname|username">). curl.exe masquerading as Edge/Chrome over
+//          HTTP is technique behavior independent of the C2 domain.
+// False Positives: Developers/testing using curl with custom UAs. Tune:
+//          exclude dev workstations; the /agent/poll + id= combination and
+//          periodicity (repeated calls on a schedule) are discriminators.
+// Threshold: >=10 identical-URL-prefix calls/day/device = beaconing.
+// ============================================================
+let curlBeacon = DeviceProcessEvents
+| where FileName =~ "curl.exe"
+| where (ProcessCommandLine has_any ("-A ", "--user-agent") and ProcessCommandLine has_any ("Mozilla/", "Edg/", "Chrome/"))
+    or (ProcessCommandLine contains "id=" and ProcessCommandLine has_any ("/agent/", "/poll", "/gate", "/update"))
+| extend BeaconURL = extract(@"(https?://[^\s\"']+)", 1, ProcessCommandLine)
+| extend UA = extract(@"(?:-A|--user-agent)\s+\"?([^\"$]+)", 1, ProcessCommandLine)
+| project DeviceId, DeviceName, TimeGenerated, AccountName, BeaconURL, UA, ProcessCommandLine;
+curlBeacon
+| summarize BeaconCount = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by DeviceId, DeviceName, AccountName, tostring(strcat_array(parse_url(tostring(BeaconURL)).Query, ""), ""))
+| extend
+    Severity = "High",
+    ThreatType = "CommandAndControl-HTTP-Beacon",
+    MitreAttack = "T1071.001",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated = LastSeen, DeviceName, AccountName, BeaconCount, FirstSeen, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 13: Python Runtime + Bootstrapper Archives Staged in App Update Path (File System)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1071.001, T1105
+// Confidence: Medium
+// ============================================================
+// Purpose: Staging of python38.zip and bootstrapper.zip into a
+//          \bin\update subdirectory of a video-conference-app-style folder
+//          under user-writable paths — the CosmicPulse installer prep step
+//          that lays a portable Python runtime before the backdoor runs.
+// False Positives: Legitimate video-conference clients DO ship update
+//          folders; python38.zip is also used by legit portable tooling.
+//          Tune: raise severity when both files appear together within a
+//          short window and the parent is curl.exe/rundll32/control.exe.
+// Threshold: Both archives within 30 minutes = High.
+// ============================================================
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FileName in~ ("python38.zip", "bootstrapper.zip", "python39.zip", "python310.zip")
+| where FolderPath has_any (@"\AppData\", @"\Users\", @"\Temp\", @"\ProgramData\")
+| where FolderPath has @"\bin\update" or FolderPath has @"\update"
+| extend
+    Severity = "Medium",
+    ThreatType = "CommandAndControl-Installer-Staging",
+    MitreAttack = "T1071.001",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath, InitiatingProcessFileName, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection 14: BEHAVIORAL CORRELATION — Document Fetch → PowerShell Base64 Decode → Silent MSI (Multi-Indicator)
+// Test ID: c3b4301e-b502-43a4-9f01-66a874239d1b
+// MITRE ATT&CK: T1105 + T1059.001 + T1218.007 (chain), T1204.002 (entry)
+// Confidence: High
+// ============================================================
+// Purpose: Correlates the full RedFlick July chain on one device within a
+//          30-minute window: (1) curl.exe fetches a document/MSI payload,
+//          (2) powershell.exe reads that document, decodes base64 and
+//          Invoke-Expressions it, (3) msiexec silently installs the fetched
+//          MSI. Each stage alone is Medium — the sequence is near-zero
+//          false-positive High.
+// False Positives: Practically none in normal operations; deployment
+//          pipelines that download+install via scripts may partially match
+//          (stage 1 and 3) — stage 2 (PDF ReadAllText + FromBase64String +
+//          IEX) is the discriminator.
+// Threshold: Single correlated sequence = incident-grade alert.
+// ============================================================
+let fetchStage = DeviceProcessEvents
+| where FileName =~ "curl.exe"
+| where ProcessCommandLine has_any ("-o ", "--output") and ProcessCommandLine has_any (".pdf", ".msi")
+| project DeviceId, FetchTime = TimeGenerated, FetchCmd = ProcessCommandLine, FetchParent = InitiatingProcessFileName;
+let decodeStage = DeviceProcessEvents
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine contains "FromBase64String"
+| where ProcessCommandLine has_any ("Invoke-Expression", "IEX ")
+| where ProcessCommandLine has_any (".pdf", "ReadAllText")
+| project DeviceId, DecodeTime = TimeGenerated, DecodeCmd = ProcessCommandLine;
+let installStage = DeviceProcessEvents
+| where FileName =~ "msiexec.exe"
+| where ProcessCommandLine has_any ("/q", "/qn", "/quiet") and ProcessCommandLine has "/i"
+| project DeviceId, InstallTime = TimeGenerated, InstallCmd = ProcessCommandLine;
+fetchStage
+| join kind=inner (decodeStage) on DeviceId
+| join kind=inner (installStage) on DeviceId
+| where DecodeTime between (FetchTime .. (FetchTime + 30m))
+| where InstallTime between (FetchTime .. (FetchTime + 30m))
+| extend
+    Severity = "Critical",
+    ThreatType = "Behavioral-Correlation-RedFlick-Chain",
+    MitreAttack = "T1105;T1059.001;T1218.007",
+    TestID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
+| project TimeGenerated = FetchTime, DeviceId, DeviceName, FetchCmd, DecodeCmd, InstallCmd, Severity, ThreatType, MitreAttack
