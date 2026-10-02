@@ -11,7 +11,7 @@
 | **Complexity** | high |
 | **Rubric** | v2.1 |
 
-**Test Score**: **7.5/10**
+**Test Score**: **8.8/10**
 
 ## Overview
 
@@ -60,6 +60,11 @@ Output: `build/298cc137-ea39-4cf0-9b2d-b1c59a3cbacb/298cc137-ea39-4cf0-9b2d-b1c5
 | 126 | At least one stage blocked/quarantined — a critical protection layer fired |
 | 105/127 | A stage binary quarantined on extraction/execution |
 | 999 | Test error (prerequisite missing) — investigate output logs |
+
+**Lab validation (2026-10-01, `win` — Windows 11 Pro, Defender RTP + Tamper Protection ON, MDE Sense present):**
+exit **126 (PROTECTED)** — Stage 2 positively blocked (LSASS `OpenProcess` denied with
+SeDebugPrivilege enabled = Defender/MDE credential-theft protection); stages 1, 3, 4, 5
+executed without prevention. Per-stage detail in the info card's Lab Evidence section.
 
 Per-stage results are written to `C:\F0\bundle_results.json` for per-stage Elasticsearch fan-out.
 

@@ -252,11 +252,30 @@ func attemptServiceTamper(svc string) {
 		return
 	}
 
-	if nowStopped || (!wasRunning && !stillRunning) {
+	if wasRunning && nowStopped {
+		// Positive evidence: our stop took effect on a running service.
 		degradationSucceeded++
-		fmt.Printf("[STAGE %s]   WARNING: %s was stopped/disabled - restoring immediately\n", TECHNIQUE_ID, svc)
+		fmt.Printf("[STAGE %s]   WARNING: %s was running and is now stopped/disabled - restoring immediately\n", TECHNIQUE_ID, svc)
 		LogMessage("CRITICAL", "T1562.001", fmt.Sprintf("Service %s stop/disable took effect - restoring original state", svc))
 		restoreService(svc, originalStart)
+		return
+	}
+
+	if !wasRunning {
+		// The service was stopped at baseline, so a stopped post-state proves
+		// nothing about the stop attempt. Do NOT count it, and do NOT start a
+		// service that was stopped at baseline. But if our start-type disable
+		// took effect, that IS impairment (T1562.001) — count it and undo it.
+		if cur := queryStartType(svc); cur == "disabled" && originalStart != "disabled" {
+			runCommand("sc.exe", "config", svc, "start=", originalStart)
+			degradationSucceeded++
+			fmt.Printf("[STAGE %s]   WARNING: %s start type disabled (service was stopped at baseline) - start type restored to %s\n", TECHNIQUE_ID, svc, originalStart)
+			LogMessage("CRITICAL", "T1562.001", fmt.Sprintf("Service %s start-type disable took effect - restored to %s", svc, originalStart))
+			return
+		}
+		degradationAttempts--
+		LogMessage("INFO", "T1562.001", fmt.Sprintf("%s not running at baseline and unchanged post-attempt - not evaluable", svc))
+		fmt.Printf("[STAGE %s]   %s not running at baseline - stop attempt not evaluable\n", TECHNIQUE_ID, svc)
 		return
 	}
 
@@ -284,15 +303,38 @@ func queryStartType(svc string) string {
 }
 
 // restoreService returns a service to its original start type and starts it.
+// The stop may still be in flight (STOP_PENDING) when restore runs — starting
+// then fails and leaves the service stopped, so wait for the stop to settle
+// first and verify RUNNING at the end.
 func restoreService(svc, startType string) {
 	if _, err := runCommand("sc.exe", "config", svc, "start=", startType); err != "" {
 		LogMessage("WARNING", "T1562.001", fmt.Sprintf("restore: sc config %s start= %s returned: %s", svc, startType, err))
 	}
+	for i := 0; i < 20; i++ {
+		out, _ := runCommand("sc.exe", "query", svc)
+		lower := strings.ToLower(out)
+		if strings.Contains(lower, "stopped") {
+			break
+		}
+		if strings.Contains(lower, "running") {
+			LogMessage("INFO", "T1562.001", fmt.Sprintf("restore: %s already running", svc))
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	if _, err := runCommand("sc.exe", "start", svc); err != "" {
-		// EventLog and friends may already be restarting; log only.
 		LogMessage("INFO", "T1562.001", fmt.Sprintf("restore: sc start %s returned: %s", svc, err))
 	}
-	LogMessage("INFO", "T1562.001", fmt.Sprintf("Service %s restored to start=%s and start requested", svc, startType))
+	for i := 0; i < 20; i++ {
+		out, _ := runCommand("sc.exe", "query", svc)
+		if strings.Contains(strings.ToLower(out), "running") {
+			LogMessage("INFO", "T1562.001", fmt.Sprintf("Service %s restored to start=%s, state RUNNING", svc, startType))
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	LogMessage("CRITICAL", "T1562.001", fmt.Sprintf("restore: %s did NOT reach RUNNING after restore - manual intervention required", svc))
+	fmt.Printf("[STAGE %s]   CRITICAL: %s did not reach RUNNING after restore - verify manually\n", TECHNIQUE_ID, svc)
 }
 
 // attemptRealtimeMonitoringDisable tries Set-MpPreference -DisableRealtimeMonitoring

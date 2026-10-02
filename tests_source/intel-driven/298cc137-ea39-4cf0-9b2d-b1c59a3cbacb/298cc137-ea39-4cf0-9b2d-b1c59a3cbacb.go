@@ -64,6 +64,10 @@ const (
 	TEST_NAME = "LockBit 3.0 Double Extortion Kill Chain (SB-PC-2026-001)"
 )
 
+// ExitTestError is the F0RT1KA convention for test errors (999). The vendored
+// endpoint library maps ExitTestError to 1 — do not use it.
+const ExitTestError = 999
+
 // Embed SIGNED + GZIP-COMPRESSED stage binaries (signed BEFORE compression
 // and embedding — see build_all.sh). Decompressed in memory at extraction;
 // files on disk are normal signed PEs. NEVER use UPX/runtime packers.
@@ -124,13 +128,13 @@ func main() {
 			"execution", "defense-evasion", "credential-access",
 			"lateral-movement", "exfiltration", "impact",
 		},
-		Score:         9.2,
+		Score:         8.8,
 		RubricVersion: "v2.1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.7,
-			TechnicalSophistication: 2.6,
+			RealWorldAccuracy:       2.4,
+			TechnicalSophistication: 2.4,
 			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.9,
+			DetectionOpportunities:  1.0,
 			LoggingObservability:    1.0,
 		},
 		Tags: []string{"lockbit", "ransomware", "double-extortion", "sb-pc-2026-001", "assume-breach", "multi-stage"},
@@ -157,11 +161,11 @@ func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+			SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
 			if stageResults != nil {
 				WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "ransomware", stageResults)
 			}
-			Endpoint.Stop(Endpoint.UnexpectedTestError)
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -246,7 +250,7 @@ func test(metadata TestMetadata) {
 		if err := extractStage(stage); err != nil {
 			LogPhaseEnd(0, "error", fmt.Sprintf("Failed to extract %s: %v", stage.BinaryName, err))
 			Endpoint.Say("FATAL: Failed to extract stage binary %s: %v", stage.BinaryName, err)
-			finalize(Endpoint.UnexpectedTestError,
+			finalize(ExitTestError,
 				fmt.Sprintf("Stage extraction failed for %s: %v", stage.BinaryName, err),
 				stageResults)
 		}
@@ -255,9 +259,15 @@ func test(metadata TestMetadata) {
 	LogPhaseEnd(0, "success", fmt.Sprintf("Extracted %d stage binaries", len(killchain)))
 	Endpoint.Say("")
 
-	// Execute the killchain sequentially
+	// Execute the killchain sequentially. ALL stages run regardless of
+	// individual outcomes: SB-PC-2026-001 coverage requires every objective
+	// to be attempted (NOT_RUN does not count for coverage), and a real
+	// actor does not stop after a single failed primitive.
 	Endpoint.Say("[*] Executing %d-stage LockBit 3.0 double-extortion kill chain...", len(killchain))
 	Endpoint.Say("")
+
+	anyBlocked := false
+	anyError := false
 
 	for idx, stage := range killchain {
 		LogStageStart(stage.ID, stage.Technique, fmt.Sprintf("%s (%s)", stage.Name, stage.Technique))
@@ -277,25 +287,24 @@ func test(metadata TestMetadata) {
 			stageResults[idx].Details = fmt.Sprintf("Stage binary %s quarantined before execution (os.Stat evidence)", stage.BinaryName)
 			LogStageBlocked(stage.ID, stage.Technique, "Stage binary quarantined before execution")
 			LogMessage("CRITICAL", stage.Technique, fmt.Sprintf("Stage binary %s missing after extraction - quarantine evidence", stage.BinaryName))
-			printBlockedSummary(stage, 105, idx, len(killchain))
-			finalize(Endpoint.ExecutionPrevented,
-				fmt.Sprintf("Stage %d binary quarantined before execution: %s", stage.ID, stage.BinaryName),
-				stageResults)
+			anyBlocked = true
+			Endpoint.Say("  [!] Stage %d binary quarantined before execution (105)", stage.ID)
+			Endpoint.Say("")
+			continue
 		}
 
 		exitCode := executeStage(stage)
 
 		switch {
-		case exitCode == 126 || exitCode == 105:
-			// Stage positively prevented - kill chain interrupted.
+		case exitCode == 126 || exitCode == 105 || exitCode == 127:
+			// Stage positively prevented — recorded, chain continues.
 			stageResults[idx].ExitCode = exitCode
 			stageResults[idx].Status = "blocked"
 			stageResults[idx].Details = fmt.Sprintf("Protection layer prevented %s at stage %d (exit code %d)", stage.Technique, stage.ID, exitCode)
-			LogStageEnd(stage.ID, stage.Technique, "blocked", fmt.Sprintf("Stage prevented, exit code %d", exitCode))
-			printBlockedSummary(stage, exitCode, idx, len(killchain))
-			finalize(Endpoint.ExecutionPrevented,
-				fmt.Sprintf("Prevented at stage %d: %s (%s) - exit code %d", stage.ID, stage.Name, stage.Technique, exitCode),
-				stageResults)
+			LogStageBlocked(stage.ID, stage.Technique, fmt.Sprintf("Stage prevented, exit code %d", exitCode))
+			anyBlocked = true
+			Endpoint.Say("  [!] Stage %d PREVENTED by endpoint protection (exit code %d)", stage.ID, exitCode)
+			Endpoint.Say("")
 
 		case exitCode != 0:
 			// Stage error - not attributable to a protection action.
@@ -303,12 +312,9 @@ func test(metadata TestMetadata) {
 			stageResults[idx].Status = "error"
 			stageResults[idx].Details = fmt.Sprintf("Stage error: exit code %d", exitCode)
 			LogStageEnd(stage.ID, stage.Technique, "error", fmt.Sprintf("Stage error: exit code %d", exitCode))
+			anyError = true
+			Endpoint.Say("  [x] Stage %d (%s) returned error code %d - inconclusive, continuing chain", stage.ID, stage.Technique, exitCode)
 			Endpoint.Say("")
-			Endpoint.Say("ERROR: Stage %d (%s) returned error code %d", stage.ID, stage.Technique, exitCode)
-			Endpoint.Say("This may indicate unmet prerequisites (e.g. elevation, SMB server) or a test issue.")
-			finalize(Endpoint.UnexpectedTestError,
-				fmt.Sprintf("Stage %d (%s) failed with exit code %d", stage.ID, stage.Technique, exitCode),
-				stageResults)
 
 		default:
 			stageResults[idx].ExitCode = exitCode
@@ -320,25 +326,52 @@ func test(metadata TestMetadata) {
 		}
 	}
 
-	// All stages completed without prevention - endpoint is unprotected.
-	Endpoint.Say("")
-	Endpoint.Say("=================================================================")
-	Endpoint.Say("RESULT: VULNERABLE")
-	Endpoint.Say("=================================================================")
-	Endpoint.Say("CRITICAL: Complete LockBit 3.0 double-extortion kill chain executed without prevention")
-	Endpoint.Say("")
-	for _, stage := range killchain {
-		Endpoint.Say("  - Stage %d: %s (%s)", stage.ID, stage.Name, stage.Technique)
-	}
-	Endpoint.Say("")
-	Endpoint.Say("The endpoint allowed: code execution + defense degradation, privileged")
-	Endpoint.Say("credential access, lateral tool transfer over SMB, cloud-style exfiltration,")
-	Endpoint.Say("and mass encryption with recovery inhibition - the full SB-PC-2026-001 chain.")
-	Endpoint.Say("=================================================================")
+	// Final verdict across all five SB-PC-2026-001 objectives.
+	printStageSummary(killchain, stageResults)
 
-	finalize(Endpoint.Unprotected,
-		fmt.Sprintf("All %d stages completed - complete LockBit double-extortion kill chain succeeded", len(killchain)),
-		stageResults)
+	switch {
+	case anyBlocked:
+		Endpoint.Say("=================================================================")
+		Endpoint.Say("RESULT: PROTECTED")
+		Endpoint.Say("=================================================================")
+		Endpoint.Say("At least one critical protection layer prevented a kill-chain stage.")
+		Endpoint.Say("=================================================================")
+		finalize(Endpoint.ExecutionPrevented,
+			"Endpoint protection prevented at least one LockBit kill-chain stage (see per-stage results)",
+			stageResults)
+
+	case anyError:
+		Endpoint.Say("=================================================================")
+		Endpoint.Say("RESULT: INCONCLUSIVE - test error in at least one stage")
+		Endpoint.Say("=================================================================")
+		finalize(ExitTestError,
+			"One or more stages returned an error - kill chain could not be fully evaluated",
+			stageResults)
+
+	default:
+		Endpoint.Say("=================================================================")
+		Endpoint.Say("RESULT: VULNERABLE")
+		Endpoint.Say("=================================================================")
+		Endpoint.Say("CRITICAL: Complete LockBit 3.0 double-extortion kill chain executed without prevention")
+		Endpoint.Say("=================================================================")
+		finalize(Endpoint.Unprotected,
+			fmt.Sprintf("All %d stages completed - complete LockBit double-extortion kill chain succeeded", len(killchain)),
+			stageResults)
+	}
+}
+
+// printStageSummary renders the per-stage results table for all five objectives.
+func printStageSummary(killchain []StageDef, results []StageBundleDef) {
+	Endpoint.Say("")
+	Endpoint.Say("=================================================================")
+	Endpoint.Say("KILL CHAIN RESULTS (SB-PC-2026-001 objectives)")
+	Endpoint.Say("=================================================================")
+	for i, stage := range killchain {
+		Endpoint.Say("  Stage %d  %-11s %-45s %-8s exit=%d",
+			stage.ID, stage.Technique, stage.Name, results[i].Status, results[i].ExitCode)
+	}
+	Endpoint.Say("=================================================================")
+	Endpoint.Say("")
 }
 
 // extractStage decompresses a gzip-embedded stage binary and writes it to LOG_DIR.
@@ -420,24 +453,6 @@ func executeStage(stage StageDef) int {
 
 	LogProcessExecution(stage.BinaryName, stagePath, 0, true, 0, "")
 	return 0
-}
-
-// printBlockedSummary renders the PROTECTED verdict banner.
-func printBlockedSummary(stage StageDef, exitCode, idx, total int) {
-	Endpoint.Say("")
-	Endpoint.Say("=================================================================")
-	Endpoint.Say("RESULT: PROTECTED")
-	Endpoint.Say("=================================================================")
-	Endpoint.Say("Endpoint protection prevented the attack at stage %d:", stage.ID)
-	Endpoint.Say("  Technique family: %s", stage.Technique)
-	Endpoint.Say("  Stage: %s", stage.Name)
-	Endpoint.Say("  Exit code: %d", exitCode)
-	Endpoint.Say("")
-	Endpoint.Say("Attack Chain Interrupted:")
-	Endpoint.Say("  Completed stages: %d/%d", idx, total)
-	Endpoint.Say("  Prevented stage: %d (%s)", stage.ID, stage.Technique)
-	Endpoint.Say("  Remaining stages: %d (not executed)", total-stage.ID)
-	Endpoint.Say("=================================================================")
 }
 
 // finalize writes the result log + per-stage bundle results, waits for

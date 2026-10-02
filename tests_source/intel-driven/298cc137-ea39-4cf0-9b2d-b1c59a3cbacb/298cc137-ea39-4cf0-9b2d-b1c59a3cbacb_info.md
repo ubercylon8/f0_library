@@ -16,13 +16,16 @@
 | **Created** | 2026-10-01 |
 | **Author** | sectest-builder |
 
-## Test Score: 7.5/10
+## Test Score: 8.8/10
 
 Scored under **Rubric v2.1** (tiered realism-first). Safety gate: **PASS**.
-Raw total 8.3 is capped at **7.5** because criterion 2c (telemetry signal quality) is
-capped at 1.5 without lab execution evidence — this test has not yet detonated on the
-protected `win` lab. Lab-Bound Observability documentation: not applicable pre-lab; will
-be added if lab evidence shows a stage unreachable due to defense action.
+**Lab-verified on 2026-10-01** against the protected `win` lab (Windows 11 Pro,
+Defender real-time protection + Tamper Protection ON, MDE Sense present): all five
+stages executed, telemetry signal confirmed end-to-end, and one stage was positively
+prevented by defense. Criterion 2c is fully earned (2.0/2.0) — the pre-lab 1.5 cap no
+longer applies. Lab-Bound Observability documentation: not required — every stage
+reached execution (the blocked stage ran its primitives and was denied at the API
+level; it was not made unreachable by an upstream defense action).
 
 ### Score Breakdown
 
@@ -31,13 +34,42 @@ be added if lab evidence shows a stage unreachable due to defense action.
 | **Tier 1 — Safety gate** | PASS | — | All writes confined to `LOG_DIR`/`ARTIFACT_DIR`; loopback-only network; recovery-tamper commands target non-existent objects; degradation attempts verified by read-back and restored; cleanup on every exit path incl. watchdog/panic |
 | 2a — API Fidelity | 2.0 | 2.5 | Real LockBit API/command surface: `OpenProcess(PROCESS_VM_READ)` on lsass + `rundll32 comsvcs.dll, MiniDump` (documented LockBit LOLBin), `reg.exe save HKLM\SAM`, `sc.exe stop/config` on real security service names, `Set-MpPreference`, `vssadmin/bcdedit/wevtutil` command lines, AES-256-GCM encryption loop, `net use \\ADMIN$`, rclone-signature POST. Deductions: lateral movement is loopback-contained (no real remote host); T1490/T1070.001 execute against fail-harmless non-existent targets rather than live recovery state |
 | 2b — Identifier Fidelity | 1.0 | 1.5 | Production identifiers: real service names (WinDefend, WdNisSvc, Sense, EventLog), real LOLBins, `.lockbit` extension, `Restore-My-Files.txt` (real LockBit 3.0 note name), `rclone/v1.61.1` User-Agent (real LockBit exfil tooling). Deduction: sandbox markers (`LockBitSim` key, `lbsvc.exe` non-PE marker, `lockbit_target`/`lockbit_staging` dirs) are test-specific rather than actor artifacts |
-| 2c — Telemetry Signal Quality | 1.5 | 2.0 | Signal richness ✓ (every stage fires process/cmdline/registry/file/network telemetry — see mapping below); sensor mapping documented ✓ (this card); rule artifacts authored in 5 parseable formats ✓; lab execution **not yet verified** ✗ → hard-capped at 1.5 |
-| 2d — Execution-Context Fidelity | 1.0 | 1.0 | Runtime context branching: `isSystemContext()` drives HKLM vs HKCU selection; denial evidence only counted when running elevated (ACL-vs-protection honesty per Bug Rule 8); SYSTEM-context service/registry handling mirrors Prelude agent execution |
+| 2c — Telemetry Signal Quality | 2.0 | 2.0 | Signal richness ✓ (every stage fires process/cmdline/registry/file/network telemetry — see mapping below); sensor mapping documented ✓ (this card); rule artifacts in 5 parseable formats ✓; **lab execution verified** ✓ (2026-10-01 on `win`: all 5 stages reached, stage 2 positively blocked by Defender/MDE — see Lab Evidence) |
+| 2d — Execution-Context Fidelity | 1.0 | 1.0 | Runtime context branching: `isSystemContext()` drives HKLM vs HKCU selection; denial evidence only counted when running elevated (ACL-vs-protection honesty per Bug Rule 8); SeDebugPrivilege enabled before LSASS access (tradecraft + evidence integrity); baseline-aware service tamper classification |
 | 3a — Schema & Metadata | 1.0 | 1.0 | Schema v2.0 `InitLogger` with metadata + executionContext; `RubricVersion: v2.1`; complete v2.0 metadata header (all required fields) for ProjectAchilles ingestion |
 | 3b — Documentation | 1.0 | 1.0 | README + info card + references complete; per-stage behavior and containment documented; SB-PC-2026-001 objective mapping explicit |
 | 3c — Logging | 0.5 | 0.5 | Dual logging (stdout + structured) in all stage binaries; per-stage MultiWriter capture to `C:\F0\<binary>_output.txt`; `bundle_results.json` per-stage ES fan-out before every exit |
 | 3d — Operational Hygiene | 0.3 | 0.5 | Orchestrator 23.5 MB < 25 MB ✓; per-stage watchdogs ✓; documented size justification ✓. Deduction: stage 4 binary 11 MB signed (> 5 MB stage budget) due to embedded `net/http` loopback listener |
-| **Total (capped)** | **7.5** | 10.0 | Raw 8.3 → pre-lab cap 7.5 |
+| **Total** | **8.8** | 10.0 | Realism 6.0/7 + Structure 2.8/3 — no cap remaining (lab evidence earned) |
+
+## Lab Evidence
+
+**Detonation record** — host `win` (Windows 11 Pro 10.0.26200, Defender real-time
+protection + Tamper Protection ON, MDE Sense present but not onboarded; executed via
+SSH as `jimx`, local admin), 2026-10-01:
+
+| Stage | Objective | Result | Evidence |
+|-------|-----------|--------|----------|
+| 1 | Execution & Defense Degradation | success (not prevented) | WinDefend + WdNisSvc stop attempts denied (services still RUNNING — tamper protection); RTP disable attempt blocked (read-back `False`); **EventLog stop succeeded** (restored in-code, verified RUNNING post-run); `DisableAntiSpyware=1` write succeeded (deleted immediately); Sense not evaluable (stopped at baseline — MDE not onboarded) |
+| 2 | Privileged Credential Access | **blocked (126)** | `OpenProcess(PROCESS_VM_READ)` on lsass **denied with SeDebugPrivilege enabled** — positive Defender credential-theft protection evidence; comsvcs.dll MiniDump produced no dump; `reg.exe save HKLM\SAM` produced no file without denial text (inconclusive per Rule 8, not counted either way) |
+| 3 | Lateral Movement & Propagation | success | Loopback `ADMIN$` session + marker tool transfer unimpeded |
+| 4 | Pre-Encryption Exfiltration | success | 2 MB synthetic archive POSTed to the loopback listener unimpeded (expected — loopback is not egress-filtered) |
+| 5 | Impact | success | All 10 sandbox documents AES-256-GCM encrypted to `.lockbit` + ransom note dropped; `vssadmin`/`bcdedit`/`wevtutil` telemetry fired (fail-harmless targets); sandbox encryption not intercepted (no Controlled Folder Access / ASR ransomware protection on the lab host) |
+
+- **Final exit code: 126 (PROTECTED)** — `bundle_results.json`: 1 blocked / 4 succeeded / 0 skipped.
+- Defense verdict: LSASS credential-theft protection is effective on this host; gaps
+  demonstrated for EventLog service tamper, registry-based Defender policy tamper, and
+  ransomware-style encryption of user-writable directories.
+- Post-run host state verified at baseline: EventLog RUNNING, WinDefend RUNNING, RTP
+  enabled, `DisableAntiSpyware` absent, Sense at its Manual/stopped baseline, all test
+  artifacts removed (`C:\F0`, ARTIFACT_DIR).
+- Two consecutive full-chain runs produced identical verdicts. An earlier run exposed
+  (and drove fixes for) four defects: abort-on-stage-error (SB coverage requires all 5
+  objectives attempted), vendored-library `Endpoint.UnexpectedTestError == 1` vs the
+  F0 999 convention, LSASS denial ambiguity without SeDebugPrivilege, and a service
+  stop/restore race — all verified fixed in the final run.
+- Archived artifacts: `staging/298cc137-ea39-4cf0-9b2d-b1c59a3cbacb/`
+  (`test_execution_log.json`, `bundle_results.json`, stage output captures).
 
 ## Size Justification
 
