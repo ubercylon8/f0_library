@@ -53,8 +53,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	_ "embed"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -69,6 +72,7 @@ import (
 	"github.com/google/uuid"
 	cert_installer "github.com/preludeorg/libraries/go/tests/cert_installer"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/crypto/ssh"
 )
 
 // ==============================================================================
@@ -115,6 +119,15 @@ var stage7Compressed []byte
 //go:embed cleanup_utility.exe.gz
 var cleanupCompressed []byte
 
+// Genuine persistence MSI (realism lift 3): authored via Windows Installer
+// COM automation (lab_assets/build_msi.ps1) and Authenticode-signed. Its
+// CustomActions silently create the three RedFlick scheduled tasks — the
+// exact mechanism the disclosure documents. ProductCode is pinned so the
+// cleanup utility can uninstall the product after each run.
+//
+//go:embed lab_assets/redflick_persistence.msi
+var persistenceMSI []byte
+
 // KillchainStage represents one technique in the attack killchain
 // (named KillchainStage to avoid clashing with test_logger.go's Stage type)
 type KillchainStage struct {
@@ -153,7 +166,6 @@ func startLoopbackServer() (*loopbackServer, error) {
 		"This document is a sandbox simulation artifact. No real event.\n" +
 		"cAB" + base64.StdEncoding.EncodeToString([]byte(stagingCmd)) + "\n%%EOF\n")
 
-	decoyMSI := []byte("F0RT1KA-DECOY-MSI c3b4301e-b502-43a4-9f01-66a874239d1b - not a valid package (documented deviation)\n")
 	decoyPythonZip := []byte("F0RT1KA-DECOY python-3.8.0-amd64 package placeholder\n")
 	decoyBootstrapper := []byte("F0RT1KA-DECOY CosmicPulse bootstrapper placeholder\n")
 
@@ -164,7 +176,7 @@ func startLoopbackServer() (*loopbackServer, error) {
 	})
 	mux.HandleFunc("/assets/setup.msi", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write(decoyMSI)
+		w.Write(persistenceMSI)
 	})
 	mux.HandleFunc("/assets/python38.zip", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/zip")
@@ -212,6 +224,146 @@ func inviteDir() string {
 }
 
 // ==============================================================================
+// LOOPBACK SSH SERVER (realism lift 2)
+// ==============================================================================
+
+// sshSandbox runs a minimal in-process SSH server on 127.0.0.1 so the
+// ssh.exe PermitLocalCommand cradle in Stage 2 can authenticate successfully
+// and ACTUALLY execute its local command — the exact mechanism Microsoft
+// documented for RedFlick — with zero OS mutation and zero non-loopback I/O.
+// Host and client keys are generated per-run; the client key is written to
+// LOG_DIR (never the user's .ssh directory) and removed by cleanup.
+type sshSandbox struct {
+	listener  net.Listener
+	port      string
+	clientKey string // path to the generated OpenSSH private key (for ssh.exe -i)
+}
+
+func startSSHSandbox() (*sshSandbox, error) {
+	// Per-run host key
+	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("ssh host key generation failed: %v", err)
+	}
+	hostSigner, err := ssh.NewSignerFromKey(hostPriv)
+	if err != nil {
+		return nil, fmt.Errorf("ssh host signer creation failed: %v", err)
+	}
+
+	// Per-run client keypair; the public half pins the only accepted identity
+	clientPub, clientPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("ssh client key generation failed: %v", err)
+	}
+	acceptedKey, err := ssh.NewPublicKey(clientPub)
+	if err != nil {
+		return nil, fmt.Errorf("ssh client public key parse failed: %v", err)
+	}
+
+	// OpenSSH-format private key file for `ssh.exe -i` (x/crypto MarshalPrivateKey)
+	keyBlock, err := ssh.MarshalPrivateKey(clientPriv, "")
+	if err != nil {
+		return nil, fmt.Errorf("ssh client key encoding failed: %v", err)
+	}
+	keyPath := filepath.Join(LOG_DIR, "f0_ssh_key")
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(keyBlock), 0600); err != nil {
+		return nil, fmt.Errorf("ssh client key write failed: %v", err)
+	}
+	// Windows OpenSSH refuses key files whose ACL allows other users
+	// ("UNPROTECTED PRIVATE KEY FILE") — strip inheritance and grant only
+	// the executing user (lab finding 2026-10-01).
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	grant := fmt.Sprintf(`%s\%s:F`, os.Getenv("COMPUTERNAME"), os.Getenv("USERNAME"))
+	if out, aclErr := exec.CommandContext(ctx, "icacls.exe", keyPath, "/inheritance:r", "/grant:r", grant).CombinedOutput(); aclErr != nil {
+		return nil, fmt.Errorf("ssh client key ACL restriction failed: %v (%s)", aclErr, strings.TrimSpace(string(out)))
+	}
+
+	config := &ssh.ServerConfig{
+		PublicKeyCallback: func(meta ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			if bytes.Equal(key.Marshal(), acceptedKey.Marshal()) {
+				LogMessage("INFO", "SSH Sandbox", fmt.Sprintf("publickey accepted for %q from %s — PermitLocalCommand will fire client-side", meta.User(), meta.RemoteAddr()))
+				return &ssh.Permissions{}, nil
+			}
+			LogMessage("WARN", "SSH Sandbox", fmt.Sprintf("identity not accepted for %q from %s", meta.User(), meta.RemoteAddr()))
+			return nil, fmt.Errorf("identity not accepted for %q", meta.User())
+		},
+	}
+	config.AddHostKey(hostSigner)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("ssh loopback listener creation failed: %v", err)
+	}
+
+	sb := &sshSandbox{
+		listener:  listener,
+		port:      fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port),
+		clientKey: keyPath,
+	}
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go sb.handleConn(conn, config)
+		}
+	}()
+	return sb, nil
+}
+
+// handleConn completes the SSH handshake, tolerates the client's `exit`
+// session (PermitLocalCommand runs client-side immediately after successful
+// authentication, before the session channel closes). The connection is
+// force-closed after the exec session completes — the single-purpose sandbox
+// never hosts a second session, and some Windows OpenSSH builds otherwise
+// linger waiting for the server to end the transport.
+func (sb *sshSandbox) handleConn(conn net.Conn, config *ssh.ServerConfig) {
+	defer conn.Close()
+	sconn, chans, reqs, err := ssh.NewServerConn(conn, config)
+	if err != nil {
+		LogMessage("WARN", "SSH Sandbox", fmt.Sprintf("handshake ended: %v", err))
+		return
+	}
+	defer sconn.Close()
+	go ssh.DiscardRequests(reqs)
+
+	for newChannel := range chans {
+		if newChannel.ChannelType() != "session" {
+			_ = newChannel.Reject(ssh.UnknownChannelType, "only session channels are handled")
+			continue
+		}
+		channel, chanReqs, err := newChannel.Accept()
+		if err != nil {
+			continue
+		}
+		go func(sconn *ssh.ServerConn, channel ssh.Channel, chanReqs <-chan *ssh.Request) {
+			defer sconn.Close()
+			defer channel.Close()
+			for req := range chanReqs {
+				switch req.Type {
+				case "exec":
+					// client runs `exit`; acknowledge, report success, and
+					// end the transport so ssh.exe terminates promptly
+					_ = req.Reply(true, nil)
+					_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+					LogMessage("INFO", "SSH Sandbox", "exec session answered — closing transport")
+					return
+				case "shell":
+					_ = req.Reply(false, nil)
+				default:
+					if req.WantReply {
+						_ = req.Reply(false, nil)
+					}
+				}
+			}
+		}(sconn, channel, chanReqs)
+	}
+}
+
+// ==============================================================================
 // MAIN
 // ==============================================================================
 
@@ -222,14 +374,14 @@ func main() {
 		Severity:   "high",
 		Techniques: []string{"T1204.002", "T1105", "T1059.001", "T1218.007", "T1053.005", "T1218.011", "T1071.001"},
 		Tactics:    []string{"execution", "command-and-control", "defense-evasion", "persistence"},
-		Score:      7.2,
-		RubricVersion: "v2.1", // Safety gate + Realism 0-7 + Structure 0-3; telemetry sub-score capped pre-lab
+		Score:      8.7,
+		RubricVersion: "v2.1", // Safety gate + Realism 0-7 + Structure 0-3; telemetry sub-score capped pending SIEM rule-firing evidence
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.1, // v2.1 2a API fidelity 1.9 + 2b identifier fidelity 1.1 (scaled into legacy fields)
-			TechnicalSophistication: 2.1, // multi-stage chain, AES-ECB registry staging, loopback C2 protocol fidelity
-			SafetyMechanisms:        1.5, // watchdog + cleanup on all paths + loopback-only egress + skip-if-exists tasks
-			DetectionOpportunities:  0.5, // v2.1 2c telemetry signal quality — pre-lab cap, lab firing evidence pending
-			LoggingObservability:    1.0, // schema v2.0 logger + per-stage bundle fan-out + pre/post system snapshots
+			RealWorldAccuracy:       2.8, // v2.1 2a 2.2 + 2b 1.2 (SSH cradle + genuine MSI are real executions; scaled into legacy field)
+			TechnicalSophistication: 2.6, // real SSH transport + Installer transaction lineage, AES-ECB staging, loopback C2 protocol fidelity
+			SafetyMechanisms:        1.5, // watchdog + cleanup on all paths + loopback-only egress + skip-if-exists tasks + pinned ProductCode uninstall
+			DetectionOpportunities:  0.8, // v2.1 2c 1.5 (cap): full-chain protected-lab run + documented rule mapping; SIEM firing evidence pending
+			LoggingObservability:    1.0, // schema v2.0 logger + per-stage bundle fan-out + pre/post snapshots + surviving verdict files
 		},
 		Tags: []string{"star-blizzard", "redflick", "cosmicpulse", "lolbin", "scheduled-tasks", "http-c2"},
 	}
@@ -288,7 +440,42 @@ func main() {
 		Endpoint.Stop(Endpoint.UnexpectedTestError)
 	}
 
+	// Pre-create the inert task-action decoys the persistence MSI's
+	// CustomActions reference (they only append a log line if ever fired)
+	for i, taskName := range []string{TASK_NET_QUALITY, TASK_NET_CONFIG, TASK_SYS_HEALTH} {
+		decoyAction := filepath.Join(inviteDir(), fmt.Sprintf("task%d_action.cmd", i+1))
+		script := fmt.Sprintf("@echo off\r\necho %%date%% %%time%% task '%s' fired >> \"%s\"\r\n", taskName, filepath.Join(LOG_DIR, "task_fire.log"))
+		if err := os.WriteFile(decoyAction, []byte(script), 0755); err != nil {
+			Endpoint.Say("FATAL: task action decoy write failed: %v", err)
+			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("task action decoy write failed: %v", err))
+			Endpoint.Stop(Endpoint.UnexpectedTestError)
+		}
+	}
+
+	// Snapshot whether any persistence task name already exists on the host:
+	// Stage 5 merges this with post-install state so cleanup only ever
+	// removes tasks this test (MSI or fallback) created.
+	var precheckLines []string
+	for _, taskName := range []string{TASK_NET_QUALITY, TASK_NET_CONFIG, TASK_SYS_HEALTH} {
+		existed := taskNameExists(taskName)
+		precheckLines = append(precheckLines, fmt.Sprintf("TASK=%s|EXISTED_BEFORE=%v", taskName, existed))
+		if existed {
+			Endpoint.Say("[!] NOTE: task '%s' already present on host — it will not be touched", taskName)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(LOG_DIR, "task_precheck.txt"), []byte(strings.Join(precheckLines, "\n")+"\n"), 0644); err != nil {
+		Endpoint.Say("FATAL: task precheck write failed: %v", err)
+		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("task precheck write failed: %v", err))
+		Endpoint.Stop(Endpoint.UnexpectedTestError)
+	}
+
 	writeSystemSnapshot("pre")
+
+	if err := os.MkdirAll(LOG_DIR, 0755); err != nil {
+		Endpoint.Say("FATAL: log directory creation failed: %v", err)
+		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("log directory creation failed: %v", err))
+		Endpoint.Stop(Endpoint.UnexpectedTestError)
+	}
 
 	// Loopback asset/C2 server — all stage network I/O targets 127.0.0.1
 	ls, err := startLoopbackServer()
@@ -299,16 +486,27 @@ func main() {
 	}
 	defer ls.server.Close()
 	Endpoint.Say("[*] Loopback asset/C2 server listening on 127.0.0.1:%s", ls.port)
+
+	// Loopback SSH sandbox (realism lift 2) — lets the Stage 2 cradle
+	// authenticate and actually execute PermitLocalCommand
+	sb, err := startSSHSandbox()
+	if err != nil {
+		Endpoint.Say("FATAL: %v", err)
+		SaveLog(Endpoint.UnexpectedTestError, err.Error())
+		Endpoint.Stop(Endpoint.UnexpectedTestError)
+	}
+	defer sb.listener.Close()
+	Endpoint.Say("[*] Loopback SSH sandbox listening on 127.0.0.1:%s", sb.port)
 	Endpoint.Say("")
 
-	test(ls)
+	test(ls, sb)
 }
 
 // ==============================================================================
 // TEST EXECUTION
 // ==============================================================================
 
-func test(ls *loopbackServer) {
+func test(ls *loopbackServer, sb *sshSandbox) {
 	killchain := []KillchainStage{
 		{
 			ID: 1, Name: "Event-Invite LNK Execution", Technique: "T1204.002",
@@ -397,7 +595,7 @@ func test(ls *loopbackServer) {
 		Endpoint.Say("Description: %s", stage.Description)
 		Endpoint.Say("=================================================================")
 
-		exitCode, timedOut := executeStage(stage, ls.port)
+		exitCode, timedOut := executeStage(stage, ls.port, sb)
 
 		if timedOut {
 			// Watchdog: stage hung and was force-terminated (v2.1 Tier-1 gate)
@@ -519,14 +717,19 @@ func decompressGzip(compressed []byte) ([]byte, error) {
 // executeStage runs a stage binary under the per-stage watchdog with its
 // stdout/stderr captured to both console and LOG_DIR/<binary>_output.txt
 // (io.MultiWriter per framework stdout-capture rule). The loopback server
-// port is handed to the stage via F0_LOOPBACK_PORT.
-func executeStage(stage KillchainStage, port string) (exitCode int, timedOut bool) {
+// port is handed to the stage via F0_LOOPBACK_PORT; the loopback SSH
+// sandbox (realism lift 2) via F0_SSH_PORT / F0_SSH_KEY.
+func executeStage(stage KillchainStage, port string, sb *sshSandbox) (exitCode int, timedOut bool) {
 	stagePath := filepath.Join(LOG_DIR, stage.BinaryName)
 	ctx, cancel := context.WithTimeout(context.Background(), STAGE_TIMEOUT_SECS*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, stagePath)
-	cmd.Env = append(os.Environ(), "F0_LOOPBACK_PORT="+port)
+	cmd.Env = append(os.Environ(),
+		"F0_LOOPBACK_PORT="+port,
+		"F0_SSH_PORT="+sb.port,
+		"F0_SSH_KEY="+sb.clientKey,
+	)
 
 	outputPath := filepath.Join(LOG_DIR, fmt.Sprintf("%s_output.txt", stage.BinaryName))
 	outFile, err := os.Create(outputPath)
@@ -596,6 +799,18 @@ func firstLine(s string) string {
 
 // writeSystemSnapshot records Defender status, AV exclusions and recent
 // hotfixes to LOG_DIR/<uuid>_system_snapshot_<phase>.json (v2.1 3c telemetry).
+// taskNameExists reports whether a scheduled task with the given name is
+// already registered on the host.
+func taskNameExists(taskName string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "schtasks.exe", "/Query", "/TN", taskName).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(out))) > 0
+}
+
 func writeSystemSnapshot(phase string) {
 	script := `$o = [ordered]@{}; ` +
 		`try { $o['defender'] = Get-MpComputerStatus | Select-Object AMServiceEnabled,AntispywareEnabled,RealTimeProtectionEnabled,AntivirusEnabled,QuickScanEndTime | ConvertTo-Json -Compress } catch { $o['defender'] = $_.Exception.Message }; ` +
