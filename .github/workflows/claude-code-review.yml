@@ -27,6 +27,14 @@ jobs:
 
           use_sticky_comment: true
 
+          # The action's default CI permission set denies the read-only tools a
+          # reviewer needs; the denial spiral ends the run with is_error:true
+          # (seen on PR #74: 20 permission denials -> failed check). Allow the
+          # read-only toolbelt explicitly via claude_args (this action version
+          # has no allowed_tools input).
+          claude_args: |
+            --allowedTools "Read,Grep,Glob,LS,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)"
+
           prompt: |
             Review this pull request for the F0RT1KA security testing framework. Focus on:
 
