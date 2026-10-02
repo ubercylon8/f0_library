@@ -1,0 +1,135 @@
+// ============================================================
+// LockBit 3.0 Double Extortion Kill Chain — KQL Detection Queries
+// Microsoft Sentinel / Defender Advanced Hunting
+// Techniques: T1059.001, T1562.001, T1112, T1003.001, T1003.002,
+//             T1021.002, T1570, T1567.002, T1486, T1490, T1070.001
+// Generated: 2026-10-01
+// ============================================================
+
+// ------------------------------------------------------------
+// Query 1: LSASS Memory Dump via comsvcs.dll MiniDump (T1003.001)
+// Confidence: High | FP: Rare (legit crash-dump workflows by support staff)
+// Threshold: Alert on any occurrence
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName =~ "rundll32.exe"
+| where ProcessCommandLine has_all ("comsvcs", "MiniDump")
+| extend LsassPid = extract(@"MiniDump\s+(\d+)", 1, ProcessCommandLine)
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, LsassPid,
+          InitiatingProcessFileName, InitiatingProcessAccountName, SHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 2: SAM Hive Export via reg.exe (T1003.002)
+// Confidence: High | FP: Low (occasional legit backup scripts — baseline admin hosts)
+// Threshold: Alert on any occurrence outside approved backup windows
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName =~ "reg.exe"
+| where ProcessCommandLine has "save"
+| where ProcessCommandLine has_any ("HKLM\\SAM", "HKEY_LOCAL_MACHINE\\SAM", "HKLM\\SYSTEM", "HKLM\\SECURITY")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+          InitiatingProcessFileName, SHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 3: Security Service Tampering — sc.exe stop/disable (T1562.001)
+// Confidence: High | FP: Low (AV management tools; correlate with initiator)
+// Threshold: Alert on any non-management-host occurrence
+// ------------------------------------------------------------
+let SecurityServices = dynamic(["WinDefend","WdNisSvc","Sense","EventLog","MsMpSvc","SecurityHealthService","WinDefend"]);
+DeviceProcessEvents
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has_any ("stop","config")
+| where ProcessCommandLine has_any (SecurityServices)
+| extend TamperAction = iff(ProcessCommandLine has "disabled", "Disable", "Stop")
+| project TimeGenerated, DeviceName, AccountName, TamperAction, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessAccountName
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 4: Defender Real-Time Monitoring Tamper (T1562.001 / T1112)
+// Confidence: High | FP: Low (GPO rollout of policy changes — filter to interactive users)
+// Threshold: Alert on any occurrence
+// ------------------------------------------------------------
+union isfuzzy=true
+    (DeviceProcessEvents
+    | where FileName in~ ("powershell.exe","pwsh.exe","powershell_ise.exe")
+    | where ProcessCommandLine has "Set-MpPreference"
+    | where ProcessCommandLine has_any ("DisableRealtimeMonitoring","DisableBehaviorMonitoring","DisableIOAVProtection","DisableScriptScanning")
+    | project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName),
+    (DeviceRegistryEvents
+    | where RegistryKey has @"SOFTWARE\Policies\Microsoft\Windows Defender"
+    | where RegistryValueName =~ "DisableAntiSpyware"
+    | where RegistryValueData == 1
+    | project TimeGenerated, DeviceName, AccountName = InitiatingProcessAccountName,
+              ProcessCommandLine = InitiatingProcessCommandLine, InitiatingProcessFileName)
+
+// ------------------------------------------------------------
+// Query 5: Recovery Inhibition & Log Tampering (T1490 / T1070.001)
+// Confidence: Critical when co-occurring | FP: Low-Med (IT maintenance; use co-occurrence)
+// Threshold: Alert on any single hit; escalate when 2+ distinct commands within 10 min
+// ------------------------------------------------------------
+let RecoveryTamper = DeviceProcessEvents
+| where (FileName =~ "vssadmin.exe" and ProcessCommandLine has_all ("delete","shadows"))
+     or (FileName =~ "vssadmin.exe" and ProcessCommandLine has_all ("resize","shadowstorage"))
+     or (FileName =~ "wmic.exe"      and ProcessCommandLine has_all ("shadowcopy","delete"))
+     or (FileName =~ "bcdedit.exe"   and ProcessCommandLine has_any ("recoveryenabled no","bootstatuspolicy ignoreallfailures"))
+     or (FileName =~ "wbadmin.exe"   and ProcessCommandLine has_all ("delete","catalog"))
+     or (FileName =~ "wevtutil.exe"  and ProcessCommandLine has "cl")
+| extend TamperCmd = strcat(FileName, " :: ", ProcessCommandLine)
+| project TimeGenerated, DeviceName, AccountName, TamperCmd, InitiatingProcessFileName;
+RecoveryTamper
+| summarize TamperCommands = make_set(TamperCmd), Hits = count()
+    by DeviceName, AccountName, bin(TimeGenerated, 10m)
+| extend Escalation = iff(Hits >= 2, "CRITICAL — multiple tamper primitives", "Single tamper primitive")
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 6: Ransomware Impact — .lockbit Encryption Burst + Ransom Note (T1486)
+// Confidence: Critical | FP: Very low (extension + note name are actor-specific)
+// Threshold: Alert on first ransom note; extension burst > 50 files/2 min = critical
+// ------------------------------------------------------------
+union isfuzzy=true
+    (DeviceFileEvents
+    | where FileName endswith ".lockbit"
+    | summarize EncryptedFiles = count(), SamplePaths = make_set(FolderPath, 5)
+        by DeviceName, InitiatingProcessFileName, bin(TimeGenerated, 2m)
+    | where EncryptedFiles > 50
+    | extend Signal = "Mass .lockbit encryption burst"),
+    (DeviceFileEvents
+    | where FileName =~ "Restore-My-Files.txt"
+    | project TimeGenerated, DeviceName, FolderPath, InitiatingProcessFileName,
+              Signal = "LockBit 3.0 ransom note dropped")
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 7: Exfiltration Staging — Archive + Cloud-Client Upload Pattern (T1567.002)
+// Confidence: Medium-High | FP: Med (legit rclone/MEGA users — allowlist approved tools)
+// Threshold: Alert on archive creation followed by outbound transfer > 10 MB within 15 min
+// ------------------------------------------------------------
+let Staging = DeviceProcessEvents
+| where ProcessCommandLine has_any ("Compress-Archive","7z.exe a","rar.exe a","winrar.exe a")
+| project StageTime = TimeGenerated, DeviceName, AccountName, ProcessCommandLine, DeviceId;
+let Outbound = DeviceNetworkEvents
+| where RemotePort in (443, 80)
+| where InitiatingProcessFileName in~ ("rclone.exe","powershell.exe","pwsh.exe","megacmd.exe","curl.exe")
+| project NetTime = TimeGenerated, DeviceId, RemoteUrl, RemoteIP, InitiatingProcessFileName, BytesSent;
+Staging
+| join kind=inner Outbound on DeviceId
+| where NetTime between (StageTime .. StageTime + 15m)
+| project StageTime, NetTime, DeviceName, AccountName, ProcessCommandLine,
+          InitiatingProcessFileName, RemoteUrl, RemoteIP, BytesSent
+| order by StageTime desc
+
+// ------------------------------------------------------------
+// Query 8: Lateral Tool Transfer to ADMIN$ (T1021.002 / T1570)
+// Confidence: High | FP: Low-Med (SCCM/PDQ/GPO software pushes — allowlist deploy accounts)
+// Threshold: Alert on executable writes to ADMIN$ from non-deploy accounts
+// ------------------------------------------------------------
+DeviceFileEvents
+| where FolderPath has_any (@"\\ADMIN$\", @"\ADMIN$\")
+| where FileName endswith_any (".exe",".dll",".ps1",".bat",".msi")
+| project TimeGenerated, DeviceName, FolderPath, FileName,
+          InitiatingProcessAccountName, InitiatingProcessFileName, InitiatingProcessRemoteSessionDeviceName
+| order by TimeGenerated desc

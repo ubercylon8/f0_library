@@ -1,0 +1,184 @@
+# ============================================================
+# LockBit 3.0 Double Extortion Kill Chain — Sigma Rules
+# Test: 298cc137-ea39-4cf0-9b2d-b1c59a3cbacb (SB-PC-2026-001)
+# Generated: 2026-10-01
+# ============================================================
+
+title: LSASS Memory Dump via comsvcs.dll MiniDump LOLBin
+id: 7f3a9c21-4b8e-4d5a-9c1f-2e6b8a0d3f41
+status: experimental
+description: Detects rundll32.exe abusing comsvcs.dll MiniDump to dump LSASS memory — a documented LockBit credential-dumping pattern
+references:
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+author: sectest-builder
+date: 2026-10-01
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\rundll32.exe'
+    selection_cli:
+        CommandLine|contains|all:
+            - 'comsvcs'
+            - 'MiniDump'
+    condition: selection_img and selection_cli
+falsepositives:
+    - Rare legitimate crash-dump collection by support staff
+level: critical
+tags:
+    - attack.credential_access
+    - attack.t1003.001
+---
+title: Security Service Stop or Disable via sc.exe
+id: 2b8d4e17-9a3c-4f6b-8d2e-5c1a7f9e0b35
+status: experimental
+description: Detects sc.exe stop/config attempts against Windows security services (Defender, MDE Sense, Event Log) — ransomware defense-degradation pattern
+references:
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-165a
+author: sectest-builder
+date: 2026-10-01
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\sc.exe'
+    selection_action:
+        CommandLine|contains:
+            - 'stop'
+            - 'config'
+    selection_svc:
+        CommandLine|contains:
+            - 'WinDefend'
+            - 'WdNisSvc'
+            - 'Sense'
+            - 'EventLog'
+            - 'SecurityHealthService'
+    condition: selection_img and selection_action and selection_svc
+falsepositives:
+    - AV/EDR management tooling and uninstallers
+    - SOC-initiated maintenance
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+---
+title: SAM or SECURITY Hive Export via reg.exe
+id: 5e1c8f42-7d6a-4b9e-a3f1-8c4d2e6b0a59
+status: experimental
+description: Detects reg.exe save of SAM/SYSTEM/SECURITY hives — credential harvesting from the local registry
+references:
+    - https://attack.mitre.org/techniques/T1003/002/
+author: sectest-builder
+date: 2026-10-01
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\reg.exe'
+    selection_save:
+        CommandLine|contains: 'save'
+    selection_hive:
+        CommandLine|contains:
+            - 'HKLM\SAM'
+            - 'HKEY_LOCAL_MACHINE\SAM'
+            - 'HKLM\SECURITY'
+            - 'HKLM\SYSTEM'
+    condition: selection_img and selection_save and selection_hive
+falsepositives:
+    - Legitimate registry backup scripts — baseline and allowlist approved hosts/windows
+level: high
+tags:
+    - attack.credential_access
+    - attack.t1003.002
+---
+title: Ransomware Recovery Inhibition and Event Log Tampering
+id: 9d4f6a03-2e8b-4c7a-b5d9-1f3e7a8c6d24
+status: experimental
+description: Detects shadow-copy deletion, boot-recovery tampering, backup-catalog deletion, or event-log clearing — pre/post-encryption LockBit impact-stage primitives
+references:
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
+author: sectest-builder
+date: 2026-10-01
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    sel_vss_img:
+        Image|endswith: '\vssadmin.exe'
+    sel_vss_cli:
+        CommandLine|contains:
+            - 'delete shadows'
+            - 'resize shadowstorage'
+    sel_wmic:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains|all:
+            - 'shadowcopy'
+            - 'delete'
+    sel_bcd_img:
+        Image|endswith: '\bcdedit.exe'
+    sel_bcd_cli:
+        CommandLine|contains:
+            - 'recoveryenabled no'
+            - 'ignoreallfailures'
+    sel_wba_img:
+        Image|endswith: '\wbadmin.exe'
+    sel_wba_cli:
+        CommandLine|contains:
+            - 'delete catalog'
+            - 'delete backup'
+    sel_evt_img:
+        Image|endswith: '\wevtutil.exe'
+    sel_evt_cli:
+        CommandLine|contains:
+            - ' cl '
+            - ' clear-log'
+    condition:
+        (sel_vss_img and sel_vss_cli) or sel_wmic or
+        (sel_bcd_img and sel_bcd_cli) or (sel_wba_img and sel_wba_cli) or
+        (sel_evt_img and sel_evt_cli)
+falsepositives:
+    - Storage maintenance scripts (rarely bcdedit/wevtutil combined)
+level: critical
+tags:
+    - attack.impact
+    - attack.t1490
+    - attack.defense_evasion
+    - attack.t1070.001
+---
+title: Windows Defender Real-Time Protection Disabled
+id: 4a7e2d96-8c5f-4a1d-9b3e-6f0c5d8a2e17
+status: experimental
+description: Detects PowerShell Set-MpPreference tampering or DisableAntiSpyware policy registry writes disabling Defender protection
+references:
+    - https://attack.mitre.org/techniques/T1562/001/
+author: sectest-builder
+date: 2026-10-01
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_ps:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_cmd:
+        CommandLine|contains: 'Set-MpPreference'
+    selection_tamper:
+        CommandLine|contains:
+            - 'DisableRealtimeMonitoring $true'
+            - 'DisableRealtimeMonitoring 1'
+            - 'DisableBehaviorMonitoring $true'
+            - 'DisableIOAVProtection $true'
+            - 'DisableScriptScanning $true'
+    condition: selection_ps and selection_cmd and selection_tamper
+falsepositives:
+    - Managed security-baseline rollouts (filter to interactive users)
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001
+    - attack.persistence
+    - attack.t1112
