@@ -380,6 +380,19 @@ Maps and fixes known broken URLs in `_references.md` files using predefined repl
 python3 utils/fix-broken-urls.py  # Operates on files in place
 ```
 
+### sb_report.py - SB Continuous-Testing Report Converter
+
+Converts F0RT1KA per-stage `bundle_results.json` into the Superintendencia de Bancos continuous-testing report format (`{meta, executions[]}` JSON per SB-PC-2026-001 section 04, delivered over the SB SFTP). One row per technique per endpoint, with outcome mapping: block codes (126/105/127) → `PREVENTED`, stage success → `EXPOSED` (exfiltration/impact) or `MISSED`, skipped → `NOT_RUN`, errors → `ERROR`. `DETECTED` is declarative only (`--detected`), since the binary measures prevention, not SOC-side detection. Stdlib only.
+
+```bash
+python3 utils/sb_report.py \
+  --bundle staging/<uuid>/bundle_results.json \
+  --execution-log staging/<uuid>/test_execution_log.json \
+  --org-code <entity-code> --window-from 2026-10-01 --window-to 2026-10-01 \
+  --prevented-by "Microsoft Defender for Endpoint" \
+  -o sb_report.json
+```
+
 ---
 
 ## Elasticsearch Utilities
