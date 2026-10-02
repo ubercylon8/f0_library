@@ -43,6 +43,11 @@ const (
 	TASK_STATE_FILE = "scheduled_task_state.txt"
 	MOLLIS_STATE    = "mollis_state.txt"
 	MOLLIS_REG_PATH = `Software\Classes\.mollis`
+
+	// ProductCode of lab_assets/redflick_persistence.msi — uninstalling the
+	// product removes the MSI registration after each run (tasks themselves
+	// are removed per the state file above).
+	MSI_PRODUCT_CODE = "{102439F4-432E-4D50-BA75-74CC14830FD0}"
 )
 
 func main() {
@@ -56,11 +61,20 @@ func main() {
 	// 2. Registry .mollis (state-gated)
 	removed, warnings = cleanupRegistry(removed, warnings)
 
+	// 2b. Uninstall the persistence product (1605 = not installed, fine)
+	out, err := exec.Command("msiexec.exe", "/x", MSI_PRODUCT_CODE, "/qn", "/norestart").CombinedOutput()
+	if err != nil {
+		fmt.Printf("  [OK] persistence product uninstall attempted (msiexec: %v %s)\n", err, strings.TrimSpace(string(out)))
+	} else {
+		fmt.Printf("  [OK] persistence product uninstalled (%s)\n", MSI_PRODUCT_CODE)
+		removed++
+	}
+
 	// 3. Artifact workspace (marker-gated)
 	removed, warnings = cleanupArtifacts(removed, warnings)
 
 	// 4. Decoy payloads and markers in LOG_DIR (evidence files preserved)
-	for _, f := range []string{"invite.pdf", "setup.msi", "lnk_execution_marker.txt", "task_fire.log", TASK_STATE_FILE, MOLLIS_STATE} {
+	for _, f := range []string{"invite.pdf", "setup.msi", "lnk_execution_marker.txt", "task_fire.log", TASK_STATE_FILE, MOLLIS_STATE, "f0_ssh_key", "f0_known_hosts", "f0ldcmd.cmd", "beacon_response.txt", "task_precheck.txt"} {
 		p := filepath.Join(LOG_DIR, f)
 		if _, err := os.Stat(p); err == nil {
 			if err := os.Remove(p); err != nil {

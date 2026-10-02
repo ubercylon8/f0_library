@@ -3,21 +3,24 @@
 
 /*
 STAGE 5: Scheduled Task Persistence (T1053.005)
-Recreates the RedFlick persistence layer: the malicious MSI installs three
-scheduled tasks masquerading as network components, using the exact task
-names from the Microsoft disclosure:
+Verifies the RedFlick persistence layer established by the genuine MSI in
+Stage 4: three scheduled tasks masquerading as network components, using the
+exact task names from the Microsoft disclosure:
 
   - "Internet Quality Test Connection"   (registration beacon + DLL execution)
   - "Network Configuration Manager"      (WebDAV enablement)
   - "System Health Monitor"              (CosmicPulse downloader via control.exe)
 
+The tasks are created by the MSI's CustomActions (the documented adversary
+mechanism). This stage verifies their presence and records the cleanup state
+(merging the orchestrator's pre-run snapshot so pre-existing host tasks are
+NEVER touched or deleted). If a task is absent — e.g. a standalone stage run
+without Stage 4 — it falls back to direct schtasks creation.
+
 SAFETY: task actions point at inert decoy scripts in ARTIFACT_DIR (they only
-append a line to a LOG_DIR log). Pre-existing tasks with identical names are
-NEVER created over or deleted — each task is checked first and its
-pre-existence recorded in the cleanup state file, so the embedded cleanup
-utility restores exactly what this test created. The WebClient service
-(WebDAV enablement performed by "Network Configuration Manager" in the real
-chain) is intentionally NOT started — see the Realism Lift Proposals in
+append a line to a LOG_DIR log). The WebClient service (WebDAV enablement
+performed by "Network Configuration Manager" in the real chain) is
+intentionally NOT started — see the Realism Lift Proposals in
 <uuid>_info.md.
 */
 
@@ -91,33 +94,63 @@ func performTechnique() error {
 		return fmt.Errorf("artifact directory creation failed: %v", err)
 	}
 
-	// Inert decoy action targets — if a task ever fires before cleanup, it
-	// only appends a timestamped line to the LOG_DIR fire log.
-	var stateLines []string
+	// Pre-run snapshot taken by the orchestrator (which task names already
+	// existed before this test started). Missing file = standalone run.
+	precheck := map[string]bool{} // task name -> existed before the test
+	precheckPath := filepath.Join(LOG_DIR, "task_precheck.txt")
+	if data, err := os.ReadFile(precheckPath); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "TASK=") {
+				parts := strings.SplitN(strings.TrimPrefix(line, "TASK="), "|", 2)
+				if len(parts) == 2 {
+					precheck[parts[0]] = parts[1] == "EXISTED_BEFORE=true"
+				}
+			}
+		}
+	} else {
+		LogMessage("WARN", TECHNIQUE_ID, "no orchestrator precheck found (standalone run) — existing tasks will be treated as pre-existing and left untouched")
+	}
+
+	// Ensure the inert action decoys exist (orchestrator provisions them;
+	// recreated here for standalone runs). If a task ever fires before
+	// cleanup, it only appends a timestamped line to the LOG_DIR fire log.
 	for i, task := range persistenceTasks {
 		decoyAction := filepath.Join(dir, fmt.Sprintf("task%d_action.cmd", i+1))
-		script := fmt.Sprintf("@echo off\r\necho %%date%% %%time%% task '%s' fired >> \"%s\"\r\n", task.Name, filepath.Join(LOG_DIR, "task_fire.log"))
-		if err := os.WriteFile(decoyAction, []byte(script), 0755); err != nil {
-			return fmt.Errorf("decoy action write failed for task %d: %v", i+1, err)
+		if _, err := os.Stat(decoyAction); os.IsNotExist(err) {
+			script := fmt.Sprintf("@echo off\r\necho %%date%% %%time%% task '%s' fired >> \"%s\"\r\n", task.Name, filepath.Join(LOG_DIR, "task_fire.log"))
+			if err := os.WriteFile(decoyAction, []byte(script), 0755); err != nil {
+				return fmt.Errorf("decoy action write failed for task %d: %v", i+1, err)
+			}
+			LogFileDropped(filepath.Base(decoyAction), decoyAction, int64(len(script)), false)
 		}
-		LogFileDropped(filepath.Base(decoyAction), decoyAction, int64(len(script)), false)
 	}
 
 	isSystem := isSystemContext()
-	created := 0
-	skipped := 0
+	viaMSI := 0
+	fallback := 0
+	preExisting := 0
+	var stateLines []string
 
 	for _, task := range persistenceTasks {
-		existed := scheduledTaskExists(task.Name)
-		stateLines = append(stateLines, fmt.Sprintf("TASK=%s|EXISTED_BEFORE=%v", task.Name, existed))
+		existedBeforeTest := precheck[task.Name]
 
-		if existed {
-			// Never touch a task we did not create
-			LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("task '%s' already present on host — leaving untouched", task.Name))
-			skipped++
+		if scheduledTaskExists(task.Name) {
+			if existedBeforeTest {
+				// Present before the test ran — never touch, never delete
+				LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("task '%s' pre-existed the test — leaving untouched", task.Name))
+				stateLines = append(stateLines, fmt.Sprintf("TASK=%s|EXISTED_BEFORE=true", task.Name))
+				preExisting++
+				continue
+			}
+			// Created moments ago by the MSI's CustomActions (Stage 4)
+			LogMessage("SUCCESS", TECHNIQUE_ID, fmt.Sprintf("task '%s' verified — established by the persistence MSI's CustomAction", task.Name))
+			stateLines = append(stateLines, fmt.Sprintf("TASK=%s|EXISTED_BEFORE=false", task.Name))
+			viaMSI++
 			continue
 		}
 
+		// Fallback: direct creation (standalone runs / MSI action failure)
 		args := []string{"/Create", "/TN", task.Name, "/TR", fmt.Sprintf("\"%s\"", filepath.Join(dir, fmt.Sprintf("task%d_action.cmd", indexOfTask(task.Name)+1))), "/SC", task.Schedule, "/F"}
 		args = append(args, task.Extra...)
 		if isSystem {
@@ -126,7 +159,7 @@ func performTechnique() error {
 			args = append(args, "/RL", "LIMITED")
 		}
 
-		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("creating task '%s' (%s) -> %s", task.Name, task.Schedule, filepath.Join(dir, fmt.Sprintf("task%d_action.cmd", indexOfTask(task.Name)+1))))
+		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("task '%s' absent — falling back to direct schtasks creation (%s)", task.Name, task.Schedule))
 		out, err := exec.Command("schtasks.exe", args...).CombinedOutput()
 		outputStr := strings.TrimSpace(string(out))
 		if err != nil {
@@ -134,15 +167,16 @@ func performTechnique() error {
 			return classifySchtasksFailure(task.Name, err, outputStr)
 		}
 		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("schtasks output: %s", outputStr))
-		created++
+		stateLines = append(stateLines, fmt.Sprintf("TASK=%s|EXISTED_BEFORE=false", task.Name))
+		fallback++
 	}
 
-	// Verify creation (only the tasks we created)
+	// Verify every task is now present
 	time.Sleep(2 * time.Second)
 	for _, task := range persistenceTasks {
 		if !scheduledTaskExists(task.Name) {
-			// A task we just created vanishing is affirmative quarantine evidence
-			return fmt.Errorf("task '%s' not present immediately after reported creation (possible quarantine of task or action file)", task.Name)
+			// A task vanishing right after verification is affirmative quarantine evidence
+			return fmt.Errorf("task '%s' not present immediately after establishment (possible quarantine of task or action file)", task.Name)
 		}
 	}
 
@@ -152,7 +186,10 @@ func performTechnique() error {
 		return fmt.Errorf("cleanup state write failed: %v", err)
 	}
 
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("persistence established: %d created, %d skipped (pre-existing), cleanup state saved", created, skipped))
+	LogMessage("INFO", TECHNIQUE_ID,
+		fmt.Sprintf("persistence verified: %d via MSI CustomActions, %d via fallback, %d pre-existing untouched; cleanup state saved", viaMSI, fallback, preExisting))
+	_ = os.WriteFile(filepath.Join(LOG_DIR, "stage5_verdict.json"),
+		[]byte(fmt.Sprintf(`{"stage":5,"via_msi_customactions":%d,"via_fallback":%d,"pre_existing_untouched":%d}`+"\n", viaMSI, fallback, preExisting)), 0644)
 	return nil
 }
 

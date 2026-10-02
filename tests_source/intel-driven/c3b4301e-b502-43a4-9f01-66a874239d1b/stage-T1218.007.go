@@ -4,20 +4,22 @@
 /*
 STAGE 4: Msiexec Silent Execution (T1218.007)
 Simulates the RedFlick MSI delivery step: the package fetched by the
-ssh.exe/curl.exe cradle is installed silently by msiexec.exe. In the real
-chain the MSI's custom actions create the persistence scheduled tasks
-(reproduced directly in Stage 5).
+ssh.exe/curl.exe cradle is installed silently by msiexec.exe — and the
+package is REAL (realism lift 3): lab_assets/redflick_persistence.msi is a
+genuine Windows Installer package authored via the Windows Installer COM
+API (see lab_assets/build_msi.ps1) and Authenticode-signed. Its type-34
+CustomActions create the three persistence scheduled tasks with the exact
+names from the disclosure — the documented adversary mechanism, so task
+creation happens through msiexec exactly as in the real chain (Stage 5 then
+verifies and records cleanup state).
 
-DOCUMENTED DEVIATION: no MSI toolchain exists on the build host, so the
-fetched package is a decoy and msiexec reports a package-level error
-(commonly 1620, ERROR_INSTALL_PACKAGE_INVALID). The primitive under test is
-the silent-install invocation itself — msiexec.exe spawned with /q /i flags
-generates the same process-creation telemetry as the real chain.
+A repeat install of an already-registered product is a silent no-op (exit
+0); the cleanup utility uninstalls the product after each run.
 
-Rule 8 classification: msiexec LAUNCHING and returning a package-level exit
-counts as "primitive exercised". Only an OS-emitted denial abnormal for this
-context (exit 5 ACCESS_DENIED, or 1260 AppLocker policy) is treated as a
-protection event.
+Rule 8 classification: exit 0 = silent install completed; exit 5
+(ERROR_ACCESS_DENIED) or 1260 (AppLocker/policy rejection) are OS-emitted
+denials abnormal for this context and count as protection evidence;
+package-level errors are unexpected here and surface as test errors.
 */
 
 package main
@@ -104,16 +106,14 @@ func performTechnique() error {
 	case 1260:
 		return fmt.Errorf("msiexec.exe reported exit code 1260 (ERROR_INSTALL_PACKAGE_REJECTED by policy) for package %s", msiPath)
 	case 0:
-		LogMessage("INFO", TECHNIQUE_ID, "msiexec completed the install quietly (exit 0)")
-	case 1620, 1622, 1623, 1635:
-		LogMessage("INFO", TECHNIQUE_ID,
-			fmt.Sprintf("msiexec exited %d (package-level error on decoy package — expected deviation; invocation telemetry generated)", exit))
+		_ = os.WriteFile(filepath.Join(LOG_DIR, "stage4_verdict.json"),
+			[]byte(fmt.Sprintf(`{"stage":4,"msiexec_exit":%d,"genuine_msi_installed":true}`+"\n", exit)), 0644)
+		LogMessage("SUCCESS", TECHNIQUE_ID, "genuine MSI installed silently (exit 0) — CustomActions created the persistence task trio")
 	default:
-		LogMessage("INFO", TECHNIQUE_ID,
-			fmt.Sprintf("msiexec exited %d (package-level outcome on decoy package; invocation telemetry generated)", exit))
+		return fmt.Errorf("msiexec exited %d on the genuine package (package-level failure; see msiexec documentation for the code)", exit)
 	}
 
-	LogMessage("INFO", TECHNIQUE_ID, "silent MSI invocation exercised — persistence task creation follows in Stage 5")
+	LogMessage("INFO", TECHNIQUE_ID, "silent MSI install complete — Stage 5 verifies the persistence tasks")
 	return nil
 }
 
