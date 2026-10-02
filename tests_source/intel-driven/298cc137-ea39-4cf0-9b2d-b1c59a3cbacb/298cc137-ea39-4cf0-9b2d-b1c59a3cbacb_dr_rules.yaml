@@ -1,0 +1,266 @@
+# ============================================================
+# LockBit 3.0 Double Extortion Kill Chain - LimaCharlie D&R Rules
+# Test ID: 298cc137-ea39-4cf0-9b2d-b1c59a3cbacb
+# MITRE ATT&CK: T1059.001, T1562.001, T1112, T1003.001, T1003.002,
+#               T1021.002, T1570, T1567.002, T1486, T1490, T1070.001
+# Platform: Windows
+# Generated: 2026-10-01
+# ============================================================
+#
+# FILE FORMAT: For use with `limacharlie dr add` or `config push`
+#
+# Deployment:
+#   limacharlie dr add 298cc137-ea39-4cf0-9b2d-b1c59a3cbacb_dr_rules.yaml
+#
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: LSASS Dump via comsvcs.dll MiniDump (T1003.001)
+  # ============================================================
+  # Confidence: Critical
+  # Description: rundll32 abusing comsvcs.dll MiniDump — LockBit LOLBin
+  # False Positives: Rare legit crash-dump collection
+  # ============================================================
+  lockbit-lsass-dump-comsvcs:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \rundll32.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "comsvcs"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "MiniDump"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: LockBit LSASS Dump via comsvcs.dll
+        metadata:
+          severity: critical
+          mitre_attack: T1003.001
+          test_id: 298cc137-ea39-4cf0-9b2d-b1c59a3cbacb
+          description: rundll32 comsvcs.dll MiniDump detected - LSASS credential dumping (LockBit pattern)
+
+
+  # ============================================================
+  # Rule 2: Security Service / Defender Tampering (T1562.001, T1112)
+  # ============================================================
+  # Confidence: High
+  # Description: sc.exe stop/config of security services or Set-MpPreference RTP disable
+  # False Positives: AV management tooling, SOC maintenance
+  # ============================================================
+  lockbit-defense-degradation:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \sc.exe
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "stop WinDefend"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "stop WdNisSvc"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "stop Sense"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "stop EventLog"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "config WinDefend"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "config EventLog"
+                  case sensitive: false
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Set-MpPreference"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DisableRealtimeMonitoring"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: LockBit Defense Degradation Attempt
+        metadata:
+          severity: high
+          mitre_attack: T1562.001,T1112
+          test_id: 298cc137-ea39-4cf0-9b2d-b1c59a3cbacb
+          description: Security service stop/disable or Defender RTP tamper detected
+
+
+  # ============================================================
+  # Rule 3: SAM Hive Export (T1003.002)
+  # ============================================================
+  # Confidence: High
+  # Description: reg.exe save of SAM/SECURITY/SYSTEM hives
+  # False Positives: Registry backup scripts (baseline approved hosts)
+  # ============================================================
+  lockbit-sam-hive-export:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \reg.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "save"
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'HKLM\SAM'
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'HKLM\SECURITY'
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'HKLM\SYSTEM'
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: SAM/SECURITY Hive Export
+        metadata:
+          severity: high
+          mitre_attack: T1003.002
+          test_id: 298cc137-ea39-4cf0-9b2d-b1c59a3cbacb
+          description: reg.exe hive export detected - local credential harvesting
+
+
+  # ============================================================
+  # Rule 4: Recovery Inhibition & Log Clearing (T1490, T1070.001)
+  # ============================================================
+  # Confidence: Critical
+  # Description: vssadmin/bcdedit/wbadmin/wevtutil tamper primitives
+  # False Positives: Storage maintenance scripts (rare for bcdedit/wevtutil)
+  # ============================================================
+  lockbit-recovery-inhibition:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \vssadmin.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "delete shadows"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \bcdedit.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "recoveryenabled no"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \wbadmin.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "delete catalog"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \wevtutil.exe
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: " cl "
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "clear-log"
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: LockBit Recovery Inhibition / Log Clearing
+        metadata:
+          severity: critical
+          mitre_attack: T1490,T1070.001
+          test_id: 298cc137-ea39-4cf0-9b2d-b1c59a3cbacb
+          description: Shadow-copy/boot-recovery/backup/event-log tamper detected - ransomware impact stage
+
+
+  # ============================================================
+  # Rule 5: LockBit Impact Artifacts (T1486)
+  # ============================================================
+  # Confidence: Critical
+  # Description: .lockbit encrypted files or Restore-My-Files.txt ransom note
+  # False Positives: None expected - actor-specific artifacts
+  # ============================================================
+  lockbit-impact-artifacts:
+    detect:
+      target: edr
+      event: NEW_FILE
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: .lockbit
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: \Restore-My-Files.txt
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: LockBit Encryption / Ransom Note Artifacts
+        metadata:
+          severity: critical
+          mitre_attack: T1486
+          test_id: 298cc137-ea39-4cf0-9b2d-b1c59a3cbacb
+          description: .lockbit extension or Restore-My-Files.txt ransom note detected - active encryption
