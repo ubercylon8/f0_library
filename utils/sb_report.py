@@ -76,6 +76,20 @@ SB_BUNDLE_NAMES = {
 # objectives where "the objective was achieved" is the exposure signal).
 EXPOSED_TACTICS = {"exfiltration", "impact"}
 
+# Exit code -> canonical name (mirrors ProjectAchilles ERROR_CODE_MAP). Used to
+# build the default evidenceRef suffix, same as the PA reports endpoint.
+EXIT_CODE_NAMES = {
+    0: "NormalExit",
+    101: "Unprotected",
+    105: "FileQuarantinedOnExtraction",
+    126: "ExecutionPrevented",
+    127: "QuarantinedOnExecution",
+    200: "NoOutput",
+    259: "StillActive",
+    260: "BlockedPreExecution",
+    999: "UnexpectedTestError",
+}
+
 
 def parse_args():
     p = argparse.ArgumentParser(
@@ -96,7 +110,9 @@ def parse_args():
     p.add_argument("--detected", default="",
                    help="Stages the SOC detected, e.g. '2:Microsoft Defender for Endpoint,5:Sentinel'. "
                         "Only valid for stages that executed (success).")
-    p.add_argument("--evidence-ref", default="", help="Reference to retained evidence (optional)")
+    p.add_argument("--evidence-ref", default="",
+                   help="Override evidenceRef for every row (default: per-row '<sourceEventId> (<error name>)', "
+                        "mirroring the ProjectAchilles reports endpoint)")
     p.add_argument("-o", "--out", help="Output file (default: stdout)")
     return p.parse_args()
 
@@ -195,8 +211,16 @@ def main():
         techniques = control.get("techniques") or [control.get("control_id")]
         tactics = [TACTIC_TO_TA.get(t, t) for t in control.get("tactics", [])]
 
+        source_event_id = str(uuid.uuid4())
+        exit_code = control.get("exit_code")
+        if outcome == "NOT_RUN":
+            details = control.get("details", "")
+            evidence_suffix = f"skipped: {details}" if details else "skipped"
+        else:
+            evidence_suffix = EXIT_CODE_NAMES.get(exit_code, f"Unknown ({exit_code})")
+
         row = {
-            "sourceEventId": str(uuid.uuid4()),
+            "sourceEventId": source_event_id,
             "timestamp": iso_with_tz(
                 stage_times.get(stage) or bundle.get("started_at") or bundle.get("completed_at")),
             "bundleId": bundle_id,
@@ -211,8 +235,7 @@ def main():
             "isProtected": outcome in ("PREVENTED", "DETECTED"),
             "preventedBy": prevented_by if outcome == "PREVENTED" else [],
             "detectedBy": detected_controls.get(stage, []) if outcome == "DETECTED" else [],
-            "evidenceRef": args.evidence_ref or (
-                control.get("details", "") if outcome == "NOT_RUN" else ""),
+            "evidenceRef": args.evidence_ref or f"{source_event_id} ({evidence_suffix})",
         }
         if row["timestamp"] is None:
             sys.exit(f"error: no timestamp available for stage {stage} — provide --execution-log")
