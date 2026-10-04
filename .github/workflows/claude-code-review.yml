@@ -17,23 +17,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # Version 5.0.0
         with:
-          fetch-depth: 1
+          # Full history so the reviewer can diff/log/blame against the base
+          # branch without needing `git fetch` (a denied fetch ends the run).
+          fetch-depth: 0
 
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
+        # Advisory review: a Claude-side error (e.g. one tool-permission
+        # denial ending the run with is_error:true) must not fail the PR
+        # check. If the run errors, no review comment is posted — that is
+        # acceptable; a red check on an advisory review is not.
+        continue-on-error: true
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
           use_sticky_comment: true
 
-          # The action's default CI permission set denies the read-only tools a
-          # reviewer needs; the denial spiral ends the run with is_error:true
-          # (seen on PR #74: 20 permission denials -> failed check). Allow the
-          # read-only toolbelt explicitly via claude_args (this action version
-          # has no allowed_tools input).
+          # The action's default CI permission set denies the read-only tools
+          # a reviewer needs; denials spiral and end the run with is_error:true
+          # (PR #74: 20 denials; PR #78: 1 denial). Allow a generous read-only
+          # toolbelt explicitly via claude_args (this action version has no
+          # allowed_tools input). Read-only git subcommands + inspection
+          # utilities + static analyzers only — nothing that writes or
+          # executes PR code.
           claude_args: |
-            --allowedTools "Read,Grep,Glob,LS,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)"
+            --allowedTools "Read,Grep,Glob,LS,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git fetch:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git branch:*),Bash(git ls-files:*),Bash(git blame:*),Bash(git grep:*),Bash(git describe:*),Bash(git cat-file:*),Bash(git rev-list:*),Bash(git name-rev:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(file:*),Bash(find:*),Bash(sort:*),Bash(uniq:*),Bash(shellcheck:*),Bash(gofmt:*),Bash(go vet:*)"
 
           prompt: |
             Review this pull request for the F0RT1KA security testing framework. Focus on:
