@@ -23,6 +23,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -140,9 +141,21 @@ func classifyExecError(err error) int {
 	return StageError
 }
 
+// waitDelayBound caps how long cmd.Wait() may block after the child process
+// exits when a grandchild keeps the captured stdout/stderr pipe handles open
+// (observed on Windows: tailcat's ssh ProxyCommand child / no-auth-ssh shell
+// children inherit the handles, so Wait never sees pipe EOF even though the
+// evidence was already captured). Go 1.20+; applies to both process-exited and
+// context-killed paths.
+const waitDelayBound = 3 * time.Second
+
 // runCaptured runs cmd with a timeout, teeing stdout+stderr to the console and
 // to LOG_DIR/<logName>. Returns combined output, the process exit code, and any
 // launcher error. A context timeout is reported as exit code 102.
+//
+// Wait is bounded by cmd.WaitDelay: if the process has exited but a descendant
+// still holds the pipe handles, Wait returns exec.ErrWaitDelay after
+// waitDelayBound and we honor the process's real exit code from ProcessState.
 func runCaptured(ctx context.Context, name string, cmd *exec.Cmd, logName string) (string, int, error) {
 	outPath := filepath.Join(LOG_DIR, logName)
 	var buf threadSafeBuffer
@@ -159,12 +172,20 @@ func runCaptured(ctx context.Context, name string, cmd *exec.Cmd, logName string
 		cmd.Stderr = w
 	}
 
+	cmd.WaitDelay = waitDelayBound
 	runErr := cmd.Run()
 
 	if runErr != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, false, 102, "execution timeout")
 			return buf.String(), 102, fmt.Errorf("%s execution exceeded timeout", name)
+		}
+		// Process exited but a pipe-holding descendant outlived it: the
+		// captured output is complete evidence; honor the real exit code.
+		if errors.Is(runErr, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+			code := cmd.ProcessState.ExitCode()
+			LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, code == 0, code, "pipe handles held by descendant past WaitDelay; using process exit code")
+			return buf.String(), code, nil
 		}
 		if exitErr, ok := runErr.(*exec.ExitError); ok {
 			code := exitErr.ExitCode()
@@ -210,6 +231,8 @@ type tailcatServer struct {
 	errCh   chan error
 	waitCh  chan error
 	logPath string
+	mu      sync.Mutex
+	killed  bool
 }
 
 // startTailcatServer launches tailcat with args, tees its stdout/stderr to
@@ -235,6 +258,12 @@ func startTailcatServer(logName string, args ...string) (*tailcatServer, error) 
 		waitCh:  make(chan error, 1),
 		logPath: filepath.Join(LOG_DIR, logName),
 	}
+
+	// Bound cmd.Wait() after exit/kill: on Windows the no-auth-ssh server's
+	// shell children inherit the stderr/stdout pipe handles, so without
+	// WaitDelay the wait goroutine would block on pipe EOF forever after the
+	// server process is already dead.
+	cmd.WaitDelay = waitDelayBound
 
 	outFile, ferr := os.Create(srv.logPath)
 	if ferr != nil {
@@ -290,19 +319,24 @@ func (srv *tailcatServer) waitAddress(timeout time.Duration) (string, error) {
 }
 
 // kill terminates the server and waits for it to die (bounded). Safe to call
-// more than once and on an already-dead process.
+// more than once and on an already-dead process. The Wait goroutine is itself
+// bounded by cmd.WaitDelay, so a Windows grandchild holding the server's pipe
+// handles cannot stretch this past waitDelayBound.
 func (srv *tailcatServer) kill() {
 	if srv == nil || srv.cmd == nil || srv.cmd.Process == nil {
 		return
 	}
-	select {
-	case <-srv.waitCh:
-		return // already exited
-	default:
+	srv.mu.Lock()
+	if srv.killed {
+		srv.mu.Unlock()
+		return
 	}
+	srv.killed = true
+	srv.mu.Unlock()
+
 	srv.cmd.Process.Kill()
 	select {
 	case <-srv.waitCh:
-	case <-time.After(5 * time.Second):
+	case <-time.After(waitDelayBound + 2*time.Second):
 	}
 }

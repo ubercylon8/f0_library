@@ -137,9 +137,19 @@ func runStage() (int, string) {
 		return StageError, fmt.Sprintf("tailcat ssh exited %d; output: %s", code, strings.TrimSpace(out))
 	}
 
-	remoteWhoami := strings.TrimSpace(out)
-	if !strings.Contains(strings.ToLower(remoteWhoami), strings.ToLower(localWhoami)) {
-		return StageError, fmt.Sprintf("remote whoami output %q does not match local identity %q — cannot confirm shell access", remoteWhoami, localWhoami)
+	// Windows whoami emits CRLF line endings; normalize and compare per line so
+	// trailing "\r\n" (or extra ssh chatter in the captured stream) can never
+	// poison an otherwise-positive proof.
+	remoteWhoami := ""
+	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && strings.EqualFold(line, localWhoami) {
+			remoteWhoami = line
+			break
+		}
+	}
+	if remoteWhoami == "" {
+		return StageError, fmt.Sprintf("remote whoami output %q does not match local identity %q — cannot confirm shell access", strings.TrimSpace(out), localWhoami)
 	}
 
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Remote shell verified over WireGuard tunnel: whoami=%q matches local %q", remoteWhoami, localWhoami))
