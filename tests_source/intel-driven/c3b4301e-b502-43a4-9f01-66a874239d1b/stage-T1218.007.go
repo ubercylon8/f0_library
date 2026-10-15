@@ -58,7 +58,7 @@ func main() {
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
 		exitCode := determineExitCode(err)
 		if exitCode == StageBlocked || exitCode == StageQuarantined {
-			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
+			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error(), exitCode)
 		} else {
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		}

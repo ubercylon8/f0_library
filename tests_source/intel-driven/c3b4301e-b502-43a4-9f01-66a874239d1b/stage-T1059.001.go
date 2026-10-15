@@ -52,7 +52,7 @@ func main() {
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
 		exitCode := determineExitCode(err)
 		if exitCode == StageBlocked || exitCode == StageQuarantined {
-			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
+			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error(), exitCode)
 		} else {
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		}
@@ -98,7 +98,10 @@ func performTechnique() error {
 		return fmt.Errorf("powershell extraction exceeded 60s")
 	}
 	if err != nil {
-		return fmt.Errorf("powershell extraction exited %d (output: %s)", exitCodeOf(err), outputStr)
+		// Include the raw spawn/exec error so determineExitCode can see an
+		// OS-emitted denial (e.g. EDR blocking CreateProcess of powershell.exe
+		// with this command line) and map it to 126 with positive evidence.
+		return fmt.Errorf("powershell extraction failed: %v (output: %s)", err, outputStr)
 	}
 	if !strings.Contains(outputStr, "EXTRACTED:") {
 		return fmt.Errorf("extraction marker absent from powershell output: %s", outputStr)

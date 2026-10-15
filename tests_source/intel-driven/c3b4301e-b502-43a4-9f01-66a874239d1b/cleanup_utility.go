@@ -17,7 +17,8 @@ Restoration rules (fail-safe defaults):
     file written by the orchestrator is present.
   - Evidence preservation: *_output.txt, *.json and c2_beacons.log in LOG_DIR
     are telemetry and are intentionally left in place for retrieval; only
-    decoy payloads (invite.pdf, setup.msi) and markers are removed.
+    decoy payloads and helpers (invite.pdf, setup.msi, f0ldcmd.cmd,
+    beacon_response.txt) and markers are removed.
 */
 
 package main
@@ -60,7 +61,7 @@ func main() {
 	removed, warnings = cleanupArtifacts(removed, warnings)
 
 	// 4. Decoy payloads and markers in LOG_DIR (evidence files preserved)
-	for _, f := range []string{"invite.pdf", "setup.msi", "lnk_execution_marker.txt", "task_fire.log", TASK_STATE_FILE, MOLLIS_STATE} {
+	for _, f := range []string{"invite.pdf", "setup.msi", "lnk_execution_marker.txt", "task_fire.log", "f0ldcmd.cmd", "beacon_response.txt", TASK_STATE_FILE, MOLLIS_STATE} {
 		p := filepath.Join(LOG_DIR, f)
 		if _, err := os.Stat(p); err == nil {
 			if err := os.Remove(p); err != nil {
@@ -74,10 +75,7 @@ func main() {
 	}
 
 	fmt.Printf("cleanup complete: %d items removed, %d warnings\n", removed, warnings)
-	if warnings > 0 {
-		os.Exit(0) // warnings are informational — cleanup never fails the run
-	}
-	os.Exit(0)
+	os.Exit(0) // warnings are informational — cleanup never fails the run
 }
 
 func cleanupTasks(removed, warnings int) (int, int) {
@@ -121,10 +119,17 @@ func cleanupRegistry(removed, warnings int) (int, int) {
 	action := state["CLEANUP_ACTION"]
 	valueName := state["VALUE_NAME"]
 
+	// Second gate: a key that pre-existed this run must never be deleted,
+	// regardless of what CLEANUP_ACTION says — downgrade to value removal.
+	if state["KEY_EXISTED_BEFORE"] == "true" && action == "delete-key" {
+		fmt.Printf("  [SAFE] .mollis key pre-existed this run — downgrading delete-key to delete-value\n")
+		action = "delete-value"
+	}
+
 	switch action {
 	case "delete-key":
 		if err := registry.DeleteKey(registry.CURRENT_USER, MOLLIS_REG_PATH); err != nil {
-			if !strings.Contains(strings.ToLower(err.Error()), "cannot find" ) {
+			if !strings.Contains(strings.ToLower(err.Error()), "cannot find") {
 				fmt.Printf("  [WARN] .mollis key removal ended with error: %v\n", err)
 				warnings++
 			}
@@ -135,11 +140,19 @@ func cleanupRegistry(removed, warnings int) (int, int) {
 	case "delete-value":
 		k, err := registry.OpenKey(registry.CURRENT_USER, MOLLIS_REG_PATH, registry.SET_VALUE)
 		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "cannot find") {
+				fmt.Println("  [OK] .mollis key already gone — nothing to restore")
+				return removed, warnings
+			}
 			fmt.Printf("  [WARN] .mollis key open for value removal ended with error: %v\n", err)
 			return removed, warnings + 1
 		}
 		defer k.Close()
 		if err := k.DeleteValue(valueName); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "cannot find") {
+				fmt.Printf("  [OK] value '%s' already absent from HKCU\\%s\n", valueName, MOLLIS_REG_PATH)
+				return removed, warnings
+			}
 			fmt.Printf("  [WARN] value '%s' removal ended with error: %v\n", valueName, err)
 			warnings++
 		} else {

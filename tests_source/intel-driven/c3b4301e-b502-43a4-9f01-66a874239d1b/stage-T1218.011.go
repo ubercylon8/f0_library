@@ -64,12 +64,22 @@ func main() {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Starting %s", TECHNIQUE_NAME))
 	LogStageStart(STAGE_ID, TECHNIQUE_ID, "Control_RunDLL/control.exe CPL launch + AES-ECB payload staged in HKCU .mollis")
 
+	// Workspace writability preflight: an unprovisioned ARTIFACT_DIR is a lab
+	// setup failure (999), never a protection signal — exit directly so the
+	// access-denied heuristic cannot misclassify it as a block (Rule 8).
+	if err := preflightWorkspace(filepath.Join(ARTIFACT_DIR, INVITE_SUBDIR)); err != nil {
+		fmt.Printf("[STAGE %s] prerequisite missing: artifact workspace not writable (lab provisioning): %v\n", TECHNIQUE_ID, err)
+		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("workspace preflight failed: %v", err))
+		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "artifact workspace not writable — lab provisioning issue")
+		os.Exit(StageError)
+	}
+
 	if err := performTechnique(); err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
 		exitCode := determineExitCode(err)
 		if exitCode == StageBlocked || exitCode == StageQuarantined {
-			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
+			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error(), exitCode)
 		} else {
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		}
@@ -110,18 +120,25 @@ func performTechnique() error {
 	// ------------------------------------------------------------------
 	// Primitive 2: AES-ECB key/payload staging in HKCU\.mollis
 	// ------------------------------------------------------------------
-	// Pre-existing-key safety: if the key already exists (host state we did
-	// not create), stage into a namespaced value instead of the default
-	// value, so cleanup only ever removes what this test wrote.
+	// Pre-existing-key safety: if the key already exists it is host state we
+	// did not create — ALWAYS stage into a namespaced value and never delete
+	// the key, regardless of whether its default value holds data (an empty
+	// default value is still a pre-existing key).
 	keyExisted := mollisKeyExists()
 	valueName := MOLLIS_VALUE
 	cleanupAction := "delete-key"
 	if keyExisted {
-		if existing, found := readMollisDefault(); found && strings.TrimSpace(existing) != "" {
-			valueName = fmt.Sprintf("F0RT1KA-%s", TEST_UUID)
-			cleanupAction = "delete-value"
-			LogMessage("WARN", TECHNIQUE_ID, "pre-existing .mollis data found — staging into namespaced value to avoid host changes")
-		}
+		valueName = fmt.Sprintf("F0RT1KA-%s", TEST_UUID)
+		cleanupAction = "delete-value"
+		LogMessage("WARN", TECHNIQUE_ID, "pre-existing .mollis key found — staging into namespaced value to avoid host changes")
+	}
+
+	// Execution-context fidelity: under SYSTEM (PA/Prelude dispatch) HKCU maps
+	// to HKU\.DEFAULT rather than an interactive user's hive. The real chain
+	// runs in user context; record the deviation. Stage and cleanup run in the
+	// same context, so restoration stays symmetric.
+	if isSystemContext() {
+		LogMessage("WARN", TECHNIQUE_ID, "running as SYSTEM — HKCU write lands in HKU\\.DEFAULT (execution-context deviation from the user-context original)")
 	}
 
 	payload := fmt.Sprintf("CosmicPulse config|test=%s|beacon=/agent/poll|mode=loopback", TEST_UUID)
@@ -138,6 +155,14 @@ func performTechnique() error {
 	}
 	encoded := base64.StdEncoding.EncodeToString(encrypted)
 
+	// Record cleanup state BEFORE mutating the registry: if the stage is
+	// watchdog- or AV-killed mid-mutation, the cleanup utility must still
+	// know how to restore the key.
+	state := fmt.Sprintf("KEY_EXISTED_BEFORE=%v\nVALUE_NAME=%s\nCLEANUP_ACTION=%s\n", keyExisted, valueName, cleanupAction)
+	if err := os.WriteFile(filepath.Join(LOG_DIR, MOLLIS_STATE), []byte(state), 0644); err != nil {
+		return fmt.Errorf("registry state write failed: %v", err)
+	}
+
 	k, _, err := registry.CreateKey(registry.CURRENT_USER, MOLLIS_REG_PATH, registry.SET_VALUE|registry.QUERY_VALUE)
 	if err != nil {
 		return classifyRegistryFailure(err)
@@ -148,12 +173,6 @@ func performTechnique() error {
 	}
 	LogMessage("INFO", TECHNIQUE_ID,
 		fmt.Sprintf("AES-ECB payload (%d bytes -> %d b64 chars) written to HKCU\\%s value '%s'", len(encrypted), len(encoded), MOLLIS_REG_PATH, valueName))
-
-	// Record cleanup state: how the cleanup utility must restore the key
-	state := fmt.Sprintf("KEY_EXISTED_BEFORE=%v\nVALUE_NAME=%s\nCLEANUP_ACTION=%s\n", keyExisted, valueName, cleanupAction)
-	if err := os.WriteFile(filepath.Join(LOG_DIR, MOLLIS_STATE), []byte(state), 0644); err != nil {
-		return fmt.Errorf("registry state write failed: %v", err)
-	}
 
 	// Bootstrapper behavior: read back, decrypt, verify
 	readBack, _, err := k.GetStringValue(valueName)
@@ -214,18 +233,23 @@ func mollisKeyExists() bool {
 	return true
 }
 
-// readMollisDefault reads the key's default value if present
-func readMollisDefault() (string, bool) {
-	k, err := registry.OpenKey(registry.CURRENT_USER, MOLLIS_REG_PATH, registry.QUERY_VALUE)
-	if err != nil {
-		return "", false
+func isSystemContext() bool {
+	username := os.Getenv("USERNAME")
+	return strings.HasSuffix(username, "$") || strings.EqualFold(username, "SYSTEM")
+}
+
+// preflightWorkspace verifies the artifact workspace can be created and
+// written to. A failure here is a lab provisioning issue, so callers exit
+// StageError directly without passing through determineExitCode.
+func preflightWorkspace(dir string) error {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
 	}
-	defer k.Close()
-	v, _, err := k.GetStringValue(MOLLIS_VALUE)
-	if err != nil {
-		return "", false
+	probe := filepath.Join(dir, ".f0_write_probe")
+	if err := os.WriteFile(probe, []byte("ok"), 0644); err != nil {
+		return err
 	}
-	return v, true
+	return os.Remove(probe)
 }
 
 // classifyRegistryFailure separates an OS-emitted registry denial (positive
