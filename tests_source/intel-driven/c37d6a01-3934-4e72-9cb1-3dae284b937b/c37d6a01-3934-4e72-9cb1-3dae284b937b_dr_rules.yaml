@@ -1,0 +1,136 @@
+# ============================================================
+# LimaCharlie D&R Rules: Kothamine Tailcat Encrypted C2 Channel & Exfiltration
+# Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+# MITRE ATT&CK: T1105, T1572, T1021.004, T1005, T1041
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-10-14
+#
+# FILE FORMAT for `limacharlie dr add -f <file>` (NOT web UI format).
+#
+# Technique-focus: rules detect tailcat ABUSE behaviors (unauthenticated
+# SSH-over-DERP listener, ProxyCommand ssh/scp child chains, DERP egress,
+# tunnel file transfer). No F0RT1KA test artifacts are used in the
+# technique rules; one clearly-labeled attribution rule is included at the
+# bottom per the LC-specific exception.
+#
+# Deploy:  limacharlie dr add -f c37d6a01-...-dr_rules.yaml
+# Tuning:  hosts with a sanctioned Tailscale/tailcat deployment should be
+#          excluded via sensor tags/allowlists, NOT by removing domains
+#          (DERP relay domains are shared control-plane infrastructure).
+# ============================================================
+
+rules:
+  # ---------------------------------------------------------------
+  # Rule 1: Tailcat unauthenticated SSH C2 listener (HIGH confidence)
+  # MITRE: T1572, T1021.004
+  # `tailcat serve no-auth-ssh` exposes an internet-reachable shell with
+  # NO authentication via WireGuard over DERP relays. No legitimate
+  # enterprise use case.
+  # ---------------------------------------------------------------
+  kothamine-tailcat-noauth-ssh-server:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          value: (?i)tailcat(\.exe)?$
+        - op: matches
+          path: event/COMMAND_LINE
+          value: (?i)serve\s+no-auth-ssh
+    respond:
+      - action: report
+        name: kothamine-tailcat-noauth-ssh-c2-listener
+
+  # ---------------------------------------------------------------
+  # Rule 2: tailcat spawning system ssh/scp/sftp ProxyCommand children
+  # (HIGH confidence). tailcat implements `ssh` and `cp` by driving the
+  # system OpenSSH clients via ProxyCommand — the parent-child chain is
+  # inherent to the technique regardless of tooling version.
+  # MITRE: T1572, T1021.004, T1041
+  # ---------------------------------------------------------------
+  kothamine-tailcat-proxycommand-child:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          value: (?i)(ssh|scp|sftp)(\.exe)?$
+        - op: or
+          rules:
+            - op: matches
+              path: event/PARENT/FILE_PATH
+              value: (?i)tailcat
+            - op: matches
+              path: event/COMMAND_LINE
+              value: (?i)tailcat
+    respond:
+      - action: report
+        name: kothamine-tailcat-proxycommand-ssh-scp-child
+
+  # ---------------------------------------------------------------
+  # Rule 3: DNS to Tailscale DERP relay / tailcat infrastructure
+  # (HIGH confidence on hosts without sanctioned Tailscale).
+  # tailcat fetches its DERP map from tailcat.dev and bootstraps the
+  # WireGuard tunnel through derp*.tailscale.com / *.ipn.dev relays.
+  # MITRE: T1572, T1102
+  # ---------------------------------------------------------------
+  kothamine-tailcat-derp-dns:
+    detect:
+      target: edr
+      event: DNS_REQUEST
+      op: matches
+      path: event/DOMAIN_NAME
+      value: (?i)(^|\.)(tailscale\.com|ipn\.dev|tailcat\.dev)$
+    respond:
+      - action: report
+        name: kothamine-tailcat-derp-relay-dns
+
+  # ---------------------------------------------------------------
+  # Rule 4: Tailcat file transfer over the encrypted C2 channel
+  # (MEDIUM-HIGH confidence). `tailcat cp` / `tailcat recv` move files
+  # scp/SFTP-style through the WireGuard/DERP tunnel (Kothamine staging
+  # drop box + exfiltration).
+  # MITRE: T1005, T1041
+  # ---------------------------------------------------------------
+  kothamine-tailcat-file-transfer:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          value: (?i)tailcat(\.exe)?$
+        - op: matches
+          path: event/COMMAND_LINE
+          value: (?i)tailcat(\.exe)?\s+(cp|recv)\s
+    respond:
+      - action: report
+        name: kothamine-tailcat-tunnel-file-transfer
+
+  # ---------------------------------------------------------------
+  # Rule 5: F0RT1KA TEST ATTRIBUTION (test-framework-specific, NOT a
+  # technique detection). Separated intentionally per the LC attribution
+  # exception: reports execution of F0RT1KA harness binaries from the
+  # framework staging directories so lab runs can be told apart from real
+  # tailcat abuse in the detection stream.
+  # ---------------------------------------------------------------
+  f0rtika-test-attribution-tailcat-harness:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: matches
+          path: event/FILE_PATH
+          value: (?i)[/\\]F0[/\\].*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          value: ^/tmp/F0/
+    respond:
+      - action: report
+        name: f0rtika-test-execution-attribution

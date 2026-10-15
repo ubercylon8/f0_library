@@ -1,0 +1,214 @@
+# ============================================================
+# Sigma Rules: Kothamine Tailcat Encrypted C2 Channel & Exfiltration
+# Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+# MITRE ATT&CK: T1105, T1572, T1021.004, T1005, T1041
+# Author: F0RT1KA Detection Rules Generator
+# Date: 2026-10-14
+#
+# Technique-focus: rules target tailcat abuse behaviors (unauthenticated
+# SSH-over-DERP listener, ProxyCommand ssh/scp child chains, non-standard
+# execution paths, DERP egress). No F0RT1KA paths/UUIDs/harness artifacts.
+# Environments with sanctioned Tailscale/tailcat deployments must scope
+# with host allowlists.
+# ============================================================
+
+---
+title: Tailcat Unauthenticated SSH Server Execution
+id: a0870218-60b7-4c22-8d15-e5a79da6540a
+status: experimental
+description: |
+    Detects execution of 'tailcat serve no-auth-ssh', which exposes an
+    unauthenticated SSH shell over a WireGuard-encrypted tunnel via
+    Tailscale DERP internet relays (no account, no open inbound port).
+    This is the core Kothamine C2 listener behavior and has essentially
+    no legitimate enterprise use case.
+references:
+    - https://attack.mitre.org/techniques/T1572/
+    - https://attack.mitre.org/techniques/T1021/004/
+    - https://github.com/tailscale/tailcat
+author: F0RT1KA Detection Rules Generator
+date: 2026-10-14
+tags:
+    - attack.command_and_control
+    - attack.lateral_movement
+    - attack.t1572
+    - attack.t1021.004
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|endswith:
+            - '\tailcat.exe'
+            - '/tailcat'
+    selection_cmd_serve:
+        CommandLine|contains: 'serve'
+    selection_cmd_noauth:
+        CommandLine|contains: 'no-auth-ssh'
+    condition: selection_image and selection_cmd_serve and selection_cmd_noauth
+falsepositives:
+    - Developers testing tailcat locally (rare in enterprise)
+level: critical
+
+---
+title: Tailcat Binary Execution from Non-Standard Path
+id: 890893cf-ab61-4f30-a550-7e4e3f8bc73b
+status: experimental
+description: |
+    Detects execution of a tailcat binary from user-writable or temporary
+    locations (Temp, AppData, Public, Downloads, ProgramData, /tmp,
+    /var/tmp, /dev/shm). Kothamine fetches tailcat at runtime and executes
+    it in place rather than installing it as a managed package.
+references:
+    - https://attack.mitre.org/techniques/T1105/
+    - https://github.com/tailscale/tailcat
+author: F0RT1KA Detection Rules Generator
+date: 2026-10-14
+tags:
+    - attack.command_and_control
+    - attack.t1105
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|contains:
+            - 'tailcat.exe'
+            - 'tailcat'
+    selection_paths:
+        Image|contains:
+            - '\Temp\'
+            - '\AppData\'
+            - '\Users\Public\'
+            - '\ProgramData\'
+            - '\Downloads\'
+            - '/tmp/'
+            - '/var/tmp/'
+            - '/dev/shm/'
+            - '/home/'
+    condition: selection_image and selection_paths
+falsepositives:
+    - Manual developer downloads of the portable tailcat binary
+    - Sanctioned Tailscale evaluation on admin workstations
+level: high
+
+---
+title: Tailcat Spawning System SSH or SCP ProxyCommand Child
+id: c6fa1a6f-ed96-495e-ad05-4807ffcbf0f6
+status: experimental
+description: |
+    Detects ssh.exe/scp.exe/sftp.exe spawned as a child of a tailcat
+    process. tailcat implements its 'ssh' and 'cp' subcommands by driving
+    the system OpenSSH clients via ProxyCommand, so this parent-child
+    chain is inherent to the tunneling technique regardless of tooling
+    version. Indicates interactive tunnel sessions (T1021.004) or
+    file exfiltration over the encrypted C2 channel (T1041).
+references:
+    - https://attack.mitre.org/techniques/T1572/
+    - https://attack.mitre.org/techniques/T1021/004/
+    - https://attack.mitre.org/techniques/T1041/
+author: F0RT1KA Detection Rules Generator
+date: 2026-10-14
+tags:
+    - attack.command_and_control
+    - attack.lateral_movement
+    - attack.exfiltration
+    - attack.t1572
+    - attack.t1021.004
+    - attack.t1041
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_child:
+        Image|endswith:
+            - '\ssh.exe'
+            - '\scp.exe'
+            - '\sftp.exe'
+            - '/ssh'
+            - '/scp'
+            - '/sftp'
+    selection_parent:
+        ParentImage|contains: 'tailcat'
+    selection_proxy_cmdline:
+        CommandLine|contains: 'tailcat'
+    condition: selection_child and (selection_parent or selection_proxy_cmdline)
+falsepositives:
+    - Legitimate Tailscale SSH does NOT spawn ephemeral ssh.exe children
+      (it uses tailscaled); expected false positives are minimal
+level: high
+
+---
+title: DNS Query to Tailscale DERP Relay or Tailcat Infrastructure
+id: d45830bd-2dad-468a-a45d-8649e807e672
+status: experimental
+description: |
+    Detects DNS queries for Tailscale DERP relay infrastructure
+    (derp*.tailscale.com, *.ipn.dev) and the tailcat DERP-map bootstrap
+    endpoint (tailcat.dev). tailcat bootstraps its WireGuard tunnel
+    through these internet relays. On hosts with no sanctioned Tailscale
+    deployment this is the highest-fidelity network signal of Kothamine
+    C2 tunneling.
+references:
+    - https://attack.mitre.org/techniques/T1572/
+    - https://attack.mitre.org/techniques/T1102/
+author: F0RT1KA Detection Rules Generator
+date: 2026-10-14
+tags:
+    - attack.command_and_control
+    - attack.t1572
+    - attack.t1102
+logsource:
+    category: dns_query
+    product: windows
+detection:
+    selection:
+        QueryName|endswith:
+            - '.tailscale.com'
+            - 'tailscale.com'
+            - '.ipn.dev'
+            - 'tailcat.dev'
+            - '.tailcat.dev'
+    condition: selection
+falsepositives:
+    - Hosts running a sanctioned Tailscale agent (tune by host allowlist,
+      NOT by domain exclusion — the relay domains are shared control plane)
+level: high
+
+---
+title: Tailcat File Transfer Over Encrypted Tunnel
+id: 1d3fd8dd-0be3-46ad-a7da-a3294a358606
+status: experimental
+description: |
+    Detects 'tailcat cp' or 'tailcat recv' — tailcat's scp/SFTP-style
+    file transfer subcommands routed through the WireGuard/DERP encrypted
+    tunnel. Used by Kothamine to stage a drop-box receiver and exfiltrate
+    collected victim data over the C2 channel.
+references:
+    - https://attack.mitre.org/techniques/T1005/
+    - https://attack.mitre.org/techniques/T1041/
+author: F0RT1KA Detection Rules Generator
+date: 2026-10-14
+tags:
+    - attack.collection
+    - attack.exfiltration
+    - attack.t1005
+    - attack.t1041
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_image:
+        Image|contains: 'tailcat'
+    selection_cmd_cp:
+        CommandLine|contains:
+            - 'tailcat cp '
+            - 'tailcat.exe cp '
+    selection_cmd_recv:
+        CommandLine|contains:
+            - 'tailcat recv'
+            - 'tailcat.exe recv'
+    condition: selection_image and 1 of selection_cmd_*
+falsepositives:
+    - Developers transferring files with tailcat (rare in enterprise)
+level: high
