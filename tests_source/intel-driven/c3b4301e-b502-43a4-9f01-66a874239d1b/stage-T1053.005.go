@@ -67,12 +67,22 @@ func main() {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Starting %s", TECHNIQUE_NAME))
 	LogStageStart(STAGE_ID, TECHNIQUE_ID, "Create the three RedFlick persistence tasks by their real names")
 
+	// Workspace writability preflight: an unprovisioned ARTIFACT_DIR is a lab
+	// setup failure (999), never a protection signal — exit directly so the
+	// access-denied heuristic cannot misclassify it as a block (Rule 8).
+	if err := preflightWorkspace(filepath.Join(ARTIFACT_DIR, INVITE_SUBDIR)); err != nil {
+		fmt.Printf("[STAGE %s] prerequisite missing: artifact workspace not writable (lab provisioning): %v\n", TECHNIQUE_ID, err)
+		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("workspace preflight failed: %v", err))
+		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "artifact workspace not writable — lab provisioning issue")
+		os.Exit(StageError)
+	}
+
 	if err := performTechnique(); err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
 		exitCode := determineExitCode(err)
 		if exitCode == StageBlocked || exitCode == StageQuarantined {
-			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
+			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error(), exitCode)
 		} else {
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		}
@@ -107,9 +117,20 @@ func performTechnique() error {
 	created := 0
 	skipped := 0
 
+	// Cleanup state is persisted incrementally: each task's EXISTED_BEFORE
+	// entry is written to disk BEFORE schtasks runs, so a watchdog- or
+	// AV-kill mid-stage never orphans a task this stage created.
+	statePath := filepath.Join(LOG_DIR, STATE_FILE)
+	flushState := func() error {
+		return os.WriteFile(statePath, []byte(strings.Join(stateLines, "\n")+"\n"), 0644)
+	}
+
 	for _, task := range persistenceTasks {
 		existed := scheduledTaskExists(task.Name)
 		stateLines = append(stateLines, fmt.Sprintf("TASK=%s|EXISTED_BEFORE=%v", task.Name, existed))
+		if err := flushState(); err != nil {
+			return fmt.Errorf("cleanup state write failed: %v", err)
+		}
 
 		if existed {
 			// Never touch a task we did not create
@@ -146,9 +167,8 @@ func performTechnique() error {
 		}
 	}
 
-	// Persist cleanup state before declaring success
-	statePath := filepath.Join(LOG_DIR, STATE_FILE)
-	if err := os.WriteFile(statePath, []byte(strings.Join(stateLines, "\n")+"\n"), 0644); err != nil {
+	// Final flush (state was already persisted incrementally above)
+	if err := flushState(); err != nil {
 		return fmt.Errorf("cleanup state write failed: %v", err)
 	}
 
@@ -190,6 +210,20 @@ func scheduledTaskExists(taskName string) bool {
 func isSystemContext() bool {
 	username := os.Getenv("USERNAME")
 	return strings.HasSuffix(username, "$") || strings.EqualFold(username, "SYSTEM")
+}
+
+// preflightWorkspace verifies the artifact workspace can be created and
+// written to. A failure here is a lab provisioning issue, so callers exit
+// StageError directly without passing through determineExitCode.
+func preflightWorkspace(dir string) error {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	probe := filepath.Join(dir, ".f0_write_probe")
+	if err := os.WriteFile(probe, []byte("ok"), 0644); err != nil {
+		return err
+	}
+	return os.Remove(probe)
 }
 
 func determineExitCode(err error) int {

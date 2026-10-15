@@ -28,6 +28,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,12 +61,22 @@ func main() {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Starting %s", TECHNIQUE_NAME))
 	LogStageStart(STAGE_ID, TECHNIQUE_ID, "Python/bootstrapper staging + registration beacon to loopback /agent/poll")
 
+	// Workspace writability preflight: an unprovisioned ARTIFACT_DIR is a lab
+	// setup failure (999), never a protection signal — exit directly so the
+	// access-denied heuristic cannot misclassify it as a block (Rule 8).
+	if err := preflightWorkspace(filepath.Join(ARTIFACT_DIR, INVITE_SUBDIR)); err != nil {
+		fmt.Printf("[STAGE %s] prerequisite missing: artifact workspace not writable (lab provisioning): %v\n", TECHNIQUE_ID, err)
+		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("workspace preflight failed: %v", err))
+		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", "artifact workspace not writable — lab provisioning issue")
+		os.Exit(StageError)
+	}
+
 	if err := performTechnique(); err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
 		exitCode := determineExitCode(err)
 		if exitCode == StageBlocked || exitCode == StageQuarantined {
-			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
+			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error(), exitCode)
 		} else {
 			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
 		}
@@ -120,7 +131,7 @@ func performTechnique() error {
 	encoded := base64.StdEncoding.EncodeToString(utf16LE(beaconData))
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("registration data: %s -> UTF16LE+Base64: %s", beaconData, encoded))
 
-	beaconURL := fmt.Sprintf("%s%s?id=%s", baseURL, POLL_PATH, encoded)
+	beaconURL := fmt.Sprintf("%s%s?id=%s", baseURL, POLL_PATH, url.QueryEscape(encoded))
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
 		err := curlBeacon(beaconURL)
@@ -203,6 +214,20 @@ func exitCodeOf(err error) int {
 		return exitErr.ExitCode()
 	}
 	return 999
+}
+
+// preflightWorkspace verifies the artifact workspace can be created and
+// written to. A failure here is a lab provisioning issue, so callers exit
+// StageError directly without passing through determineExitCode.
+func preflightWorkspace(dir string) error {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	probe := filepath.Join(dir, ".f0_write_probe")
+	if err := os.WriteFile(probe, []byte("ok"), 0644); err != nil {
+		return err
+	}
+	return os.Remove(probe)
 }
 
 func pidOf(cmd *exec.Cmd) int {

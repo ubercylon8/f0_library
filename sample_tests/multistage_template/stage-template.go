@@ -66,10 +66,15 @@ func main() {
 	if err := performTechnique(); err != nil {
 		// Technique was blocked or failed
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Blocked/Failed: %v", err))
-		LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error())
 
-		// Determine appropriate exit code
+		// Determine appropriate exit code first so the stage log records the
+		// true code (126 execution prevented, 105/127 quarantined)
 		exitCode := determineExitCode(err)
+		if exitCode == 126 || exitCode == 105 || exitCode == 127 {
+			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, err.Error(), exitCode)
+		} else {
+			LogStageEnd(STAGE_ID, TECHNIQUE_ID, "error", err.Error())
+		}
 		os.Exit(exitCode)
 	}
 

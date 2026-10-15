@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -368,6 +369,10 @@ func InitLogger(testID, testName string, metadata TestMetadata, executionContext
 	addMessage("INFO", "Initialization", fmt.Sprintf("Execution ID: %s", executionContext.ExecutionID))
 	addMessage("INFO", "Initialization", fmt.Sprintf("Organization: %s | Environment: %s", executionContext.Organization, executionContext.Environment))
 
+	// Remove any stale shared log from a previous run so stage binaries
+	// (AttachLogger) never attach to — and persist — cross-run contamination.
+	_ = os.Remove(filepath.Join(LOG_DIR, "test_execution_log.json"))
+
 	return globalLog
 }
 
@@ -465,8 +470,9 @@ func LogStageEnd(stageID int, technique, status, details string) {
 	}
 }
 
-// LogStageBlocked logs a stage being blocked by EDR
-func LogStageBlocked(stageID int, technique, reason string) {
+// LogStageBlocked logs a stage being blocked by EDR; exitCode is the stage's
+// actual exit code (126 execution prevented, 105/127 quarantined)
+func LogStageBlocked(stageID int, technique, reason string, exitCode int) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
@@ -476,7 +482,7 @@ func LogStageBlocked(stageID int, technique, reason string) {
 			globalLog.Stages[i].Status = "blocked"
 			globalLog.Stages[i].BlockedBy = reason
 			globalLog.Stages[i].DurationMs = time.Now().UTC().Sub(globalLog.Stages[i].StartTime.Time).Milliseconds()
-			globalLog.Stages[i].ExitCode = 126
+			globalLog.Stages[i].ExitCode = exitCode
 
 			globalLog.BlockedAtStage = stageID
 			globalLog.BlockedTechnique = technique
@@ -625,6 +631,15 @@ func SaveLog(exitCode int, exitReason string) error {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
+	// Multi-stage orchestrators share test_execution_log.json with their stage
+	// binaries (AttachLogger): stages persist their entries on every write,
+	// while the orchestrator's in-memory log holds only orchestrator entries.
+	// Fold the stage-persisted telemetry in before the terminal write so it is
+	// not clobbered.
+	if !isStage {
+		mergePersistedStageData()
+	}
+
 	globalLog.EndTime = NewJSONTime(time.Now().UTC())
 	globalLog.DurationMs = time.Now().UTC().Sub(globalLog.StartTime.Time).Milliseconds()
 	globalLog.ExitCode = exitCode
@@ -643,6 +658,75 @@ func SaveLog(exitCode int, exitReason string) error {
 	}
 
 	return persistLog()
+}
+
+// mergePersistedStageData folds telemetry persisted by stage binaries into the
+// orchestrator's in-memory log (assumes logMutex is held). Entries are only
+// adopted when they belong to this run (timestamped at/after the
+// orchestrator's StartTime), so a stale log from a previous execution is
+// never merged.
+func mergePersistedStageData() {
+	data, err := os.ReadFile(filepath.Join(LOG_DIR, "test_execution_log.json"))
+	if err != nil {
+		return
+	}
+	var prev TestLog
+	if err := json.Unmarshal(data, &prev); err != nil {
+		return
+	}
+	if prev.TestID != globalLog.TestID {
+		return
+	}
+	runStart := globalLog.StartTime.Time
+
+	// Stage bookkeeping is only ever written by stage binaries
+	for _, s := range prev.Stages {
+		if !s.StartTime.Time.Before(runStart) {
+			globalLog.Stages = append(globalLog.Stages, s)
+		}
+	}
+	if len(globalLog.Stages) > 0 {
+		globalLog.IsMultiStage = true
+		// Derive the block point from the merged stage records rather than the
+		// persisted file's header fields, which may be stale-rooted.
+		for _, s := range globalLog.Stages {
+			if s.Status == "blocked" {
+				globalLog.BlockedAtStage = s.StageID
+				globalLog.BlockedTechnique = s.Technique
+			}
+		}
+	}
+
+	// Stage-persisted entries (this run only) precede/interleave with the
+	// orchestrator's in-memory entries; merge and sort by timestamp.
+	var msgs []LogEntry
+	for _, m := range prev.Messages {
+		if !m.Timestamp.Time.Before(runStart) {
+			msgs = append(msgs, m)
+		}
+	}
+	globalLog.Messages = append(msgs, globalLog.Messages...)
+	sort.SliceStable(globalLog.Messages, func(i, j int) bool {
+		return globalLog.Messages[i].Timestamp.Time.Before(globalLog.Messages[j].Timestamp.Time)
+	})
+
+	for _, f := range prev.FilesDropped {
+		if !f.Timestamp.Time.Before(runStart) {
+			globalLog.FilesDropped = append(globalLog.FilesDropped, f)
+		}
+	}
+	sort.SliceStable(globalLog.FilesDropped, func(i, j int) bool {
+		return globalLog.FilesDropped[i].Timestamp.Time.Before(globalLog.FilesDropped[j].Timestamp.Time)
+	})
+
+	for _, p := range prev.ProcessesExecuted {
+		if !p.Timestamp.Time.Before(runStart) {
+			globalLog.ProcessesExecuted = append(globalLog.ProcessesExecuted, p)
+		}
+	}
+	sort.SliceStable(globalLog.ProcessesExecuted, func(i, j int) bool {
+		return globalLog.ProcessesExecuted[i].Timestamp.Time.Before(globalLog.ProcessesExecuted[j].Timestamp.Time)
+	})
 }
 
 // computeOutcome calculates outcome based on exit code and test execution
@@ -1063,8 +1147,9 @@ func WriteStageBundleResults(bundleID, bundleName, category, subcategory string,
 	logMutex.Unlock()
 
 	controls := make([]ControlResult, 0, len(stages))
-	passed := 0 // blocked stages = endpoint defended
-	failed := 0 // successful attack stages = endpoint failed
+	passed := 0  // blocked stages = endpoint defended
+	failed := 0  // successful attack stages = endpoint failed
+	errored := 0 // stage errors/timeouts = inconclusive, never attack success
 	skipped := 0
 
 	for i, stage := range stages {
@@ -1079,13 +1164,14 @@ func WriteStageBundleResults(bundleID, bundleName, category, subcategory string,
 			// Attack succeeded without EDR intervention → Unprotected
 			normalizedExit = 101
 			failed++
-		case stage.ExitCode == 126 || stage.ExitCode == 105:
+		case stage.ExitCode == 126 || stage.ExitCode == 105 || stage.ExitCode == 127:
 			// EDR blocked the stage → Protected
 			compliant = true
 			passed++
 		default:
-			// Error or other codes — keep as-is
-			failed++
+			// Error/timeout (999, 102, ...) — inconclusive; NOT evidence the
+			// attack succeeded, so it must not count as a failed control.
+			errored++
 		}
 
 		controls = append(controls, ControlResult{
@@ -1106,11 +1192,15 @@ func WriteStageBundleResults(bundleID, bundleName, category, subcategory string,
 
 	// Match framework contract (CLAUDE.md): exit 126 = at least one critical
 	// protection layer worked. ANY blocked stage breaks the kill chain → 126.
+	// A stage error/timeout with no block means the run is inconclusive → 999
+	// (never 101: an errored stage is not evidence the attack succeeded).
 	// All stages skipped (no evidence either way) → 999.
 	overallExit := 101
 	switch {
 	case passed > 0:
 		overallExit = 126
+	case errored > 0:
+		overallExit = 999
 	case skipped == len(stages):
 		overallExit = 999
 	}

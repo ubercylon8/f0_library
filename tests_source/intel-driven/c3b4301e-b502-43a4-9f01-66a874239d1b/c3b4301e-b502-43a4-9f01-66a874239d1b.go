@@ -79,12 +79,16 @@ const (
 	TEST_UUID = "c3b4301e-b502-43a4-9f01-66a874239d1b"
 	TEST_NAME = "Star Blizzard RedFlick CosmicPulse Espionage Chain"
 
+	// ExitTestError is the framework error exit code. The vendored prelude
+	// ExitTestError is 1; F0RT1KA convention (CLAUDE.md) is 999.
+	ExitTestError = 999
+
 	// Real identifiers from the RedFlick disclosure (scheduled task names)
-	TASK_NET_QUALITY  = "Internet Quality Test Connection"
-	TASK_NET_CONFIG   = "Network Configuration Manager"
-	TASK_SYS_HEALTH   = "System Health Monitor"
-	MOLLIS_REG_PATH   = `Software\Classes\.mollis`
-	INVITE_SUBDIR     = "StarBlizzardInvite"
+	TASK_NET_QUALITY   = "Internet Quality Test Connection"
+	TASK_NET_CONFIG    = "Network Configuration Manager"
+	TASK_SYS_HEALTH    = "System Health Monitor"
+	MOLLIS_REG_PATH    = `Software\Classes\.mollis`
+	INVITE_SUBDIR      = "StarBlizzardInvite"
 	STAGE_TIMEOUT_SECS = 180
 )
 
@@ -217,12 +221,12 @@ func inviteDir() string {
 
 func main() {
 	metadata := TestMetadata{
-		Version:    "1.0.0",
-		Category:   "defense_evasion",
-		Severity:   "high",
-		Techniques: []string{"T1204.002", "T1105", "T1059.001", "T1218.007", "T1053.005", "T1218.011", "T1071.001"},
-		Tactics:    []string{"execution", "command-and-control", "defense-evasion", "persistence"},
-		Score:      7.2,
+		Version:       "1.0.0",
+		Category:      "defense_evasion",
+		Severity:      "high",
+		Techniques:    []string{"T1204.002", "T1105", "T1059.001", "T1218.007", "T1053.005", "T1218.011", "T1071.001"},
+		Tactics:       []string{"execution", "command-and-control", "defense-evasion", "persistence"},
+		Score:         7.2,
 		RubricVersion: "v2.1", // Safety gate + Realism 0-7 + Structure 0-3; telemetry sub-score capped pre-lab
 		ScoreBreakdown: &ScoreBreakdown{
 			RealWorldAccuracy:       2.1, // v2.1 2a API fidelity 1.9 + 2b identifier fidelity 1.1 (scaled into legacy fields)
@@ -253,8 +257,8 @@ func main() {
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
 			runCleanup()
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Test panic: %v", r))
-			Endpoint.Stop(Endpoint.UnexpectedTestError)
+			SaveLog(ExitTestError, fmt.Sprintf("Test panic: %v", r))
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -269,8 +273,8 @@ func main() {
 	// Pre-flight: trust certificate for the F0RT1KA code-signing chain
 	if err := cert_installer.EnsureCertificateInstalled(); err != nil {
 		Endpoint.Say("FATAL: certificate installation failed: %v", err)
-		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("certificate installation failed: %v", err))
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, fmt.Sprintf("certificate installation failed: %v", err))
+		Endpoint.Stop(ExitTestError)
 	}
 
 	// Provision the decoy workspace under ARTIFACT_DIR. The sandbox marker
@@ -278,14 +282,14 @@ func main() {
 	// marker proves this run created it.
 	if err := os.MkdirAll(inviteDir(), 0755); err != nil {
 		Endpoint.Say("FATAL: artifact directory provisioning failed: %v", err)
-		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("artifact directory provisioning failed: %v", err))
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, fmt.Sprintf("artifact directory provisioning failed: %v", err))
+		Endpoint.Stop(ExitTestError)
 	}
 	if err := os.WriteFile(filepath.Join(inviteDir(), "F0RT1KA_SANDBOX_MARKER.txt"),
 		[]byte(fmt.Sprintf("sandbox workspace of test %s created %s — safe for cleanup\n", TEST_UUID, time.Now().UTC().Format(time.RFC3339))), 0644); err != nil {
 		Endpoint.Say("FATAL: sandbox marker write failed: %v", err)
-		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("sandbox marker write failed: %v", err))
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, fmt.Sprintf("sandbox marker write failed: %v", err))
+		Endpoint.Stop(ExitTestError)
 	}
 
 	writeSystemSnapshot("pre")
@@ -294,8 +298,8 @@ func main() {
 	ls, err := startLoopbackServer()
 	if err != nil {
 		Endpoint.Say("FATAL: %v", err)
-		SaveLog(Endpoint.UnexpectedTestError, err.Error())
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, err.Error())
+		Endpoint.Stop(ExitTestError)
 	}
 	defer ls.server.Close()
 	Endpoint.Say("[*] Loopback asset/C2 server listening on 127.0.0.1:%s", ls.port)
@@ -352,21 +356,21 @@ func test(ls *loopbackServer) {
 	Endpoint.Say("[*] Phase 0: Extracting %d stage binaries + cleanup utility...", len(killchain))
 
 	if err := os.MkdirAll(LOG_DIR, 0755); err != nil {
-		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("log dir creation failed: %v", err))
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, fmt.Sprintf("log dir creation failed: %v", err))
+		Endpoint.Stop(ExitTestError)
 	}
 
 	for i, stage := range killchain {
 		Endpoint.Say("    [%d/%d] Extracting %s (%s)", i+1, len(killchain), stage.BinaryName, stage.Technique)
 		if err := extractStage(stage); err != nil {
 			LogPhaseEnd(0, "error", fmt.Sprintf("extraction failed for %s: %v", stage.BinaryName, err))
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("stage extraction failed: %v", err))
-			Endpoint.Stop(Endpoint.UnexpectedTestError)
+			SaveLog(ExitTestError, fmt.Sprintf("stage extraction failed: %v", err))
+			Endpoint.Stop(ExitTestError)
 		}
 	}
 	if err := extractNamed("cleanup_utility.exe", cleanupCompressed); err != nil {
-		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("cleanup extraction failed: %v", err))
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, fmt.Sprintf("cleanup extraction failed: %v", err))
+		Endpoint.Stop(ExitTestError)
 	}
 	LogPhaseEnd(0, "success", fmt.Sprintf("extracted %d stages + cleanup utility", len(killchain)))
 	Endpoint.Say("")
@@ -408,6 +412,7 @@ func test(ls *loopbackServer) {
 			LogMessage("ERROR", "Watchdog", fmt.Sprintf("Stage %d (%s) hung — force-terminated after %ds", stage.ID, stage.Technique, STAGE_TIMEOUT_SECS))
 
 			ls.persistBeaconLog()
+			writeSystemSnapshot("post")
 			runCleanup()
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("stage %d (%s) hung and was terminated by watchdog", stage.ID, stage.Technique))
@@ -450,8 +455,8 @@ func test(ls *loopbackServer) {
 			writeSystemSnapshot("post")
 			runCleanup()
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "apt", stageResults)
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("stage %d (%s) failed with exit code %d", stage.ID, stage.Technique, exitCode))
-			Endpoint.Stop(Endpoint.UnexpectedTestError)
+			SaveLog(ExitTestError, fmt.Sprintf("stage %d (%s) failed with exit code %d", stage.ID, stage.Technique, exitCode))
+			Endpoint.Stop(ExitTestError)
 		}
 
 		stageResults[idx].ExitCode = exitCode
