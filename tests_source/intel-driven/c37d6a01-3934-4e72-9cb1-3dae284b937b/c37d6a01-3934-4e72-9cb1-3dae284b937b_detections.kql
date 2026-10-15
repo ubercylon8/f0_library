@@ -1,0 +1,250 @@
+// ============================================================
+// KQL Detections: Kothamine Tailcat Encrypted C2 Channel & Exfiltration
+// Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+// MITRE ATT&CK: T1105, T1572, T1021.004, T1005, T1041
+// Tactics: Command and Control, Lateral Movement, Collection, Exfiltration
+// Platform: Windows (Microsoft Defender XDR / MDE tables); Linux via MDE Linux
+// ============================================================
+// Technique-focus note: these queries detect tailcat ABUSE PATTERNS
+// (unauthenticated SSH tunnel, tool transfer of the tailcat binary, scp/ssh
+// ProxyCommand child chains, egress to Tailscale DERP relay infrastructure).
+// They intentionally do NOT reference F0RT1KA test paths, UUIDs, or harness
+// artifacts. Environments with a legitimate, sanctioned Tailscale/tailcat
+// deployment must tune with an allowlist (see per-query FP guidance).
+// Registry/service/scheduled-task queries are omitted by design: tailcat
+// abuse has no registry or persistence footprint in this technique.
+// ============================================================
+
+
+// ============================================================
+// Detection 1: Tailcat Unauthenticated SSH Server Execution
+// Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+// MITRE ATT&CK: T1572 (Protocol Tunneling), T1021.004 (Remote Services: SSH)
+// Confidence: High
+// ============================================================
+// Purpose: Detects `tailcat serve no-auth-ssh` — an internet-reachable,
+// unauthenticated SSH shell carried inside a WireGuard data plane via
+// Tailscale DERP relays. This subcommand combination has essentially no
+// legitimate enterprise use; it is the core Kothamine C2 listener behavior.
+// False Positives: Developers testing tailcat locally (rare). Tune by
+//   excluding known admin workstations or approved tailcat deployments.
+// Threshold: Any single occurrence should alert.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "tailcat.exe" or FileName =~ "tailcat"
+| where ProcessCommandLine has "serve" and ProcessCommandLine has "no-auth-ssh"
+| extend
+    Severity = "Critical",
+    ThreatType = "UnauthenticatedEncryptedC2Listener",
+    MitreAttack = "T1572, T1021.004",
+    TestID = "c37d6a01-3934-4e72-9cb1-3dae284b937b"
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    ProcessId, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 2: Tailcat Tool Transfer — Binary Drop to Non-Standard Path
+// Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+// MITRE ATT&CK: T1105 (Ingress Tool Transfer)
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects a tailcat binary (tailcat.exe / tailcat) written to or
+// executed from user-writable / non-standard locations (Temp, AppData,
+// Public, ProgramData, user profile roots, /tmp, /var/tmp, /dev/shm).
+// Kothamine fetches tailcat from GitHub releases at runtime and executes it
+// in place rather than installing it as a managed package.
+// False Positives: Manual developer downloads; portable Tailscale tooling.
+//   Tune by excluding known package-manager parent processes
+//   (winget.exe, msiexec.exe, apt, dnf) and sanctioned install paths.
+// Threshold: Any occurrence on a host without an approved Tailscale
+//   deployment should alert.
+// ============================================================
+let SuspiciousPaths = dynamic([
+    "\\Temp\\", "\\AppData\\", "\\Users\\Public\\", "\\ProgramData\\",
+    "\\Downloads\\", "/tmp/", "/var/tmp/", "/dev/shm/", "/home/"
+]);
+union DeviceFileEvents, DeviceProcessEvents
+| where FileName has "tailcat"
+| where FolderPath has_any (SuspiciousPaths)
+| extend
+    Severity = "High",
+    ThreatType = "IngressToolTransferTailcat",
+    MitreAttack = "T1105",
+    TestID = "c37d6a01-3934-4e72-9cb1-3dae284b937b"
+| project TimeGenerated, DeviceName, ActionType, FileName, FolderPath,
+    SHA256, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 3: Tailcat GitHub Release Download (Ingress Tool Transfer)
+// Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+// MITRE ATT&CK: T1105 (Ingress Tool Transfer)
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects HTTPS egress to github.com fetching tailcat release
+// archives (tailcat_*_windows_amd64.zip / tailcat_*_linux_amd64.tar.gz),
+// including the api.github.com/releases lookups Kothamine uses to resolve
+// the latest version. Correlates the network fetch with the archive file
+// landing on disk.
+// False Positives: Legitimate admin/developer downloads of tailcat.
+//   Tune by excluding sanctioned admin subnets/accounts.
+// Threshold: Alert when the requesting process is NOT a browser or a known
+//   package manager (scripted/runtime fetch is the attacker pattern).
+// ============================================================
+DeviceNetworkEvents
+| where RemoteUrl has "github.com"
+| where RemoteUrl has "tailcat"
+    or RemoteUrl has "tailscale/tailcat"
+| where InitiatingProcessFileName !in~ ("msedge.exe", "chrome.exe", "firefox.exe", "iexplore.exe", "brave.exe")
+| extend
+    Severity = "High",
+    ThreatType = "IngressToolTransferTailcatDownload",
+    MitreAttack = "T1105",
+    TestID = "c37d6a01-3934-4e72-9cb1-3dae284b937b"
+| project TimeGenerated, DeviceName, RemoteUrl, RemoteIP, RemotePort,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 4: Egress to Tailscale DERP Relay / tailcat Control Infrastructure
+// Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+// MITRE ATT&CK: T1572 (Protocol Tunneling), T1102 (Web Service)
+// Confidence: High (on hosts with no sanctioned Tailscale deployment)
+// ============================================================
+// Purpose: Detects DNS lookups and HTTPS/UDP egress to Tailscale DERP relay
+// infrastructure (derp*.tailscale.com, *.ipn.dev) and the tailcat DERP-map
+// endpoint (tailcat.dev/derpmap.json). tailcat bootstraps its WireGuard
+// tunnel through these internet relays; on a host with no legitimate
+// Tailscale deployment this is the highest-fidelity network signal of
+// Kothamine C2 tunneling.
+// False Positives: Hosts running sanctioned Tailscale agents. Tune by
+//   maintaining an allowlist of approved Tailscale hosts (DeviceName) —
+//   the control-plane hostnames are shared, so host scoping is the
+//   correct tuning dimension, NOT domain exclusion.
+// Threshold: Any occurrence on a non-allowlisted host should alert.
+// ============================================================
+union
+    (DeviceNetworkEvents
+        | where RemoteUrl has_any ("tailscale.com", "ipn.dev", "tailcat.dev", "login.tailscale.com")
+        | extend Indicator = RemoteUrl),
+    (DeviceEvents
+        | where ActionType == "DnsQueryResponse"
+        | extend Indicator = tostring(parse_json(AdditionalFields).DnsQueryString)
+        | where Indicator has_any ("tailscale.com", "ipn.dev", "tailcat.dev"))
+| extend
+    Severity = "High",
+    ThreatType = "EncryptedC2TunnelDERP",
+    MitreAttack = "T1572",
+    TestID = "c37d6a01-3934-4e72-9cb1-3dae284b937b"
+| project TimeGenerated, DeviceName, Indicator, RemoteIP, RemotePort,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 5: Tailcat Spawning System ssh/scp ProxyCommand Children
+// Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+// MITRE ATT&CK: T1572, T1021.004, T1041
+// Confidence: High
+// ============================================================
+// Purpose: tailcat implements its `ssh` and `cp` subcommands by driving the
+// SYSTEM ssh/scp clients via ProxyCommand — so a tailcat.exe parent spawning
+// ssh.exe / scp.exe children is inherent to the technique regardless of
+// tooling version. Also catches ssh/scp command lines containing tailcat
+// ProxyCommand strings.
+// False Positives: Extremely rare outside tailcat abuse; legitimate Tailscale
+//   SSH uses the tailscaled daemon, not ephemeral ssh.exe children of a
+//   standalone binary. Tune by excluding sanctioned tailcat hosts.
+// Threshold: Any single occurrence should alert.
+// ============================================================
+DeviceProcessEvents
+| where FileName in~ ("ssh.exe", "scp.exe", "sftp.exe", "ssh", "scp", "sftp")
+| where InitiatingProcessFileName has "tailcat"
+    or ProcessCommandLine has "tailcat"
+| extend
+    Severity = "High",
+    ThreatType = "ProxyCommandTunnelChildProcess",
+    MitreAttack = "T1572, T1021.004, T1041",
+    TestID = "c37d6a01-3934-4e72-9cb1-3dae284b937b"
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 6: Tailcat Bulk File Transfer (Collection + Exfiltration)
+// Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+// MITRE ATT&CK: T1005 (Data from Local System), T1041 (Exfiltration Over C2 Channel)
+// Confidence: Medium-High
+// ============================================================
+// Purpose: Detects `tailcat cp` / `tailcat recv` — tailcat's scp/SFTP-style
+// file transfer subcommands over the WireGuard/DERP tunnel. Also catches
+// scp.exe invoked with multiple document arguments (bulk staging pattern).
+// The `cp`/`recv` pair has no legitimate admin workflow on endpoints without
+// a tailcat deployment.
+// False Positives: Developers moving files with tailcat (rare in enterprise).
+//   Tune via sanctioned tailcat host allowlist.
+// Threshold: Any occurrence of tailcat cp/recv on a non-allowlisted host.
+// ============================================================
+DeviceProcessEvents
+| where (FileName has "tailcat"
+        and (ProcessCommandLine has " cp " or ProcessCommandLine has " recv "
+             or ProcessCommandLine has " tailcat cp" or ProcessCommandLine has " tailcat recv"))
+    or (FileName in~ ("scp.exe", "scp")
+        and ProcessCommandLine has "tailcat")
+| extend
+    Severity = "High",
+    ThreatType = "ExfiltrationOverEncryptedTunnel",
+    MitreAttack = "T1005, T1041",
+    TestID = "c37d6a01-3934-4e72-9cb1-3dae284b937b"
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 7: Behavioral Correlation — Full Kothamine Kill Chain (multi-indicator)
+// Test ID: c37d6a01-3934-4e72-9cb1-3dae284b937b
+// MITRE ATT&CK: T1105, T1572, T1041
+// Confidence: Very High (near-zero false positives)
+// ============================================================
+// Purpose: Correlates three tailcat behaviors on ONE device within a 1-hour
+// window: (a) tailcat binary downloaded/executed from a non-standard path,
+// (b) tailcat listener/transfer subcommand (serve/ssh/cp/recv), and
+// (c) egress to Tailscale DERP infrastructure. A single device exhibiting
+// all three is a high-confidence Kothamine intrusion regardless of binary
+// version or path.
+// False Positives: Effectively none outside sanctioned tailcat evaluation.
+// Threshold: score >= 3 (all three indicators on one device in the window).
+// ============================================================
+let Window = 1h;
+let ToolTransfer =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(Window)
+    | where FileName has "tailcat"
+    | summarize ToolTransfer = 1 by DeviceId, DeviceName;
+let TunnelUse =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(Window)
+    | where FileName has "tailcat"
+    | where ProcessCommandLine has_any ("serve", "no-auth-ssh", " ssh ", " cp ", " recv ")
+    | summarize TunnelUse = 1 by DeviceId;
+let DerpEgress =
+    DeviceNetworkEvents
+    | where TimeGenerated > ago(Window)
+    | where RemoteUrl has_any ("tailscale.com", "ipn.dev", "tailcat.dev")
+    | summarize DerpEgress = 1 by DeviceId;
+ToolTransfer
+| join kind=inner TunnelUse on DeviceId
+| join kind=inner DerpEgress on DeviceId
+| extend Score = ToolTransfer + TunnelUse + DerpEgress
+| where Score >= 3
+| extend
+    Severity = "Critical",
+    ThreatType = "KothamineTailcatKillChain",
+    MitreAttack = "T1105, T1572, T1041",
+    TestID = "c37d6a01-3934-4e72-9cb1-3dae284b937b"
+| project DeviceName, DeviceId, Score, Severity, ThreatType, MitreAttack

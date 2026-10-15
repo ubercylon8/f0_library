@@ -17,7 +17,7 @@ When the user asks to build/create/author a security test, attack simulation, or
 
 ## Settled operating defaults (agreed with user 2026-10-01)
 
-- **Platform**: Windows tests only for now (the `debian` and `mac` labs are offline; `win` is the active lab — Windows 11 Pro, Defender ON, SSH alias `win`).
+- **Platform**: `win` and `debian` labs are both active (verified 2026-10-14); `mac` remains offline. `win` — Windows 11 Pro, SSH alias `win` — is now protected by **CrowdStrike Falcon** (CSFalconService running; Windows Defender in passive mode, WinDefend/Sense stopped). `debian` (SSH alias `debian`, passwordless sudo) is the no-EDR behavior/smoke box — provision `/home/fortika-test` with `chmod 777` before Linux runs.
 - **Scoring rubric**: **v2.1** (`docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`). Note: `.claude/agents/sectest-documentation.md` still embeds the older v2 text — v2.1 wins where they differ.
 - **Branching — worktree per test, never touch the user's current branch**:
   ```bash
