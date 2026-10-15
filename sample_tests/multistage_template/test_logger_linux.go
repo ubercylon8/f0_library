@@ -63,8 +63,18 @@ func getOSVersion() string {
 	return "Linux " + strings.TrimSpace(string(output))
 }
 
+// Schema v2.0 enum: AMD64, x86, ARM64 — runtime.GOARCH uses different casing.
 func getArchitecture() string {
-	return runtime.GOARCH
+	switch runtime.GOARCH {
+	case "amd64":
+		return "AMD64"
+	case "386":
+		return "x86"
+	case "arm64":
+		return "ARM64"
+	default:
+		return runtime.GOARCH
+	}
 }
 
 func isDefenderRunning() bool {

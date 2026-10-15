@@ -81,6 +81,20 @@ Reference: `sample_tests/multistage_template/`
 - **126** (`Endpoint.ExecutionPrevented`) - Execution blocked/prevented
 - **999** (`Endpoint.UnexpectedTestError`) - Test error (prerequisites not met)
 
+**WARNING — vendored library quirk:** the vendored Prelude endpoint library maps
+`Endpoint.UnexpectedTestError` to exit code **1**, not 999
+(`preludeorg-libraries/go/tests/endpoint/endpoint.go`). Passing it to
+`Endpoint.Stop()` exits the process with 1. New tests MUST define and use an
+explicit constant instead (convention from `298cc137-ea39-4cf0-9b2d-b1c59a3cbacb`
+and `c37d6a01-3934-4e72-9cb1-3dae284b937b`):
+
+```go
+const ExitTestError = 999 // vendored endpoint lib maps UnexpectedTestError to 1 — do not use it
+```
+
+Existing tests that still use `Endpoint.UnexpectedTestError` are unaffected in
+PA (exit 1 maps to ERROR like 999) but produce a non-standard console exit code.
+
 **Exit Code Logic:**
 - Exit 126 = At least one critical protection layer worked
 - Exit 101 = All critical protections bypassed
