@@ -104,9 +104,9 @@ func main() {
 		Tactics:       []string{"command-and-control", "lateral-movement", "collection", "exfiltration"},
 		RubricVersion: "v2.1",
 		// Score assigned by the Phase-2 documentation agent under rubric v2.1
-		// (pre-lab estimate; 2c hard-capped at 1.5 until lab execution verifies
-		// all stages reached — projected ceiling 8.7 post-lab).
-		Score: 8.2,
+		// (post-lab: lab-verified 2026-10-14, all stages reached on Windows
+		// with CrowdStrike Falcon active and on Debian 13; exit 101).
+		Score: 8.7,
 		Tags:  []string{"multi-stage", "kothamine", "tailcat", "tailscale", "wireguard", "derp", "c2", "tunneling", "ssh", "exfiltration"},
 	}
 

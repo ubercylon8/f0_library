@@ -1,6 +1,6 @@
 # Kothamine Tailcat Encrypted C2 Channel and Data Exfiltration
 
-**Test Score**: **8.2/10**
+**Test Score**: **8.7/10**
 
 ## Overview
 Simulates the Kothamine malware family's use of Tailscale's `tailcat` utility (control-plane-less netcat over the WireGuard data plane) to establish an encrypted, internet-reachable C2 channel and exfiltrate data — as reported by Microsoft Threat Intelligence and Malwarebytes (2026-09-28). The test downloads the genuine pinned tailcat v0.7.0 binary from official GitHub releases (SHA256-verified), launches an unauthenticated SSH server over Tailscale DERP relays (`tailcat serve no-auth-ssh`), proves shell access back over the tunnel, then exfiltrates synthetic decoy data (canary-safe PII) to an in-test `tailcat recv` drop box with SHA256 content verification. Evaluates AV/EDR coverage of ingress tool transfer, protocol tunneling, SSH-over-tunnel remote access, and exfiltration over an encrypted C2 channel that bypasses traditional network inspection. Cross-platform: Windows and Linux.
@@ -28,6 +28,11 @@ Exit codes: **101** = all stages completed unimpeded (C2 established, data exfil
 ## Expected Outcomes
 - **Protected**: EDR/AV blocks or quarantines the tailcat binary or a stage binary, denies execution, or an egress control prevents GitHub/DERP-relay connectivity (exit 126/105/127 with positive evidence)
 - **Unprotected**: All three stages complete — tailcat tooling transferred, encrypted C2 tunnel established, unauthenticated SSH shell proven, decoy data exfiltrated and hash-verified (exit 101)
+
+## Lab Evidence (2026-10-14)
+- **Windows 11 Pro (x86_64), CrowdStrike Falcon Sensor active** (CSFalconService running; Windows Defender in passive mode — WinDefend/Sense stopped, real-time protection off): exit **101 UNPROTECTED**, full killchain in ~16 s, all 3 stages succeeded. Falcon did not block or quarantine any stage: tailcat v0.7.0 download from GitHub, `tailcat serve no-auth-ssh` via DERP region 301 (New York City), shell proof (`whoami=win-81o55oa6lo0\jimx`), and 5-file exfiltration (2,479 bytes, SHA256-verified) all completed. `test_execution_log.json` validates against Schema v2.0.
+- **Debian 13 (no EDR — behavior validation only)**: exit **101**, 3/3 stages in ~13 s.
+- Note: the lab evidence proves end-to-end execution and telemetry generation on both platforms; it does **not** measure the bundled detection rules firing in a SIEM (tenant-defense property, out of scope for v2.1 test scoring).
 
 ## Build Instructions
 ```bash
