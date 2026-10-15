@@ -66,6 +66,10 @@ const (
 // covers the slowest legitimate path without letting a hung child run forever.
 const stageTimeout = 240 * time.Second
 
+// ExitTestError is the F0RT1KA convention for test errors (999). The vendored
+// endpoint library maps UnexpectedTestError to 1 — do not use it.
+const ExitTestError = 999
+
 // Embedded gzip-compressed (and, on Windows, signed) stage binaries live in the
 // per-platform orchestrator_embed_*.go files:
 //   - stage1Compressed / stage2Compressed / stage3Compressed
@@ -124,8 +128,8 @@ func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Test panic: %v", r))
-			Endpoint.Stop(Endpoint.UnexpectedTestError)
+			SaveLog(ExitTestError, fmt.Sprintf("Test panic: %v", r))
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -190,8 +194,8 @@ func test() {
 		}
 		Endpoint.Say("")
 
-		SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("ARTIFACT_DIR prerequisite not met: %v", err))
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, fmt.Sprintf("ARTIFACT_DIR prerequisite not met: %v", err))
+		Endpoint.Stop(ExitTestError)
 	}
 	Endpoint.Say("    [+] %s is provisioned and writable", ARTIFACT_DIR)
 	Endpoint.Say("")
@@ -207,8 +211,8 @@ func test() {
 			Endpoint.Say("")
 			Endpoint.Say("FATAL: Failed to extract stage binary: %s", stage.BinaryName)
 			Endpoint.Say("    Error: %v", err)
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage extraction failed: %v", err))
-			Endpoint.Stop(Endpoint.UnexpectedTestError)
+			SaveLog(ExitTestError, fmt.Sprintf("Stage extraction failed: %v", err))
+			Endpoint.Stop(ExitTestError)
 		}
 	}
 
@@ -311,9 +315,9 @@ func test() {
 			Endpoint.Say("  - ARTIFACT_DIR (%s) not provisioned/writable", ARTIFACT_DIR)
 			Endpoint.Say("")
 
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Stage %d (%s) failed with exit code %d", stage.ID, stage.Technique, exitCode))
+			SaveLog(ExitTestError, fmt.Sprintf("Stage %d (%s) failed with exit code %d", stage.ID, stage.Technique, exitCode))
 			WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "c2", stageResults)
-			Endpoint.Stop(Endpoint.UnexpectedTestError)
+			Endpoint.Stop(ExitTestError)
 		}
 
 		stageResults[idx].ExitCode = exitCode

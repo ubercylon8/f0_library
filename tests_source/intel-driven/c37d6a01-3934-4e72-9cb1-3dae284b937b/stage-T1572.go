@@ -120,36 +120,32 @@ func runStage() (int, string) {
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("no-auth-ssh server published address after %s", time.Since(serverStarted).Round(time.Second)))
 
 	// --- Prove shell access over the tunnel (T1021.004) ---
+	// PROOF-FIRST: the stage succeeds the moment the expected identity line is
+	// captured from the tunnel — regardless of how the ssh client process
+	// ultimately exits. On Windows the ssh/ProxyCommand process can linger after
+	// printing the proof (inherited pipe handles), so runCapturedUntil returns
+	// on the match and force-kills the client with a bounded wait. Only when the
+	// proof was NOT captured do timeouts/errors map to 999 (never a block code).
 	fmt.Printf("[STAGE %s] Connecting back over the tunnel: tailcat ssh <addr> whoami\n", TECHNIQUE_ID)
 	ctx, cancel := context.WithTimeout(context.Background(), sshClientTimeout)
 	defer cancel()
-	out, code, runErr := runCaptured(ctx, "tailcat-ssh-client",
+	remoteWhoami, code, runErr := runCapturedUntil(ctx, "tailcat-ssh-client",
 		exec.CommandContext(ctx, tailcatPath(), "ssh", addr, "whoami"),
-		"tailcat_ssh_client_output.txt")
+		"tailcat_ssh_client_output.txt",
+		func(line string) bool { return strings.EqualFold(line, localWhoami) })
 
-	if runErr != nil {
-		return classifyExecError(runErr), fmt.Sprintf("tailcat ssh client could not run: %v", runErr)
-	}
-	if code != 0 {
-		if _, serr := os.Stat(tailcatPath()); os.IsNotExist(serr) {
-			return StageQuarantinedOnExec, "tailcat binary removed from disk mid-stage (os.Stat confirms quarantine)"
-		}
-		return StageError, fmt.Sprintf("tailcat ssh exited %d; output: %s", code, strings.TrimSpace(out))
-	}
-
-	// Windows whoami emits CRLF line endings; normalize and compare per line so
-	// trailing "\r\n" (or extra ssh chatter in the captured stream) can never
-	// poison an otherwise-positive proof.
-	remoteWhoami := ""
-	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && strings.EqualFold(line, localWhoami) {
-			remoteWhoami = line
-			break
-		}
-	}
 	if remoteWhoami == "" {
-		return StageError, fmt.Sprintf("remote whoami output %q does not match local identity %q — cannot confirm shell access", strings.TrimSpace(out), localWhoami)
+		// No proof captured — classify the failure.
+		if runErr != nil {
+			return classifyExecError(runErr), fmt.Sprintf("tailcat ssh client produced no identity proof: %v", runErr)
+		}
+		if code != 0 {
+			if _, serr := os.Stat(tailcatPath()); os.IsNotExist(serr) {
+				return StageQuarantinedOnExec, "tailcat binary removed from disk mid-stage (os.Stat confirms quarantine)"
+			}
+			return StageError, fmt.Sprintf("tailcat ssh exited %d without printing the expected identity %q", code, localWhoami)
+		}
+		return StageError, fmt.Sprintf("remote whoami output did not contain local identity %q — cannot confirm shell access", localWhoami)
 	}
 
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Remote shell verified over WireGuard tunnel: whoami=%q matches local %q", remoteWhoami, localWhoami))

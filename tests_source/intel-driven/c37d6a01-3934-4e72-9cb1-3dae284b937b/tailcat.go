@@ -200,6 +200,115 @@ func runCaptured(ctx context.Context, name string, cmd *exec.Cmd, logName string
 	return buf.String(), 0, nil
 }
 
+// runCapturedUntil runs cmd like runCaptured, but returns immediately when a
+// scanned output line satisfies match — the child is then force-killed with a
+// bounded wait. This exists for proof-driven client runs (tailcat ssh): the
+// ssh/ProxyCommand process can linger after printing the proof (inherited pipe
+// handles on Windows), and the evidence is already complete at that point, so
+// the caller must not block on the process's graceful exit.
+//
+// Return contract:
+//   - proof matched → (matchedLine, 0, nil), client already killed
+//   - process ended without a match → ("", exitCode, nil) or ("", 102, err) on timeout
+//   - launcher failure → ("", StageError, err)
+func runCapturedUntil(ctx context.Context, name string, cmd *exec.Cmd, logName string, match func(string) bool) (string, int, error) {
+	outPath := filepath.Join(LOG_DIR, logName)
+	var buf threadSafeBuffer
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", StageError, fmt.Errorf("failed to open stdout pipe: %v", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", StageError, fmt.Errorf("failed to open stderr pipe: %v", err)
+	}
+
+	outFile, ferr := os.Create(outPath)
+	if ferr != nil {
+		return "", StageError, fmt.Errorf("failed to create output log %s: %v", outPath, ferr)
+	}
+
+	matchCh := make(chan string, 1)
+	tee := func(r io.Reader) {
+		// Tee raw bytes to console+file+buffer; scan lines for the proof.
+		pr, pw := io.Pipe()
+		go io.Copy(io.MultiWriter(os.Stdout, outFile, &buf), pr)
+		go func() {
+			scanner := bufio.NewScanner(r)
+			for scanner.Scan() {
+				line := scanner.Text()
+				io.WriteString(pw, line+"\n")
+				// Normalize CRLF (Windows whoami) before matching.
+				clean := strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+				if clean != "" && match(clean) {
+					select {
+					case matchCh <- clean:
+					default:
+					}
+				}
+			}
+			pw.Close()
+		}()
+	}
+	tee(stdout)
+	tee(stderr)
+
+	cmd.WaitDelay = waitDelayBound
+	if err := cmd.Start(); err != nil {
+		outFile.Close()
+		LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, false, StageError, err.Error())
+		return "", StageError, err
+	}
+
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+		outFile.Close()
+	}()
+
+	killAndDrain := func() {
+		cmd.Process.Kill()
+		select {
+		case <-waitCh:
+		case <-time.After(waitDelayBound + 2*time.Second):
+		}
+	}
+
+	select {
+	case m := <-matchCh:
+		// Proof captured — the process's eventual exit status is irrelevant.
+		killAndDrain()
+		LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, true, 0, "proof captured; client force-killed after evidence")
+		return m, 0, nil
+	case werr := <-waitCh:
+		if ctx.Err() == context.DeadlineExceeded {
+			LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, false, 102, "execution timeout")
+			return "", 102, fmt.Errorf("%s execution exceeded timeout", name)
+		}
+		if werr == nil {
+			LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, true, 0, "")
+			return "", 0, nil
+		}
+		if errors.Is(werr, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+			code := cmd.ProcessState.ExitCode()
+			LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, code == 0, code, "pipe handles held by descendant past WaitDelay; using process exit code")
+			return "", code, nil
+		}
+		if exitErr, ok := werr.(*exec.ExitError); ok {
+			code := exitErr.ExitCode()
+			LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, false, code, exitErr.Error())
+			return "", code, nil
+		}
+		LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, false, StageError, werr.Error())
+		return "", StageError, werr
+	case <-ctx.Done():
+		killAndDrain()
+		LogProcessExecution(name, strings.Join(cmd.Args, " "), 0, false, 102, "execution timeout")
+		return "", 102, fmt.Errorf("%s execution exceeded timeout", name)
+	}
+}
+
 // threadSafeBuffer is a byte sink safe for concurrent writes from the
 // stdout/stderr tee goroutines.
 type threadSafeBuffer struct {

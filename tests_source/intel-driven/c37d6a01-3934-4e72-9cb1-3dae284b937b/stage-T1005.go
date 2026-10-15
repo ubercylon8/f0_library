@@ -164,17 +164,13 @@ func runStage() (int, string) {
 	out, code, runErr := runCaptured(ctx, "tailcat-cp",
 		exec.CommandContext(ctx, tailcatPath(), args...),
 		"tailcat_cp_output.txt")
-	if runErr != nil {
-		return classifyExecError(runErr), fmt.Sprintf("tailcat cp could not run: %v", runErr)
-	}
-	if code != 0 {
-		if _, serr := os.Stat(tailcatPath()); os.IsNotExist(serr) {
-			return StageQuarantinedOnExec, "tailcat binary removed from disk mid-stage (os.Stat confirms quarantine)"
-		}
-		return StageError, fmt.Sprintf("tailcat cp exited %d; output: %s", code, strings.TrimSpace(out))
-	}
 
-	// --- Verify: hash-set comparison at the receiver ---
+	// --- Verify FIRST: hash-set comparison at the receiver ---
+	// PROOF-FIRST: scp/tailcat can linger after the payload lands (inherited
+	// pipe handles on Windows, same class of bug as the ssh client in stage 2).
+	// If the receiver's inbox already holds every decoy hash, the exfiltration
+	// succeeded — regardless of how the cp process ultimately exited. Only when
+	// the content proof is missing do we classify the process outcome.
 	time.Sleep(2 * time.Second) // let the receiver finish flushing uploads
 	received, err := filepath.Glob(filepath.Join(inbox, "*"))
 	if err != nil {
@@ -200,6 +196,17 @@ func runStage() (int, string) {
 			len(decoys), ARTIFACT_DIR, matched, totalBytes, marker)
 		LogMessage("INFO", TECHNIQUE_ID, detail)
 		return StageSuccess, detail
+	}
+
+	// No content proof — classify the process outcome.
+	if runErr != nil {
+		return classifyExecError(runErr), fmt.Sprintf("tailcat cp produced no verified payload at the receiver: %v", runErr)
+	}
+	if code != 0 {
+		if _, serr := os.Stat(tailcatPath()); os.IsNotExist(serr) {
+			return StageQuarantinedOnExec, "tailcat binary removed from disk mid-stage (os.Stat confirms quarantine)"
+		}
+		return StageError, fmt.Sprintf("tailcat cp exited %d and %d/%d decoy hashes matched at the receiver; output: %s", code, matched, len(decoys), strings.TrimSpace(out))
 	}
 
 	// Transfer reported success but content is missing/mismatched — ambiguous,
