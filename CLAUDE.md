@@ -153,6 +153,8 @@ Full guide: `docs/TEST_RESULTS_SCHEMA_GUIDE.md`
 
 Details: `docs/DUAL_SIGNING_STRATEGY.md`
 
+**Multi-stage builds sign FAIL-LOUD (2026-10-15):** when a signing mode is active (local `signing-certs/` present, or `F0_SIGN_CERT_PATH` set by the PA build service), every `build_all.sh` must abort with `exit 1` if any stage/orchestrator binary cannot be signed or verified — never embed unsigned stage binaries (unsigned extracted stages are prime generic-AV-signature targets; incident: PA-shipped unsigned stage flagged as 'Filery' by Defender). Unsigned builds are only legitimate when no signing is configured at all (local dev), and the script must print a prominent warning in that case.
+
 ## PowerShell Development Guidelines
 
 All PowerShell scripts must:

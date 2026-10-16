@@ -133,64 +133,65 @@ sign_binary() {
         return 0
     fi
 
+    # Signing is FAIL-LOUD: once a signing mode is active, any failure to produce
+    # a signed binary aborts the build — never embed unsigned stage binaries
+    # (unsigned extracted stages are prime generic-AV-signature targets).
     if ! command -v osslsigncode &> /dev/null; then
-        print_warning "osslsigncode not installed — skipping signing for ${binary_name}"
-        return 0
+        print_error "osslsigncode not installed but signing is required (SIGN_MODE=${SIGN_MODE})"
+        print_error "Refusing to embed UNSIGNED stage binaries — install osslsigncode, or unset F0_SIGN_CERT_PATH to build unsigned explicitly"
+        exit 1
     fi
 
     local signed_binary="${binary}.signed"
+    rm -f "$signed_binary"
 
     if [ "$SIGN_MODE" = "projectachilles" ]; then
         if [ -z "$SIGN_PASS_FILE" ] || [ ! -f "$SIGN_PASS_FILE" ]; then
-            print_warning "Cert password file not found — skipping signing for ${binary_name}"
-            return 0
+            print_error "F0_SIGN_CERT_PASS_FILE missing/unreadable (${SIGN_PASS_FILE:-unset}) — cannot sign ${binary_name}"
+            exit 1
         fi
-        osslsigncode sign \
+        if ! osslsigncode sign \
             -pkcs12 "$SIGN_CERT" \
             -readpass "$SIGN_PASS_FILE" \
             -in "$binary" \
-            -out "$signed_binary" 2>/dev/null
+            -out "$signed_binary"; then
+            print_error "osslsigncode failed to sign ${binary_name} (SIGN_MODE=projectachilles, cert=${SIGN_CERT})"
+            exit 1
+        fi
     elif [ "$SIGN_MODE" = "f0library-org" ]; then
         if [ -n "$PROJECT_ROOT" ] && [ -f "${PROJECT_ROOT}/utils/codesign" ]; then
-            "${PROJECT_ROOT}/utils/codesign" sign-nested "$binary" "$SIGN_CERT" "${F0RTIKA_CERT:-}"
+            if ! "${PROJECT_ROOT}/utils/codesign" sign-nested "$binary" "$SIGN_CERT" "${F0RTIKA_CERT:-}"; then
+                print_error "codesign sign-nested failed for ${binary_name}"
+                exit 1
+            fi
             echo "    Dual-signed: ${binary_name}"
             return 0
-        else
-            print_warning "codesign utility not found — falling back to single signing"
         fi
-        local pass_file="${SIGN_CERT%.*}.pfx.txt"
-        if [ -f "$pass_file" ]; then
-            local password
-            password=$(tr -d '\n\r' < "$pass_file")
-            osslsigncode sign \
-                -pkcs12 "$SIGN_CERT" \
-                -pass "$password" \
-                -in "$binary" \
-                -out "$signed_binary" 2>/dev/null
-        else
-            print_warning "Cert password file not found for org cert — skipping"
-            return 0
-        fi
+        print_error "codesign utility not found at ${PROJECT_ROOT}/utils/codesign but dual signing was requested (--org)"
+        exit 1
     elif [ "$SIGN_MODE" = "f0library" ]; then
         if [ ! -f "$SIGN_PASS_FILE" ]; then
-            print_warning "Cert password file not found — skipping signing for ${binary_name}"
-            return 0
+            print_error "cert pass file missing (${SIGN_PASS_FILE}) — cannot sign ${binary_name}"
+            exit 1
         fi
         local password
         password=$(tr -d '\n\r' < "$SIGN_PASS_FILE")
-        osslsigncode sign \
+        if ! osslsigncode sign \
             -pkcs12 "$SIGN_CERT" \
             -pass "$password" \
             -in "$binary" \
-            -out "$signed_binary" 2>/dev/null
+            -out "$signed_binary"; then
+            print_error "osslsigncode failed to sign ${binary_name} (SIGN_MODE=f0library, cert=${SIGN_CERT})"
+            exit 1
+        fi
     fi
 
-    if [ $? -eq 0 ] && [ -f "$signed_binary" ]; then
+    if [ -f "$signed_binary" ]; then
         mv "$signed_binary" "$binary"
         echo "    Signed: ${binary_name}"
     else
-        rm -f "$signed_binary"
-        print_warning "Signing failed for ${binary_name} — continuing unsigned"
+        print_error "signing produced no output for ${binary_name} — refusing to continue with unsigned binaries"
+        exit 1
     fi
 }
 
@@ -203,6 +204,10 @@ echo "  Test UUID:  ${TEST_UUID}"
 echo "  Platform:   ${GOOS}/${GOARCH}"
 echo "  Signing:    ${SIGN_MODE}"
 echo "  Stages:     ${#STAGES[@]}"
+if [ "$SIGN_MODE" = "none" ]; then
+    print_warning "No signing configured — the Windows orchestrator AND its embedded stage binaries will be UNSIGNED"
+    print_warning "Unsigned embedded stages are prime generic-AV-signature targets. Set F0_SIGN_CERT_PATH (PA) or provide signing-certs/ (local)."
+fi
 
 print_step "0/8" "Validating environment..."
 if ! command -v go &> /dev/null; then
@@ -247,19 +252,21 @@ else
 fi
 
 print_step "4/8" "Verifying stage signatures..."
-if [ "$SIGN_MODE" != "none" ] && command -v osslsigncode &> /dev/null; then
+if [ "$SIGN_MODE" != "none" ]; then
+    command -v osslsigncode &> /dev/null || { print_error "osslsigncode unavailable for signature verification"; exit 1; }
     for stage in "${STAGES[@]}"; do
         IFS=':' read -r technique _ <<< "$stage"
         binary="${TEST_UUID}-${technique}.exe"
         if osslsigncode verify "${binary}" 2>&1 | grep -q "Message digest"; then
             echo "    Verified: ${binary}"
         else
-            print_warning "Could not verify signature for ${binary}"
+            print_error "stage binary ${binary} has NO valid signature — aborting (unsigned embedded binaries are forbidden)"
+            exit 1
         fi
     done
     print_success "Signature verification complete"
 else
-    echo "  Skipped (no signing or osslsigncode not installed)"
+    echo "  Skipped (no signing configured)"
 fi
 
 print_step "5/8" "Compressing signed binaries with gzip..."

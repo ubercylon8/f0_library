@@ -234,8 +234,12 @@ validate_environment() {
             print_error "codesign utility not found: ${PROJECT_ROOT}/utils/codesign"
             exit 1
         fi
+        # Signing is FAIL-LOUD on windows targets: osslsigncode is required by
+        # utils/codesign and by signature verification — never ship unsigned.
         if ! command -v osslsigncode &> /dev/null; then
-            print_warning "osslsigncode not installed - signature verification will be skipped"
+            print_error "osslsigncode not installed but signing is required for windows targets"
+            print_error "Refusing to embed UNSIGNED stage binaries — install osslsigncode, or build for a non-windows target explicitly"
+            exit 1
         fi
     fi
 
@@ -291,17 +295,25 @@ if [ "$GOOS" = "windows" ]; then
             IFS=':' read -r technique _ <<< "$stage_def"
             stage_binary="${TEST_UUID}-${technique}${EXT}"
             echo "  Dual-signing ${stage_binary}..."
-            "${PROJECT_ROOT}/utils/codesign" sign-nested "${stage_binary}" "${ORG_CERT_FILE}" "${SECONDARY_CERT}" || true
+            if ! "${PROJECT_ROOT}/utils/codesign" sign-nested "${stage_binary}" "${ORG_CERT_FILE}" "${SECONDARY_CERT}"; then
+                print_error "codesign sign-nested failed for ${stage_binary} — refusing to continue with unsigned binaries"
+                exit 1
+            fi
         done
         print_success "Dual-signed ${stage_count} stage binaries"
     else
         print_step "2/8" "Signing stage binaries (F0RT1KA)..."
+        [ -f "${PRIMARY_CERT}" ] || { print_error "cert not found (${PRIMARY_CERT}) — cannot sign stage binaries"; exit 1; }
+        [ -f "${PRIMARY_PASSWORD_FILE}" ] || { print_error "cert pass file missing (${PRIMARY_PASSWORD_FILE}) — cannot sign stage binaries"; exit 1; }
         PRIMARY_PASSWORD=$(cat "${PRIMARY_PASSWORD_FILE}" | tr -d '\n\r')
         for stage_def in "${STAGES[@]}"; do
             IFS=':' read -r technique _ <<< "$stage_def"
             stage_binary="${TEST_UUID}-${technique}${EXT}"
             echo "  Signing ${stage_binary}..."
-            "${PROJECT_ROOT}/utils/codesign" --cert "${PRIMARY_CERT}" --password "${PRIMARY_PASSWORD}" sign "${stage_binary}" || true
+            if ! "${PROJECT_ROOT}/utils/codesign" --cert "${PRIMARY_CERT}" --password "${PRIMARY_PASSWORD}" sign "${stage_binary}"; then
+                print_error "codesign failed to sign ${stage_binary} — refusing to continue with unsigned binaries"
+                exit 1
+            fi
         done
         print_success "Signed ${stage_count} stage binaries"
     fi
@@ -323,9 +335,11 @@ else
     print_warning "Signing skipped for ${GOOS} (no Authenticode for ELF binaries)"
 fi
 
-# Step 3: Verify signatures
+# Step 3: Verify signatures — FAIL-LOUD: a stage without a valid signature
+# after signing means the build ships unsigned embedded binaries.
 print_step "3/8" "Verifying stage signatures..."
-if [ "$GOOS" = "windows" ] && command -v osslsigncode &> /dev/null; then
+if [ "$GOOS" = "windows" ]; then
+    command -v osslsigncode &> /dev/null || { print_error "osslsigncode unavailable for signature verification"; exit 1; }
     for stage_def in "${STAGES[@]}"; do
         IFS=':' read -r technique _ <<< "$stage_def"
         stage_binary="${TEST_UUID}-${technique}${EXT}"
@@ -333,12 +347,13 @@ if [ "$GOOS" = "windows" ] && command -v osslsigncode &> /dev/null; then
         if osslsigncode verify "${stage_binary}" 2>&1 | grep -q "Message digest"; then
             echo "    Signature present and valid (self-signed cert)"
         else
-            print_warning "Could not verify signature for ${stage_binary}"
+            print_error "stage binary ${stage_binary} has NO valid signature — aborting (unsigned embedded binaries are forbidden)"
+            exit 1
         fi
     done
     print_success "All stage signatures verified"
 else
-    print_warning "Skipping signature verification (not applicable for ${GOOS} or osslsigncode not available)"
+    print_warning "Skipping signature verification (not applicable for ${GOOS})"
 fi
 
 # Step 4: Compress signed binaries with gzip
@@ -375,13 +390,25 @@ cd "${PROJECT_ROOT}"
 if [ "$GOOS" = "windows" ]; then
     if [ "$SIGNING_MODE" = "dual" ]; then
         print_step "6/8" "Dual-signing main binary (org + F0RT1KA)..."
-        "${PROJECT_ROOT}/utils/codesign" sign-nested "${main_binary}" "${ORG_CERT_FILE}" "${SECONDARY_CERT}" || true
+        if ! "${PROJECT_ROOT}/utils/codesign" sign-nested "${main_binary}" "${ORG_CERT_FILE}" "${SECONDARY_CERT}"; then
+            print_error "codesign sign-nested failed for ${main_binary} — refusing to ship an unsigned binary"
+            exit 1
+        fi
     else
         print_step "6/8" "Signing main binary (F0RT1KA)..."
-        "${PROJECT_ROOT}/utils/codesign" --cert "${PRIMARY_CERT}" --password "${PRIMARY_PASSWORD}" sign "${main_binary}" || true
+        if ! "${PROJECT_ROOT}/utils/codesign" --cert "${PRIMARY_CERT}" --password "${PRIMARY_PASSWORD}" sign "${main_binary}"; then
+            print_error "codesign failed to sign ${main_binary} — refusing to ship an unsigned binary"
+            exit 1
+        fi
     fi
-    if command -v osslsigncode &> /dev/null; then
-        osslsigncode verify "${main_binary}" > /dev/null 2>&1 || true
+
+    # FAIL-LOUD: the orchestrator must carry a valid signature after signing.
+    command -v osslsigncode &> /dev/null || { print_error "osslsigncode unavailable for signature verification"; exit 1; }
+    if osslsigncode verify "${main_binary}" 2>&1 | grep -q "Message digest"; then
+        echo "  Verified: ${main_binary}"
+    else
+        print_error "orchestrator ${main_binary} has NO valid signature — aborting (unsigned binaries are forbidden)"
+        exit 1
     fi
 elif [ "$GOOS" = "darwin" ]; then
     print_step "6/8" "Ad-hoc signing main binary (macOS)..."

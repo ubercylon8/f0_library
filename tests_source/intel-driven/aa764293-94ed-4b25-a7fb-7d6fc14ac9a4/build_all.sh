@@ -52,20 +52,31 @@ print_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 # The codesign utility can return a nonzero exit even when signing succeeds
 # (its summary logic over-counts). Sign success is therefore confirmed by
 # osslsigncode verify (presence of a "Message digest" line), not by exit code.
-# This helper signs then VERIFIES, aborting only if no signature actually landed.
+# This helper signs then VERIFIES.
+# FAIL-LOUD: this build always signs — if signing prerequisites are missing or no
+# valid signature lands, the build aborts rather than embed/ship unsigned binaries
+# (unsigned embedded payloads are prime generic-AV-signature targets).
 sign_and_verify() {
     local target="$1"
     if [ "$HAVE_SIGNING" != true ]; then
-        print_warning "  Skipped signing ${target} (no osslsigncode)"
-        return 0
+        print_error "osslsigncode not installed but signing is required — refusing to embed/ship UNSIGNED binaries"
+        exit 1
     fi
-    if [ -n "$ORG_CERT" ] && [ -f "${CODESIGN}" ]; then
+    if [ ! -f "${CODESIGN}" ]; then
+        print_error "codesign utility not found at ${CODESIGN} — cannot sign ${target}"
+        exit 1
+    fi
+    if [ ! -f "${F0RT1KA_CERT}" ]; then
+        print_error "F0RT1KA cert not found at ${F0RT1KA_CERT} — cannot sign ${target}"
+        exit 1
+    fi
+    if [ -n "$ORG_CERT" ]; then
         local org_pfx="${PROJECT_ROOT}/signing-certs/F0-LocalCodeSigningCert-CST-$(echo "$ORG_CERT" | tr '[:lower:]' '[:upper:]').pfx"
         if [ -f "$org_pfx" ]; then
             "${CODESIGN}" sign-nested "${target}" "${org_pfx}" "${F0RT1KA_CERT}" || true
         else
-            print_warning "  Org cert not found; F0RT1KA-only signing for ${target}"
-            "${CODESIGN}" --cert "${F0RT1KA_CERT}" sign "${target}" || true
+            print_error "Org cert not found (${org_pfx}) but dual signing was requested (--org ${ORG_CERT})"
+            exit 1
         fi
     else
         "${CODESIGN}" --cert "${F0RT1KA_CERT}" sign "${target}" || true
@@ -74,8 +85,8 @@ sign_and_verify() {
         print_success "  ${target} signed (verified)"
         return 0
     fi
-    print_error "  ${target} did not get a valid signature"
-    return 1
+    print_error "  ${target} did not get a valid signature — aborting (unsigned embedded binaries are forbidden)"
+    exit 1
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -97,11 +108,13 @@ if [ ! -f "${PAYLOAD_SRC}" ]; then
     exit 1
 fi
 
-HAVE_SIGNING=true
+# Signing is mandatory for this test — never embed an unsigned payload.
 if ! command -v osslsigncode &> /dev/null; then
-    print_warning "osslsigncode not installed — signing will be SKIPPED (payload embedded unsigned)"
-    HAVE_SIGNING=false
+    print_error "osslsigncode not installed but signing is required for this test"
+    print_error "Refusing to embed an UNSIGNED payload — install osslsigncode (brew/apt) and re-run"
+    exit 1
 fi
+HAVE_SIGNING=true
 
 # ------------------------------------------------------------------------------
 # Step 1: Sign the prebuilt payload (BEFORE embedding)
