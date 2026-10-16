@@ -117,11 +117,16 @@ sign_binary() {
     local binary="$1"
     local binary_name=$(basename "$binary")
 
+    # Ad-hoc signing is FAIL-LOUD: when codesign is available, any failure to
+    # sign aborts the build — never embed unsigned validator binaries.
     if command -v codesign &> /dev/null; then
-        codesign -s - --force "$binary" 2>/dev/null
+        if ! codesign -s - --force "$binary"; then
+            print_error "codesign failed to ad-hoc sign ${binary_name} — refusing to continue with unsigned binaries"
+            exit 1
+        fi
         echo "    Ad-hoc signed: ${binary_name}"
     else
-        print_warning "codesign not available — skipping signing for ${binary_name}"
+        print_warning "codesign not available — skipping signing for ${binary_name} (expected on non-macOS build hosts)"
     fi
 }
 
@@ -233,7 +238,8 @@ for vdef in "${VALIDATORS[@]}"; do
 done
 print_success "Validator signing complete"
 
-# Step 3: Verify signatures
+# Step 3: Verify signatures — FAIL-LOUD: when codesign is available, a validator
+# without a valid signature after signing means the build ships unsigned binaries.
 print_step "3/7" "Verifying validator signatures..."
 if command -v codesign &> /dev/null; then
     for vdef in "${VALIDATORS[@]}"; do
@@ -242,7 +248,8 @@ if command -v codesign &> /dev/null; then
         if codesign -v "${binary}" 2>/dev/null; then
             echo "    Verified: ${binary}"
         else
-            print_warning "Signature verification failed for ${binary}"
+            print_error "validator binary ${binary} has NO valid signature — aborting (unsigned embedded binaries are forbidden)"
+            exit 1
         fi
     done
     print_success "Signature verification complete"
