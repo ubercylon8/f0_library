@@ -636,11 +636,11 @@ func main() {
 		Score:         8.0,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Uses real WMI commands, potential for wmiexec-Pro
-			TechnicalSophistication: 2.0, // Multiple WMI patterns tested
-			SafetyMechanisms:        2.0, // Local operations only, benign markers
-			DetectionOpportunities:  1.0, // 5+ detection points documented
-			LoggingObservability:    0.5, // Comprehensive logging
+			APIFidelity:              2.5, // Uses real WMI commands, potential for wmiexec-Pro
+			IdentifierFidelity:       2.0, // Multiple WMI patterns tested
+			TelemetrySignalQuality:   2.0, // Local operations only, benign markers
+			ExecutionContextFidelity: 1.0, // 5+ detection points documented
+			SchemaMetadata:           0.5, // Comprehensive logging
 		},
 		Tags: []string{"wmi", "wmic", "process-creation", "native", "stealthy"},
 	}

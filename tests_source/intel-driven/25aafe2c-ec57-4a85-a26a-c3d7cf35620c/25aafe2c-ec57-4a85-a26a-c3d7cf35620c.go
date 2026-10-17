@@ -90,11 +90,11 @@ func main() {
 		Score:         9.6,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8,
-			TechnicalSophistication: 3.0,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.8,
+			APIFidelity:              2.8,
+			IdentifierFidelity:       3.0,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 1.0,
+			SchemaMetadata:           0.8,
 		},
 		Tags: []string{"multi-stage", "esxi", "hypervisor", "vmware", "ransomware", "vm-kill", "snapshot-deletion", "rclone", "chacha20", "ssh-snake", "linux"},
 	}

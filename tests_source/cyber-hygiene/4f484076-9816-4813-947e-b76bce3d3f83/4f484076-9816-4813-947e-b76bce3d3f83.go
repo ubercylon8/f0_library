@@ -103,11 +103,11 @@ func main() {
 		Score:         9.2,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8,
-			TechnicalSophistication: 3.0,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.7,
-			LoggingObservability:    0.7,
+			APIFidelity:              2.8,
+			IdentifierFidelity:       3.0,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 0.7,
+			SchemaMetadata:           0.7,
 		},
 		Tags: []string{
 			"entra-id", "mfa", "conditional-access", "pim",

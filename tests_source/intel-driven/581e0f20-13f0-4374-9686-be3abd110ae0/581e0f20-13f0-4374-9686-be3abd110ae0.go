@@ -134,11 +134,11 @@ func main() {
 		Score:         9.0,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8,
-			TechnicalSophistication: 3.0,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.7,
-			LoggingObservability:    1.0,
+			APIFidelity:              2.8,
+			IdentifierFidelity:       3.0,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 0.7,
+			SchemaMetadata:           1.0,
 		},
 		Tags: []string{"multi-stage", "bitlocker", "ransomware", "vhd-isolation", "encryption"},
 	}

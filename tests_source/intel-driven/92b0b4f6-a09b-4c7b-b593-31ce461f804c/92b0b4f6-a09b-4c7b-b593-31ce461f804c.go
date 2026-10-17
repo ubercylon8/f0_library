@@ -86,11 +86,11 @@ func main() {
 		Score:         9.4,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.9,
-			TechnicalSophistication: 2.8,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.7,
+			APIFidelity:              2.9,
+			IdentifierFidelity:       2.8,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 1.0,
+			SchemaMetadata:           0.7,
 		},
 		Tags: []string{"multi-stage", "fileless", "powershell", "browser-credentials", "credential-theft", "telegram-c2", "persistence", "apt42", "magic-hound", "tamecat"},
 	}

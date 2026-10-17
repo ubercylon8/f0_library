@@ -770,11 +770,11 @@ func main() {
 		Score:         8.5,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8, // Real tool (Rubeus), native Windows commands
-			TechnicalSophistication: 2.5, // Multiple techniques, Kerberos operations
-			SafetyMechanisms:        1.5, // Read-only enumeration, no credential extraction
-			DetectionOpportunities:  1.0, // 8+ detection points
-			LoggingObservability:    0.7, // Comprehensive logging with Schema v2.0
+			APIFidelity:              2.8, // Real tool (Rubeus), native Windows commands
+			IdentifierFidelity:       2.5, // Multiple techniques, Kerberos operations
+			TelemetrySignalQuality:   1.5, // Read-only enumeration, no credential extraction
+			ExecutionContextFidelity: 1.0, // 8+ detection points
+			SchemaMetadata:           0.7, // Comprehensive logging with Schema v2.0
 		},
 		Tags: []string{"local-accounts", "enumeration", "kerberos", "rubeus", "native-tools"},
 	}

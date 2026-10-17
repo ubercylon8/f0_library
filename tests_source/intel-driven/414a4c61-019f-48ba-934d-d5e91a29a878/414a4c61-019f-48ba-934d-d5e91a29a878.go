@@ -87,11 +87,11 @@ func main() {
 		Score:         9.2,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       3.0,
-			TechnicalSophistication: 2.8,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  1.0,
-			LoggingObservability:    0.4,
+			APIFidelity:              3.0,
+			IdentifierFidelity:       2.8,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 1.0,
+			SchemaMetadata:           0.4,
 		},
 		Tags: []string{"powershell", "domain-fronting", "azure", "cloud-c2", "rust-backdoor", "pdf-lure", "unk-robotdreams", "multi-stage", "killchain"},
 	}

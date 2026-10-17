@@ -868,11 +868,11 @@ func main() {
 		Score:         8.5,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Real tool (Seatbelt with 60+ checks), realistic enumeration
-			TechnicalSophistication: 2.5, // Multiple techniques, comprehensive enumeration
-			SafetyMechanisms:        2.0, // Creates own test files, read-only enumeration, full cleanup
-			DetectionOpportunities:  1.0, // 7+ detection points
-			LoggingObservability:    0.5, // Comprehensive logging with output capture
+			APIFidelity:              2.5, // Real tool (Seatbelt with 60+ checks), realistic enumeration
+			IdentifierFidelity:       2.5, // Multiple techniques, comprehensive enumeration
+			TelemetrySignalQuality:   2.0, // Creates own test files, read-only enumeration, full cleanup
+			ExecutionContextFidelity: 1.0, // 7+ detection points
+			SchemaMetadata:           0.5, // Comprehensive logging with output capture
 		},
 		Tags: []string{"file-discovery", "enumeration", "pre-encryption", "seatbelt", "native"},
 	}

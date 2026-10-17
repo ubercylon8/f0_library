@@ -241,11 +241,11 @@ func main() {
 		Score:         8.9,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.6,
-			TechnicalSophistication: 2.7,
-			SafetyMechanisms:        1.7,
-			DetectionOpportunities:  0.9,
-			LoggingObservability:    1.0,
+			APIFidelity:              2.6,
+			IdentifierFidelity:       2.7,
+			TelemetrySignalQuality:   1.7,
+			ExecutionContextFidelity: 0.9,
+			SchemaMetadata:           1.0,
 		},
 		Tags: []string{"akira", "byovd", "vulnerable-driver", "defender-tampering"},
 	}

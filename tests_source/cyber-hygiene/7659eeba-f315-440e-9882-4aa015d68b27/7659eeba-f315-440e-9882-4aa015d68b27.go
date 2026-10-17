@@ -103,11 +103,11 @@ func main() {
 		Score:         8.7,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.7,
-			TechnicalSophistication: 2.5,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.5,
-			LoggingObservability:    1.0,
+			APIFidelity:              2.7,
+			IdentifierFidelity:       2.5,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 0.5,
+			SchemaMetadata:           1.0,
 		},
 		Tags: []string{"cyber-hygiene", "identity", "entra-id", "whfb", "mdm", "intune", "bitlocker", "prt", "device-join"},
 	}

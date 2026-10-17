@@ -516,11 +516,11 @@ func main() {
 		Score:         7.5,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.0, // Uses real PowerShell patterns
-			TechnicalSophistication: 2.0, // Multiple pattern types
-			SafetyMechanisms:        2.0, // Only creates marker files
-			DetectionOpportunities:  1.0, // 4 distinct detection points
-			LoggingObservability:    0.5, // Good logging
+			APIFidelity:              2.0, // Uses real PowerShell patterns
+			IdentifierFidelity:       2.0, // Multiple pattern types
+			TelemetrySignalQuality:   2.0, // Only creates marker files
+			ExecutionContextFidelity: 1.0, // 4 distinct detection points
+			SchemaMetadata:           0.5, // Good logging
 		},
 		Tags: []string{"powershell", "amsi", "base64", "download-cradle", "native"},
 	}

@@ -1322,11 +1322,11 @@ func main() {
 		Score:         9.3,
 		RubricVersion: "v1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8,
-			TechnicalSophistication: 2.8,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.9,
-			LoggingObservability:    0.8,
+			APIFidelity:              2.8,
+			IdentifierFidelity:       2.8,
+			TelemetrySignalQuality:   2.0,
+			ExecutionContextFidelity: 0.9,
+			SchemaMetadata:           0.8,
 		},
 		Tags: []string{
 			"osascript", "keychain-dumping", "credential-phishing",

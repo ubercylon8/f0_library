@@ -117,13 +117,18 @@ type TestMetadata struct {
 	CobitObjectives []string `json:"cobitObjectives,omitempty"` // COBIT 2019 management objectives (e.g., ["DSS05.04"])
 }
 
-// ScoreBreakdown provides detailed test quality scoring
+// ScoreBreakdown provides detailed test quality scoring (v2.1 sub-dimensions)
 type ScoreBreakdown struct {
-	RealWorldAccuracy       float64 `json:"realWorldAccuracy"`       // 0-3
-	TechnicalSophistication float64 `json:"technicalSophistication"` // 0-3
-	SafetyMechanisms        float64 `json:"safetyMechanisms"`        // 0-2
-	DetectionOpportunities  float64 `json:"detectionOpportunities"`  // 0-1
-	LoggingObservability    float64 `json:"loggingObservability"`    // 0-1
+	// Realism sub-dimensions (0–7 total)
+	APIFidelity              float64 `json:"apiFidelity"`              // 0-2.5 (2a: API surface accuracy)
+	IdentifierFidelity       float64 `json:"identifierFidelity"`       // 0-1.5 (2b: identifier/artefact accuracy)
+	TelemetrySignalQuality   float64 `json:"telemetrySignalQuality"`   // 0-2.0 (2c: signal richness & detectability)
+	ExecutionContextFidelity float64 `json:"executionContextFidelity"` // 0-1.0 (2d: user/admin/SYSTEM branching)
+	// Structure sub-dimensions (0–3 total)
+	SchemaMetadata            float64 `json:"schemaMetadata"`            // 0-1.0 (3a: schema compliance)
+	DocumentationCompleteness float64 `json:"documentationCompleteness"` // 0-1.0 (3b: docs completeness)
+	LoggingPlumbing           float64 `json:"loggingPlumbing"`           // 0-0.5 (3c: logging implementation)
+	OperationalHygiene        float64 `json:"operationalHygiene"`        // 0-0.5 (3d: size/watchdog/budget discipline)
 }
 
 // ExecutionContext provides execution environment details
