@@ -1,0 +1,157 @@
+# ============================================================================
+# Sigma Detection Rules — 3CX 3CXDesktopApp Cascading Supply-Chain Compromise
+# Test ID: 56475cb3-febc-45ac-a0af-39bc5ca1c15f
+# MITRE ATT&CK: T1195.002, T1574.002, T1497, T1027.003, T1071.001, T1555.003
+# Threat Actor: Lazarus / UNC4736 (DPRK)
+# Format: vendor-agnostic Sigma (multi-document)
+# ============================================================================
+# Rules target real 3CX/Lazarus technique behavior, NOT F0RT1KA test artifacts
+# (no test UUID, no "F0RT1KA"/"fortika-test", no decoy sentinel strings).
+# ============================================================================
+---
+title: 3CX-style DLL Side-Load of Companion DLL from User-Writable Path
+id: 6f1a2b30-3cx1-4a11-9b01-56475cb3febc
+status: experimental
+description: >
+  Detects a code-signed application loading d3dcompiler_47.dll or ffmpeg.dll
+  from a user-writable directory outside Program Files / Windows — the 3CX
+  supply-chain side-load primitive (trusted signed app loads untrusted DLL).
+references:
+  - https://www.mandiant.com/resources/blog/3cx-software-supply-chain-compromise
+author: F0RT1KA Security Test Builder
+date: 2026-07-07
+tags:
+  - attack.defense-evasion
+  - attack.t1574.002
+  - attack.t1195.002
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection:
+    ImageLoaded|endswith:
+      - '\d3dcompiler_47.dll'
+      - '\ffmpeg.dll'
+  filter_trusted_paths:
+    ImageLoaded|startswith:
+      - 'C:\Windows\'
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+  writable:
+    ImageLoaded|contains:
+      - '\Users\'
+      - '\AppData\'
+      - '\ProgramData\'
+      - '\Temp\'
+      - '\Public\'
+  condition: selection and writable and not filter_trusted_paths
+falsepositives:
+  - Portable apps bundling runtime DLLs in a user directory
+level: high
+---
+title: Non-Browser Process Reading Multiple Browser Credential Stores
+id: 7a2b3c40-3cx2-4b22-8c02-56475cb3febc
+status: experimental
+description: >
+  Detects a non-browser process accessing browser credential/history stores
+  across Chrome, Edge, Brave and Firefox — the ICONIC infostealer collection
+  pattern used in the 3CX intrusion.
+references:
+  - https://www.volexity.com/blog/2023/03/30/3cx-supply-chain-compromise-leads-to-iconic-incident/
+author: F0RT1KA Security Test Builder
+date: 2026-07-07
+tags:
+  - attack.credential-access
+  - attack.t1555.003
+  - attack.t1217
+logsource:
+  category: file_access
+  product: windows
+detection:
+  selection_files:
+    TargetFilename|endswith:
+      - '\Login Data'
+      - '\Web Data'
+      - '\Cookies'
+      - '\logins.json'
+      - '\key4.db'
+  selection_paths:
+    TargetFilename|contains:
+      - '\Google\Chrome\User Data'
+      - '\Microsoft\Edge\User Data'
+      - '\BraveSoftware\Brave-Browser\User Data'
+      - '\Mozilla\Firefox\Profiles'
+  filter_browsers:
+    Image|endswith:
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\firefox.exe'
+      - '\brave.exe'
+  condition: (selection_files or selection_paths) and not filter_browsers
+falsepositives:
+  - Backup or sync agents that legitimately read browser profiles
+level: high
+---
+title: Desktop Application Retrieving ICO Resource from GitHub CDN
+id: 8b3c4d50-3cx3-4c33-9d03-56475cb3febc
+status: experimental
+description: >
+  Detects a non-browser process performing an HTTPS request for a .ico file to
+  raw.githubusercontent.com — the 3CX second-stage steganographic config
+  retrieval (icon files with appended AES config in the IconStorages repo).
+references:
+  - https://www.mandiant.com/resources/blog/3cx-software-supply-chain-compromise
+author: F0RT1KA Security Test Builder
+date: 2026-07-07
+tags:
+  - attack.command-and-control
+  - attack.t1071.001
+  - attack.t1027.003
+logsource:
+  category: proxy
+detection:
+  selection:
+    c-uri|contains: 'raw.githubusercontent.com'
+    c-uri|endswith: '.ico'
+  filter_browsers:
+    c-useragent|contains:
+      - 'Mozilla'
+      - 'Chrome'
+      - 'Edg'
+      - 'Firefox'
+  condition: selection and not filter_browsers
+falsepositives:
+  - Developer tooling fetching icons from GitHub
+level: medium
+---
+title: Non-System Process Fingerprinting Hypervisor Artifacts
+id: 9c4d5e60-3cx4-4d44-8e04-56475cb3febc
+status: experimental
+description: >
+  Detects a non-system process reading multiple hypervisor / sandbox artifact
+  registry keys (BIOS strings, virtual disk enum, guest-additions services) —
+  the pre-beacon sandbox-evasion fingerprint before the 3CX dormancy period.
+references:
+  - https://attack.mitre.org/techniques/T1497/
+author: F0RT1KA Security Test Builder
+date: 2026-07-07
+tags:
+  - attack.defense-evasion
+  - attack.t1497
+logsource:
+  category: registry_event
+  product: windows
+detection:
+  selection:
+    TargetObject|contains:
+      - 'HARDWARE\DESCRIPTION\System\BIOS'
+      - 'CurrentControlSet\Services\Disk\Enum'
+      - 'CurrentControlSet\Services\VBoxGuest'
+      - 'CurrentControlSet\Services\vmtools'
+      - 'CurrentControlSet\Services\vmci'
+  filter_system:
+    Image|startswith: 'C:\Windows\'
+  condition: selection and not filter_system
+falsepositives:
+  - Legitimate inventory / asset-management agents
+level: low

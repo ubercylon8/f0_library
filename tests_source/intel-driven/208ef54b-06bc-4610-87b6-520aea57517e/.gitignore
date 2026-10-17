@@ -1,0 +1,10 @@
+# MANUAL BUILD ASSET — never commit the vendor MSI (licensing / redistribution).
+# The user stages this out-of-band before building. See README.md "Manual Build Gate".
+screenconnect_embedded.msi
+*.msi
+
+# Build artifacts / intermediate signed+compressed stage binaries
+build/
+*.exe
+*.exe.gz
+*.signed

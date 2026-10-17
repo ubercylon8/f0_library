@@ -1,0 +1,140 @@
+// ============================================================================
+// Detection Rules (KQL) — Microsoft Sentinel / Microsoft 365 Defender (Advanced Hunting)
+// Test: ScreenConnect Unsanctioned RMM Abuse for Third-Party Access
+// UUID: 208ef54b-06bc-4610-87b6-520aea57517e
+// Techniques: T1199, T1219, T1543.003, T1567.002
+// Threat actor: Black Basta (RMM abuse; mass-exploited post CVE-2024-1709)
+//
+// DETECTION PHILOSOPHY (read first):
+//   ScreenConnect (ConnectWise) is a LEGITIMATE, vendor-signed RMM tool. Do NOT
+//   block/alert on the vendor binary hash or signer — that produces noise and
+//   breaks sanctioned IT usage. These rules detect the ANOMALOUS behavior of an
+//   UNSANCTIONED RMM being installed and used for third-party access:
+//     - silent MSI install of an RMM not deployed by your IT/RMM tooling
+//     - creation of a "ScreenConnect Client (<instance-id>)" Windows service
+//     - agent relay egress from a host with no sanctioned RMM
+//     - follow-on collection + cloud-storage exfil over the RMM foothold
+//   Tune each rule with an allow-list of YOUR sanctioned RMM instance-ids / relay
+//   hosts / deploying accounts. If ScreenConnect is NOT your sanctioned RMM,
+//   any hit is high-signal.
+//
+// NOTE: the F0RT1KA test uses unreachable RFC2606 .invalid relay/exfil hosts and
+//   a c:\Users\fortika-test decoy path — those are TEST SCAFFOLDING for lab
+//   validation only, NOT the production IOCs. They appear at the bottom as an
+//   optional "test validation" query.
+// ============================================================================
+
+
+// ----------------------------------------------------------------------------
+// 1. T1219 — Silent RMM MSI install via msiexec (/qn) of a ScreenConnect package
+//    Detonation signal: an unattended msiexec install of a remote-access agent.
+// ----------------------------------------------------------------------------
+DeviceProcessEvents
+| where Timestamp > ago(24h)
+| where FileName =~ "msiexec.exe"
+| where ProcessCommandLine has_any ("/qn", "/quiet", "/passive")
+| where ProcessCommandLine has_any ("screenconnect", "ScreenConnect", "connectwise", ".ScreenConnect.", "screenconnect-setup")
+| where ProcessCommandLine has_any ("/i ", "/I ", "/package")
+// Exclude your sanctioned RMM deployment path / account here:
+// | where InitiatingProcessAccountName !in ("svc-rmm-deploy")
+// | where ProcessCommandLine !contains "\\SanctionedRMM\\"
+| project Timestamp, DeviceName, AccountName=InitiatingProcessAccountName,
+          InitiatingProcessFileName, ProcessCommandLine, ReportId
+| order by Timestamp desc
+
+
+// ----------------------------------------------------------------------------
+// 2. T1543.003 — New Windows service named "ScreenConnect Client (<instance-id>)"
+//    Service creation is the durable-access signal. The instance-id in the name
+//    ties the service to a specific ScreenConnect relay/instance.
+// ----------------------------------------------------------------------------
+DeviceEvents
+| where Timestamp > ago(24h)
+| where ActionType in ("ServiceInstalled", "PnPDeviceConnected") or ActionType == "ServiceInstalled"
+| extend svc = tostring(parse_json(AdditionalFields).ServiceName)
+| where svc startswith "ScreenConnect Client" or AdditionalFields has "ScreenConnect Client"
+// Allow-list your sanctioned instance-id(s):
+// | where svc !has "(your-sanctioned-instance-id)"
+| project Timestamp, DeviceName, ServiceName=svc, InitiatingProcessFileName,
+          InitiatingProcessAccountName, ReportId
+| order by Timestamp desc
+
+
+// ----------------------------------------------------------------------------
+// 2b. T1543.003 — Fallback via Windows Security event 4697 / System 7045
+//     (use if service-install telemetry lands in event tables rather than DeviceEvents)
+// ----------------------------------------------------------------------------
+// SecurityEvent
+// | where EventID == 4697
+// | where ServiceName startswith "ScreenConnect Client"
+// | project TimeGenerated, Computer, ServiceName, ServiceFileName, SubjectUserName
+//
+// Event
+// | where Source == "Service Control Manager" and EventID == 7045
+// | where RenderedDescription has "ScreenConnect Client"
+// | project TimeGenerated, Computer, RenderedDescription
+
+
+// ----------------------------------------------------------------------------
+// 3. T1219 — ScreenConnect agent relay egress
+//    The agent process reaching out to a ScreenConnect relay on 443/8041.
+//    High-signal on any host where ScreenConnect is NOT your sanctioned RMM.
+// ----------------------------------------------------------------------------
+DeviceNetworkEvents
+| where Timestamp > ago(24h)
+| where InitiatingProcessFileName has_any ("ScreenConnect.ClientService.exe", "ScreenConnect.WindowsClient.exe", "ScreenConnect")
+   or RemoteUrl has_any ("screenconnect.com", ".screenconnect.com")
+| where RemotePort in (443, 8041)
+// Allow-list your sanctioned relay host(s):
+// | where RemoteUrl !endswith "your-instance.screenconnect.com"
+| project Timestamp, DeviceName, InitiatingProcessFileName, RemoteUrl, RemoteIP,
+          RemotePort, InitiatingProcessAccountName, ReportId
+| order by Timestamp desc
+
+
+// ----------------------------------------------------------------------------
+// 4. Correlation — RMM install FOLLOWED BY relay egress on the same host
+//    within 30 minutes (unsanctioned-RMM chain: install -> beacon).
+// ----------------------------------------------------------------------------
+let installs =
+    DeviceProcessEvents
+    | where Timestamp > ago(24h)
+    | where FileName =~ "msiexec.exe" and ProcessCommandLine has_any ("screenconnect","connectwise")
+    | project InstallTime=Timestamp, DeviceId, DeviceName;
+let beacons =
+    DeviceNetworkEvents
+    | where Timestamp > ago(24h)
+    | where InitiatingProcessFileName has "ScreenConnect" or RemoteUrl has "screenconnect.com"
+    | project BeaconTime=Timestamp, DeviceId, RemoteUrl, RemotePort;
+installs
+| join kind=inner beacons on DeviceId
+| where BeaconTime between (InstallTime .. (InstallTime + 30m))
+| project DeviceName, InstallTime, BeaconTime, RemoteUrl, RemotePort
+| order by InstallTime desc
+
+
+// ----------------------------------------------------------------------------
+// 5. T1567.002 — Follow-on collection + cloud-storage exfil from the RMM foothold
+//    Archive creation of collected data + upload egress. Tune archive/upload
+//    detections to your data-staging baselines.
+// ----------------------------------------------------------------------------
+DeviceFileEvents
+| where Timestamp > ago(24h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".zip" or FileName endswith ".7z" or FileName endswith ".rar"
+| where InitiatingProcessFileName has_any ("ScreenConnect", "powershell.exe", "cmd.exe")
+      or FolderPath has_any ("ScreenConnect", @"\Temp\")
+| project Timestamp, DeviceName, FolderPath, FileName, InitiatingProcessFileName,
+          InitiatingProcessAccountName, ReportId
+| order by Timestamp desc
+
+
+// ----------------------------------------------------------------------------
+// 6. (OPTIONAL) F0RT1KA TEST-ENVIRONMENT VALIDATION ONLY — not a production IOC
+//    Confirms the lab test fired. Do NOT deploy as a production alert.
+// ----------------------------------------------------------------------------
+// DeviceFileEvents
+// | where Timestamp > ago(6h)
+// | where FolderPath has @"C:\F0\" and FileName in ("screenconnect-setup.msi","collected_export.zip")
+//    or FolderPath has @"\Users\fortika-test\shared_finance_export"
+// | project Timestamp, DeviceName, FolderPath, FileName, InitiatingProcessFileName

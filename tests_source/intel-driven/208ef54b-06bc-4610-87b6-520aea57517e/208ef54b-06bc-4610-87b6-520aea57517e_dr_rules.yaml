@@ -1,0 +1,164 @@
+# ============================================================
+# F0RT1KA LimaCharlie Detection & Response Rules
+# Test ID: 208ef54b-06bc-4610-87b6-520aea57517e
+# Test Name: ScreenConnect Unsanctioned RMM Abuse for Third-Party Access
+# MITRE ATT&CK: T1199, T1219, T1543.003, T1567.002
+# Threat actor: Black Basta (RMM abuse; CVE-2024-1709 mass exploitation)
+# Author: sectest-builder
+# Date: 2026-07-07
+# Format: File format (for `limacharlie dr add` or config push)
+#
+# DETECTION PHILOSOPHY: ScreenConnect is a legitimate vendor-signed RMM. These
+# rules "report" (do NOT auto-quarantine the vendor binary) on the ANOMALOUS
+# behaviors of unsanctioned RMM install/service/relay/exfil. Add your sanctioned
+# RMM instance-id / relay host / deploy account to a false-positive filter before
+# enabling any responsive (deny/isolate) action.
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # STAGE 1: T1219 — Silent RMM MSI install via msiexec /qn
+  # ============================================================
+  f0rtika-screenconnect-msi-silent-install:
+    # Detection: msiexec launched with silent flags installing a ScreenConnect package
+    # Confidence: High
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: is windows
+        - op: ends with
+          path: event/FILE_PATH
+          value: msiexec.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: /qn
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: /quiet
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: screenconnect
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: connectwise
+              case sensitive: false
+    respond:
+      - action: report
+        name: F0RT1KA - ScreenConnect Silent RMM Install (T1219)
+        metadata:
+          severity: high
+          mitre_attack: T1219
+          test_id: 208ef54b-06bc-4610-87b6-520aea57517e
+          description: Silent msiexec install of an (unsanctioned) ScreenConnect RMM agent
+
+  # ============================================================
+  # STAGE 2: T1543.003 — ScreenConnect Client service creation
+  # ============================================================
+  f0rtika-screenconnect-service-create:
+    # Detection: SERVICE_CHANGE / new service whose name matches ScreenConnect Client
+    # Confidence: High
+    detect:
+      target: edr
+      event: SERVICE_CHANGE
+      op: and
+      rules:
+        - op: is windows
+        - op: contains
+          path: event/SVC_NAME
+          value: ScreenConnect Client
+          case sensitive: false
+    respond:
+      - action: report
+        name: F0RT1KA - ScreenConnect Client Service Created (T1543.003)
+        metadata:
+          severity: high
+          mitre_attack: T1543.003
+          test_id: 208ef54b-06bc-4610-87b6-520aea57517e
+          description: Windows service 'ScreenConnect Client (<instance-id>)' created — durable third-party access
+
+  # ============================================================
+  # STAGE 2b: T1219 — ScreenConnect agent relay egress
+  # ============================================================
+  f0rtika-screenconnect-relay-egress:
+    # Detection: ScreenConnect agent process making an outbound network connection
+    # Confidence: Medium-High (allow-list your sanctioned relay host to reduce FPs)
+    detect:
+      target: edr
+      event: NETWORK_CONNECTIONS
+      op: and
+      rules:
+        - op: is windows
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ScreenConnect.ClientService.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: ScreenConnect.WindowsClient.exe
+              case sensitive: false
+    respond:
+      - action: report
+        name: F0RT1KA - ScreenConnect Relay Egress (T1219)
+        metadata:
+          severity: high
+          mitre_attack: T1219
+          test_id: 208ef54b-06bc-4610-87b6-520aea57517e
+          description: ScreenConnect access agent established outbound relay connection
+
+  # ============================================================
+  # STAGE 3: T1567.002 — Follow-on collection archive for exfil
+  # ============================================================
+  f0rtika-rmm-collection-archive:
+    # Detection: archive file created by a ScreenConnect agent or a shell it spawned
+    # Confidence: Medium (tune to archival baselines)
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: is windows
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: .zip
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: .7z
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: .rar
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/PARENT/FILE_PATH
+              value: ScreenConnect
+              case sensitive: false
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: powershell.exe
+              case sensitive: false
+    respond:
+      - action: report
+        name: F0RT1KA - RMM Follow-on Collection Archive (T1567.002)
+        metadata:
+          severity: medium
+          mitre_attack: T1567.002
+          test_id: 208ef54b-06bc-4610-87b6-520aea57517e
+          description: Collected-data archive staged by/under a ScreenConnect foothold — exfil precursor

@@ -1,0 +1,228 @@
+# ============================================================================
+# LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 56475cb3-febc-45ac-a0af-39bc5ca1c15f
+# Test Name: 3CX 3CXDesktopApp Cascading Supply-Chain Compromise
+# MITRE ATT&CK: T1195.002, T1574.002, T1497, T1027.003, T1071.001, T1555.003
+# Threat Actor: Lazarus / UNC4736 (DPRK)
+# Author: F0RT1KA Security Test Builder
+# Format: LimaCharlie file format (for: limacharlie dr add -f <file>)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying 3CX/Lazarus techniques — a trusted
+# signed vendor app side-loading an untrusted companion DLL, ICO-based
+# steganographic C2 retrieval, sandbox fingerprinting, and cross-browser
+# credential collection. They will catch real attackers using their own
+# tooling and do NOT key on the F0RT1KA test UUID or decoy sentinel strings.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 56475cb3-febc-45ac-a0af-39bc5ca1c15f_dr_rules.yaml
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: DLL Side-Load — 3CX companion DLL from a user-writable path
+  # MITRE: T1574.002   Confidence: HIGH
+  # ==========================================================================
+  threecx-sideload-companion-dll-writable-path:
+    detect:
+      target: edr
+      event: CODE_IDENTITY
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\d3dcompiler_47.dll"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\ffmpeg.dll"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Users\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\ProgramData\\"
+              case sensitive: false
+        - op: is windows
+    respond:
+      - action: report
+        name: 3CX-DLL-Sideload-Companion-DLL
+        priority: 4
+      - action: add tag
+        tag: lazarus-3cx-sideload
+        ttl: 86400
+
+  # ==========================================================================
+  # RULE 2: Module load of companion DLL from a non-system directory
+  # MITRE: T1574.002   Confidence: HIGH
+  # ==========================================================================
+  threecx-module-load-companion-nonstandard:
+    detect:
+      target: edr
+      event: MODULE_LOAD
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/MODULE_NAME
+              value: "\\d3dcompiler_47.dll"
+              case sensitive: false
+            - op: ends with
+              path: event/MODULE_NAME
+              value: "\\ffmpeg.dll"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: starts with
+              path: event/MODULE_NAME
+              value: "C:\\Windows\\"
+              case sensitive: false
+              not: true
+            - op: starts with
+              path: event/MODULE_NAME
+              value: "C:\\Program Files"
+              case sensitive: false
+              not: true
+    respond:
+      - action: report
+        name: 3CX-Companion-DLL-NonStandard-Load
+        priority: 3
+
+  # ==========================================================================
+  # RULE 3: Non-browser process reading a browser credential store
+  # MITRE: T1555.003 / T1217   Confidence: HIGH
+  # ==========================================================================
+  browser-credential-store-read-nonbrowser:
+    detect:
+      target: edr
+      event: FILE_GET
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\Login Data"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\key4.db"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\logins.json"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\Web Data"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: routing/parent/event/FILE_PATH
+              value: "\\chrome.exe"
+              case sensitive: false
+              not: true
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: "\\msedge.exe"
+              case sensitive: false
+              not: true
+    respond:
+      - action: report
+        name: Browser-Credential-Store-Collection
+        priority: 4
+      - action: add tag
+        tag: iconic-stealer-collection
+        ttl: 86400
+
+  # ==========================================================================
+  # RULE 4: DNS request for GitHub raw CDN (ICO stego second-stage domain)
+  # MITRE: T1071.001 / T1027.003   Confidence: MEDIUM
+  # ==========================================================================
+  github-raw-cdn-dns-nonbrowser:
+    detect:
+      target: edr
+      event: DNS_REQUEST
+      op: and
+      rules:
+        - op: is
+          path: event/DOMAIN_NAME
+          value: raw.githubusercontent.com
+          case sensitive: false
+        - op: ends with
+          path: routing/parent/event/FILE_PATH
+          value: "\\chrome.exe"
+          case sensitive: false
+          not: true
+    respond:
+      - action: report
+        name: GitHub-Raw-CDN-Resolution-NonBrowser
+        priority: 2
+
+  # ==========================================================================
+  # RULE 5: Network connection for an .ico resource on GitHub CDN
+  # MITRE: T1071.001 / T1027.003   Confidence: MEDIUM
+  # ==========================================================================
+  github-ico-fetch-c2:
+    detect:
+      target: edr
+      event: NETWORK_CONNECTIONS
+      op: and
+      rules:
+        - op: contains
+          path: event/DOMAIN_NAME
+          value: githubusercontent.com
+          case sensitive: false
+    respond:
+      - action: report
+        name: GitHub-CDN-Connection-Possible-ICO-C2
+        priority: 2
+
+  # ==========================================================================
+  # RULE 6: Non-system process reading hypervisor artifact registry keys
+  # MITRE: T1497   Confidence: LOW (enrichment / correlation signal)
+  # ==========================================================================
+  sandbox-fingerprint-registry-read:
+    detect:
+      target: edr
+      event: REGISTRY_READ
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "HARDWARE\\DESCRIPTION\\System\\BIOS"
+              case sensitive: false
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "Services\\VBoxGuest"
+              case sensitive: false
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "Services\\vmtools"
+              case sensitive: false
+        - op: starts with
+          path: event/PROCESS/FILE_PATH
+          value: "C:\\Windows\\"
+          case sensitive: false
+          not: true
+    respond:
+      - action: report
+        name: Sandbox-Evasion-Registry-Fingerprint
+        priority: 1
