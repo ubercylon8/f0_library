@@ -1033,17 +1033,19 @@ type ControlResult struct {
 	Details      string   `json:"details"`
 	Skipped      bool     `json:"skipped"`
 	ErrorMessage string   `json:"error_message"`
+	Description  string   `json:"description,omitempty"`
 }
 
 // StageBundleDef describes one stage for bundle results generation.
 type StageBundleDef struct {
-	Technique string
-	Name      string
-	Severity  string
-	Tactics   []string
-	ExitCode  int    // raw stage exit code (0=success, 126=blocked, 999=error)
-	Status    string // "success", "blocked", "error", "skipped"
-	Details   string
+	Technique   string
+	Name        string
+	Severity    string
+	Tactics     []string
+	ExitCode    int    // raw stage exit code (0=success, 126=blocked, 999=error)
+	Status      string // "success", "blocked", "error", "skipped"
+	Details     string
+	Description string // one-line stage description (optional; written to bundle_results.json)
 }
 
 // WriteStageBundleResults converts multi-stage execution data into bundle_results.json
@@ -1100,6 +1102,7 @@ func WriteStageBundleResults(bundleID, bundleName, category, subcategory string,
 			Techniques:  []string{stage.Technique},
 			Tactics:     stage.Tactics,
 			Details:     stage.Details,
+			Description: stage.Description,
 			Skipped:     stage.Status == "skipped",
 		})
 	}
