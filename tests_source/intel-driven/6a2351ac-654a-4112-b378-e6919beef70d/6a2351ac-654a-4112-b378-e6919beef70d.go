@@ -203,12 +203,13 @@ func runKillchain() {
 	stageResults := make([]StageBundleDef, len(killchain))
 	for i, s := range killchain {
 		stageResults[i] = StageBundleDef{
-			Technique: s.Technique,
-			Name:      s.Name,
-			Severity:  stageSeverity,
-			Tactics:   stageTactics,
-			ExitCode:  0,
-			Status:    "skipped",
+			Technique:   s.Technique,
+			Name:        s.Name,
+			Description: s.Description,
+			Severity:    stageSeverity,
+			Tactics:     stageTactics,
+			ExitCode:    0,
+			Status:      "skipped",
 		}
 	}
 

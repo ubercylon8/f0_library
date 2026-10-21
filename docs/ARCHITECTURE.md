@@ -90,6 +90,16 @@ func test() {
 | 105  | Endpoint.FileQuarantinedOnExtraction | File quarantined |
 | 126  | Endpoint.ExecutionPrevented | Execution blocked |
 
+## Bundle Results Protocol
+
+Cyber-hygiene bundles and multi-stage intel-driven tests write `c:\F0\bundle_results.json` so the agent and ProjectAchilles can fan the run out into one Elasticsearch document per control or stage. Multi-stage tests build a `[]StageBundleDef` and call `WriteStageBundleResults()` (in each test's `test_logger.go`), which converts each stage into an entry of the `controls` array.
+
+Each `controls` entry carries `control_id`, `control_name`, `validator`, `exit_code`, `compliant`, `severity`, `category`, `subcategory`, `techniques`, `tactics`, `expected`, `actual`, `details`, `skipped` and `error_message`, plus one optional field:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `description` | string (optional, omitted when empty) | One-line description of what the stage does, copied from the stage's `Description`. ProjectAchilles stores it as `f0rtika.control_description` and shows it in the execution detail view. |
+
 ## Security Considerations
 
 1. **Isolation**: Tests should run in isolated environments
