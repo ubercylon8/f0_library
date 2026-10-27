@@ -230,6 +230,16 @@ func launchAsConsoleUser(payloadPath, outputPath string) (*process, error) {
 	}
 	defer primary.Close()
 
+	// The agent locks C:\F0 to SYSTEM + Administrators (agent 0.7.1+), so the
+	// payload we dropped there as SYSTEM is not readable by this user. Add a
+	// read+execute ACE for the user's SID before launching, or
+	// CreateProcessAsUser fails with ERROR_ACCESS_DENIED and the attempt is
+	// misread as execution-prevented (a block). Best-effort: on an unlocked
+	// C:\F0 the user can already read the file, so a failure here is not fatal.
+	if err := grantUserExecute(userToken, payloadPath); err != nil {
+		LogMessage("WARN", "Detonation", fmt.Sprintf("could not grant the console user read+execute on the payload (continuing): %v", err))
+	}
+
 	// Inheritable output capture handle (Rule 5).
 	outHandle, err := openOutputFileInheritable(outputPath)
 	if err != nil {
