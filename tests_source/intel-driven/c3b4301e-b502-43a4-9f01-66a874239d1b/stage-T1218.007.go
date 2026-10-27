@@ -24,7 +24,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -141,7 +143,8 @@ func determineExitCode(err error) int {
 	errStr := err.Error()
 	// "error_access_denied" / "rejected by policy" appear only when msiexec
 	// itself reported the OS denial code — affirmative evidence, not a guess
-	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted", "error_access_denied", "rejected by policy"}) {
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted", "error_access_denied", "rejected by policy"}) {
 		return StageBlocked
 	}
 	if containsAny(errStr, []string{"quarantined", "virus", "threat"}) {

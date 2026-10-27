@@ -13,6 +13,7 @@ package main
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,6 +21,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf16"
+
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -150,7 +153,8 @@ func performTechnique() error {
 		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("PowerShell output: %s", strings.TrimSpace(outputStr)))
 
 		// AMSI blocks produce specific patterns
-		if strings.Contains(outputStr, "ScriptContainedMaliciousContent") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(outputStr, "ScriptContainedMaliciousContent") ||
 			strings.Contains(outputStr, "This script contains malicious content") ||
 			strings.Contains(errStr, "access denied") ||
 			strings.Contains(errStr, "is not recognized") {
@@ -245,7 +249,7 @@ func determineExitCode(err error) int {
 		return StageSuccess
 	}
 	errStr := err.Error()
-	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted", "blocked by AMSI", "blocked by endpoint"}) {
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) || containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted", "blocked by AMSI", "blocked by endpoint"}) {
 		return StageBlocked
 	}
 	if containsAny(errStr, []string{"quarantined", "virus", "threat"}) {

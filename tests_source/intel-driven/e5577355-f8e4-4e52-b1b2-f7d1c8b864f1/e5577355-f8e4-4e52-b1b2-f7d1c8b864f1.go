@@ -21,7 +21,9 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"io"
 	"os"
 	"os/exec"
@@ -184,7 +186,8 @@ func test() {
 			LogPhaseEnd(3, "failed", fmt.Sprintf("Execution failed: %v", err))
 
 			// Check if blocked at launch
-			if strings.Contains(err.Error(), "Access is denied") ||
+			if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+				strings.Contains(err.Error(), "Access is denied") ||
 				strings.Contains(err.Error(), "Operation not permitted") {
 
 				Endpoint.Say("")

@@ -35,12 +35,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/StackExchange/wmi"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -207,7 +209,7 @@ func determineExitCode(err error) int {
 	errStr := err.Error()
 	// Defence signals from the WMI runtime. These are errors the COM/wbem
 	// layer itself emits when a policy or ACL refuses the query.
-	if containsAny(errStr, []string{
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) || containsAny(errStr, []string{
 		"wbem_e_access_denied",
 		"e_accessdenied",
 		"access is denied", // generic Windows error text from wbem

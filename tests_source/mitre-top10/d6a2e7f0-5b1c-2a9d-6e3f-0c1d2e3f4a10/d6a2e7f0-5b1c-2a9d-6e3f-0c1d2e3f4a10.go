@@ -22,6 +22,7 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -32,6 +33,7 @@ import (
 
 	"github.com/google/uuid"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/sys/windows"
 )
 
 // Test constants
@@ -169,7 +171,7 @@ func querySecurityService(serviceName string) ServiceQueryResult {
 		if strings.Contains(output, "1060") || strings.Contains(output, "does not exist") {
 			result.Status = "NOT_FOUND"
 			result.QueryError = "Service does not exist"
-		} else if strings.Contains(output, "Access is denied") || strings.Contains(err.Error(), "Access is denied") {
+		} else if strings.Contains(output, "Access is denied") || errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(err.Error(), "Access is denied") {
 			result.Status = "ACCESS_DENIED"
 			result.QueryError = "Access denied - EDR may be blocking"
 			result.Exists = true
@@ -266,7 +268,7 @@ func stopTestService() error {
 	}
 
 	if err != nil {
-		if strings.Contains(output, "Access is denied") || strings.Contains(err.Error(), "Access is denied") {
+		if strings.Contains(output, "Access is denied") || errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(err.Error(), "Access is denied") {
 			LogMessage("WARN", "Service Stop", "Access denied when stopping test service - possible EDR interference")
 			LogProcessExecution("sc.exe", cmdLine, 0, false, 5, "Access denied")
 			return fmt.Errorf("access denied")
@@ -378,7 +380,7 @@ func executeNetExec() (bool, bool) { // returns (executed, blocked)
 		output := outputBuffer.String()
 
 		// Check for EDR blocking patterns
-		if strings.Contains(errStr, "Access is denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errStr, "Access is denied") ||
 			strings.Contains(output, "blocked") ||
 			strings.Contains(errStr, "exit status 1") && duration < 2*time.Second {
 			LogMessage("BLOCKED", "NetExec", "NetExec execution appears blocked by security controls")
@@ -538,7 +540,7 @@ func test() {
 
 	// Create test service
 	if err := createTestService(); err != nil {
-		if strings.Contains(err.Error(), "Access is denied") {
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(err.Error(), "Access is denied") {
 			LogMessage("BLOCKED", "Service Create", "Service creation blocked by EDR")
 			anyBlocked = true
 			Endpoint.Say("    [!] Service creation BLOCKED by security controls")
@@ -548,7 +550,7 @@ func test() {
 	} else {
 		// Stop test service
 		if err := stopTestService(); err != nil {
-			if strings.Contains(err.Error(), "access denied") {
+			if errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(err.Error(), "access denied") {
 				LogMessage("BLOCKED", "Service Stop", "Service stop blocked by EDR")
 				anyBlocked = true
 				Endpoint.Say("    [!] Service stop BLOCKED by security controls")

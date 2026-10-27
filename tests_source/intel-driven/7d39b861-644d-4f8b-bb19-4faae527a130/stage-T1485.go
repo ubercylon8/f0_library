@@ -14,12 +14,15 @@ package main
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -401,7 +404,7 @@ func determineExitCode(err error) int {
 		return StageSuccess
 	}
 	errStr := strings.ToLower(err.Error())
-	if strings.Contains(errStr, "blocked") || strings.Contains(errStr, "denied") ||
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errStr, "blocked") || strings.Contains(errStr, "denied") ||
 		strings.Contains(errStr, "prevented") || strings.Contains(errStr, "quarantined") {
 		return StageBlocked
 	}

@@ -20,6 +20,7 @@ package main
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,6 +31,7 @@ import (
 	"github.com/google/uuid"
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -91,7 +93,7 @@ func executeBase64EncodedCommand() (bool, bool, string) {
 		if strings.Contains(outputStr, "blocked") ||
 			strings.Contains(outputStr, "denied") ||
 			strings.Contains(outputStr, "prevented") ||
-			strings.Contains(errorStr, "Access is denied") ||
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorStr, "Access is denied") ||
 			strings.Contains(errorStr, "not recognized") {
 			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls")
 			return false, true, fmt.Sprintf("Blocked: %s", errorStr)
@@ -141,7 +143,7 @@ func executeDownloadCradle() (bool, bool, string) {
 		// Check for blocking
 		if strings.Contains(outputStr, "blocked") ||
 			strings.Contains(outputStr, "denied") ||
-			strings.Contains(errorStr, "Access is denied") {
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorStr, "Access is denied") {
 			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls")
 			return false, true, fmt.Sprintf("Blocked: %s", errorStr)
 		}
@@ -186,7 +188,7 @@ func executeHiddenWindow() (bool, bool, string) {
 
 		if strings.Contains(outputStr, "blocked") ||
 			strings.Contains(outputStr, "denied") ||
-			strings.Contains(errorStr, "Access is denied") {
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorStr, "Access is denied") {
 			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls")
 			return false, true, fmt.Sprintf("Blocked: %s", errorStr)
 		}

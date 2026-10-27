@@ -10,7 +10,9 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"io"
 	"net/http"
 	"os"
@@ -72,7 +74,8 @@ func main() {
 
 	if downloadErr != nil {
 		// Check if download was blocked by security controls
-		if strings.Contains(downloadErr.Error(), "connection refused") ||
+		if errors.Is(downloadErr, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(downloadErr.Error(), "connection refused") ||
 			strings.Contains(downloadErr.Error(), "timeout") ||
 			strings.Contains(downloadErr.Error(), "access denied") ||
 			strings.Contains(downloadErr.Error(), "blocked") {

@@ -10,7 +10,9 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,7 +42,8 @@ func main() {
 
 	if err := performTechnique(); err != nil {
 		errStr := err.Error()
-		if strings.Contains(strings.ToLower(errStr), "access denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(strings.ToLower(errStr), "access denied") ||
 			strings.Contains(strings.ToLower(errStr), "blocked") ||
 			strings.Contains(strings.ToLower(errStr), "prevented") ||
 			strings.Contains(strings.ToLower(errStr), "quarantine") {

@@ -10,7 +10,9 @@ package main
 
 import (
 	"archive/zip"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"io"
 	"os"
 	"path/filepath"
@@ -62,7 +64,8 @@ func main() {
 	archivePath := filepath.Join("c:\\F0", "exfiltrated_data.zip")
 	if err := compressData(stagingDir, archivePath); err != nil {
 		// Check if compression/archiving was blocked
-		if strings.Contains(err.Error(), "access denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(err.Error(), "access denied") ||
 			strings.Contains(err.Error(), "blocked") {
 
 			fmt.Printf("[STAGE T1041] Data compression blocked: %v\n", err)

@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -124,7 +126,7 @@ func executeWmicCommand(args []string, description string) (bool, bool, string, 
 		if strings.Contains(strings.ToLower(output), "blocked") ||
 			strings.Contains(strings.ToLower(output), "denied") ||
 			strings.Contains(strings.ToLower(output), "prevented") ||
-			strings.Contains(strings.ToLower(errorStr), "access is denied") ||
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") ||
 			strings.Contains(strings.ToLower(errorStr), "operation is not allowed") ||
 			strings.Contains(strings.ToLower(output), "0x80041003") || // WMI Access Denied
 			strings.Contains(strings.ToLower(output), "0x80070005") { // Access Denied

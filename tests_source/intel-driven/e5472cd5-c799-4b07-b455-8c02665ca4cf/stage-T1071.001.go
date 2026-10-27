@@ -36,7 +36,9 @@ package main
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"io"
 	"net/http"
 	"os"
@@ -286,7 +288,8 @@ func determineExitCode(err error) int {
 	}
 	errStr := err.Error()
 	// Only blame-free keyword checks — per Bug Prevention Rule 1
-	if containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted"}) {
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		containsAny(errStr, []string{"access denied", "access is denied", "permission denied", "operation not permitted"}) {
 		return StageBlocked
 	}
 	if containsAny(errStr, []string{"quarantined", "virus", "threat"}) {

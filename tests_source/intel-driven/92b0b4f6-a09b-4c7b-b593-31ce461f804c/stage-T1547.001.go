@@ -16,7 +16,9 @@ machine-wide persistence and skips user-profile-only mechanisms.
 package main
 
 import (
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"os"
 	"strings"
 
@@ -70,7 +72,8 @@ func main() {
 
 	if err := performTechnique(); err != nil {
 		errStr := strings.ToLower(err.Error())
-		if strings.Contains(errStr, "access is denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(errStr, "access is denied") ||
 			strings.Contains(errStr, "blocked") ||
 			strings.Contains(errStr, "prevented") ||
 			strings.Contains(errStr, "tamper") {

@@ -13,7 +13,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"net"
 	"net/http"
 	"os"
@@ -44,7 +46,8 @@ func main() {
 
 	if err := performTechnique(); err != nil {
 		errStr := strings.ToLower(err.Error())
-		if strings.Contains(errStr, "access denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(errStr, "access denied") ||
 			strings.Contains(errStr, "blocked") ||
 			strings.Contains(errStr, "prevented") ||
 			strings.Contains(errStr, "connection refused") ||
