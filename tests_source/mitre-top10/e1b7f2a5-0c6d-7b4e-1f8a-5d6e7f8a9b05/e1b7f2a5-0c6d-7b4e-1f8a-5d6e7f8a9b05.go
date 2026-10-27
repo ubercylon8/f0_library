@@ -19,6 +19,7 @@ AUTHOR: sectest-builder
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,6 +30,7 @@ import (
 	"github.com/google/uuid"
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -155,7 +157,7 @@ func executeReadOnlyQuery(toolName, toolPath string, args []string) (string, boo
 		if strings.Contains(outputStr, "blocked") ||
 			strings.Contains(outputStr, "denied") ||
 			strings.Contains(outputStr, "prevented") ||
-			strings.Contains(errorStr, "Access is denied") ||
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorStr, "Access is denied") ||
 			strings.Contains(errorStr, "operation requires elevation") {
 			LogProcessExecution(toolName, cmdLine, pid, false, 126, "Blocked by security controls")
 			return outputStr, false, true, fmt.Sprintf("Blocked: %s", errorStr)

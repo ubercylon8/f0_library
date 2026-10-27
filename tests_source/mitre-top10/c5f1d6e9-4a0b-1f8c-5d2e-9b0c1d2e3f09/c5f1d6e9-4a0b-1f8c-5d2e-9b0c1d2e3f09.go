@@ -19,6 +19,7 @@ AUTHOR: sectest-builder
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -136,7 +138,7 @@ func executeReconCommand(rc ReconCommand) CommandResult {
 		if strings.Contains(outputLower, "access denied") ||
 			strings.Contains(outputLower, "blocked") ||
 			strings.Contains(outputLower, "not recognized") ||
-			strings.Contains(errorLower, "access denied") ||
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorLower, "access denied") ||
 			strings.Contains(errorLower, "blocked") {
 			result.Blocked = true
 			result.ExitCode = 126

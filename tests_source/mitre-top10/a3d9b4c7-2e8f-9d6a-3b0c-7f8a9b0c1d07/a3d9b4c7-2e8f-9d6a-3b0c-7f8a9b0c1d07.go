@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -130,7 +132,7 @@ func performDirEnumeration(targetDir string) (bool, bool, int, string) {
 		// Check for blocking indicators
 		if strings.Contains(strings.ToLower(output), "blocked") ||
 			strings.Contains(strings.ToLower(output), "denied") ||
-			strings.Contains(strings.ToLower(errorStr), "access is denied") {
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") {
 
 			LogProcessExecution("cmd.exe", cmdLine, pid, false, 126, "Blocked by security controls")
 			LogMessage("INFO", "Dir Enumeration", fmt.Sprintf("Enumeration blocked after %v", duration))
@@ -178,7 +180,7 @@ func performExtensionFiltering(targetDir string) (bool, bool, int, string) {
 			// Check for blocking
 			if strings.Contains(strings.ToLower(outputStr), "blocked") ||
 				strings.Contains(strings.ToLower(outputStr), "denied") ||
-				strings.Contains(strings.ToLower(errorStr), "access is denied") {
+				errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") {
 
 				LogMessage("INFO", "Extension Filtering", fmt.Sprintf("Extension filtering blocked for %s", ext))
 				return false, true, 0, "Extension filtering blocked by EDR"
@@ -234,7 +236,7 @@ func generateTargetList(targetDir string) (bool, bool, string, string) {
 
 	if err != nil {
 		errorStr := err.Error()
-		if strings.Contains(strings.ToLower(errorStr), "access is denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") ||
 			strings.Contains(strings.ToLower(errorStr), "blocked") {
 			LogMessage("INFO", "Target List Generation", "File walk blocked by security controls")
 			return false, true, "", "Target list generation blocked by EDR"
