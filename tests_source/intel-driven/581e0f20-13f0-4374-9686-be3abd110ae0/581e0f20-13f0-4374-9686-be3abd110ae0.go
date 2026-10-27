@@ -466,12 +466,13 @@ func executeStage(stage KillchainStage) int {
 			LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID), fmt.Sprintf("Completed in %v with exit code %d", executionDuration, exitCode))
 			return exitCode
 		}
-		// Unknown error - might be blocked before execution
-		errMsg := fmt.Sprintf("Stage execution error for %s: %v", stage.BinaryName, err)
-		fmt.Printf("[STAGE %d] Execution error: %v\n", stage.ID, err)
+		// The process never ran: a protection layer may have refused the launch.
+		code, why := classifyStageLaunchError(err, stagePath)
+		errMsg := fmt.Sprintf("Stage execution error for %s: %v (%s)", stage.BinaryName, err, why)
+		fmt.Printf("[STAGE %d] Execution error: %v (%s)\n", stage.ID, err, why)
 		LogMessage("ERROR", fmt.Sprintf("Stage %d", stage.ID), errMsg)
-		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999, err.Error())
-		return 999
+		LogProcessExecution(stage.BinaryName, stagePath, 0, false, code, err.Error())
+		return code
 	}
 
 	// Success

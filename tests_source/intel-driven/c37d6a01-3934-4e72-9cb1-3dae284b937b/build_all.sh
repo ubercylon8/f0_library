@@ -213,7 +213,7 @@ for GOOS in "${TARGETS[@]}"; do
     if [ "$GOOS" = "windows" ]; then EXT=".exe"; else EXT=""; fi
     platform_files "$GOOS"
     STAGE_SHARED="tailcat.go test_logger.go ${LOGGER} org_resolver.go"
-    ORCH_SHARED="${EMBED} artifact_dir.go test_logger.go ${LOGGER} org_resolver.go"
+    ORCH_SHARED="${EMBED} artifact_dir.go test_logger.go ${LOGGER} org_resolver.go stage_launch.go"
     print_header "Target: ${GOOS}/${GOARCH}"
 
     # Step 1: build unsigned stage binaries

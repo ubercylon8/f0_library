@@ -394,14 +394,15 @@ func executeStage(stage stageDef) int {
 		}
 		// Re-check for quarantine: cmd.Run() can also fail with file-not-found
 		// if the binary was removed between os.Stat and exec.
-		if _, statErr := os.Stat(stagePath); os.IsNotExist(statErr) {
-			LogMessage("ERROR", fmt.Sprintf("Stage %d", stage.ID),
-				fmt.Sprintf("Binary disappeared during launch (quarantined mid-run): %s", stage.BinaryName))
+		code, why := classifyStageLaunchError(err, stagePath)
+		Endpoint.Say("  Stage launch failed: %s", why)
+		LogMessage("ERROR", fmt.Sprintf("Stage %d", stage.ID),
+			fmt.Sprintf("Stage launch failed for %s: %s", stage.BinaryName, why))
+		if code == 105 {
 			LogFileDropped(stage.BinaryName, stagePath, 0, true)
-			return 105
 		}
-		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999, err.Error())
-		return 999
+		LogProcessExecution(stage.BinaryName, stagePath, 0, false, code, err.Error())
+		return code
 	}
 	LogProcessExecution(stage.BinaryName, stagePath, 0, true, 0, "")
 	return 0

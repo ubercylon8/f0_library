@@ -362,10 +362,11 @@ func executeStage(stage KillchainStage) int {
 	LogMessage("INFO", fmt.Sprintf("Stage %d", stage.ID), fmt.Sprintf("Executing %s", stage.BinaryName))
 
 	if err := cmd.Start(); err != nil {
-		errMsg := fmt.Sprintf("Failed to start stage %s: %v", stage.Technique, err)
-		Endpoint.Say("  Failed to start stage: %v", err)
+		code, why := classifyStageLaunchError(err, stagePath)
+		errMsg := fmt.Sprintf("Failed to start stage %s: %v (%s)", stage.Technique, err, why)
+		Endpoint.Say("  Failed to start stage: %v (%s)", err, why)
 		LogMessage("ERROR", stage.Technique, errMsg)
-		return 999
+		return code
 	}
 
 	stageStart := time.Now()

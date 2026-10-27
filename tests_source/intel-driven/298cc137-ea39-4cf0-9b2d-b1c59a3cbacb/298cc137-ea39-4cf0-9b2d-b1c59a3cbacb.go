@@ -447,9 +447,11 @@ func executeStage(stage StageDef) int {
 				fmt.Sprintf("exit code %d after %v", exitCode, executionDuration))
 			return exitCode
 		}
-		LogMessage("ERROR", stage.Technique, fmt.Sprintf("Stage process returned: %v", err))
-		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999, err.Error())
-		return 999
+		code, why := classifyStageLaunchError(err, stagePath)
+		Endpoint.Say("  Stage %d launch failed: %s", stage.ID, why)
+		LogMessage("ERROR", stage.Technique, fmt.Sprintf("Stage process returned: %v (%s)", err, why))
+		LogProcessExecution(stage.BinaryName, stagePath, 0, false, code, err.Error())
+		return code
 	}
 
 	LogProcessExecution(stage.BinaryName, stagePath, 0, true, 0, "")

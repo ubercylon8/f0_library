@@ -348,7 +348,7 @@ main_binary="${BUILD_DIR}/${TEST_UUID}"
 
 GOOS=${GOOS} GOARCH=${GOARCH} go build \
     -o "${main_binary}" \
-    "${TEST_UUID}.go" test_logger.go test_logger_darwin.go org_resolver.go
+    "${TEST_UUID}.go" stage_launch.go test_logger.go test_logger_darwin.go org_resolver.go
 
 if [ ! -f "${main_binary}" ]; then
     print_error "Failed to build orchestrator"

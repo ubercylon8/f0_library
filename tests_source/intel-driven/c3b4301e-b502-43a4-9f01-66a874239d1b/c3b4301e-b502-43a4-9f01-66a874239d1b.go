@@ -566,9 +566,12 @@ func executeStage(stage KillchainStage, port string) (exitCode int, timedOut boo
 			LogProcessExecution(stage.BinaryName, stagePath, 0, false, code, exitErr.Error())
 			return code, false
 		}
-		// Stage failed to launch at all (not an EDR action — infrastructure error)
-		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999, runErr.Error())
-		return 999, false
+		// Stage failed to launch at all: a protection error code or a vanished
+		// binary is a block, anything else stays an infrastructure error.
+		code, why := classifyStageLaunchError(runErr, stagePath)
+		Endpoint.Say("  Stage launch failed: %s", why)
+		LogProcessExecution(stage.BinaryName, stagePath, 0, false, code, runErr.Error())
+		return code, false
 	}
 	LogProcessExecution(stage.BinaryName, stagePath, 0, true, 0, "")
 	return 0, false
