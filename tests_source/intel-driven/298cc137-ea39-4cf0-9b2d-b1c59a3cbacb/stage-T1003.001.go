@@ -43,6 +43,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -172,8 +173,9 @@ func attemptLSASSAccess(dumpPath string) subOutcome {
 	handleDenied := false
 	handleGranted := false
 	if hErr != nil {
-		denial := containsAnyStr(strings.ToLower(hErr.Error()),
-			[]string{"access is denied", "access denied"})
+		// Compare the OS error code, not the message text: the message is
+		// localized ("Acceso denegado" on Spanish Windows) and would be missed.
+		denial := errors.Is(hErr, windows.ERROR_ACCESS_DENIED)
 		if denial && elevatedContext && seDebugEnabled {
 			// With SeDebugPrivilege enabled, this OpenProcess normally succeeds
 			// as admin/SYSTEM — an OS denial is positive evidence a protection

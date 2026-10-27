@@ -116,7 +116,7 @@ echo ""
 # Build main orchestrator with embedded signed stage binaries
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" \
     -o ${BUILD_DIR}/${TEST_UUID}.exe \
-    ${TEST_UUID}.go test_logger.go test_logger_windows.go
+    ${TEST_UUID}.go stage_launch.go test_logger.go test_logger_windows.go
 
 cd "${F0_ROOT}"
 

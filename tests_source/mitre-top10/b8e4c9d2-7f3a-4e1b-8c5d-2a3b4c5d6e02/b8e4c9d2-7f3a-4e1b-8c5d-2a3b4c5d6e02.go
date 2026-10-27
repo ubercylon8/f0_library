@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -88,7 +90,7 @@ func executeCommand(name string, args ...string) CommandResult {
 
 		if strings.Contains(outputLower, "blocked") ||
 			strings.Contains(outputLower, "denied") ||
-			strings.Contains(errorLower, "access is denied") ||
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorLower, "access is denied") ||
 			strings.Contains(errorLower, "operation is not allowed") ||
 			strings.Contains(outputLower, "not allowed") ||
 			strings.Contains(errorLower, "blocked by") {

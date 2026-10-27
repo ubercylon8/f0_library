@@ -208,7 +208,7 @@ mkdir -p "${BUILD_DIR}"
 main_binary="${BUILD_DIR}/${TEST_UUID}.exe"
 GOOS=${GOOS} GOARCH=${GOARCH} go build \
     -o "${main_binary}" \
-    "${TEST_UUID}.go" test_logger.go test_logger_windows.go org_resolver.go
+    "${TEST_UUID}.go" stage_launch.go test_logger.go test_logger_windows.go org_resolver.go
 [ -f "${main_binary}" ] || { print_error "Orchestrator build failed"; exit 1; }
 main_size=$(ls -lh "${main_binary}" | awk '{print $5}')
 print_success "Orchestrator built (${main_size})"

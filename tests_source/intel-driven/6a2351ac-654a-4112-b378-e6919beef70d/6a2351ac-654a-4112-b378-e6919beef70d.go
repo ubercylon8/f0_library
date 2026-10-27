@@ -378,14 +378,15 @@ func executeStage(s UnDefendStage) int {
 			LogProcessExecution(s.BinaryName, stagePath, 0, false, code, exitErr.Error())
 			return code
 		}
-		if _, statErr := os.Stat(stagePath); os.IsNotExist(statErr) {
-			LogMessage("ERROR", fmt.Sprintf("Stage %d", s.ID),
-				fmt.Sprintf("Binary disappeared during launch (quarantined mid-run): %s", s.BinaryName))
+		code, why := classifyStageLaunchError(err, stagePath)
+		Endpoint.Say("  Stage launch failed: %s", why)
+		LogMessage("ERROR", fmt.Sprintf("Stage %d", s.ID),
+			fmt.Sprintf("Stage launch failed for %s: %s", s.BinaryName, why))
+		if code == 105 {
 			LogFileDropped(s.BinaryName, stagePath, 0, true)
-			return 105
 		}
-		LogProcessExecution(s.BinaryName, stagePath, 0, false, 999, err.Error())
-		return 999
+		LogProcessExecution(s.BinaryName, stagePath, 0, false, code, err.Error())
+		return code
 	}
 
 	LogProcessExecution(s.BinaryName, stagePath, 0, true, 0, "")

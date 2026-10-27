@@ -129,8 +129,13 @@ func classifyExecError(err error) int {
 	if err == nil {
 		return StageSuccess
 	}
+	// On Windows, match the OS error code too: the message is localized
+	// ("Acceso denegado" on Spanish Windows) and the text checks would miss
+	// it. Guarded by GOOS so a Linux noexec EACCES is NOT read as a block
+	// (Bug Prevention Rule 8). os.ErrPermission maps to ERROR_ACCESS_DENIED.
 	s := strings.ToLower(err.Error())
-	if strings.Contains(s, "access is denied") ||
+	if (runtime.GOOS == "windows" && errors.Is(err, os.ErrPermission)) ||
+		strings.Contains(s, "access is denied") ||
 		strings.Contains(s, "access denied") ||
 		strings.Contains(s, "permission denied") ||
 		strings.Contains(s, "operation not permitted") ||

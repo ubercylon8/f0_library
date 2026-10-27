@@ -11,7 +11,9 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -325,7 +327,8 @@ func determineExitCode(err error) int {
 		return StageSuccess
 	}
 	errStr := strings.ToLower(err.Error())
-	if strings.Contains(errStr, "access denied") ||
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		strings.Contains(errStr, "access denied") ||
 		strings.Contains(errStr, "access is denied") ||
 		strings.Contains(errStr, "permission denied") ||
 		strings.Contains(errStr, "blocked") ||

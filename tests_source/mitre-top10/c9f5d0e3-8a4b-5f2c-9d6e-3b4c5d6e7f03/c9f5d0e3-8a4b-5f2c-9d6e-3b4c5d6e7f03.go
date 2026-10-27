@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -149,7 +151,7 @@ func enumerateRDPSessions() (bool, bool, string, int) {
 		// Check for blocking indicators
 		if strings.Contains(strings.ToLower(output), "blocked") ||
 			strings.Contains(strings.ToLower(output), "denied") ||
-			strings.Contains(strings.ToLower(errorStr), "access is denied") {
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") {
 
 			LogProcessExecution("qwinsta.exe", "qwinsta", pid, false, 126, "Blocked by security controls")
 			LogMessage("INFO", "Session Enumeration", fmt.Sprintf("Command blocked after %v", duration))
@@ -212,7 +214,7 @@ func testCmdkeyCredentialManager() (bool, bool, string) {
 		// Check for blocking
 		if strings.Contains(strings.ToLower(addOutputStr), "blocked") ||
 			strings.Contains(strings.ToLower(addOutputStr), "denied") ||
-			strings.Contains(strings.ToLower(errorStr), "access is denied") ||
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") ||
 			strings.Contains(strings.ToLower(addOutputStr), "not allowed") {
 
 			LogProcessExecution("cmdkey.exe", "cmdkey /add:"+testServerName, addPid, false, 126, "Blocked by security controls")

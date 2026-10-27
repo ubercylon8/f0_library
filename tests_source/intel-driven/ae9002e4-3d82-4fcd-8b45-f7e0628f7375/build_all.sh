@@ -121,7 +121,7 @@ print_success "Stage compression complete"
 print_step "5/8" "Building orchestrator (embedding gzip-compressed stages)..."
 mkdir -p "${BUILD_DIR}"
 main_binary="${BUILD_DIR}/${TEST_UUID}"
-GOOS=${GOOS} GOARCH=${GOARCH} go build -o "${main_binary}" "${TEST_UUID}.go" ${SHARED_FILES}
+GOOS=${GOOS} GOARCH=${GOARCH} go build -o "${main_binary}" "${TEST_UUID}.go" stage_launch.go ${SHARED_FILES}
 if [ ! -f "${main_binary}" ]; then print_error "Failed to build orchestrator"; exit 1; fi
 main_size=$(ls -lh "${main_binary}" | awk '{print $5}')
 print_success "Orchestrator built (${main_size})"

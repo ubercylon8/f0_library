@@ -12,7 +12,9 @@ Tests EDR detection of browser credential access patterns.
 package main
 
 import (
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"io"
 	"net"
 	"os"
@@ -46,7 +48,8 @@ func main() {
 
 	if err := performTechnique(); err != nil {
 		errStr := strings.ToLower(err.Error())
-		if strings.Contains(errStr, "access denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(errStr, "access denied") ||
 			strings.Contains(errStr, "access is denied") ||
 			strings.Contains(errStr, "blocked") ||
 			strings.Contains(errStr, "prevented") ||

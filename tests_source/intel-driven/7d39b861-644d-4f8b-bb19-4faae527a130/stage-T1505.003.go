@@ -8,10 +8,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -114,7 +117,7 @@ func determineExitCode(err error) int {
 		return StageSuccess
 	}
 	errStr := err.Error()
-	if containsAny(errStr, []string{"quarantined", "blocked", "access denied", "permission denied"}) {
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) || containsAny(errStr, []string{"quarantined", "blocked", "access denied", "permission denied"}) {
 		return StageBlocked
 	}
 	if containsAny(errStr, []string{"not found", "does not exist"}) {

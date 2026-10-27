@@ -45,6 +45,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -52,6 +53,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -123,6 +126,14 @@ func performTechnique() int {
 	if !strings.HasPrefix(strings.ToLower(cleanSandbox), strings.ToLower(cleanArtifact)+string(os.PathSeparator)) {
 		LogMessage("CRITICAL", TECHNIQUE_ID, fmt.Sprintf("sandbox guardrail failed: %s is not inside %s - refusing to run", cleanSandbox, cleanArtifact))
 		return StageError
+	}
+
+	// Reset the sandbox so every run encrypts fresh documents. A prior run
+	// leaves .lockbit files behind; createTargetDocuments skips those, so a
+	// re-run would encrypt nothing and report a false 999 (no impact, no
+	// denial). The guardrail above proved cleanSandbox is inside ARTIFACT_DIR.
+	if err := os.RemoveAll(cleanSandbox); err != nil {
+		LogMessage("WARNING", "T1486", fmt.Sprintf("could not reset sandbox %s (continuing): %v", cleanSandbox, err))
 	}
 
 	// ------------------------------------------------------------------
@@ -273,8 +284,9 @@ func encryptSandbox(dir string, key []byte) (int, int, int) {
 
 		encryptedPath := filePath + lockbitExtension
 		if err := os.WriteFile(encryptedPath, ciphertext, 0644); err != nil {
-			errLower := strings.ToLower(err.Error())
-			if elevatedContext && (strings.Contains(errLower, "access is denied") || strings.Contains(errLower, "access denied")) {
+			// Compare the OS error code, not the message text: the message is
+			// localized ("Acceso denegado" on Spanish Windows) and would be missed.
+			if elevatedContext && errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 				denied++
 				LogMessage("WARN", "T1486", fmt.Sprintf("encrypt write for %s returned OS denial in elevated context: %v", entry.Name(), err))
 			} else {
@@ -348,6 +360,7 @@ func attemptEventLogTamper() {
 //     the designed non-existent target — unimpeded (telemetry fired).
 //   - OS denial evidence in an elevated context => protection evidence.
 //   - anything else => inconclusive.
+//
 // These sub-techniques never drive the stage verdict alone; they are logged
 // for the record (T1486 is the mandatory critical metric).
 func classifyHarmlessAttempt(technique, opDesc, out, errStr string) {

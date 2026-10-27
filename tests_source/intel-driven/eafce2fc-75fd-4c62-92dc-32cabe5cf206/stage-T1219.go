@@ -11,7 +11,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,7 +96,8 @@ func main() {
 	// Step 3: Install Tailscale MSI silently
 	if err := installTailscaleMSI(msiPath); err != nil {
 		// Check if installation was blocked
-		if strings.Contains(err.Error(), "access denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(err.Error(), "access denied") ||
 			strings.Contains(err.Error(), "blocked") ||
 			strings.Contains(err.Error(), "restricted") ||
 			strings.Contains(err.Error(), "prevented") {
@@ -114,7 +117,8 @@ func main() {
 	// Step 4: Connect to tailnet
 	if err := connectToTailnet(authKey); err != nil {
 		// Check if connection was blocked
-		if strings.Contains(err.Error(), "access denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(err.Error(), "access denied") ||
 			strings.Contains(err.Error(), "blocked") ||
 			strings.Contains(err.Error(), "timeout") ||
 			strings.Contains(err.Error(), "refused") {

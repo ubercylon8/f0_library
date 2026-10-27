@@ -256,7 +256,9 @@ func executeStage(stage Stage) int {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return exitErr.ExitCode()
 		}
-		return 999 // Unknown error
+		code, why := classifyStageLaunchError(err, stagePath)
+		Endpoint.Say("  Stage launch failed: %s", why)
+		return code
 	}
 
 	return 0 // Success

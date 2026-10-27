@@ -425,9 +425,12 @@ func executeStage(stage Stage) int {
 			LogProcessExecution(stage.BinaryName, stagePath, 0, false, exitCode, exitErr.Error())
 			return exitCode
 		}
-		// Unknown error
-		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999, err.Error())
-		return 999
+		// The process never ran: a protection layer may have refused the launch
+		// (see stage_launch.go). Only an OS error code or a vanished binary counts.
+		code, why := classifyStageLaunchError(err, stagePath)
+		Endpoint.Say("  Stage launch failed: %s", why)
+		LogProcessExecution(stage.BinaryName, stagePath, 0, false, code, err.Error())
+		return code
 	}
 
 	// Success

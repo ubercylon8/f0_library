@@ -9,7 +9,9 @@ Establishes SSH access through Tailscale tunnel
 package main
 
 import (
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"net"
 	"os"
 	"os/exec"
@@ -50,7 +52,8 @@ func main() {
 	// Test SSH connectivity
 	if err := testSSHConnectivity(); err != nil {
 		// Check if SSH access was blocked
-		if strings.Contains(err.Error(), "connection refused") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(err.Error(), "connection refused") ||
 			strings.Contains(err.Error(), "blocked") ||
 			strings.Contains(err.Error(), "access denied") ||
 			strings.Contains(err.Error(), "timeout") {

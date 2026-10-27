@@ -428,8 +428,10 @@ func executeStage(stage KillchainStage) int {
 			LogProcessExecution(stage.BinaryName, stagePath, 0, false, exitCode, exitErr.Error())
 			return exitCode
 		}
-		LogProcessExecution(stage.BinaryName, stagePath, 0, false, 999, err.Error())
-		return 999
+		code, why := classifyStageLaunchError(err, stagePath)
+		Endpoint.Say("  Stage launch failed: %s", why)
+		LogProcessExecution(stage.BinaryName, stagePath, 0, false, code, err.Error())
+		return code
 	}
 
 	LogProcessExecution(stage.BinaryName, stagePath, 0, true, 0, "")

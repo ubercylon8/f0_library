@@ -11,7 +11,9 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,7 +79,8 @@ func main() {
 	// Attempt to install OpenSSH Server
 	if err := installOpenSSH(); err != nil {
 		// Check if installation was blocked
-		if strings.Contains(err.Error(), "access denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(err.Error(), "access denied") ||
 			strings.Contains(err.Error(), "blocked") ||
 			strings.Contains(err.Error(), "restricted") {
 
@@ -103,7 +106,8 @@ func main() {
 
 	// Start service
 	if err := startOpenSSH(); err != nil {
-		if strings.Contains(err.Error(), "access denied") ||
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+			strings.Contains(err.Error(), "access denied") ||
 			strings.Contains(err.Error(), "blocked") {
 
 			fmt.Printf("[STAGE T1543.003] Service start blocked: %v\n", err)
