@@ -67,7 +67,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	cert_installer "github.com/preludeorg/libraries/go/tests/cert_installer"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
 )
 
@@ -269,13 +268,6 @@ func main() {
 	Endpoint.Say("Technique basis: RedFlick delivery + CosmicPulse backdoor")
 	Endpoint.Say("=================================================================")
 	Endpoint.Say("")
-
-	// Pre-flight: trust certificate for the F0RT1KA code-signing chain
-	if err := cert_installer.EnsureCertificateInstalled(); err != nil {
-		Endpoint.Say("FATAL: certificate installation failed: %v", err)
-		SaveLog(ExitTestError, fmt.Sprintf("certificate installation failed: %v", err))
-		Endpoint.Stop(ExitTestError)
-	}
 
 	// Provision the decoy workspace under ARTIFACT_DIR. The sandbox marker
 	// gates the cleanup utility: the workspace is only ever removed when the
