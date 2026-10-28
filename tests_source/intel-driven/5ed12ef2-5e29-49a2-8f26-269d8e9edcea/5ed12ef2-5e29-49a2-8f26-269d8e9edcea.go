@@ -30,7 +30,6 @@ import (
 	"path/filepath"
 	"time"
 
-	cert_installer "github.com/preludeorg/libraries/go/tests/cert_installer"
 	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
 )
@@ -332,15 +331,6 @@ func main() {
 	Endpoint.Say("Test ID: 5ed12ef2-5e29-49a2-8f26-269d8e9edcea")
 	Endpoint.Say("Techniques: T1204.002 → T1134.001 → T1083 → T1486 → T1491.001")
 	Endpoint.Say("Starting at: %s", time.Now().Format("2006-01-02T15:04:05"))
-	Endpoint.Say("")
-
-	// Pre-flight certificate check
-	Endpoint.Say("Pre-flight: Checking F0RT1KA certificate...")
-	if err := cert_installer.EnsureCertificateInstalled(); err != nil {
-		Endpoint.Say("❌ FATAL: Certificate installation failed: %v", err)
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
-	Endpoint.Say("✅ F0RT1KA certificate verified")
 	Endpoint.Say("")
 
 	// Run test with timeout protection

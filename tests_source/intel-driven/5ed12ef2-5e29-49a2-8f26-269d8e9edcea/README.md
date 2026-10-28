@@ -226,4 +226,4 @@ If this test succeeds (exit 101 - vulnerable):
 - **Timeout**: 5 minutes (extended for multi-stage execution)
 - **Exit Code Logic**: Evaluates actual stage results, stops at first block
 - **Logging**: Enhanced multi-stage logger with stage tracking
-- **Certificate**: Requires F0RT1KA certificate in Trusted Root store
+- **Certificate**: Installs no certificate on the endpoint. Binaries are signed with the active signing certificate at build time
