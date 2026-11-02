@@ -1,0 +1,214 @@
+# ============================================================
+# Lumma-Style Infostealer Kill Chain — Sigma Rules
+# Test: 26a8b54e-b51c-489d-beae-295e1eecc524
+# Actor: LummaC2 / Water Kurita (S1213; Microsoft: Storm-2477)
+# Intel: NCC Group (fake-captcha-led-to-lumma), Netskope, ESET,
+#        Darktrace, Microsoft TI, xaitax (Chrome ABE research)
+# Generated: 2026-11-02
+# ============================================================
+
+title: ClickFix Cradle - Hidden Encoded PowerShell Download
+id: 6f2c9e41-a8d3-4b7e-9c52-1e8f7a3d5b84
+status: experimental
+description: 'Detects the ClickFix (fake CAPTCHA) delivery primitive: hidden-window encoded-command PowerShell launched after clipboard poisoning, typically pasted by the victim into Win+R — the documented LummaC2/Water Kurita initial access.'
+references:
+    - https://www.nccgroup.com/research/fake-captcha-led-to-lumma/
+    - https://attack.mitre.org/techniques/T1204/002/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+    - attack.execution
+    - attack.t1204.002
+    - attack.t1059.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_enc:
+        CommandLine|contains:
+            - '-encodedcommand'
+            - ' -enc '
+    selection_hidden:
+        CommandLine|contains:
+            - '-windowstyle hidden'
+            - '-w hidden'
+            - '-window hidden'
+            - ' -wh '
+    condition: all of selection_*
+falsepositives:
+    - Legitimate software deployment agents using encoded commands (baseline signed management tools)
+    - Restrict to parent explorer.exe (Win+R paste path) to reduce noise
+level: high
+---
+title: mshta.exe Fetching Remote Content via HTTP
+id: 3d7a1c58-9e42-4f6b-a5c9-8b2d6e0f4a71
+status: experimental
+description: 'Detects mshta.exe invoked with a remote http(s) URL — the secondary Lumma ClickFix delivery LOLBin (documented chain: mshta → VBScript → PowerShell stager).'
+references:
+    - https://attack.mitre.org/techniques/T1204/002/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+    - attack.execution
+    - attack.t1204.002
+    - attack.defense_evasion
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\mshta.exe'
+    selection_url:
+        CommandLine|contains:
+            - 'http://'
+            - 'https://'
+    condition: all of selection_*
+falsepositives:
+    - Rare legacy application-compatibility packages; verify code signer
+level: high
+---
+title: Browser Updater Masquerade Executed from User-Writable Path
+id: 8c4e2b97-5d1a-4c83-b9f6-2a7e5c0d8e13
+status: experimental
+description: 'Detects MicrosoftEdgeUpdate.exe/GoogleUpdate.exe running outside Program Files — the Lumma injector pattern that copies itself as MicrosoftEdgeUpdate.exe into a user directory before remote-thread injection into chrome.exe (NCC Group / Gen Digital research).'
+references:
+    - https://www.nccgroup.com/research/fake-captcha-led-to-lumma/
+    - https://attack.mitre.org/techniques/T1055/003/
+    - https://attack.mitre.org/techniques/T1036/005/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+    - attack.defense_evasion
+    - attack.t1055.003
+    - attack.t1036.005
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith:
+            - '\microsoftedgeupdate.exe'
+            - '\googleupdate.exe'
+    selection_path:
+        Image|contains:
+            - 'C:\Users\'
+            - '\AppData\'
+            - '\Temp\'
+    filter_legit_peruser_chrome:
+        Image|contains: '\AppData\Local\Google\Update\GoogleUpdate.exe'
+    condition: 1 of selection_* and not 1 of filter_*
+falsepositives:
+    - Per-user Chrome installs legitimately run GoogleUpdate.exe from %LOCALAPPDATA%\Google\Update (filtered); MicrosoftEdgeUpdate.exe has no legitimate user-path install
+level: high
+---
+title: Browser Credential Store Files Copied by Non-Browser Process
+id: b5f8a3d2-7c64-4e19-8a3b-6d9c4f2e1a07
+status: experimental
+description: 'Detects a non-browser process creating/copying Chromium credential stores (Login Data, Network Cookies, Web Data, Local State) — the Lumma stealer chain that copies locked SQLite DBs to a scratch directory before DPAPI key unwrap and AES-GCM v10 decryption.'
+references:
+    - https://www.nccgroup.com/research/fake-captcha-led-to-lumma/
+    - https://attack.mitre.org/techniques/T1555/003/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+    - attack.credential_access
+    - attack.t1555.003
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_target:
+        TargetFilename|endswith:
+            - '\Login Data'
+            - '\Cookies'
+            - '\Web Data'
+            - '\Local State'
+    selection_scratch:
+        TargetFilename|contains:
+            - '\AppData\Local\Temp\'
+            - '\Temp\'
+            - 'C:\Users\Public\'
+    filter_browser:
+        Image|endswith:
+            - '\chrome.exe'
+            - '\msedge.exe'
+            - '\firefox.exe'
+            - '\googleupdate.exe'
+            - '\microsoftedgeupdate.exe'
+            - '\setup.exe'
+    condition: all of selection_* and not 1 of filter_*
+falsepositives:
+    - Browser profile backup and migration tools (allowlist by signer)
+    - Forensic/DFIR collectors targeting profile directories
+level: high
+---
+title: KeePass Database and Gecko Crypto-Wallet Store Collection
+id: e2a7c94f-6b3d-4518-9e8a-4c7b2f9d3e65
+status: experimental
+description: 'Detects collection of KeePass .kdbx databases, Firefox Gecko credential stores (key4.db, logins.json) and the MetaMask wallet extension storage directory (nkbihfbeogaeaoehlefnkodbefgpgknn) by processes other than the legitimate managers — wholesale harvesting documented for the Lumma MaaS.'
+references:
+    - https://attack.mitre.org/techniques/T1555/
+    - https://attack.mitre.org/techniques/T1005/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+    - attack.credential_access
+    - attack.t1555
+    - attack.collection
+    - attack.t1005
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection_stores:
+        TargetFilename|endswith:
+            - '.kdbx'
+            - '\key4.db'
+            - '\logins.json'
+            - '\signons.sqlite'
+    selection_wallet:
+        TargetFilename|contains: 'nkbihfbeogaeaoehlefnkodbefgpgknn'
+    filter_managers:
+        Image|endswith:
+            - '\keepass.exe'
+            - '\keepassxc.exe'
+            - '\firefox.exe'
+            - '\chrome.exe'
+            - '\msedge.exe'
+    condition: 1 of selection_* and not 1 of filter_*
+falsepositives:
+    - Password-manager sync/backup agents (allowlist by signer)
+    - Wallet browser extensions writing their own storage (filtered by browser image)
+level: high
+---
+title: LummaC2 Communication - TeslaBrowser User-Agent or c2sock Handshake
+id: 9b6d2f8e-4a1c-4d97-b3e5-7f8a2c6d9e04
+status: experimental
+description: 'Detects the documented LummaC2 exfiltration channel: hardcoded User-Agent "TeslaBrowser/5.5", the /c2sock endpoint with act=live handshake and LID/J form parameters, or multipart upload of archive.zip to the panel (Darktrace PCAP, ESET teardown, malpedia).'
+references:
+    - https://attack.mitre.org/techniques/T1041/
+    - https://attack.mitre.org/techniques/T1071/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+    - attack.exfiltration
+    - attack.t1041
+    - attack.command_and_control
+    - attack.t1071.001
+logsource:
+    category: proxy
+detection:
+    selection_ua:
+        UserAgent|startswith: 'TeslaBrowser'
+    selection_uri:
+        c-uri|contains:
+            - '/c2sock'
+            - 'act=live'
+    condition: 1 of selection_*
+falsepositives:
+    - None expected — the User-Agent and handshake URI are actor-specific
+level: critical

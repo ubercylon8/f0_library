@@ -1,0 +1,219 @@
+// ============================================================
+// Lumma-Style Infostealer Kill Chain — KQL Detection Queries
+// Microsoft Sentinel / Defender Advanced Hunting
+// Techniques: T1204.002, T1059.001, T1055.003, T1555.003, T1555,
+//             T1005, T1041, T1071.001
+// Actor: LummaC2 / Water Kurita (MITRE S1213; Microsoft: Storm-2477)
+// Intel: NCC Group (ClickFix → Lumma), Netskope, ESET (Lumma teardown),
+//        Darktrace (C2 PCAP analysis), Microsoft TI, xaitax (Chrome ABE)
+// Generated: 2026-11-02
+// Note: registry / scheduled-task categories are not part of this
+//       infostealer kill chain; the categories below cover every
+//       technique family the chain exercises (delivery, injection,
+//       credential access, collection, exfiltration, correlation).
+// ============================================================
+
+// ------------------------------------------------------------
+// Query 1: ClickFix Cradle — Hidden Encoded PowerShell (T1204.002 / T1059.001)
+// Confidence: High | FP: Med (legit software deployers using -enc; baseline
+//             signed management agents; ClickFix victims launch from
+//             explorer.exe via Win+R — tighten with parent filter if noisy)
+// Threshold: Alert on any occurrence; escalate if download follows < 2 min
+// Intel: NCC Group "fake-captcha-led-to-lumma" — clipboard poisoned with
+//        `powershell -w hidden -enc <b64>` that the victim pastes into Win+R
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName in~ ("powershell.exe", "pwsh.exe")
+| where ProcessCommandLine has_any ("-encodedcommand", " -enc ")
+| where ProcessCommandLine has_any ("-windowstyle hidden", "-w hidden", "-window hidden", " -wh ", "-w 1")
+| extend RunDialogLaunched = InitiatingProcessFileName =~ "explorer.exe"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, RunDialogLaunched,
+          InitiatingProcessFileName, InitiatingProcessFolderPath, SHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 2: mshta.exe Remote HTTP Fetch LOLBin (T1204.002)
+// Confidence: High | FP: Low (mshta with a remote URL is rarely legitimate —
+//             application-compatibility packages; verify signer)
+// Threshold: Alert on any occurrence
+// Intel: Seqrite-documented Lumma chain mshta → VBScript → PowerShell;
+//        ClickFix pages also push `mshta http://...` directly into clipboard
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName =~ "mshta.exe"
+| where ProcessCommandLine has_any ("http://", "https://")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessFolderPath, SHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 3: Browser-Updater Masquerade from User-Writable Path (T1055.003)
+// Confidence: High for MicrosoftEdgeUpdate.exe (legit binary lives only in
+//             Program Files) | FP: per-user Chrome installs legitimately run
+//             GoogleUpdate.exe from %LOCALAPPDATA%\Google\Update
+// Threshold: Alert on any MicrosoftEdgeUpdate.exe outside Program Files;
+//            review GoogleUpdate.exe hits on signer + path
+// Intel: NCC Group / Gen Digital — Lumma injects into chrome.exe from a
+//        process named MicrosoftEdgeUpdate.exe copied to a user directory
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName in~ ("microsoftedgeupdate.exe", "googleupdate.exe")
+| where FolderPath has_any (@"C:\Users\", @"\AppData\", @"\Temp\", @"C:\ProgramData\")
+| where FolderPath !has @"\Google\Update\GoogleUpdate.exe"
+| project TimeGenerated, DeviceName, AccountName, FolderPath, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessFolderPath, SHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 4: Cross-Process Thread Creation into Browser / Updater-Host Anomaly
+//          (T1055.003)
+// Confidence: High | FP: Low-Med (some legit injectors: AV, app shims;
+//             Sysmon EID 8 equivalent — requires injection telemetry)
+// Threshold: Alert on any remote thread into a browser-named process from a
+//            non-browser, non-Program-Files initiator
+// Intel: NCC Group — VirtualAllocEx/WriteProcessMemory/CreateRemoteThread
+//        then OpenThread→Suspend→Get/SetThreadContext→Resume hijack chain
+//        from MicrosoftEdgeUpdate.exe into chrome.exe
+// ------------------------------------------------------------
+union isfuzzy=true
+    (DeviceProcessEvents
+    | where FileName in~ ("chrome.exe", "msedge.exe")
+    | where InitiatingProcessFileName in~ ("microsoftedgeupdate.exe", "googleupdate.exe")
+    | where InitiatingProcessFolderPath has_any (@"C:\Users\", @"\AppData\", @"\Temp\")
+    | project TimeGenerated, DeviceName, Signal = "Browser-named child of user-path updater",
+              FileName, FolderPath, ProcessCommandLine, InitiatingProcessFileName,
+              InitiatingProcessFolderPath, SHA256),
+    (DeviceEvents
+    | where ActionType in~ ("CreateRemoteThreadApi", "SetThreadContext")
+    | extend TargetProcess = tostring(parse_json(AdditionalFields).TargetProcessFileName)
+    | where TargetProcess in~ ("chrome.exe", "msedge.exe", "firefox.exe")
+    | extend InjectorProcess = tostring(parse_json(AdditionalFields).ProcessFileName)
+    | where InjectorProcess !in~ ("chrome.exe", "msedge.exe", "firefox.exe")
+    | project TimeGenerated, DeviceName, Signal = "Remote thread / thread-context write into browser",
+              ActionType, TargetProcess, InjectorProcess,
+              InitiatingProcessFileName, ProcessCommandLine, AdditionalFields)
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 5: Browser Credential Store Copy by Non-Browser Process (T1555.003)
+// Confidence: High | FP: Med (profile backup/migration tools, forensics
+//             collectors — baseline signed tools; browsers themselves)
+// Threshold: Alert on any occurrence; critical when followed by C2 traffic
+// Intel: NCC Group — Lumma copies locked `Login Data` / `Network\Cookies` to
+//        a scratch dir (SQLite lock workaround), parses Local State
+//        `os_crypt.encrypted_key`, CryptUnprotectData, AES-GCM v10 blobs
+// ------------------------------------------------------------
+DeviceFileEvents
+| where FileName in~ ("Login Data", "Cookies", "Web Data", "Local State")
+| where FolderPath has_any (@"Google\Chrome\User Data", @"Microsoft\Edge\User Data",
+                            @"Chromium\User Data")
+    or FolderPath has_any (@"\Temp\", @"\AppData\Local\Temp\", @"C:\Users\Public\")
+| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe",
+                                        "googleupdate.exe", "microsoftedgeupdate.exe",
+                                        "setup.exe", "installer.exe")
+| where InitiatingProcessFolderPath !has_any (@"C:\Program Files", @"C:\Program Files (x86)")
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+          InitiatingProcessFileName, InitiatingProcessFolderPath,
+          InitiatingProcessCommandLine, ReportId
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 6: KeePass / Gecko / Crypto-Wallet Store Collection (T1555 / T1005)
+// Confidence: High | FP: Med (password-manager sync agents, signed backup
+//             software — allowlist by signer + scheduled windows)
+// Threshold: Alert on any non-manager process touching these stores
+// Intel: Lumma MaaS harvests KeePass .kdbx, Firefox key4.db/logins.json and
+//        wallet/2FA extension storage wholesale (NCC Group, ESET, malpedia;
+//        MetaMask extension id nkbihfbeogaeaoehlefnkodbefgpgknn)
+// ------------------------------------------------------------
+DeviceFileEvents
+| where InitiatingProcessFileName !in~ ("firefox.exe", "keepass.exe", "keepassxc.exe",
+                                        "chrome.exe", "msedge.exe", "googleupdate.exe",
+                                        "microsoftedgeupdate.exe")
+| where (FileName endswith ".kdbx"
+        or FileName in~ ("key4.db", "logins.json", "signons.sqlite"))
+    or FolderPath has @"Local Extension Settings\nkbihfbeogaeaoehlefnkodbefgpgknn"
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+          InitiatingProcessFileName, InitiatingProcessFolderPath,
+          InitiatingProcessCommandLine, ReportId
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 7: Chromium elevation_service COM Activation by Unexpected Caller
+//          (T1555.003 — App-Bound Encryption bypass)
+// Confidence: Medium-High | FP: Med (Chrome/Edge setup & update flows — the
+//             broker is DCOM-launched; correlate with the caller identity)
+// Threshold: Alert when the initiating process is neither a browser, its
+//            updater/setup, nor a service host
+// Intel: xaitax Chrome-App-Bound-Encryption-Decryption — stealers
+//        CoCreateInstance the IElevator
+//        ({708860E0-F641-4611-8895-7D867DD3675B} Chrome /
+//        {1FCBE96C-1697-43AF-9140-2897C7C69767} Edge), CoSetProxyBlanket with
+//        dynamic cloaking, then IElevator::DecryptData on the v20 key
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName =~ "elevation_service.exe"
+| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "setup.exe",
+                                        "googleupdate.exe", "microsoftedgeupdate.exe",
+                                        "chrmstp.exe", "svchost.exe", "services.exe")
+| project TimeGenerated, DeviceName, AccountName, FolderPath,
+          InitiatingProcessFileName, InitiatingProcessFolderPath,
+          InitiatingProcessCommandLine, InitiatingProcessSHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 8: LummaC2 Channel — /c2sock + act=live + TeslaBrowser UA
+//          (T1041 / T1071.001)
+// Confidence: High (UA + URI are actor-specific) | FP: Very low for UA/URI
+//             matches; User-Agent inspection requires HTTP-layer telemetry
+//             (AdditionalFields / proxy logs), plain flow logs see neither
+// Threshold: Alert on any occurrence — single hit is campaign-confirming
+// Intel: Darktrace PCAP + malpedia — hardcoded UA "TeslaBrowser/5.5";
+//        ESET — act=live handshake and LID/J form params on /c2sock;
+//        panel upload of the in-memory archive via multipart POST
+// ------------------------------------------------------------
+union isfuzzy=true
+    (DeviceNetworkEvents
+    | where RemoteUrl has_any ("/c2sock", "act=live", "lid=")
+    | where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe")
+    | project TimeGenerated, DeviceName, RemoteUrl, RemoteIP, RemotePort,
+              InitiatingProcessFileName, InitiatingProcessCommandLine,
+              BytesSent, Signal = "LummaC2 URI/form pattern"),
+    (DeviceNetworkEvents
+    | where tostring(AdditionalFields) has "TeslaBrowser"
+    | project TimeGenerated, DeviceName, RemoteUrl, RemoteIP, RemotePort,
+              InitiatingProcessFileName, InitiatingProcessCommandLine,
+              BytesSent, Signal = "LummaC2 hardcoded User-Agent (HTTP-layer telemetry)")
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 9: Behavioral Correlation — Full Infostealer Chain on One Host
+//          (T1055.003 + T1555.003 + T1041)
+// Confidence: Critical when all three legs fire | FP: Very low (three
+//             independent technique signals inside one hour)
+// Threshold: Alert on any 2-of-3 legs within 60 min; critical on 3-of-3
+// ------------------------------------------------------------
+let MasqUpdater = DeviceProcessEvents
+| where FileName in~ ("microsoftedgeupdate.exe", "googleupdate.exe")
+| where FolderPath has_any (@"C:\Users\", @"\AppData\", @"\Temp\")
+| project MasqTime = TimeGenerated, DeviceId, DeviceName,
+          UpdaterPath = FolderPath, UpdaterCmd = ProcessCommandLine;
+let CredCopy = DeviceFileEvents
+| where FileName in~ ("Login Data", "Cookies", "Web Data", "Local State", "key4.db", "logins.json")
+    or FileName endswith ".kdbx"
+    or FolderPath has @"Local Extension Settings\nkbihfbeogaeaoehlefnkodbefgpgknn"
+| where InitiatingProcessFileName !in~ ("chrome.exe", "msedge.exe", "firefox.exe")
+| project CredTime = TimeGenerated, DeviceId, StolenStore = FileName,
+          StorePath = FolderPath, ThiefProcess = InitiatingProcessFileName;
+let C2Beacon = DeviceNetworkEvents
+| where RemoteUrl has_any ("/c2sock", "act=live") or tostring(AdditionalFields) has "TeslaBrowser"
+| project C2Time = TimeGenerated, DeviceId, RemoteUrl, RemoteIP,
+          C2Process = InitiatingProcessFileName;
+MasqUpdater
+| join kind=inner CredCopy on DeviceId
+| join kind=inner C2Beacon on DeviceId
+| where CredTime between (MasqTime .. MasqTime + 60m)
+    and C2Time between (MasqTime .. MasqTime + 60m)
+| project MasqTime, CredTime, C2Time, DeviceName, UpdaterPath, UpdaterCmd,
+          ThiefProcess, StolenStore, StorePath, RemoteUrl, RemoteIP, C2Process
+| order by MasqTime desc
