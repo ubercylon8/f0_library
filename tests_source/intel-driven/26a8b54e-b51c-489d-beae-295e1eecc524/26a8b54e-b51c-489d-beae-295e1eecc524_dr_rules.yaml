@@ -1,0 +1,333 @@
+# ============================================================
+# Lumma-Style Infostealer Kill Chain - LimaCharlie D&R Rules
+# Test ID: 26a8b54e-b51c-489d-beae-295e1eecc524
+# MITRE ATT&CK: T1204.002, T1059.001, T1055.003, T1555.003, T1555,
+#               T1005, T1041, T1071.001
+# Actor: LummaC2 / Water Kurita (S1213; Microsoft: Storm-2477)
+# Platform: Windows
+# Generated: 2026-11-02
+# ============================================================
+#
+# FILE FORMAT: For use with `limacharlie dr add` or `config push`
+#
+# Deployment:
+#   limacharlie dr add 26a8b54e-b51c-489d-beae-295e1eecc524_dr_rules.yaml
+#
+# Technique-focused: every rule targets real Lumma-class tradecraft
+# (NCC Group, Netskope, ESET, Darktrace, Microsoft TI, xaitax ABE
+# research) and fires on any attacker using the same technique with
+# their own tooling. Note: the LummaC2 hardcoded User-Agent
+# "TeslaBrowser/5.5" and /c2sock URI are HTTP-layer indicators —
+# match them with the KQL/Sigma/EQL sets or proxy telemetry; the
+# network rules below use the transport-level fallback channels.
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: ClickFix Cradle - Hidden Encoded PowerShell (T1204.002, T1059.001)
+  # ============================================================
+  # Confidence: High
+  # Description: powershell/pwsh launched with an encoded command and a
+  #   hidden window — the ClickFix (fake CAPTCHA) clipboard-to-Win+R
+  #   delivery primitive documented for LummaC2 (NCC Group)
+  # False Positives: Signed software deployment agents using -enc;
+  #   baseline and allowlist
+  # ============================================================
+  lumma-clickfix-encoded-ps-cradle:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \powershell.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-EncodedCommand"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: " -enc "
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-WindowStyle Hidden"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-w hidden"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "w 1"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Lumma ClickFix Encoded PowerShell Cradle
+        metadata:
+          severity: high
+          mitre_attack: T1204.002,T1059.001
+          test_id: 26a8b54e-b51c-489d-beae-295e1eecc524
+          description: Hidden encoded-command PowerShell detected - ClickFix clipboard-poison delivery primitive
+
+
+  # ============================================================
+  # Rule 2: mshta.exe Remote HTTP Fetch LOLBin (T1204.002)
+  # ============================================================
+  # Confidence: High
+  # Description: mshta.exe invoked with an http(s) URL - the secondary
+  #   ClickFix delivery path (documented chain mshta -> VBScript ->
+  #   PowerShell stager)
+  # False Positives: Rare legacy app-compatibility packages
+  # ============================================================
+  lumma-mshta-remote-fetch:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \mshta.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "http://"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "https://"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: mshta Remote Content Fetch
+        metadata:
+          severity: high
+          mitre_attack: T1204.002
+          test_id: 26a8b54e-b51c-489d-beae-295e1eecc524
+          description: mshta.exe with remote http(s) URL detected - LOLBin delivery of stager content
+
+
+  # ============================================================
+  # Rule 3: Browser-Updater Masquerade from User-Writable Path
+  #         (T1055.003, T1036.005)
+  # ============================================================
+  # Confidence: High
+  # Description: MicrosoftEdgeUpdate.exe / GoogleUpdate.exe executing
+  #   outside Program Files - the Lumma self-copy injector pattern that
+  #   remote-thread-injects and thread-hijacks a browser-named host
+  #   (NCC Group / Gen Digital research)
+  # False Positives: Per-user Chrome installs run GoogleUpdate.exe from
+  #   %LOCALAPPDATA%\Google\Update (excluded below); MicrosoftEdgeUpdate
+  #   has no legitimate user-path install
+  # ============================================================
+  lumma-browser-updater-masquerade:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \MicrosoftEdgeUpdate.exe
+              case sensitive: false
+            - op: or
+              rules:
+                - op: starts with
+                  path: event/FILE_PATH
+                  value: c:\users\
+                  case sensitive: false
+                - op: contains
+                  path: event/FILE_PATH
+                  value: \temp\
+                  case sensitive: false
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \GoogleUpdate.exe
+              case sensitive: false
+            - op: or
+              rules:
+                - op: starts with
+                  path: event/FILE_PATH
+                  value: c:\users\
+                  case sensitive: false
+                - op: contains
+                  path: event/FILE_PATH
+                  value: \temp\
+                  case sensitive: false
+                - op: contains
+                  path: event/FILE_PATH
+                  value: \downloads\
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Browser Updater Masquerade from User Path
+        metadata:
+          severity: high
+          mitre_attack: T1055.003,T1036.005
+          test_id: 26a8b54e-b51c-489d-beae-295e1eecc524
+          description: Updater-named binary executing from user-writable path - infostealer injection masquerade
+
+
+  # ============================================================
+  # Rule 4: Browser Credential Store Copy / Wallet Harvest
+  #         (T1555.003, T1555, T1005)
+  # ============================================================
+  # Confidence: High
+  # Description: Creation of Chromium credential stores (Login Data,
+  #   Cookies, Web Data, Local State), KeePass .kdbx, Gecko key4.db /
+  #   logins.json, or the MetaMask wallet extension directory in a
+  #   scratch location - the stealer lock-workaround copy before DPAPI
+  #   key unwrap and AES-GCM v10 decryption
+  # False Positives: Profile backup/migration tools, DFIR collectors -
+  #   allowlist by signer
+  # ============================================================
+  lumma-browser-credential-store-copy:
+    detect:
+      target: edr
+      event: NEW_FILE
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \Login Data
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: \Web Data
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: \key4.db
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: \logins.json
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: .kdbx
+          case sensitive: false
+        - op: contains
+          path: event/FILE_PATH
+          value: nkbihfbeogaeaoehlefnkodbefgpgknn
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: Browser Credential Store Copied to Scratch Location
+        metadata:
+          severity: high
+          mitre_attack: T1555.003,T1555,T1005
+          test_id: 26a8b54e-b51c-489d-beae-295e1eecc524
+          description: Credential store file created outside browser profile management - infostealer harvest staging
+
+
+  # ============================================================
+  # Rule 5: Cross-Process Injection into Browser Process (T1055.003)
+  # ============================================================
+  # Confidence: High
+  # Description: Sensitive process access (VM write / thread-create
+  #   rights) against a browser-named process by an accessor outside
+  #   Program Files - the VirtualAllocEx + WriteProcessMemory +
+  #   CreateRemoteThread / thread-context hijack chain from an
+  #   updater-masquerading injector
+  # False Positives: AV/EDR shim injection (signed, Program Files);
+  #   application-compatibility tooling
+  # ============================================================
+  lumma-injection-into-browser:
+    detect:
+      target: edr
+      event: SENSITIVE_PROCESS_ACCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/TARGET_PROCESS_PATH
+              value: \chrome.exe
+              case sensitive: false
+            - op: ends with
+              path: event/TARGET_PROCESS_PATH
+              value: \msedge.exe
+              case sensitive: false
+        - op: or
+          rules:
+            - op: starts with
+              path: event/PROCESS_PATH
+              value: c:\users\
+              case sensitive: false
+            - op: contains
+              path: event/PROCESS_PATH
+              value: \temp\
+              case sensitive: false
+            - op: contains
+              path: event/PROCESS_PATH
+              value: \appdata\
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Remote Injection into Browser Process
+        metadata:
+          severity: critical
+          mitre_attack: T1055.003
+          test_id: 26a8b54e-b51c-489d-beae-295e1eecc524
+          description: User-path process opened browser process with injection-capable rights - process injection in progress
+
+
+  # ============================================================
+  # Rule 6: Exfiltration Fallback Channel - Telegram / Steam DNS
+  #         (T1041, T1071.001)
+  # ============================================================
+  # Confidence: Medium (transport-level fallback signal)
+  # Description: DNS resolution of Telegram bot API / Steam community
+  #   endpoints from hosts not running the corresponding desktop apps -
+  #   the documented LummaC2 panel fallback channels when the primary
+  #   Cloudflare-fronted domains rotate away (ESET / Darktrace)
+  # False Positives: Legitimate Telegram Desktop / Steam users; suppress
+  #   hosts with the corresponding signed clients installed
+  # Note: The primary-channel indicators (User-Agent "TeslaBrowser/5.5",
+  #   /c2sock, act=live) are HTTP-layer content - match them with the
+  #   KQL/Sigma/EQL companion rules or proxy telemetry; LimaCharlie
+  #   flow events do not expose HTTP headers.
+  # ============================================================
+  lumma-c2-fallback-channel-dns:
+    detect:
+      target: edr
+      event: DNS_REQUEST
+      op: or
+      rules:
+        - op: contains
+          path: event/DOMAIN_NAME
+          value: api.telegram.org
+          case sensitive: false
+        - op: contains
+          path: event/DOMAIN_NAME
+          value: steamcommunity.com
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: LummaC2 Fallback Channel DNS Resolution
+        metadata:
+          severity: medium
+          mitre_attack: T1041,T1071.001
+          test_id: 26a8b54e-b51c-489d-beae-295e1eecc524
+          description: DNS request to documented infostealer fallback channel - correlate with credential-store access on same host
