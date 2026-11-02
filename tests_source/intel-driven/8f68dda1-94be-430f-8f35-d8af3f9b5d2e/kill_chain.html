@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qilin (Agenda) — Kill Chain Strip</title>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2/cytoscape-dagre.js"></script>
+    <style>
+        :root {
+            --bg: oklch(1 0 0);
+            --bg-grad-start: oklch(0.985 0 0);
+            --bg-grad-end: oklch(0.922 0 0);
+            --text-1: oklch(0.145 0 0);
+            --text-2: oklch(0.556 0 0);
+            --text-3: oklch(0.708 0 0);
+            --panel: oklch(1 0 0);
+            --border: oklch(0.922 0 0);
+            --card: oklch(0.97 0 0);
+            --card-hover: oklch(0.95 0 0);
+            --code-bg: oklch(0.97 0 0);
+            --shadow: oklch(0 0 0 / 15%);
+            --accent-red: #ff6b6b;
+            --accent-blue: #4fc3f7;
+            --accent-green: #66bb6a;
+            --accent-orange: #ff9f43;
+            --sev-high: #ff9f43;
+            --sev-high-bg: rgba(255,159,67,0.08);
+            --sev-crit: #ff4444;
+            --sev-crit-bg: rgba(255,68,68,0.08);
+            --info-bg: oklch(0.97 0.02 250);
+            --info-border: oklch(0.85 0.06 250);
+            --safety-bg: oklch(0.97 0.025 145);
+            --safety-border: oklch(0.85 0.06 145);
+        }
+        [data-theme="dark"], .dark {
+            --bg: oklch(0.145 0 0);
+            --bg-grad-start: oklch(0.1 0.02 265);
+            --bg-grad-end: oklch(0.18 0.02 265);
+            --text-1: oklch(0.985 0 0);
+            --text-2: oklch(0.708 0 0);
+            --text-3: oklch(0.556 0 0);
+            --panel: oklch(0.12 0.01 265);
+            --border: oklch(1 0 0 / 10%);
+            --card: oklch(0.205 0 0);
+            --card-hover: oklch(0.25 0 0);
+            --code-bg: oklch(0.1 0.02 265);
+            --shadow: oklch(0 0 0 / 50%);
+            --info-bg: oklch(0.18 0.035 250);
+            --info-border: oklch(0.35 0.08 250);
+            --safety-bg: oklch(0.18 0.035 145);
+            --safety-border: oklch(0.35 0.08 145);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) {
+                --bg: oklch(0.145 0 0);
+                --bg-grad-start: oklch(0.1 0.02 265);
+                --bg-grad-end: oklch(0.18 0.02 265);
+                --text-1: oklch(0.985 0 0);
+                --text-2: oklch(0.708 0 0);
+                --text-3: oklch(0.556 0 0);
+                --panel: oklch(0.12 0.01 265);
+                --border: oklch(1 0 0 / 10%);
+                --card: oklch(0.205 0 0);
+                --card-hover: oklch(0.25 0 0);
+                --code-bg: oklch(0.1 0.02 265);
+                --shadow: oklch(0 0 0 / 50%);
+                --info-bg: oklch(0.18 0.035 250);
+                --info-border: oklch(0.35 0.08 250);
+                --safety-bg: oklch(0.18 0.035 145);
+                --safety-border: oklch(0.35 0.08 145);
+            }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg-grad-start), var(--bg-grad-end));
+            color: var(--text-1); min-height: 100vh; padding: 2rem;
+        }
+        .container { max-width: 1400px; min-height: calc(100vh - 4rem); margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; }
+        .header {
+            display: none; align-items: flex-start; gap: 1.5rem;
+            padding: 1.5rem 2rem; background: var(--panel);
+            border: 1px solid var(--border); border-radius: 12px;
+            box-shadow: 0 2px 12px var(--shadow);
+        }
+        .header-content { flex: 1; }
+        .header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.25rem; }
+        .header h1 .alias { color: var(--text-2); font-weight: 400; }
+        .header .subtitle { color: var(--text-2); font-size: 0.9rem; margin-bottom: 0.75rem; line-height: 1.4; }
+        .meta { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+        .badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; }
+        .badge-score { background: var(--sev-high-bg); color: var(--sev-high); border: 1px solid rgba(255,159,67,0.3); }
+        .badge-sev { background: var(--sev-crit-bg); color: var(--sev-crit); border: 1px solid rgba(255,68,68,0.3); text-transform: uppercase; font-size: 0.65rem; letter-spacing: 0.06em; }
+        .badge-uuid { background: var(--code-bg); color: var(--text-2); border: 1px solid var(--border); font-family: 'SF Mono','Cascadia Code',monospace; font-size: 0.7rem; }
+        .theme-toggle { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; transition: all 0.2s; flex-shrink: 0; }
+        .theme-toggle:hover { background: var(--card-hover); color: var(--text-1); }
+        .mitre-strip { display: flex; gap: 0.5rem; padding: 1rem 1.5rem; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; box-shadow: 0 2px 8px var(--shadow); }
+        .mitre-tag { display: flex; flex-direction: column; align-items: center; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--card); border: 1px solid var(--border); min-width: 130px; text-align: center; transition: all 0.2s; }
+        .mitre-tag:hover { background: var(--card-hover); transform: translateY(-1px); }
+        .mitre-tag .tid { font-family: 'SF Mono','Cascadia Code',monospace; font-size: 0.75rem; font-weight: 700; color: var(--accent-blue); }
+        .mitre-tag .tname { font-size: 0.65rem; color: var(--text-2); margin-top: 0.15rem; line-height: 1.3; }
+        .mitre-tag .tactic { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin-top: 0.25rem; padding-top: 0.25rem; border-top: 1px solid var(--border); width: 100%; }
+        .continuity { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; background: var(--info-bg); border: 1px solid var(--info-border); border-left: 4px solid var(--accent-blue); border-radius: 10px; }
+        .continuity-badge { flex-shrink: 0; padding: 0.35rem 0.55rem; border-radius: 6px; background: #2563eb; color: #fff; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+        .continuity h2 { font-size: 0.9rem; margin-bottom: 0.25rem; }
+        .continuity p { color: var(--text-2); font-size: 0.76rem; line-height: 1.5; }
+        .diagram-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 2px 12px var(--shadow); overflow: hidden; }
+        .diagram-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border); }
+        .diagram-bar h2 { font-size: 0.85rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; }
+        .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.7rem; color: var(--text-3); }
+        .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .legend-dot.stage { background: var(--accent-blue); }
+        .legend-dot.prot { background: var(--accent-green); }
+        .legend-dot.unprot { background: var(--accent-red); }
+        .diagram-note { padding: 0.55rem 1.5rem; color: var(--text-2); background: var(--card); border-bottom: 1px solid var(--border); font-size: 0.7rem; line-height: 1.4; }
+        #cy { width: 100%; height: 380px; }
+        .stage-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+        .stage-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; box-shadow: 0 2px 8px var(--shadow); transition: all 0.2s; position: relative; overflow: hidden; }
+        .stage-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px var(--shadow); }
+        .stage-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+        .stage-card:nth-child(1)::before { background: linear-gradient(90deg, #2563eb, #3b82f6); }
+        .stage-card:nth-child(2)::before { background: linear-gradient(90deg, #3b82f6, #6366f1); }
+        .stage-card:nth-child(3)::before { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+        .stage-card:nth-child(4)::before { background: linear-gradient(90deg, #8b5cf6, #a855f7); }
+        .stage-card:nth-child(5)::before { background: linear-gradient(90deg, #a855f7, #c084fc); }
+        .sc-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .sc-num { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: white; flex-shrink: 0; }
+        .stage-card:nth-child(1) .sc-num { background: #2563eb; }
+        .stage-card:nth-child(2) .sc-num { background: #4f46e5; }
+        .stage-card:nth-child(3) .sc-num { background: #7c3aed; }
+        .stage-card:nth-child(4) .sc-num { background: #9333ea; }
+        .stage-card:nth-child(5) .sc-num { background: #a855f7; }
+        .sc-title { font-size: 0.85rem; font-weight: 600; }
+        .sc-tech { font-family: 'SF Mono','Cascadia Code',monospace; font-size: 0.7rem; color: var(--accent-blue); margin-bottom: 0.4rem; line-height: 1.45; }
+        .sc-desc { font-size: 0.78rem; color: var(--text-2); line-height: 1.5; }
+        .sc-independent { display: inline-block; margin-top: 0.55rem; color: var(--accent-green); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+        .sc-detect { margin-top: 0.65rem; padding-top: 0.6rem; border-top: 1px solid var(--border); color: var(--text-2); font-size: 0.7rem; line-height: 1.45; }
+        .sc-detect strong { color: var(--text-1); font-size: 0.62rem; letter-spacing: 0.05em; text-transform: uppercase; }
+        .sc-chips { margin-top: 0.6rem; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+        .chip { font-size: 0.65rem; padding: 0.15rem 0.45rem; border-radius: 4px; background: var(--code-bg); color: var(--text-3); border: 1px solid var(--border); font-family: 'SF Mono','Cascadia Code',monospace; }
+        .safety { padding: 1.25rem 1.5rem; background: var(--safety-bg); border: 1px solid var(--safety-border); border-radius: 12px; }
+        .safety h2 { color: var(--accent-green); font-size: 0.9rem; margin-bottom: 0.35rem; }
+        .safety-intro { color: var(--text-2); font-size: 0.76rem; margin-bottom: 0.9rem; }
+        .safety-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem 1.25rem; }
+        .safety-item { color: var(--text-2); font-size: 0.72rem; line-height: 1.5; padding-left: 0.85rem; border-left: 2px solid var(--safety-border); }
+        .safety-item strong { color: var(--text-1); }
+        .outcomes { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .outcome { padding: 1rem 1.25rem; border-radius: 10px; border: 1px solid; }
+        .outcome.prot { background: oklch(0.95 0.05 145); border-color: oklch(0.8 0.1 145); }
+        .outcome.unprot { background: oklch(0.95 0.03 25); border-color: oklch(0.8 0.08 25); }
+        [data-theme="dark"] .outcome.prot, .dark .outcome.prot { background: oklch(0.2 0.05 145); border-color: oklch(0.35 0.1 145); }
+        [data-theme="dark"] .outcome.unprot, .dark .outcome.unprot { background: oklch(0.2 0.04 25); border-color: oklch(0.35 0.08 25); }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) .outcome.prot { background: oklch(0.2 0.05 145); border-color: oklch(0.35 0.1 145); }
+            :root:not([data-theme]) .outcome.unprot { background: oklch(0.2 0.04 25); border-color: oklch(0.35 0.08 25); }
+        }
+        .outcome h3 { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.4rem; }
+        .outcome.prot h3 { color: var(--accent-green); }
+        .outcome.unprot h3 { color: var(--accent-red); }
+        .outcome p { font-size: 0.75rem; color: var(--text-2); line-height: 1.4; }
+        .outcome .code { font-family: 'SF Mono','Cascadia Code',monospace; font-weight: 700; }
+        .error-note { color: var(--text-3); text-align: center; font-size: 0.7rem; line-height: 1.5; }
+        @media (max-width: 700px) {
+            body { padding: 0.75rem; }
+            .container { min-height: calc(100vh - 1.5rem); gap: 0.75rem; }
+            .continuity, .diagram-bar { align-items: flex-start; flex-direction: column; }
+            .outcomes { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <h1>Qilin <span class="alias">(Agenda)</span></h1>
+                <p class="subtitle">BYOVD EDR-Killer &amp; svchost Injection Chain — discovery, simulated kernel defense evasion, test-owned injection, LSASS access, and sandbox impact</p>
+                <div class="meta">
+                    <span class="badge badge-score">&#9733; 8.7 / 10</span>
+                    <span class="badge badge-sev">CRITICAL</span>
+                    <span class="badge badge-uuid">8f68dda1-94be-430f-8f35-d8af3f9b5d2e</span>
+                </div>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle color theme">&#x263E;</button>
+        </header>
+
+        <div class="mitre-strip" aria-label="MITRE ATT&amp;CK techniques">
+            <div class="mitre-tag"><span class="tid">T1518.001</span><span class="tname">Security Software Discovery</span><span class="tactic">Discovery</span></div>
+            <div class="mitre-tag"><span class="tid">T1082</span><span class="tname">System Information Discovery</span><span class="tactic">Discovery</span></div>
+            <div class="mitre-tag"><span class="tid">T1562.001</span><span class="tname">Disable or Modify Tools</span><span class="tactic">Defense Evasion</span></div>
+            <div class="mitre-tag"><span class="tid">T1211</span><span class="tname">Exploitation for Defense Evasion</span><span class="tactic">Defense Evasion</span></div>
+            <div class="mitre-tag"><span class="tid">T1055</span><span class="tname">Process Injection</span><span class="tactic">Defense Evasion</span></div>
+            <div class="mitre-tag"><span class="tid">T1003.001</span><span class="tname">LSASS Memory</span><span class="tactic">Credential Access</span></div>
+            <div class="mitre-tag"><span class="tid">T1490</span><span class="tname">Inhibit System Recovery</span><span class="tactic">Impact</span></div>
+            <div class="mitre-tag"><span class="tid">T1486</span><span class="tname">Data Encrypted for Impact</span><span class="tactic">Impact</span></div>
+        </div>
+
+        <section class="continuity" aria-label="Independent execution model">
+            <span class="continuity-badge">Independent objectives</span>
+            <div>
+                <h2>Every stage is attempted &mdash; no early exit</h2>
+                <p>Stages run in order, but none depends on an earlier result. Extraction failure, quarantine, positive prevention (126/105/127), timeout (102), or error (999) is recorded and the orchestrator advances to the next objective.</p>
+            </div>
+        </section>
+
+        <div class="diagram-panel">
+            <div class="diagram-bar">
+                <h2>Kill Chain &mdash; Stage Progression</h2>
+                <div class="legend">
+                    <span class="legend-item"><span class="legend-dot stage"></span> Independent stage</span>
+                    <span class="legend-item"><span class="legend-dot prot"></span> Prevented / quarantined</span>
+                    <span class="legend-item"><span class="legend-dot unprot"></span> No prevention</span>
+                </div>
+            </div>
+            <div class="diagram-note"><strong>Blue arrows:</strong> always continue to the next objective after any result. <strong>Green dashed branches:</strong> per-stage prevention evidence; they do not stop the chain.</div>
+            <div id="cy" aria-label="Five-stage Qilin attack simulation kill chain"></div>
+        </div>
+
+        <div class="stage-cards">
+            <article class="stage-card">
+                <div class="sc-header"><div class="sc-num">1</div><span class="sc-title">Security Discovery &amp; Side-Load</span></div>
+                <div class="sc-tech">T1518.001 — Security Software Discovery<br>T1082 — System Information Discovery</div>
+                <p class="sc-desc">Queries SecurityCenter2, processes, services, and OS details. A test-owned FoxitPDFReader.exe loads a renamed Microsoft msimg32.dll for benign image-load telemetry.</p>
+                <span class="sc-independent">Runs regardless of stages 2&ndash;5</span>
+                <p class="sc-detect"><strong>Detection opportunities</strong><br>CIM/PowerShell discovery, tasklist and sc.exe execution, suspicious host/DLL drops, and LoadLibraryW image loads from a nonstandard directory.</p>
+                <div class="sc-chips"><span class="chip">SecurityCenter2</span><span class="chip">FoxitPDFReader.exe</span><span class="chip">msimg32.dll</span></div>
+            </article>
+            <article class="stage-card">
+                <div class="sc-header"><div class="sc-num">2</div><span class="sc-title">BYOVD EDR-Killer</span></div>
+                <div class="sc-tech">T1562.001 — Disable or Modify Tools<br>T1211 — Exploitation for Defense Evasion</div>
+                <p class="sc-desc">Drops rwdrv.sys for signature observation, attempts nonfunctional driver service/native loads, simulates 320 callback removals, and terminates only test-owned security-process stand-ins.</p>
+                <span class="sc-independent">Attempted even if stage 1 is blocked/errors</span>
+                <p class="sc-detect"><strong>Detection opportunities</strong><br>Vulnerable-driver signatures, kernel service creation, SeLoadDriverPrivilege, NtLoadDriver, driver-device probes, and terminate access to security-named processes.</p>
+                <div class="sc-chips"><span class="chip">rwdrv.sys</span><span class="chip">hlpdrv.sys</span><span class="chip">callback_registry.json</span></div>
+            </article>
+            <article class="stage-card">
+                <div class="sc-header"><div class="sc-num">3</div><span class="sc-title">svchost Process Injection</span></div>
+                <div class="sc-tech">T1055 — Process Injection</div>
+                <p class="sc-desc">Uses VirtualAllocEx, WriteProcessMemory, and CreateRemoteThread(LoadLibraryW) against a test-owned svchost.exe, loading a renamed Microsoft version.dll as pwndll.dll.</p>
+                <span class="sc-independent">Attempted even if stages 1&ndash;2 are blocked/error</span>
+                <p class="sc-detect"><strong>Detection opportunities</strong><br>Cross-process handle access, remote RW allocation and writes, remote thread creation, and image loads from a sandbox path.</p>
+                <div class="sc-chips"><span class="chip">VirtualAllocEx</span><span class="chip">WriteProcessMemory</span><span class="chip">CreateRemoteThread</span></div>
+            </article>
+            <article class="stage-card">
+                <div class="sc-header"><div class="sc-num">4</div><span class="sc-title">LSASS Access Attempt</span></div>
+                <div class="sc-tech">T1003.001 — OS Credential Dumping: LSASS Memory</div>
+                <p class="sc-desc">Enables SeDebugPrivilege and requests PROCESS_VM_READ | PROCESS_QUERY_INFORMATION on lsass.exe. A granted handle is closed immediately without reading or dumping memory.</p>
+                <span class="sc-independent">Attempted even if stages 1&ndash;3 are blocked/error</span>
+                <p class="sc-detect"><strong>Detection opportunities</strong><br>SeDebugPrivilege use, LSASS process discovery, sensitive handle requests, and access denials in an elevated context.</p>
+                <div class="sc-chips"><span class="chip">SeDebugPrivilege</span><span class="chip">OpenProcess</span><span class="chip">PROCESS_VM_READ</span></div>
+            </article>
+            <article class="stage-card">
+                <div class="sc-header"><div class="sc-num">5</div><span class="sc-title">Minimal Impact</span></div>
+                <div class="sc-tech">T1490 — Inhibit System Recovery<br>T1486 — Data Encrypted for Impact</div>
+                <p class="sc-desc">Encrypts five synthetic decoys with AES-GCM inside the artifact sandbox and issues vssadmin/bcdedit commands against nonexistent identifiers for fail-harmless telemetry.</p>
+                <span class="sc-independent">Attempted even if stages 1&ndash;4 are blocked/error</span>
+                <p class="sc-detect"><strong>Detection opportunities</strong><br>Rapid decoy creation and .qilin renames, ransom-note writes, recovery-command invocation, and writes outside normal application directories.</p>
+                <div class="sc-chips"><span class="chip">AES-GCM</span><span class="chip">.qilin</span><span class="chip">vssadmin / bcdedit</span></div>
+            </article>
+        </div>
+
+        <section class="safety" aria-label="Safety boundaries">
+            <h2>Safety boundaries &mdash; real telemetry, contained effects</h2>
+            <p class="safety-intro">The chain exercises detection surfaces without reproducing a functional EDR killer, credential dump, production ransomware impact, or external command-and-control.</p>
+            <div class="safety-grid">
+                <p class="safety-item"><strong>Driver containment:</strong> authentic rwdrv.sys is present only for signature inspection and is deleted before load attempts. Service and NtLoadDriver operations use nonfunctional stand-ins; no vulnerable driver is loaded.</p>
+                <p class="safety-item"><strong>Kernel simulation:</strong> all 320 process/thread/image callback removals are state changes in ARTIFACT_DIR\Qilin\callback_registry.json. No kernel callback is touched.</p>
+                <p class="safety-item"><strong>Process containment:</strong> termination and injection target only test-owned stand-ins, including the test-owned svchost.exe. Production security services and Windows svchost instances are not targeted.</p>
+                <p class="safety-item"><strong>Credential boundary:</strong> LSASS activity stops at the OpenProcess handle request. There is no ReadProcessMemory call, credential extraction, or memory dump.</p>
+                <p class="safety-item"><strong>Impact sandbox:</strong> only synthetic files under ARTIFACT_DIR\Qilin\impact are encrypted. Recovery commands target nonexistent volume/BCD identifiers, and the sandbox is removed during cleanup.</p>
+                <p class="safety-item"><strong>No external effects:</strong> no external egress, C2, lateral movement, production-target encryption, shadow-copy deletion, or boot-configuration change is performed.</p>
+            </div>
+        </section>
+
+        <div class="outcomes">
+            <div class="outcome prot">
+                <h3>&#x2705; Protected <span class="code">(Exit 126)</span></h3>
+                <p>At least one stage produced positive prevention evidence; 105/127 also record quarantine. Remaining independent objectives are still attempted and individually reported.</p>
+            </div>
+            <div class="outcome unprot">
+                <h3>&#x26A0; Unprotected <span class="code">(Exit 101)</span></h3>
+                <p>All five emulation objectives completed without prevention or error. This does not mean a real driver was loaded or production systems were impacted.</p>
+            </div>
+        </div>
+        <p class="error-note"><strong>Exit 999 / 102:</strong> test error or watchdog timeout unless positive prevention evidence exists elsewhere. Errors are inconclusive, not blocks; later stages still run.</p>
+    </div>
+
+    <script>
+    function getTheme() {
+        const s = localStorage.getItem('diagram-theme');
+        if (s) return s;
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    function applyTheme(t) {
+        document.documentElement.setAttribute('data-theme', t);
+        localStorage.setItem('diagram-theme', t);
+        document.querySelector('.theme-toggle').textContent = t === 'dark' ? '\u2600' : '\u263E';
+    }
+    function toggleTheme() {
+        const cur = document.documentElement.getAttribute('data-theme') || getTheme();
+        applyTheme(cur === 'dark' ? 'light' : 'dark');
+    }
+    window.addEventListener('message', e => { if (e.data && e.data.theme) applyTheme(e.data.theme); });
+
+    const elements = [
+        { data: { id: 'deploy', label: 'DEPLOY\nc:\\F0', type: 'orchestrator' } },
+        { data: { id: 'extract', label: 'EXTRACT\n5 independent stages', type: 'orchestrator' } },
+        { data: { id: 's1', label: 'STAGE 1\nDiscovery & Side-Load\nT1518.001 + T1082', type: 'stage', stage: 1 } },
+        { data: { id: 's2', label: 'STAGE 2\nBYOVD EDR-Killer\nT1562.001 + T1211', type: 'stage', stage: 2 } },
+        { data: { id: 's3', label: 'STAGE 3\nsvchost Injection\nT1055', type: 'stage', stage: 3 } },
+        { data: { id: 's4', label: 'STAGE 4\nLSASS Access Attempt\nT1003.001', type: 'stage', stage: 4 } },
+        { data: { id: 's5', label: 'STAGE 5\nMinimal Impact\nT1490 + T1486', type: 'stage', stage: 5 } },
+        { data: { id: 'success', label: 'EXIT 101\nALL OBJECTIVES ATTEMPTED\nNO PREVENTION', type: 'unprotected' } },
+        { data: { id: 'p1', label: '126 / 105\nDiscovery or side-load prevented\ncontinue to stage 2', type: 'protected' } },
+        { data: { id: 'p2', label: '126 / 105\nBYOVD primitive prevented\ncontinue to stage 3', type: 'protected' } },
+        { data: { id: 'p3', label: '126 / 105\nInjection prevented\ncontinue to stage 4', type: 'protected' } },
+        { data: { id: 'p4', label: '126\nLSASS access denied\ncontinue to stage 5', type: 'protected' } },
+        { data: { id: 'p5', label: '126\nSandbox impact prevented\nall objectives attempted', type: 'protected' } },
+        { data: { source: 'deploy', target: 'extract', label: 'pass' } },
+        { data: { source: 'extract', target: 's1', label: 'pass' } },
+        { data: { source: 's1', target: 's2', label: 'pass' } },
+        { data: { source: 's2', target: 's3', label: 'pass' } },
+        { data: { source: 's3', target: 's4', label: 'pass' } },
+        { data: { source: 's4', target: 's5', label: 'pass' } },
+        { data: { source: 's5', target: 'success', label: 'pass' } },
+        { data: { source: 's1', target: 'p1', label: 'blocked' } },
+        { data: { source: 's2', target: 'p2', label: 'blocked' } },
+        { data: { source: 's3', target: 'p3', label: 'blocked' } },
+        { data: { source: 's4', target: 'p4', label: 'blocked' } },
+        { data: { source: 's5', target: 'p5', label: 'blocked' } },
+    ];
+
+    const cy = cytoscape({
+        container: document.getElementById('cy'),
+        elements: elements,
+        style: [
+            { selector: 'node', style: { 'label': 'data(label)', 'text-wrap': 'wrap', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '11px', 'font-family': '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif', 'width': 'label', 'height': 'label', 'padding': '14px', 'shape': 'roundrectangle', 'border-width': 2, 'text-max-width': '140px' } },
+            { selector: 'node[type="orchestrator"]', style: { 'background-color': '#1a1a2e', 'border-color': '#0f3460', 'color': '#a0b4d0', 'font-size': '10px' } },
+            { selector: 'node[type="stage"]', style: { 'border-width': 3, 'color': '#ffffff', 'font-size': '12px', 'font-weight': 'bold', 'padding': '18px', 'text-max-width': '160px' } },
+            { selector: 'node[stage=1]', style: { 'background-color': '#2563eb', 'border-color': '#3b82f6' } },
+            { selector: 'node[stage=2]', style: { 'background-color': '#4f46e5', 'border-color': '#6366f1' } },
+            { selector: 'node[stage=3]', style: { 'background-color': '#7c3aed', 'border-color': '#8b5cf6' } },
+            { selector: 'node[stage=4]', style: { 'background-color': '#9333ea', 'border-color': '#a855f7' } },
+            { selector: 'node[stage=5]', style: { 'background-color': '#a855f7', 'border-color': '#c084fc' } },
+            { selector: 'node[type="protected"]', style: { 'background-color': '#1b4332', 'border-color': '#2d6a4f', 'color': '#95d5b2', 'border-style': 'dashed', 'border-width': 2, 'font-size': '10px', 'padding': '10px' } },
+            { selector: 'node[type="unprotected"]', style: { 'background-color': '#6a040f', 'border-color': '#9d0208', 'color': '#ffd6a5', 'border-width': 3, 'font-weight': 'bold', 'font-size': '12px', 'padding': '16px' } },
+            { selector: 'edge', style: { 'width': 3, 'line-color': '#5a9fd4', 'target-arrow-color': '#5a9fd4', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 1.3 } },
+            { selector: 'edge[label="pass"]', style: { 'label': '', 'width': 4, 'line-color': '#5a9fd4', 'target-arrow-color': '#5a9fd4' } },
+            { selector: 'edge[label="blocked"]', style: { 'label': 'blocked', 'font-size': '9px', 'color': '#66bb6a', 'line-color': '#66bb6a', 'target-arrow-color': '#66bb6a', 'line-style': 'dashed', 'width': 2, 'text-background-color': '#0d1b2a', 'text-background-opacity': 0.85, 'text-background-padding': '2px', 'text-background-shape': 'roundrectangle' } },
+        ],
+        layout: { name: 'dagre', rankDir: 'LR', nodeSep: 30, rankSep: 60, edgeSep: 15, animate: false },
+        userZoomingEnabled: true,
+        userPanningEnabled: true,
+        boxSelectionEnabled: false,
+    });
+
+    cy.fit(undefined, 30);
+    applyTheme(getTheme());
+    </script>
+</body>
+</html>

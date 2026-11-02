@@ -1,0 +1,246 @@
+# Qilin behavior detections in LimaCharlie file format.
+# No network rules are included because this chain has no network behavior.
+# Native NtLoadDriver coverage requires API telemetry; the process and file rules below detect its surrounding BYOVD chain.
+
+rules:
+  # Detection: Qilin Driver Staging and Encrypted File Creation
+  # Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+  # MITRE ATT&CK: T1211, T1486
+  # Confidence: High for rwdrv/hlpdrv; Medium for a generic user-writable .sys or one .qilin file
+  # False Positives: Driver updaters, support tools, or benign software using the same suffix.
+  # Tuning: Validate driver signer/hash. For encryption, alert at high confidence on at least 3 .qilin files per process in 2 minutes.
+  qilin-driver-staging-and-encrypted-files:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: '\rwdrv.sys'
+        - op: ends with
+          path: event/FILE_PATH
+          value: '\hlpdrv.sys'
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: '.sys'
+            - op: or
+              rules:
+                - op: contains
+                  path: event/FILE_PATH
+                  value: '\Users\'
+                - op: contains
+                  path: event/FILE_PATH
+                  value: '\ProgramData\'
+                - op: contains
+                  path: event/FILE_PATH
+                  value: '\Temp\'
+        - op: ends with
+          path: event/FILE_PATH
+          value: '.qilin'
+    respond:
+      - action: report
+        name: qilin-driver-staging-or-encrypted-file
+
+  # Detection: Qilin Discovery, Kernel Service, Security Termination, and Recovery Commands
+  # Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+  # MITRE ATT&CK: T1518.001, T1082, T1211, T1562.001, T1490
+  # Confidence: High for the explicit command combinations; Medium for discovery in isolation
+  # False Positives: Driver installation, inventory tools, service control, backup maintenance, and recovery administration.
+  # Tuning: Allowlist approved management signer/parent combinations and maintenance windows, not bare command names.
+  qilin-discovery-service-termination-and-recovery-commands:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'sc.exe'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'create'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'type='
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'kernel'
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'SecurityCenter2'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'AntiVirusProduct'
+        - op: contains
+          path: event/COMMAND_LINE
+          value: 'Win32_OperatingSystem'
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'vssadmin'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'delete'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'shadows'
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'bcdedit'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'recoveryenabled'
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'no'
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: 'taskkill'
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: 'MsMpEng'
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: 'CSFalconService'
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: 'CrowdStrike'
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: 'SentinelAgent'
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: 'SophosEndpointDefense'
+    respond:
+      - action: report
+        name: qilin-suspicious-discovery-service-or-impact-command
+
+  # Detection: Qilin Foxit Sideload and Injected Module Load
+  # Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+  # MITRE ATT&CK: T1574.002, T1055
+  # Confidence: High
+  # False Positives: Portable/repackaged Foxit installations and security or debugging modules.
+  # Tuning: Validate module signer/hash and process installation path; do not exclude all non-system DLL loads.
+  qilin-sideload-and-injected-module-load:
+    detect:
+      target: edr
+      event: MODULE_LOAD
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: ends with
+              path: event/MODULE_PATH
+              value: '\msimg32.dll'
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: '\FoxitPDFReader.exe'
+            - op: not
+              rules:
+                - op: or
+                  rules:
+                    - op: contains
+                      path: event/MODULE_PATH
+                      value: '\Windows\System32\'
+                    - op: contains
+                      path: event/MODULE_PATH
+                      value: '\Windows\SysWOW64\'
+        - op: and
+          rules:
+            - op: ends with
+              path: event/MODULE_PATH
+              value: '\pwndll.dll'
+            - op: ends with
+              path: event/PROCESS/FILE_PATH
+              value: '\svchost.exe'
+    respond:
+      - action: report
+        name: qilin-sideload-or-injected-module
+
+  # Detection: Qilin Remote Thread Targeting Svchost
+  # Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+  # MITRE ATT&CK: T1055
+  # Confidence: High for an untrusted source; Medium without thread-start details
+  # False Positives: Debuggers, profilers, accessibility tools, and security products.
+  # Tuning: Review source signer and thread start address; correlate with a subsequent non-system module load.
+  qilin-remote-thread-into-svchost:
+    detect:
+      target: edr
+      event: NEW_REMOTE_THREAD
+      op: and
+      rules:
+        - op: ends with
+          path: event/TARGET/FILE_PATH
+          value: '\svchost.exe'
+    respond:
+      - action: report
+        name: qilin-remote-thread-svchost
+
+  # Detection: Qilin LSASS Access and Security Process Termination Precursor
+  # Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+  # MITRE ATT&CK: T1003.001, T1562.001
+  # Confidence: High for an untrusted source; Medium without validating the access mask
+  # False Positives: EDR/credential-protection products, vendor service control, crash-dump and support tools.
+  # Tuning: Require verified signer/full-path/access-mask combinations. A handle does not prove LSASS was read or a target was terminated.
+  qilin-lsass-or-security-process-access:
+    detect:
+      target: edr
+      event: SENSITIVE_PROCESS_ACCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: '\lsass.exe'
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: '\MsMpEng.exe'
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: '\CSFalconService.exe'
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: '\CrowdStrike.exe'
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: '\SentinelAgent.exe'
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: '\MsSense.exe'
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: '\SophosEndpointDefense.exe'
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: '\csrss.exe'
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: '\services.exe'
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: '\MsMpEng.exe'
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: '\CSFalconService.exe'
+    respond:
+      - action: report
+        name: qilin-lsass-or-security-process-access

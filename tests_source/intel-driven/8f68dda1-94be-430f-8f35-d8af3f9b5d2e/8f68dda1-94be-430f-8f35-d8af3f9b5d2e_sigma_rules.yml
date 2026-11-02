@@ -1,0 +1,223 @@
+# Qilin BYOVD driver staging, service creation, and native loading.
+# Confidence: High for known drivers and NtLoadDriver; Medium for a generic service ImagePath.
+# False positives: Administrative driver installation, hardware updates, and security research.
+# Tuning: Validate signer/hash and correlate a new service with a driver drop within 5 minutes.
+title: Qilin BYOVD Driver Staging Service and Native Load
+id: a7d7c4b1-657e-4f78-a9df-45880a5bf421
+status: experimental
+description: Detects rwdrv/hlpdrv drops, kernel driver service configuration, known driver loads, and direct NtLoadDriver/ZwLoadDriver API telemetry. Confidence is high for named artifacts and native-load APIs; a generic service ImagePath requires administrative-change review.
+references:
+  - https://blog.talosintelligence.com/qilin-edr-killer/
+  - https://attack.mitre.org/techniques/T1211/
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+  - attack.defense-evasion
+  - attack.t1211
+  - attack.t1562.001
+logsource:
+  product: windows
+detection:
+  selection_driver_drop:
+    EventID: 11
+    TargetFilename|endswith:
+      - '\rwdrv.sys'
+      - '\hlpdrv.sys'
+  selection_kernel_service:
+    EventID:
+      - 1
+      - 4688
+    CommandLine|re: '(?i)\bsc(?:\.exe)?\s+create\s+\S+.*\btype\s*=\s*kernel\b'
+  selection_service_registry:
+    EventID:
+      - 12
+      - 13
+      - 14
+      - 4657
+    TargetObject|contains: '\services\'
+    Details|contains: '.sys'
+  selection_native_load:
+    ApiName:
+      - NtLoadDriver
+      - ZwLoadDriver
+  selection_known_driver_load:
+    EventID: 6
+    ImageLoaded|endswith:
+      - '\rwdrv.sys'
+      - '\hlpdrv.sys'
+  condition: 1 of selection_*
+falsepositives:
+  - Approved hardware and driver installation workflows
+  - Driver-development or BYOVD research systems
+level: critical
+confidence: high
+---
+# Qilin discovery, DLL sideloading, and remote-thread behavior.
+# Confidence: High for sideload/injection branches; Medium for discovery-only matches.
+# False positives: Inventory tools, portable Foxit packages, debuggers, profilers, and security software.
+# Tuning: Validate the loaded DLL signer/path and remote-thread source; allowlist approved management tools by signer and parent.
+title: Qilin Discovery Foxit Sideload and Svchost Remote Thread
+id: d524d0c7-bb2f-49a2-a17c-b2c2d062c3b5
+status: experimental
+description: Detects SecurityCenter2 and OS discovery, FoxitPDFReader loading msimg32 outside Windows system directories, pwndll loading in svchost, and Sysmon remote-thread creation targeting svchost.
+references:
+  - https://blog.talosintelligence.com/qilin-edr-killer/
+  - https://attack.mitre.org/techniques/T1518/001/
+  - https://attack.mitre.org/techniques/T1082/
+  - https://attack.mitre.org/techniques/T1055/
+  - https://attack.mitre.org/techniques/T1574/002/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+  - attack.discovery
+  - attack.defense-evasion
+  - attack.t1518.001
+  - attack.t1082
+  - attack.t1055
+  - attack.t1574.002
+logsource:
+  product: windows
+detection:
+  selection_security_discovery:
+    EventID:
+      - 1
+      - 4688
+    CommandLine|re: '(?i)(SecurityCenter2.*AntiVirusProduct|AntiVirusProduct.*SecurityCenter2)'
+  selection_system_discovery:
+    EventID:
+      - 1
+      - 4688
+    CommandLine|contains: 'Win32_OperatingSystem'
+  selection_sideload:
+    EventID: 7
+    Image|endswith: '\FoxitPDFReader.exe'
+    ImageLoaded|endswith: '\msimg32.dll'
+  filter_sideload_system:
+    ImageLoaded|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+  selection_injected_module:
+    EventID: 7
+    Image|endswith: '\svchost.exe'
+    ImageLoaded|endswith: '\pwndll.dll'
+  selection_remote_thread:
+    EventID: 8
+    TargetImage|endswith: '\svchost.exe'
+  condition: 1 of selection_*discovery or (selection_sideload and not 1 of filter_sideload_*) or selection_injected_module or selection_remote_thread
+falsepositives:
+  - Approved inventory and vulnerability-management software
+  - Portable or repackaged Foxit installations
+  - Debuggers, profilers, accessibility tools, and security products creating remote threads
+level: high
+confidence: high
+---
+# Qilin LSASS memory-read access.
+# Confidence: High for an untrusted source requesting PROCESS_VM_READ.
+# False positives: EDR, credential-protection, crash-dump, and support tools.
+# Tuning: Exclusions must combine a verified signer, full path, and expected access mask; never exclude LSASS access by process name alone.
+title: Qilin LSASS PROCESS VM READ Access
+id: f90b0111-c523-4c82-8063-a3fb638120f1
+status: experimental
+description: Detects a process access handle to LSASS whose granted-access mask includes PROCESS_VM_READ (0x10), including access attempted after enabling SeDebugPrivilege. A granted handle does not alone prove that memory was read or dumped.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+  - attack.credential-access
+  - attack.t1003.001
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    TargetImage|endswith: '\lsass.exe'
+    GrantedAccess|re: '(?i)^0x[0-9a-f]*[13579bdf][0-9a-f]$'
+  condition: selection
+falsepositives:
+  - Endpoint security and credential-protection products
+  - Approved crash-dump, debugging, and support utilities
+level: high
+confidence: high
+---
+# Qilin security-process termination handle access.
+# Confidence: High for an unexpected non-vendor source with PROCESS_TERMINATE.
+# False positives: Vendor upgrades, service control, and support actions.
+# Tuning: Correlate with a driver load or service creation; tune only verified vendor signer/path combinations during documented maintenance.
+title: Qilin Security Process Termination Access
+id: 59d20fd6-42ee-4d94-8ac7-b3ec7dbcb21f
+status: experimental
+description: Detects process access to common endpoint-security processes with an access mask that includes PROCESS_TERMINATE (0x1), a precursor to native or API-based EDR termination.
+references:
+  - https://blog.talosintelligence.com/qilin-edr-killer/
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+  - attack.defense-evasion
+  - attack.t1562.001
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    TargetImage|endswith:
+      - '\MsMpEng.exe'
+      - '\CSFalconService.exe'
+      - '\CrowdStrike.exe'
+      - '\SentinelAgent.exe'
+      - '\MsSense.exe'
+      - '\SophosEndpointDefense.exe'
+    GrantedAccess|re: '(?i)^0x[0-9a-f]*[13579bdf]$'
+  condition: selection
+falsepositives:
+  - Security vendor upgrade and service-control processes
+  - Approved support and troubleshooting actions
+level: critical
+confidence: high
+---
+# Qilin ransomware encryption and recovery inhibition.
+# Confidence: High for recovery commands or an encryption burst; Medium for one .qilin file event.
+# False positives: Backup maintenance, recovery administration, or an unrelated application using the same suffix.
+# Tuning: Alert on recovery commands immediately; require at least three .qilin files per process in two minutes for a high-confidence encryption burst.
+title: Qilin File Encryption and Recovery Inhibition
+id: 2c66c37b-c27c-4325-9d60-b7a2ef15a88e
+status: experimental
+description: Detects creation of Qilin-suffixed files and recovery notes, vssadmin shadow-copy deletion, and bcdedit recovery disablement. Correlate extension matches by process and burst volume to reduce benign suffix collisions.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+  - https://attack.mitre.org/techniques/T1490/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-02
+tags:
+  - attack.impact
+  - attack.t1486
+  - attack.t1490
+logsource:
+  product: windows
+detection:
+  selection_encrypted_file:
+    EventID: 11
+    TargetFilename|endswith: '.qilin'
+  selection_recovery_note:
+    EventID: 11
+    TargetFilename|endswith: '\README-RECOVER.txt'
+  selection_shadow_delete:
+    EventID:
+      - 1
+      - 4688
+    Image|endswith: '\vssadmin.exe'
+    CommandLine|re: '(?i)\bdelete\b.*\bshadows\b'
+  selection_recovery_disable:
+    EventID:
+      - 1
+      - 4688
+    Image|endswith: '\bcdedit.exe'
+    CommandLine|re: '(?i)\brecoveryenabled\s+no\b'
+  condition: 1 of selection_*
+falsepositives:
+  - Approved backup maintenance and Windows recovery administration
+  - Benign software using a .qilin suffix or similarly named recovery note
+level: critical
+confidence: high
