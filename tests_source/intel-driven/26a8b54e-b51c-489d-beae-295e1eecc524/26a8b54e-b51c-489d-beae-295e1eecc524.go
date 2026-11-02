@@ -122,10 +122,11 @@ func main() {
 	Endpoint.Say("=================================================================")
 	Endpoint.Say("Starting test at: %s", time.Now().Format("2006-01-02T15:04:05"))
 
-	// Schema v2.0 metadata
+	// Schema v2.0 metadata (category must be a schema enum value — the
+	// infostealer designation lives in SUBCATEGORY / tags).
 	metadata := TestMetadata{
 		Version:   "1.0.0",
-		Category:  "infostealer",
+		Category:  "credential_access",
 		Severity:  "high",
 		Techniques: []string{
 			"T1204.002", "T1059.001",
@@ -137,17 +138,19 @@ func main() {
 			"execution", "defense-evasion", "credential-access",
 			"collection", "exfiltration",
 		},
-		Score:         8.6,
+		Score:         9.2,
 		RubricVersion: "v2.1",
-		// Legacy-named struct (Schema v2.0 logger); authoritative v2.1
-		// breakdown lives in <uuid>_info.md: 2a=2.3 2b=1.3 2c=1.5(capped)
-		// 2d=0.7 | 3a=1.0 3b=1.0 3c=0.5 3d=0.3 → Realism 5.8 + Structure 2.8.
+		// Legacy-named struct (Schema v2.0 logger; caps 3/3/2/1/1). The
+		// authoritative v2.1 breakdown lives in <uuid>_info.md: 2a=2.3 2b=1.3
+		// 2c=2.0 (lab-evidence uncapped: all 4 stages reached on the Falcon
+		// host, 2026-11-02) 2d=0.7 | 3a=1.0 3b=1.0 3c=0.5 3d=0.4 → Realism
+		// 6.3 + Structure 2.9 = 9.2.
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.3,
-			TechnicalSophistication: 2.2,
+			RealWorldAccuracy:       2.4,
+			TechnicalSophistication: 3.0,
 			SafetyMechanisms:        1.8,
-			DetectionOpportunities:  1.2,
-			LoggingObservability:    1.1,
+			DetectionOpportunities:  1.0,
+			LoggingObservability:    1.0,
 		},
 		Tags: []string{"lumma", "lummac2", "infostealer", "credential-theft", "process-injection", "clickfix", "browser-credentials", "maas", "multi-stage"},
 	}

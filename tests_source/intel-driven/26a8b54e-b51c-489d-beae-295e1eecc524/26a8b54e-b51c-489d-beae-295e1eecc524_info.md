@@ -16,7 +16,7 @@
 | **Created** | 2026-11-02 |
 | **Author** | sectest-builder |
 
-## Test Score: 8.6/10
+## Test Score: 9.2/10
 
 Scored under **Rubric v2.1** (tiered realism-first; `docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`).
 
@@ -43,13 +43,13 @@ the cap lifts and the score is re-evaluated.
 | **Tier 1 — Safety gate** | PASS | — | All gates pass; stage-2 residue gap remediated pre-ship (deferred `RemoveAll` of `lumma_inj`; stage-1 staged download removed after verification); two user-approved lifts documented |
 | 2a — API Fidelity | 2.3 | 2.5 | Exact documented API sequences per stage: stage 2 reproduces the full PoC chain — `OpenProcess(PROCESS_CREATE_THREAD\|QUERY_INFORMATION\|VM_OPERATION\|VM_READ\|VM_WRITE)` → `VirtualAllocEx(MEM_COMMIT\|MEM_RESERVE, PAGE_EXECUTE_READWRITE)` → `WriteProcessMemory` → `CreateRemoteThread`, then literal thread execution hijacking (`OpenThread` → `SuspendThread` → `GetThreadContext(CONTEXT_FULL)` → `SetThreadContext(RIP=cave)` → `ResumeThread`) with hand-written PEB-walking shellcode (kernel32 resolved via export table, ASLR-safe, no hardcoded addresses); stage 3 runs the exact `CryptUnprotectData` (crypt32 DATA_BLOB, LocalFree) → AES-256-GCM v10 (12-byte nonce + 16-byte tag) → SQLite SELECT chain, plus the xaitax-documented ABE primitive: `CoInitializeEx(APARTMENTTHREADED)` → `CoCreateInstance(CLSCTX_LOCAL_SERVER)` → `CoSetProxyBlanket(PKT_PRIVACY, IMPERSONATE, EOAC_DYNAMIC_CLOAKING)` → `IElevator::DecryptData` (vtable slot 5, offset 40); stage 1 uses the real `OpenClipboard→EmptyClipboard→GlobalAlloc→SetClipboardData` sequence and a genuine `powershell.exe -NoProfile -WindowStyle Hidden -EncodedCommand` WebClient cradle; stage 4 reproduces the documented C2 protocol shapes (fingerprint GET, `act=live` POST, multipart upload). Deductions: injection host is a test-owned decoy binary (real browser process never touched — safety-mandated target substitution changes process-ancestry telemetry); the cradle is launched by the harness rather than pasted via Win+R/explorer; AES-GCM uses Go crypto rather than BCrypt (telemetry-equivalent: in-process symmetric decryption is largely unobservable either way); Edge elevator activated but `DecryptData` not invoked (divergent vtable — documented) |
 | 2b — Identifier Fidelity | 1.3 | 1.5 | Real production identifiers: real Chrome elevation-service CLSID `{708860E0-F641-4611-8895-7D867DD3675B}` / IID `{463ABECF-410D-407F-8AF5-0DF35A005CC8}` and Edge CLSID/IID; `MicrosoftEdgeUpdate.exe`→`chrome.exe` process names (NCC-documented pattern); real store file names (`Login Data`, `Local State`, `Network\Cookies`, `Web Data`, `logins.json`, `key4.db`, `KeePass.kdbx`); real MetaMask extension GUID `nkbihfbeogaeaoehlefnkodbefgpgknn`; `DPAPI`/`APPB` blob prefixes and `v10` magic; hardcoded C2 identity `User-Agent: TeslaBrowser/5.5`, `/c2sock` URI, `act=live`, LID/`J` parameters (malpedia/Darktrace/ESET). Real browser paths resolved at runtime (`%LOCALAPPDATA%`) for recon. Deductions: theft chain operates on a decoy profile path rather than the live profile (necessary); C2 endpoint is loopback rather than a real panel domain (necessary) |
-| 2c — Telemetry Signal Quality | 1.5 | 2.0 | **Capped at 1.5 — no lab run yet.** Criteria met by inspection: signal richness ✓ (every primitive emits named, identifiable signals across process/cmdline/file/network/COM surfaces — mapping table below); sensor mapping ✓ (documented in this card); rule artifact validity contingent on the 5-format detection-rule set shipping with this build (validate with `utils/validate` / sigma-cli / yara at finalization). Criterion 4 (lab execution verified, all stages reached) pending → hard cap applies per v2.1 §2c |
+| 2c — Telemetry Signal Quality | 2.0 | 2.0 | **Cap lifted — lab evidence on record (2026-11-02, `win` Falcon host): all 4 stages reached execution, exit 101.** Signal richness ✓ (every primitive emits named, identifiable signals across process/cmdline/file/network/COM surfaces — mapping table below); sensor mapping ✓; 5-format detection-rule set shipped and validated with the build |
 | 2d — Execution-Context Fidelity | 0.7 | 1.0 | Primary emulated context is **standard user** — correct for infostealers (real Lumma needs no admin; the whole chain runs at medium IL), and context is detected and logged at init (`Running as: <user> (Admin: …)` via the v2.0 logger). Graceful runtime branching: headless/SSH sessions without a window station degrade the clipboard primitive to telemetry (non-fatal); absent COM brokers (`REGDB_E_CLASSNOTREG`) and unreadable real `Local State` are recorded as telemetry, never errors; DPAPI operates per-user exactly as the real stealer's user-scope key unwrap does. Deduction: no explicit admin/SYSTEM behavior branch (genuinely unnecessary here, but the rubric's full 1.0 requires documented per-context behavior shaping) |
-| 3a — Schema & Metadata | 1.0 | 1.0 | Schema v2.0 `InitLogger` with full `TestMetadata` + `ExecutionContext` (org UUID via `ResolveOrganization`, runtime ExecutionID); `RubricVersion: "v2.1"`; metadata header complete (all required v2.0 fields incl. `SOURCE_URL`, `UNIT`, `CREATED`); fail-loud signing (unsigned embedded stages abort the build). Note: Go `Score` field holds a provisional 9.0 — sync to this card's 8.6 in source |
+| 3a — Schema & Metadata | 1.0 | 1.0 | Schema v2.0 `InitLogger` with full `TestMetadata` + `ExecutionContext` (org UUID via `ResolveOrganization`, runtime ExecutionID); `RubricVersion: "v2.1"`; metadata header complete (all required v2.0 fields incl. `SOURCE_URL`, `UNIT`, `CREATED`); results JSON passes `utils/validate` schema check (category fixed to enum `credential_access` after first lab run); fail-loud signing (unsigned embedded stages abort the build) |
 | 3b — Documentation | 1.0 | 1.0 | README + info card + references complete; score formats match `utils/validate-score-format.sh`; official MITRE technique/sub-technique IDs cited; per-stage behavior, containment, and provenance documented |
 | 3c — Logging & Plumbing | 0.5 | 0.5 | v2.0 logger in orchestrator and every stage (`AttachLogger`); per-stage `bundle_results.json` fan-out before every `Endpoint.Stop()` including the panic-recovery path; `io.MultiWriter` stage output capture to `C:\F0\<binary>_output.txt`; context (user/admin) recorded at init |
-| 3d — Operational Hygiene | 0.3 | 0.5 | Orchestrator ≈14.0 MB < 25 MB ✓ (0.1); per-stage time budgets documented and enforced — 3/4/5/4 min watchdogs, 18 min total (0.1); every stage runs under `context.WithTimeout` + bounded waits, decoy host has its own 150 s deadline (0.1). Withheld: stage-3 signed binary exceeds the 5 MB per-stage guideline (pure-Go SQLite engine — accepted under the Yellow-tier justification); stage-2 decoy residue in `ARTIFACT_DIR\lumma_inj` (decoy PEs, markers, protocol files, stage-1 `lumma_stage2.bin`) is not removed on exit — fix required |
-| **Total** | **8.6** | 10.0 | Realism 5.8/7 + Structure 2.8/3 — ship bar met (≥7.5; realism ≥5.0; structure ≥2.5). Advanced band. Post-lab potential ≈9.2 if all stages reach (2c→2.0) and the residue fix + size trim land (3d→0.4–0.5) |
+| 3d — Operational Hygiene | 0.4 | 0.5 | Orchestrator ≈14.7 MB < 25 MB ✓; per-stage time budgets documented and enforced — 3/4/5/4 min watchdogs, 18 min total; every stage runs under `context.WithTimeout` + bounded waits, decoy host has its own 150 s deadline; stage-2 decoy residue remediated pre-ship (deferred `RemoveAll` of `lumma_inj`; stage-1 staged download removed after verification). Withheld: stage-3 signed binary exceeds the 5 MB per-stage guideline (pure-Go SQLite engine — accepted under the Yellow-tier justification) |
+| **Total** | **9.2** | 10.0 | Realism 6.3/7 + Structure 2.9/3 — ship bar met (≥7.5; realism ≥5.0; structure ≥2.5). Advanced band. Score finalized after `win`-lab validation (2026-11-02): all 4 stages reached, exit 101, 2c uncapped per v2.1 criterion 4 |
 
 **Key Strengths**:
 
@@ -83,13 +83,36 @@ the cap lifts and the score is re-evaluated.
 
 ## Lab Evidence
 
-**Pending.** No protected-host detonation has been performed yet. Until a lab run on an
-EDR-instrumented host (the `win` lab currently runs CrowdStrike Falcon with Windows
-Defender in passive mode) verifies that all stages reach execution — or documents
-defense-interrupted stages per the Lab-Bound Observability schema — **Telemetry Signal
-Quality remains capped at 1.5/2.0** and the score is provisional at 8.6. A `debian`
-(no-EDR) smoke run, if performed, validates execution and exit-code logic only and does
-NOT lift the cap (per CLAUDE.md lab notes).
+**Validated 2026-11-02 on the `win` lab** (Windows 11 Pro, CrowdStrike Falcon Sensor active
+`CSFalconService`, Windows Defender passive — a protected host per CLAUDE.md):
+
+- **Exit 101 (`Endpoint.Unprotected`)** — the complete 4-stage Lumma chain executed without
+  prevention. Per-stage: T1204.002 success · T1055.003 success · T1555.003 success ·
+  T1041 success (`bundle_results.json` fan-out captured).
+- **Stage 2 verified end-to-end**: remote-thread marker **true** AND thread-hijack marker
+  **true** (orig RIP captured `0x7fff1d9c3d94`, resumed at injected stub) — code execution
+  proven inside the decoy `chrome.exe` under the `MicrosoftEdgeUpdate.exe` injector. Falcon
+  observed the full `VirtualAllocEx`/`WriteProcessMemory`/`CreateRemoteThread` +
+  `SuspendThread`/`SetThreadContext`/`ResumeThread` sequence and did not prevent it.
+- **Stage 3 verified end-to-end**: `CryptUnprotectData` → AES-256-GCM v10 canary decrypt
+  round-trip succeeded; ABE Chrome elevation-service COM broker activation attempted
+  (synthetic blob); loot staged and consumed by Stage 4.
+- **Stage 4 verified end-to-end**: collected Stage-3's loot (cross-stage data flow),
+  `act=live` handshake + fingerprint probe + multipart upload received byte-for-byte by
+  the loopback panel emulation.
+- Debug history preserved in `staging/26a8b54e-b51c-489d-beae-295e1eecc524/`
+  (`run1`–`run7` console logs). Findings fixed along the way: mshta render hang (bounded),
+  `CreateRemoteThread` argument bug (stage-side), shellcode stack misalignment (0x38→0x40,
+  Win64 ABI), Win11 KERNELBASE export forwarding (shellcode switched to injector-resolved
+  `CreateFileA` pointer — standard injector tradecraft), schema enum for `category`
+  (`credential_access`).
+- This run **lifts the 2c cap** (v2.1 criterion 4: all stages reached with lab evidence)
+  and finalizes the score at **9.2**. Note the verdict meaning: on this host/EDR
+  configuration the chain was NOT prevented — the per-stage telemetry is the detection
+  opportunity under evaluation (see the 5-format rule set).
+
+A `debian` (no-EDR) smoke run is unnecessary: execution and exit-code logic are already
+validated on the protected host.
 
 ## Size Justification
 

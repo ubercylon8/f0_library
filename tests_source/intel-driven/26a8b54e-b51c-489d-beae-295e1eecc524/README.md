@@ -11,7 +11,7 @@
 | **Complexity** | high |
 | **Rubric** | v2.1 |
 
-**Test Score**: **8.6/10**
+**Test Score**: **9.2/10**
 
 ## Overview
 
@@ -68,6 +68,12 @@ All stages execute regardless of individual outcomes; only extraction failure ab
 Per-stage results are written to `C:\F0\bundle_results.json` for per-stage Elasticsearch
 fan-out. Block classification is positive-evidence-only (Bug Prevention Rule 8): OS-emitted
 denials on test-owned decoy objects, quarantine via `os.Stat`, numeric launch-failure
+
+**Lab validation (2026-11-02, `win` — Windows 11 Pro, CrowdStrike Falcon active, Defender
+passive):** exit **101 (VULNERABLE)** — all 4 stages executed without prevention. Stage 2's
+remote-thread and thread-hijack markers both verified (code execution inside the decoy
+`chrome.exe`), Stage 3's DPAPI→AES-GCM canary round-trip verified, Stage 4 received the
+harvest byte-for-byte. Per-stage detail in the info card's Lab Evidence section.
 errnos, or external termination of the idle decoy host.
 
 ## Detection Rules

