@@ -89,7 +89,7 @@ func main() {
 		Severity:      "critical",
 		Techniques:    []string{"T1518.001", "T1082", "T1562.001", "T1211", "T1055", "T1003.001", "T1490", "T1486"},
 		Tactics:       []string{"discovery", "defense-evasion", "credential-access", "impact"},
-		Score:         8.2,
+		Score:         8.7,
 		RubricVersion: "v2.1",
 		Tags:          []string{"qilin", "agenda", "ransomware", "byovd", "edr-killer", "process-injection", "vulnerable-driver", "lsass", "multi-stage"},
 	}
@@ -181,8 +181,8 @@ func test(metadata TestMetadata) {
 		}
 
 		exitCode := executeStage(stage)
-		if stage.ID == 2 {
-			cleanupDriverServices()
+		if stage.ID == 2 || stage.ID == 3 {
+			cleanupQilinResiduals()
 		}
 		switch {
 		case exitCode == 126 || exitCode == 105 || exitCode == 127:
@@ -313,9 +313,51 @@ func cleanupDriverServices() {
 	}
 }
 
-func finalize(exitCode int, reason string, results []StageBundleDef) {
+func cleanupQilinResiduals() {
 	cleanupDriverServices()
+	script := `$owned = @('C:\F0\MsMpEng.exe','C:\F0\CSFalconService.exe','C:\F0\CrowdStrike.exe'); Get-CimInstance Win32_Process | Where-Object { $owned -contains $_.ExecutablePath -or $_.ExecutablePath -like 'C:\Users\fortika-test\Qilin\*' } | ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName Terminate | Out-Null }`
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script).CombinedOutput(); err != nil {
+		LogMessage("DEBUG", "Cleanup", fmt.Sprintf("test-owned descendant cleanup returned %v: %s", err, string(out)))
+	}
+	if err := os.RemoveAll(filepath.Join(ARTIFACT_DIR, "Qilin")); err != nil {
+		LogMessage("WARNING", "Cleanup", fmt.Sprintf("Qilin sandbox cleanup returned: %v", err))
+	}
+	for _, path := range []string{filepath.Join(LOG_DIR, "MsMpEng.exe"), filepath.Join(LOG_DIR, "CSFalconService.exe"), filepath.Join(LOG_DIR, "CrowdStrike.exe"), filepath.Join(LOG_DIR, "rwdrv.sys"), filepath.Join(LOG_DIR, "hlpdrv.sys")} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			LogMessage("WARNING", "Cleanup", fmt.Sprintf("residual file cleanup %s returned: %v", path, err))
+		}
+	}
+}
+
+func mergePersistedStageMessages() {
+	data, err := os.ReadFile(filepath.Join(LOG_DIR, "test_execution_log.json"))
+	if err != nil || globalLog == nil {
+		return
+	}
+	var persisted TestLog
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		return
+	}
+	existing := make(map[string]bool, len(globalLog.Messages))
+	for _, message := range globalLog.Messages {
+		key := message.Timestamp.Time.UTC().Format(time.RFC3339Nano) + "|" + message.Phase + "|" + message.Message
+		existing[key] = true
+	}
+	for _, message := range persisted.Messages {
+		key := message.Timestamp.Time.UTC().Format(time.RFC3339Nano) + "|" + message.Phase + "|" + message.Message
+		if !existing[key] {
+			globalLog.Messages = append(globalLog.Messages, message)
+			existing[key] = true
+		}
+	}
+}
+
+func finalize(exitCode int, reason string, results []StageBundleDef) {
+	cleanupQilinResiduals()
 	writeSystemSnapshot("post")
+	mergePersistedStageMessages()
 	SaveLog(exitCode, reason)
 	WriteStageBundleResults(TEST_UUID, TEST_NAME, "intel-driven", "ransomware", results)
 	Endpoint.Say("Finalizing independent stage results")

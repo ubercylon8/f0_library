@@ -43,7 +43,7 @@ func performImpact() int {
 	cleanArtifact := filepath.Clean(ARTIFACT_DIR)
 	cleanSandbox := filepath.Clean(sandbox)
 	if !strings.HasPrefix(strings.ToLower(cleanSandbox), strings.ToLower(cleanArtifact)+string(os.PathSeparator)) {
-		LogMessage("ERROR", TECHNIQUE_ID, "impact sandbox guardrail failed")
+		logStageMessage("ERROR", TECHNIQUE_ID, "impact sandbox guardrail failed")
 		return StageError
 	}
 	_ = os.RemoveAll(cleanSandbox)
@@ -103,7 +103,7 @@ func performImpact() int {
 
 	runFailHarmless("vssadmin.exe", "delete", "shadows", `/for=\\?\Volume{00000000-0000-0000-0000-000000000000}\`, "/quiet")
 	runFailHarmless("bcdedit.exe", "/set", "{00000000-0000-0000-0000-000000000000}", "recoveryenabled", "no")
-	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("impact metrics encrypted=%d denied=%d failed=%d", success, blocked, failed))
+	logStageMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("impact metrics encrypted=%d denied=%d failed=%d", success, blocked, failed))
 	if blocked > 0 {
 		return StageBlocked
 	}
@@ -132,13 +132,13 @@ func encryptQilinFile(plain, key []byte) ([]byte, error) {
 func runFailHarmless(name string, args ...string) {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	LogProcessExecution(name, strings.Join(append([]string{name}, args...), " "), 0, err == nil, 0, string(out))
-	LogMessage("INFO", "T1490", fmt.Sprintf("fail-harmless command %s returned %v; nonexistent target was the designed outcome", name, err))
+	logStageMessage("INFO", "T1490", fmt.Sprintf("fail-harmless command %s returned %v; nonexistent target was the designed outcome", name, err))
 }
 
 func classifyImpactWrite(err error) int {
 	if errnoIs(err, windows.ERROR_ACCESS_DENIED) && (isAdmin() || isSystemContext()) {
 		return StageBlocked
 	}
-	LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("impact setup returned: %v", err))
+	logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("impact setup returned: %v", err))
 	return StageError
 }

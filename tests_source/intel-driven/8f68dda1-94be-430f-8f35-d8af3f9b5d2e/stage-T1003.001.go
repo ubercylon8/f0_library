@@ -36,24 +36,24 @@ func performLSASSAccess() int {
 	elevated := isAdmin() || isSystemContext()
 	privilegeErr := enablePrivilege("SeDebugPrivilege")
 	if privilegeErr != nil {
-		LogMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("SeDebugPrivilege enable returned: %v; a later denial is baseline/inconclusive", privilegeErr))
+		logStageMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("SeDebugPrivilege enable returned: %v; a later denial is baseline/inconclusive", privilegeErr))
 	}
 	pid, err := findProcessByName("lsass.exe")
 	if err != nil || pid == 0 {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("LSASS process discovery returned pid=%d error=%v", pid, err))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("LSASS process discovery returned pid=%d error=%v", pid, err))
 		return StageError
 	}
 	access := uint32(windows.PROCESS_VM_READ | windows.PROCESS_QUERY_INFORMATION)
 	handle, openErr := windows.OpenProcess(access, false, pid)
 	if openErr == nil {
 		windows.CloseHandle(handle)
-		LogMessage("SUCCESS", TECHNIQUE_ID, fmt.Sprintf("OpenProcess(PROCESS_VM_READ|PROCESS_QUERY_INFORMATION) granted for LSASS PID %d; handle closed without ReadProcessMemory or dump", pid))
+		logStageMessage("SUCCESS", TECHNIQUE_ID, fmt.Sprintf("OpenProcess(PROCESS_VM_READ|PROCESS_QUERY_INFORMATION) granted for LSASS PID %d; handle closed without ReadProcessMemory or dump", pid))
 		return StageSuccess
 	}
 	if errnoIs(openErr, windows.ERROR_ACCESS_DENIED) && elevated && privilegeErr == nil {
-		LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("LSASS OpenProcess returned ERROR_ACCESS_DENIED in elevated SeDebug context for PID %d", pid))
+		logStageMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("LSASS OpenProcess returned ERROR_ACCESS_DENIED in elevated SeDebug context for PID %d", pid))
 		return StageBlocked
 	}
-	LogMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("LSASS OpenProcess returned inconclusive error in elevated=%v SeDebug=%v context: %v", elevated, privilegeErr == nil, openErr))
+	logStageMessage("WARNING", TECHNIQUE_ID, fmt.Sprintf("LSASS OpenProcess returned inconclusive error in elevated=%v SeDebug=%v context: %v", elevated, privilegeErr == nil, openErr))
 	return StageError
 }

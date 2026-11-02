@@ -16,7 +16,7 @@
 | MITRE ATT&CK | T1518.001, T1082, T1562.001, T1211, T1055, T1003.001, T1490, T1486 |
 | Tactics | discovery, defense-evasion, credential-access, impact |
 | Rubric | v2.1 — Signal Quality + Execution Context + Operational Hygiene |
-| Validation Status | Source/build inspection only; no lab execution evidence |
+| Validation Status | Lab validated 2026-11-02 on `win` with Sophos Intercept X; all five stages reached |
 | Primary Source | [Cisco Talos — Qilin EDR killer infection chain](https://blog.talosintelligence.com/qilin-edr-killer/), 2026-04-02 |
 
 ## Description
@@ -25,28 +25,28 @@ This test evaluates whether endpoint controls can observe a Qilin-inspired chain
 
 Five separately executable stages are signed, gzip-compressed, embedded, and independently attempted. The test preserves useful native primitives—`LoadLibraryW`, `AdjustTokenPrivileges`, `NtLoadDriver`, `CreateFile`, `NtTerminateProcess`, `VirtualAllocEx`, `WriteProcessMemory`, `CreateRemoteThread`, and LSASS `OpenProcess`—while substituting nonfunctional drivers, test-owned processes, benign Microsoft DLLs, and synthetic documents for harmful targets. The hlpdrv device open targets a guaranteed-nonfunctional name and logs the emulated IOCTL identifier without calling `DeviceIoControl`. It has no network-egress path.
 
-## Test Score: 8.2/10
+## Test Score: 8.7/10
 
-This is an independent, provisional **rubric v2.1** assessment after reading all Go source files and validating the bundled rule artifacts. Go metadata declares the same 8.2 score and omits the incompatible legacy breakdown. No lab validation is claimed. Realism is **5.2/7.0** and Structure is **3.0/3.0**. The total, Realism, and Structure ship thresholds are met provisionally; ship-final status still requires criterion 2c all-stage lab execution evidence.
+This is the final **rubric v2.1** assessment after source review, local rule validation, and an all-stage Sophos lab run on 2026-11-02. Go metadata declares the same 8.7 score and omits the incompatible legacy breakdown. Realism is **5.7/7.0** and Structure is **3.0/3.0**. The total, Realism, Structure, and lab-execution ship requirements are met. Native KQL/EQL/Sigma engine validation remains optional follow-up work, not a lab-evidence gap.
 
 ### Score Breakdown
 
 | Tier | Criterion | Score | Detailed justification |
 |---|---|---:|---|
-| 1 | Safety Gate | **PASS — provisional design review** | Writes are confined to `LOG_DIR`/`ARTIFACT_DIR`; there is no network egress. The real driver is deleted before load attempts, callback mutation is JSON-only, injection and termination target test-owned processes, LSASS is opened without a read, and recovery commands target nonexistent GUIDs. Services and privileges are confined to test-owned entries and the current token. Normal returns have deferred handle/artifact cleanup and every stage has an outer watchdog. Forced-kill cleanup is not yet guaranteed by an orchestrator sweep, so this pass is provisional rather than a claim of lab-verified every-exit-path restoration. |
+| 1 | Safety Gate | **PASS — design and lab cleanup verified** | Writes are confined to `LOG_DIR`/`ARTIFACT_DIR`; there is no network egress. The real driver is deleted before load attempts, callback mutation is JSON-only, injection and termination target test-owned processes, LSASS is opened without a read, and recovery commands target nonexistent GUIDs. Services and privileges are confined to test-owned entries and the current token. Normal returns have deferred cleanup and every stage has an outer watchdog. The orchestrator also deletes test driver services, terminates only exact test-owned descendant paths, removes the Qilin sandbox, and deletes stand-in/driver files after relevant stages and finalization, covering forced-kill paths. Post-run checks found both Qilin services absent, Sophos healthy, and original lab artifacts restored. |
 | 2a | API Fidelity (0–2.5) | **1.7** | The core native chains are present: side-load `LoadLibraryW`/`FreeLibrary`; service create/query plus `OpenProcessToken` → `LookupPrivilegeValue` → `AdjustTokenPrivileges` → `NtLoadDriver`; a `CreateFile` absence probe; `OpenProcess(PROCESS_TERMINATE)`/`NtTerminateProcess`; `OpenProcess` → `VirtualAllocEx` → `WriteProcessMemory` → `CreateRemoteThread(LoadLibraryW)` → `WaitForSingleObject`/`GetExitCodeThread`; LSASS `OpenProcess(PROCESS_VM_READ|PROCESS_QUERY_INFORMATION)`; and real file encryption plus `vssadmin`/`bcdedit`. Exact-chain credit is withheld because no functional vulnerable driver or kernel callback operation occurs, no device IOCTL is sent, the malicious loader and patched DLL are absent, LSASS is not read, discovery is command-issued, and recovery commands intentionally fail. |
 | 2b | Identifier Fidelity (0–1.5) | **1.5** | Uses accurate production identifiers: `root/SecurityCenter2`, `AntiVirusProduct`, `Win32_OperatingSystem`, `msimg32.dll`, `rwdrv.sys`, `hlpdrv.sys`, IOCTL `0x2222008`, `SeLoadDriverPrivilege`, `SeDebugPrivilege`, `lsass.exe`, `MsMpEng.exe`, `CSFalconService.exe`, `CrowdStrike.exe`, `svchost.exe`, `pwndll.dll`, `vssadmin.exe`, and `bcdedit.exe`. Runtime Toolhelp enumeration resolves the real LSASS PID. Sandbox artifacts retain adversary/target names while service names are explicitly test-owned; the device probe deliberately substitutes `\\.\hlpdrv_f0_nonfunctional` for the production device name. |
-| 2c | Telemetry Signal Quality (0–2.0) | **1.5** | Criterion 1, signal richness: **met by API-graph inspection** across process, image-load, file, service, privilege, native-driver, process-access, remote-thread, and command-line surfaces. Criterion 2, sensor mapping: **met** by the Detection Opportunity Audit below. Criterion 3, rule-artifact validity: **met**; all five formats are bundled, Sigma/LimaCharlie YAML and Elastic NDJSON parse successfully, YARA compiles, and its exact-hash rule matches `rwdrv.sys`. Native KQL/EQL/Sigma engine validators are unavailable and remain a documented verification boundary. Criterion 4, all-stage lab execution: **not met**; no `test_execution_log.json` or `bundle_results.json` lab artifacts exist. The no-lab cap is 1.5, so criteria 1–3 earn the full capped score. |
+| 2c | Telemetry Signal Quality (0–2.0) | **2.0** | Criterion 1, signal richness: **met** across process, image-load, file, service, privilege, native-driver, process-access, remote-thread, and command-line surfaces. Criterion 2, sensor mapping: **met** by the Detection Opportunity Audit. Criterion 3, rule-artifact validity: **met**; all five formats are bundled, YAML/NDJSON parse successfully, and YARA compiles and matches the exact driver. Criterion 4, all-stage lab execution: **met**; the final `test_execution_log.json` has `exitReason`, all five stages have success/blocked outcomes rather than skipped, and Schema v2.0 validation passes. Sophos System Protection event 42 corroborates `RWEverything Driver` and `Evade_22a (T1036.005)` detections. Native KQL/EQL/Sigma engine validators remain unavailable but do not reduce the empirical lab result. |
 | 2d | Execution-Context Fidelity (0–1.0) | **0.5** | `isAdmin()` and `isSystemContext()` are evaluated at runtime, and `enablePrivilege` handles privilege denial without crashing. Elevated context is required for meaningful SeLoadDriver/SeDebug outcomes. However, context is used mainly to distinguish positive prevention from baseline denial; behavior does not branch into distinct user/admin/SYSTEM emulation paths. Cross-context execution has not been lab-tested. |
-| 3a | Schema & Metadata (0–1.0) | **1.0** | Schema v2.0 `InitLogger`, complete metadata header, technique/tactic/tags fields, generated execution UUID, organization UUID resolution, `RubricVersion: "v2.1"`, and a signed build path are present. Local static inspection of the orchestrator found a matching SHA256 Authenticode digest signed by F0RT1KA; self-signed target trust is a deployment prerequisite, not lab evidence. The score is aligned with this document and the incompatible legacy breakdown is omitted. |
+| 3a | Schema & Metadata (0–1.0) | **1.0** | Schema v2.0 `InitLogger`, complete metadata header, technique/tactic/tags fields, generated execution UUID, organization UUID resolution, `RubricVersion: "v2.1"`, and a signed build path are present. Local digest verification passed and the F0RT1KA certificate was confirmed in the target's trusted root store before execution. The score is aligned with this document and the incompatible legacy breakdown is omitted. |
 | 3b | Documentation Completeness (0–1.0) | **1.0** | README, this info card with an explicit v2.1 breakdown and Detection Opportunity Audit, and the references file are present. Official technique/sub-technique IDs are mapped and the required score formats are used. |
 | 3c | Logging & Plumbing (0–0.5) | **0.5** | Schema v2.0 logger, shared stage logging, stdout/stderr capture, per-stage `bundle_results.json` fan-out, `test_execution_log.json`/`.txt`, and pre/post `<uuid>_system_snapshot_{pre,post}.json` are implemented. Snapshots include system information and CSFalconService/WinDefend/Sense plus Sophos Endpoint Defense/File Scanner/MCS service query output, covering the current lab sensor stack. |
-| 3d | Operational Hygiene (0–0.5) | **0.5** | Orchestrator 10.5 MiB: **0.1** (<25 MB). Every signed stage is approximately 3.2–3.4 MB: **0.1** (<5 MB each). Documented per-stage budgets: **0.1**. Outer watchdog on every stage: **0.1**. `Endpoint.Stop()` finalization is within 30 seconds by normal/panic/watchdog control-flow inspection, including a 2-second normal finalization sleep: **0.1**, with runtime confirmation still pending. |
-|  | **Total** | **8.2/10** | **Realism:** 1.7 + 1.5 + 1.5 + 0.5 = **5.2/7.0**. **Structure:** 1.0 + 1.0 + 0.5 + 0.5 = **3.0/3.0**. **Range:** Advanced; provisional pending all-stage lab execution. |
+| 3d | Operational Hygiene (0–0.5) | **0.5** | Orchestrator 10.5 MiB: **0.1** (<25 MB). Every signed stage is approximately 3.2–3.4 MB: **0.1** (<5 MB each). Documented per-stage budgets: **0.1**. Outer watchdog on every stage: **0.1**. Finalization completed within 30 seconds in the lab, including the 2-second finalization sleep: **0.1**. |
+|  | **Total** | **8.7/10** | **Realism:** 1.7 + 1.5 + 2.0 + 0.5 = **5.7/7.0**. **Structure:** 1.0 + 1.0 + 0.5 + 0.5 = **3.0/3.0**. **Range:** Advanced; all-stage lab validated. |
 
 ### Go Metadata Alignment
 
-The orchestrator sets `Score: 8.2`, leaves `ScoreBreakdown` nil/omitted, and retains `RubricVersion: "v2.1"`. The detailed v2.1 breakdown remains in this info card because the legacy five-field structure cannot represent the v2.1 dimensions. Rule artifacts are validated; re-score after all stages are reached in a lab.
+The orchestrator sets `Score: 8.7`, leaves `ScoreBreakdown` nil/omitted, and retains `RubricVersion: "v2.1"`. The detailed v2.1 breakdown remains in this info card because the legacy five-field structure cannot represent the v2.1 dimensions. Rule artifacts and all-stage lab execution are validated.
 
 ### Key Strengths
 
@@ -58,8 +58,7 @@ The orchestrator sets `Score: 8.2`, leaves `ScoreBreakdown` nil/omitted, and ret
 
 ### Improvement Opportunities
 
-- Run every stage on a protected Windows endpoint and preserve `test_execution_log.json` with `exitReason` and `bundle_results.json` showing every stage reached before raising 2c. Where available, add native KQL/EQL/Sigma engine validation to the completed YAML/NDJSON/YARA checks.
-- Extend the orchestrator's existing post-stage/finalization driver-service deletion into general post-timeout cleanup for sandbox artifacts, extracted stand-ins, and descendant processes. An `exec.CommandContext` kill prevents in-stage defers from running; service cleanup alone cannot prove complete restoration.
+- Where available, add native KQL/EQL/Sigma engine validation to the completed YAML/NDJSON/YARA checks and validate the same stages against a CrowdStrike-protected host for cross-EDR comparison.
 - Add meaningful user/admin/SYSTEM behavior branches rather than using context only for denial attribution, then test all three contexts.
 - Add an orchestrator-wide hang guard around unbounded snapshot/discovery subprocess calls if deployment evidence shows they can stall.
 
@@ -128,7 +127,7 @@ The orchestrator sets `Score: 8.2`, leaves `ScoreBreakdown` nil/omitted, and ret
 
 ## Detection Opportunity Audit
 
-The audit below defines **16 candidate detection points** and maps each implemented primitive to an appropriate sensor and rule pattern. These are prospective rule shapes, not claims that rules fired. All five detection formats are bundled and locally validated as described below; no lab telemetry has been collected. Sensor availability depends on audit policy and product configuration.
+The audit below defines **16 candidate detection points** and maps each implemented primitive to an appropriate sensor and rule pattern. All five detection formats are bundled and locally validated. The Sophos lab run supplies execution and vendor-event evidence; only rows explicitly marked in the Lab Evidence section are claimed as observed detections or preventions. Other telemetry availability depends on audit policy and product configuration.
 
 | # | Stage | Primitive | Sensor / telemetry surface | Candidate rule pattern and observability boundary |
 |---:|---|---|---|---|
@@ -154,9 +153,25 @@ The audit below defines **16 candidate detection points** and maps each implemen
 1. **Signal richness: met by inspection.** The API call graph supplies named signals across several independent telemetry surfaces; simulation-only rows are explicitly bounded above.
 2. **Sensor mapping: met.** Every stage is cross-referenced to concrete sensor types and candidate rule patterns.
 3. **Rule-artifact validity: met.** KQL, YARA, Sigma, Elastic EQL, and LimaCharlie D&R files are bundled. Sigma/LimaCharlie YAML and Elastic NDJSON parse successfully; YARA compiles and the exact-hash rule matches `rwdrv.sys`. KQL/EQL/Sigma received syntax-focused/manual review because their native engine validators are unavailable.
-4. **Lab execution verified: not met.** There is no execution log with `exitReason` and no bundle showing all stages reached. No Lab-Bound Observability exception is claimed because there is no defense-intervention evidence.
+4. **Lab execution verified: met.** The final `test_execution_log.json` contains `exitReason`, and `bundle_results.json` records all five stages as success or blocked with zero skipped. The final JSON passes Schema v2.0 validation. No Lab-Bound Observability exception is needed because every stage was attempted.
 
-Accordingly, 2c is **1.5/2.0**, the no-lab hard cap. Tenant rule firing is not part of this score.
+Accordingly, 2c is **2.0/2.0**. Tenant rule firing remains separate from test quality; the Lab Evidence below records only observed vendor events and OS outcomes.
+
+## Lab Evidence — 2026-11-02, `win`, Sophos Intercept X
+
+The final run executed as `jimx` (administrator) on Windows 11 build 26200.9457. Sophos Endpoint Defense, File Scanner, MCS Agent, MCS Client, and Device Encryption services were running before and after the test. Windows Defender and Sense were stopped. Overall exit was **126 (PREVENTED)** in approximately 44 seconds.
+
+| Stage | Outcome | Evidence |
+|---|---|---|
+| 1 — Discovery & Side-Load | Success (0) | Read-only discovery completed and the benign `msimg32.dll` image-load marker was produced. |
+| 2 — BYOVD EDR-Killer | Success (0) | Real `rwdrv.sys` survived the three-second observation window and was deleted before load operations. Sophos System Protection event 42 subsequently identified it as `RWEverything Driver`. Both test kernel services were created and deleted. Both `NtLoadDriver` calls returned `0xC0000130` (`STATUS_INVALID_IMAGE_NOT_MZ`), the intended safe rejection. Three test-owned stand-ins were terminated; stage metrics were 9 success, 0 blocked, 0 error. |
+| 3 — svchost Injection | **Blocked (126)** | Starting the test-owned `svchost.exe` returned Windows error 5 before `OpenProcess`, `VirtualAllocEx`, `WriteProcessMemory`, or `CreateRemoteThread` executed. Sophos System Protection event 42 identified the target as `Evade_22a (T1036.005)`. |
+| 4 — LSASS Access | **Blocked (126)** | `OpenProcess` against LSASS PID 748 returned `ERROR_ACCESS_DENIED` with administrator context and SeDebugPrivilege enabled. No handle was granted and no memory was read. |
+| 5 — Minimal Impact | Success (0) | Five synthetic files were encrypted with no denial/failure; `vssadmin` and `bcdedit` returned only their designed nonexistent-target failures. |
+
+`bundle_results.json` records **five controls: two blocked, three succeeded, zero skipped**. Final structured messages use Schema-compatible levels and pass the repository's Schema v2.0 validator. Sophos event evidence is retained in `staging/8f68dda1-94be-430f-8f35-d8af3f9b5d2e/sophos_application_events.txt`.
+
+Cleanup verification: both `qilin_rwdrv_f0` and `qilin_hlpdrv_f0` were absent, Sophos services remained running, test-owned descendants and sandbox artifacts were removed, and pre-existing lab logs and driver files were restored.
 
 ## Execution-Context Fidelity
 
@@ -178,22 +193,22 @@ The orchestrator configures a 1,200,000 ms (20-minute) execution envelope. Seque
 
 For each stage, `context.WithTimeout` and `exec.CommandContext` bound `cmd.Run()`. On deadline expiry, the orchestrator logs `Stage <n> watchdog timeout after <budget>`, records process exit 102 with `watchdog timeout`, captures output, and marks that stage as an error. Later stages are still attempted. If no stage has positive block evidence, the final result is 999; any positive block takes precedence and produces overall 126. The implementation does not emit a literal `unexpected_hang` bundle status.
 
-A watchdog kill terminates the stage process, so its deferred sandbox/service/child cleanup cannot be relied on for that path. The orchestrator compensates specifically by requesting deletion of both test driver services after stage 2 and again during finalization, but it has no general post-timeout artifact or descendant-process sweep. Normal finalization writes post-state, logs and bundles results, sleeps two seconds, and calls `Endpoint.Stop`; panic finalization calls `Endpoint.Stop` directly. The 30-second Stop criterion receives static control-flow credit only and still needs runtime verification.
+A watchdog kill terminates the stage process, so its deferred cleanup cannot be relied on for that path. The orchestrator therefore deletes both test driver services, terminates only exact test-owned descendant paths, removes the Qilin sandbox, and deletes stand-in/driver files after stages 2 and 3 and again during finalization. Normal finalization writes post-state, merges persisted stage messages, logs and bundles results, sleeps two seconds, and calls `Endpoint.Stop`; panic finalization uses the same cleanup/finalization path. The final lab run completed finalization within the 30-second criterion.
 
 ## Operational Hygiene and Binary Size Justification
 
-- **Orchestrator:** 10,996,048 bytes (10.5 MiB), Yellow tier, satisfying the v2.1 <25 MB threshold.
+- **Orchestrator:** 11,043,664 bytes (10.5 MiB), Yellow tier, satisfying the v2.1 <25 MB threshold.
 - **Why this size is justified:** five independently executable signed Go stages carry native injection/BYOVD code and the shared Schema v2.0 logger; the BYOVD stage also embeds the real 18,688-byte `rwdrv.sys` signature-observation asset. Keeping the stages independent preserves detection coverage when one objective is blocked.
 - **Compression/signing:** `build_all.sh` uses ordinary Go `-ldflags="-s -w"` symbol/debug stripping, signs and verifies each stage, applies mandatory `gzip -9`, embeds the compressed stages, and signs/verifies the orchestrator. No packer is used; extracted stages remain signed.
 - **Stage-size criterion met:** all signed stages are approximately 3.2–3.4 MB, below the 5 MB threshold. Size was measured after compilation and before gzip embedding, with Authenticode signing and verification completing successfully.
 - **Output hygiene:** stage stdout/stderr is both streamed and captured to `C:\F0\<stage>_output.txt`; extraction errors continue; pre/post snapshots and bundle fan-out are written on normal finalization.
-- **Signing verification boundary:** local static orchestrator inspection confirmed a valid matching Authenticode message digest under the self-signed F0RT1KA certificate. It did not establish target-machine certificate trust and is not a lab execution result.
+- **Signing verification:** local digest verification passed for every stage and the orchestrator. The F0RT1KA certificate was found in the target's LocalMachine Root store before deployment. Windows `Get-AuthenticodeSignature` also reported the known self-signed basic-constraints warning; this was recorded rather than misclassified as a detection.
 
 ## Expected Results
 
 | Scenario | Stage / overall result | Interpretation |
 |---|---|---|
-| All stages return 0 | Stage 0 normalized to 101 in bundles; overall **101** | Objectives completed without positive prevention; not yet lab-observed |
+| All stages return 0 | Stage 0 normalized to 101 in bundles; overall **101** | Objectives completed without positive prevention; not the observed lab outcome |
 | Stage binary disappears before launch | Stage **105**, overall **126** | `os.Stat` supplies quarantine evidence |
 | Protection refuses a fresh stage/operation | Stage **126**, overall **126** | Numeric Windows/NTSTATUS evidence and context checks support a block |
 | Stage is quarantined during execution | Stage **127**, overall **126** | Recognized as protection by the orchestrator; later stages continue |

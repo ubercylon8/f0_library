@@ -48,7 +48,7 @@ func performInjection() int {
 	sandbox := filepath.Join(ARTIFACT_DIR, "Qilin", "injection")
 	_ = os.RemoveAll(sandbox)
 	if err := os.MkdirAll(sandbox, 0755); err != nil {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("sandbox creation returned: %v", err))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("sandbox creation returned: %v", err))
 		return StageError
 	}
 	targetPath := filepath.Join(sandbox, "svchost.exe")
@@ -61,16 +61,16 @@ func performInjection() int {
 	}()
 
 	if err := copyCurrentExecutable(targetPath); err != nil {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("svchost stand-in copy returned: %v", err))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("svchost stand-in copy returned: %v", err))
 		return StageError
 	}
 	if err := copyFile(`C:\Windows\System32\version.dll`, dllPath); err != nil {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("pwndll stand-in copy returned: %v", err))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("pwndll stand-in copy returned: %v", err))
 		return StageError
 	}
 	LogFileDropped("svchost.exe", targetPath, injectionFileSize(targetPath), false)
 	LogFileDropped("pwndll.dll", dllPath, injectionFileSize(dllPath), false)
-	LogMessage("WARN", TECHNIQUE_ID, "Injecting renamed Microsoft version.dll into a test-owned svchost.exe; patched malicious pwndll.dll is not reproduced")
+	logStageMessage("WARN", TECHNIQUE_ID, "Injecting renamed Microsoft version.dll into a test-owned svchost.exe; patched malicious pwndll.dll is not reproduced")
 	time.Sleep(3 * time.Second)
 	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
 		return StageQuarantined
@@ -84,6 +84,7 @@ func performInjection() int {
 	var targetOutput bytes.Buffer
 	cmd.Stdout = &targetOutput
 	cmd.Stderr = &targetOutput
+	logStageMessage("INFO", TECHNIQUE_ID, "Starting test-owned svchost.exe target")
 	if err := cmd.Start(); err != nil {
 		return classifyInjectionError(err)
 	}
@@ -94,6 +95,7 @@ func performInjection() int {
 	}()
 	time.Sleep(750 * time.Millisecond)
 
+	logStageMessage("INFO", TECHNIQUE_ID, "Calling OpenProcess on test-owned svchost.exe")
 	access := uint32(windows.PROCESS_CREATE_THREAD | windows.PROCESS_QUERY_INFORMATION | windows.PROCESS_VM_OPERATION | windows.PROCESS_VM_WRITE | windows.PROCESS_VM_READ)
 	processHandle, err := windows.OpenProcess(access, false, uint32(cmd.Process.Pid))
 	if err != nil {
@@ -120,6 +122,7 @@ func performInjection() int {
 		pathBytes[i*2+1] = byte(value >> 8)
 	}
 
+	logStageMessage("INFO", TECHNIQUE_ID, "Calling VirtualAllocEx on test-owned svchost.exe")
 	virtualAllocEx := windows.NewLazySystemDLL("kernel32.dll").NewProc("VirtualAllocEx")
 	remoteMemory, _, allocErr := virtualAllocEx.Call(uintptr(processHandle), 0, uintptr(len(pathBytes)), windows.MEM_COMMIT|windows.MEM_RESERVE, windows.PAGE_READWRITE)
 	if remoteMemory == 0 {
@@ -127,14 +130,16 @@ func performInjection() int {
 	}
 	defer windows.NewLazySystemDLL("kernel32.dll").NewProc("VirtualFreeEx").Call(uintptr(processHandle), remoteMemory, 0, windows.MEM_RELEASE)
 
+	logStageMessage("INFO", TECHNIQUE_ID, "Calling WriteProcessMemory on test-owned svchost.exe")
 	var written uintptr
 	writeProcessMemory := windows.NewLazySystemDLL("kernel32.dll").NewProc("WriteProcessMemory")
 	writeResult, _, writeErr := writeProcessMemory.Call(uintptr(processHandle), remoteMemory, uintptr(unsafe.Pointer(&pathBytes[0])), uintptr(len(pathBytes)), uintptr(unsafe.Pointer(&written)))
 	if writeResult == 0 || written != uintptr(len(pathBytes)) {
 		return classifyInjectionError(writeErr)
 	}
-	LogMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("WriteProcessMemory wrote %d-byte pwndll.dll path into test-owned svchost.exe", written))
+	logStageMessage("WARN", TECHNIQUE_ID, fmt.Sprintf("WriteProcessMemory wrote %d-byte pwndll.dll path into test-owned svchost.exe", written))
 
+	logStageMessage("INFO", TECHNIQUE_ID, "Calling CreateRemoteThread(LoadLibraryW) on test-owned svchost.exe")
 	var threadID uint32
 	createRemoteThread := windows.NewLazySystemDLL("kernel32.dll").NewProc("CreateRemoteThread")
 	threadHandle, _, threadErr := createRemoteThread.Call(uintptr(processHandle), 0, 0, loadLibraryAddress, remoteMemory, 0, uintptr(unsafe.Pointer(&threadID)))
@@ -144,7 +149,7 @@ func performInjection() int {
 	defer windows.CloseHandle(windows.Handle(threadHandle))
 	waitResult, waitErr := windows.WaitForSingleObject(windows.Handle(threadHandle), 10000)
 	if waitErr != nil || waitResult != windows.WAIT_OBJECT_0 {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("remote thread wait returned event=%d error=%v", waitResult, waitErr))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("remote thread wait returned event=%d error=%v", waitResult, waitErr))
 		return StageError
 	}
 	var threadExitCode uint32
@@ -154,10 +159,10 @@ func performInjection() int {
 		return classifyInjectionError(exitErr)
 	}
 	if threadExitCode == 0 || threadExitCode == 259 {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("remote LoadLibraryW returned exit code %d", threadExitCode))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("remote LoadLibraryW returned exit code %d", threadExitCode))
 		return StageError
 	}
-	LogMessage("SUCCESS", TECHNIQUE_ID, fmt.Sprintf("CreateRemoteThread(LoadLibraryW) completed with module handle evidence 0x%x in test-owned PID %d", threadExitCode, cmd.Process.Pid))
+	logStageMessage("SUCCESS", TECHNIQUE_ID, fmt.Sprintf("CreateRemoteThread(LoadLibraryW) completed with module handle evidence 0x%x in test-owned PID %d", threadExitCode, cmd.Process.Pid))
 	return StageSuccess
 }
 
@@ -166,12 +171,12 @@ func classifyInjectionError(err error) int {
 	if errors.As(err, &errno) {
 		for _, code := range []syscall.Errno{5, 225, 226, 1260, 4551} {
 			if errno == code {
-				LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("test-owned injection operation returned Windows error %d", code))
+				logStageMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("test-owned injection operation returned Windows error %d", code))
 				return StageBlocked
 			}
 		}
 	}
-	LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("injection operation returned non-protection error: %v", err))
+	logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("injection operation returned non-protection error: %v", err))
 	return StageError
 }
 

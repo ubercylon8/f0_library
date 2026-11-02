@@ -1,6 +1,6 @@
 # Qilin (Agenda): BYOVD EDR-Killer & svchost Injection Chain
 
-**Test Score**: **8.2/10**
+**Test Score**: **8.7/10**
 
 ## Overview
 
@@ -8,7 +8,19 @@ This five-stage Windows test emulates the observable post-compromise chain descr
 
 The implementation deliberately does **not** load a real vulnerable driver, modify kernel callbacks, terminate production security software, inject into a production `svchost.exe`, read LSASS memory, encrypt user data, delete real shadow copies, change real boot configuration, or make network connections. The real `rwdrv.sys` asset is dropped only for signature observation and is deleted before any service or native-load attempt. All five objectives are attempted independently, so an early block does not suppress later detection opportunities.
 
-**Validation status:** this is a provisional, source/build/rule-inspection score under rubric v2.1. No lab execution evidence exists yet. Telemetry Signal Quality (2c) is capped at 1.5 and scores 1.5 here: signal richness and sensor mapping are documented, all five rule formats are present, YAML/NDJSON parsing passes, and YARA compilation plus an exact `rwdrv.sys` match passes. Native KQL/EQL/Sigma engine validation and all-stage lab execution remain unverified. Go metadata declares the same 8.2 score and omits the incompatible legacy breakdown.
+**Validation status:** **LAB VALIDATED** on 2026-11-02 against Sophos Intercept X on `win`. All five stages executed with no skipped controls; overall exit **126 (PREVENTED)** and Schema v2.0 validation passed. Go metadata and this document use the final **8.7/10** rubric v2.1 score. Native KQL/EQL/Sigma engine validators remain unavailable.
+
+## Lab Evidence
+
+| Stage | Result | Evidence |
+|---|---|---|
+| 1 — Discovery & Side-Load | Success (0) | Read-only discovery and the benign `msimg32.dll` image load completed. |
+| 2 — BYOVD EDR-Killer | Success (0) | Both nonfunctional services were created and deleted; both `NtLoadDriver` calls returned `0xC0000130` (`STATUS_INVALID_IMAGE_NOT_MZ`) as designed. Three test-owned security-process stand-ins were terminated. Sophos separately logged `RWEverything Driver` for the real `rwdrv.sys` drop. |
+| 3 — svchost Injection | **Blocked (126)** | Launching the test-owned `svchost.exe` returned Windows error 5 before remote-memory APIs executed. Sophos System Protection event 42 identified `Evade_22a (T1036.005)`. |
+| 4 — LSASS Access | **Blocked (126)** | `OpenProcess(PROCESS_VM_READ|PROCESS_QUERY_INFORMATION)` returned `ERROR_ACCESS_DENIED` in elevated SeDebug context; no LSASS memory was read. |
+| 5 — Minimal Impact | Success (0) | Five synthetic files were encrypted; recovery commands failed only against nonexistent targets. |
+
+The final run completed in approximately 43 seconds. `bundle_results.json` records five controls: two blocked, three successful, zero skipped. Sophos services remained running, both Qilin driver services were absent after cleanup, and pre-existing lab files were restored. Evidence is staged under `staging/8f68dda1-94be-430f-8f35-d8af3f9b5d2e/`, including `sophos_application_events.txt`.
 
 ## MITRE ATT&CK Mapping
 
@@ -41,19 +53,19 @@ The orchestrator extracts gzip-compressed, signed stage binaries into `C:\F0`, c
 - **Unprotected:** all five objectives complete without prevention, producing overall exit **101**. Successful stage exit 0 is normalized to 101 in `bundle_results.json`.
 - **Test error:** extraction failures, inconclusive OS denials, missing prerequisites, or non-protection failures produce **999** unless another stage has positive block evidence, in which case the orchestrator's any-blocked rule takes precedence.
 - **Watchdog timeout:** a stage timeout is logged as stage exit **102** and handled as an error by the orchestrator; it is not represented as an overall 102 result.
-- **No lab claim:** none of these outcomes has yet been observed for this test in a lab. Expected outcomes are derived from source control flow, not detection results.
+- **Observed outcome:** the final Sophos lab run produced stage exits 0/0/126/126/0 and overall **126**, matching the per-stage evidence above.
 
 ## Safety and Fidelity Boundaries
 
 - All test-created files are confined to `C:\F0` or `c:\Users\fortika-test`; production enumeration and LSASS access are read-only or handle-only.
 - Service creation/deletion applies only to unique `qilin_rwdrv_f0` and `qilin_hlpdrv_f0` entries backed by nonfunctional test-owned files. Privilege changes apply only to the current process token.
 - Callback removal is represented by a sandbox JSON registry, not kernel modification. EDR process names are used only for test-owned executables.
-- Normal stage returns use deferred cleanup, and the orchestrator deletes both test driver services after stage 2 and during finalization. A forced watchdog kill can still bypass in-process defers; general post-timeout artifact and descendant-process sweeping remains a required hardening follow-up before claiming every-exit-path cleanup.
+- Normal stage returns use deferred cleanup. The orchestrator also deletes both test driver services, terminates only exact test-owned descendant paths, removes the Qilin sandbox, and deletes stand-in/driver files after stages 2 and 3 and during finalization, covering forced watchdog exits.
 - The malicious `msimg32.dll` forwarding/loader logic, SEH/VEH obfuscation, user-mode hook and ETW bypasses, patched `pwndll.dll`, LSASS dump, and real encryption/recovery impact are intentionally not reproduced.
 
 ## Operational Notes
 
-- **Orchestrator size:** 10,996,048 bytes (10.5 MiB), Yellow tier and below the v2.1 25 MB threshold.
+- **Orchestrator size:** 11,043,664 bytes (10.5 MiB), Yellow tier and below the v2.1 25 MB threshold.
 - **Stage sizes:** all signed stages are approximately 3.2–3.4 MB after ordinary Go symbol/debug stripping, satisfying the every-stage-below-5-MB criterion. Gzip remains mandatory; no packer is used.
 - **Configured stage budgets:** 180s / 360s / 240s / 180s / 180s for stages 1–5, within a 1,200,000 ms orchestrator execution configuration. These are source-configured ceilings, not observed runtimes.
 - **Watchdogs:** `exec.CommandContext` enforces every stage budget. Timeout output is captured and logged, and remaining stages continue.

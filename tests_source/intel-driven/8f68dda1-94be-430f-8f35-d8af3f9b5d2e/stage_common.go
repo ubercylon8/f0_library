@@ -21,6 +21,18 @@ const (
 	StageError       = 999
 )
 
+func logStageMessage(level, phase, message string) {
+	fmt.Printf("[%s] [%s] %s\n", level, phase, message)
+	structuredLevel := level
+	switch level {
+	case "BLOCKED":
+		structuredLevel = "ERROR"
+	case "WARNING":
+		structuredLevel = "WARN"
+	}
+	LogMessage(structuredLevel, phase, message)
+}
+
 func isSystemContext() bool {
 	username := os.Getenv("USERNAME")
 	return strings.HasSuffix(username, "$") || strings.EqualFold(username, "SYSTEM")

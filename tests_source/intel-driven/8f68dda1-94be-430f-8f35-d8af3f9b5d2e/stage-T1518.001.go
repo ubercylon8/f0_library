@@ -67,28 +67,28 @@ func performDiscoveryAndSideload(sandbox string) int {
 	payload, _ := json.MarshalIndent(discovery, "", "  ")
 	discoveryPath := filepath.Join(LOG_DIR, "qilin_security_discovery.json")
 	if err := os.WriteFile(discoveryPath, payload, 0644); err != nil {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("discovery output write returned: %v", err))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("discovery output write returned: %v", err))
 	}
 	discoveryCompleted := strings.TrimSpace(discovery.SecurityProducts+discovery.Processes+discovery.Services+discovery.System) != ""
-	LogMessage("INFO", "T1082", fmt.Sprintf("Read-only discovery completed=%v", discoveryCompleted))
+	logStageMessage("INFO", "T1082", fmt.Sprintf("Read-only discovery completed=%v", discoveryCompleted))
 
 	if err := os.MkdirAll(sandbox, 0755); err != nil {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("sandbox creation returned: %v", err))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("sandbox creation returned: %v", err))
 		return StageError
 	}
 	hostPath := filepath.Join(sandbox, "FoxitPDFReader.exe")
 	dllPath := filepath.Join(sandbox, "msimg32.dll")
 	if err := copyCurrentExecutable(hostPath); err != nil {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("host copy returned: %v", err))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("host copy returned: %v", err))
 		return StageError
 	}
 	if err := copyFile(`C:\Windows\System32\msimg32.dll`, dllPath); err != nil {
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("msimg32 copy returned: %v", err))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("msimg32 copy returned: %v", err))
 		return StageError
 	}
 	LogFileDropped("FoxitPDFReader.exe", hostPath, fileSize(hostPath), false)
 	LogFileDropped("msimg32.dll", dllPath, fileSize(dllPath), false)
-	LogMessage("WARN", "T1574.002", "Test-owned host will LoadLibraryW a renamed Microsoft msimg32.dll; malicious forwarding DLL is not reproduced")
+	logStageMessage("WARN", "T1574.002", "Test-owned host will LoadLibraryW a renamed Microsoft msimg32.dll; malicious forwarding DLL is not reproduced")
 	time.Sleep(3 * time.Second)
 	if _, err := os.Stat(hostPath); os.IsNotExist(err) {
 		return StageQuarantined
@@ -110,20 +110,20 @@ func performDiscoveryAndSideload(sandbox string) int {
 		}
 		var errno syscall.Errno
 		if errors.As(runErr, &errno) && (errno == 5 || errno == 225 || errno == 226 || errno == 1260 || errno == 4551) {
-			LogMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("fresh test-owned host launch returned Windows error %d", errno))
+			logStageMessage("BLOCKED", TECHNIQUE_ID, fmt.Sprintf("fresh test-owned host launch returned Windows error %d", errno))
 			return StageBlocked
 		}
-		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("host execution returned: %v", runErr))
+		logStageMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("host execution returned: %v", runErr))
 		return StageError
 	}
 	marker, markerErr := os.ReadFile(filepath.Join(LOG_DIR, "qilin_sideload_marker.txt"))
 	loadSucceeded := markerErr == nil && strings.Contains(string(marker), "LOADLIBRARY_SUCCESS")
 	if !loadSucceeded {
-		LogMessage("ERROR", TECHNIQUE_ID, "LoadLibraryW success marker absent")
+		logStageMessage("ERROR", TECHNIQUE_ID, "LoadLibraryW success marker absent")
 		return StageError
 	}
 	if !discoveryCompleted {
-		LogMessage("ERROR", TECHNIQUE_ID, "Discovery commands returned no usable output")
+		logStageMessage("ERROR", TECHNIQUE_ID, "Discovery commands returned no usable output")
 		return StageError
 	}
 	return StageSuccess
