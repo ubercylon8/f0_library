@@ -66,7 +66,8 @@ func main() {
 		os.Exit(StageError)
 	}
 
-	if err := performTechnique(); err != nil {
+	usedFallback, err := performTechnique()
+	if err != nil {
 		fmt.Printf("[STAGE %s] Technique failed: %v\n", TECHNIQUE_ID, err)
 		LogMessage("ERROR", TECHNIQUE_ID, fmt.Sprintf("Technique failed: %v", err))
 		exitCode := determineExitCode(err)
@@ -78,16 +79,28 @@ func main() {
 		os.Exit(exitCode)
 	}
 
-	fmt.Printf("[STAGE %s] Event-invite LNK execution chain completed\n", TECHNIQUE_ID)
-	LogMessage("SUCCESS", TECHNIQUE_ID, "LNK -> conhost -> cmd -> BAT chain executed")
-	LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "conhost/cmd/BAT chain executed and decoy PDF displayed")
+	if usedFallback {
+		// Only reachable when conhost was unusable for environmental reasons
+		// (never when it was denied) — report the degraded path explicitly so
+		// the verdict is not mistaken for the full conhost chain succeeding.
+		fmt.Printf("[STAGE %s] Event-invite BAT executed via direct cmd.exe fallback (conhost unavailable)\n", TECHNIQUE_ID)
+		LogMessage("SUCCESS", TECHNIQUE_ID, "cmd -> BAT executed via direct cmd.exe fallback (conhost chain unavailable in this environment)")
+		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "degraded path: conhost unavailable, BAT executed via direct cmd.exe and decoy PDF displayed")
+	} else {
+		fmt.Printf("[STAGE %s] Event-invite LNK execution chain completed\n", TECHNIQUE_ID)
+		LogMessage("SUCCESS", TECHNIQUE_ID, "LNK -> conhost -> cmd -> BAT chain executed")
+		LogStageEnd(STAGE_ID, TECHNIQUE_ID, "success", "conhost/cmd/BAT chain executed and decoy PDF displayed")
+	}
 	os.Exit(StageSuccess)
 }
 
-func performTechnique() error {
+// performTechnique runs the event-invite chain. usedFallback reports whether
+// the BAT had to be run via the direct cmd.exe fallback because conhost was
+// unavailable in this environment.
+func performTechnique() (usedFallback bool, err error) {
 	dir := inviteDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("invite directory creation failed: %v", err)
+		return false, fmt.Errorf("invite directory creation failed: %v", err)
 	}
 
 	// 1. Stage the archive contents exactly as the victim would see them:
@@ -98,13 +111,13 @@ func performTechnique() error {
 		"Panel: Emerging Threats in Eastern Europe - Registration Confirmed\n" +
 		"(sandbox simulation artifact - benign content)\n%%EOF\n")
 	if err := os.WriteFile(filepath.Join(dir, DECOY_PDF), decoyPDF, 0644); err != nil {
-		return fmt.Errorf("decoy PDF write failed: %v", err)
+		return false, fmt.Errorf("decoy PDF write failed: %v", err)
 	}
 	LogFileDropped(DECOY_PDF, filepath.Join(dir, DECOY_PDF), int64(len(decoyPDF)), false)
 
 	archive := []byte("F0RT1KA decoy password-protected archive (password delivered as image per RedFlick report)\n")
 	if err := os.WriteFile(filepath.Join(dir, DECOY_ARCHIVE), archive, 0644); err != nil {
-		return fmt.Errorf("decoy archive write failed: %v", err)
+		return false, fmt.Errorf("decoy archive write failed: %v", err)
 	}
 	LogFileDropped(DECOY_ARCHIVE, filepath.Join(dir, DECOY_ARCHIVE), int64(len(archive)), false)
 
@@ -114,7 +127,7 @@ func performTechnique() error {
 		fmt.Sprintf("start \"\" \"%s\"\r\n", filepath.Join(dir, DECOY_PDF)) +
 		fmt.Sprintf("echo opened > \"%s\"\r\n", filepath.Join(LOG_DIR, MARKER_FILE))
 	if err := os.WriteFile(filepath.Join(dir, INVITE_BAT), []byte(bat), 0755); err != nil {
-		return fmt.Errorf("invite BAT write failed: %v", err)
+		return false, fmt.Errorf("invite BAT write failed: %v", err)
 	}
 	LogFileDropped(INVITE_BAT, filepath.Join(dir, INVITE_BAT), int64(len(bat)), false)
 
@@ -133,10 +146,10 @@ func performTechnique() error {
 		lnkPath, filepath.Join(dir, INVITE_BAT))
 	out, err := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", lnkScript).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("LNK creation via WScript.Shell failed: %v (output: %s)", err, strings.TrimSpace(string(out)))
+		return false, fmt.Errorf("LNK creation via WScript.Shell failed: %v (output: %s)", err, strings.TrimSpace(string(out)))
 	}
 	if _, err := os.Stat(lnkPath); os.IsNotExist(err) {
-		return fmt.Errorf("LNK file not present after creation: %s", lnkPath)
+		return false, fmt.Errorf("LNK file not present after creation: %s", lnkPath)
 	}
 	LogFileDropped(DECOY_LNK, lnkPath, 0, false)
 	LogMessage("INFO", TECHNIQUE_ID, fmt.Sprintf("LNK created targeting hidden conhost chain: %s", lnkPath))
@@ -152,29 +165,72 @@ func performTechnique() error {
 	conhostOut, conhostErr := conhost.CombinedOutput()
 	LogProcessExecution("conhost.exe", fmt.Sprintf("conhost.exe --headless cmd.exe /c %s", filepath.Join(dir, INVITE_BAT)), pidOf(conhost), conhostErr == nil, exitCodeOf(conhostErr), "")
 
-	// The conhost chain may be unavailable in non-interactive sessions; the
-	// BAT execution via cmd.exe is the load-bearing primitive — fall back and
-	// verify the observable either way.
 	if _, err := os.Stat(markerPath); os.IsNotExist(err) {
+		// A missing marker is ambiguous: conhost may be unusable in this
+		// session, or the EDR may have prevented the chain. Only the former
+		// justifies the fallback. Re-running the BAT from the stage binary
+		// after a block changes the process lineage (stage -> cmd instead of
+		// conhost -> cmd), which the EDR may not block, and would report a
+		// prevented technique as successful.
+		if denied, reason := conhostChainDenied(conhostErr); denied {
+			LogMessage("ERROR", TECHNIQUE_ID,
+				fmt.Sprintf("conhost -> cmd chain prevented (%s, output: %s) — not falling back", reason, strings.TrimSpace(string(conhostOut))))
+			return false, fmt.Errorf("conhost -> cmd.exe -> BAT chain prevented (%s): %w", reason, windows.ERROR_ACCESS_DENIED)
+		}
+
 		LogMessage("WARN", TECHNIQUE_ID,
-			fmt.Sprintf("conhost chain produced no marker (%v, output: %s) — falling back to direct cmd.exe execution", conhostErr, strings.TrimSpace(string(conhostOut))))
+			fmt.Sprintf("conhost chain unavailable in this environment (%v, output: %s) — falling back to direct cmd.exe execution (degraded path)", conhostErr, strings.TrimSpace(string(conhostOut))))
+		usedFallback = true
 		cmdExe := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/c", filepath.Join(dir, INVITE_BAT))
 		cmdExe.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 		cmdOut, cmdErr := cmdExe.CombinedOutput()
 		LogProcessExecution("cmd.exe", fmt.Sprintf("cmd.exe /c %s", filepath.Join(dir, INVITE_BAT)), pidOf(cmdExe), cmdErr == nil, exitCodeOf(cmdErr), "")
 		if cmdErr != nil {
-			return fmt.Errorf("cmd.exe chain failed: %v (output: %s)", cmdErr, strings.TrimSpace(string(cmdOut)))
+			return usedFallback, fmt.Errorf("cmd.exe fallback chain failed: %v (output: %s)", cmdErr, strings.TrimSpace(string(cmdOut)))
 		}
 	}
 
 	// 4. Verify the chain executed (marker written by the BAT)
 	time.Sleep(2 * time.Second)
 	if _, err := os.Stat(markerPath); os.IsNotExist(err) {
-		return fmt.Errorf("execution marker not found after BAT chain: %s", markerPath)
+		return usedFallback, fmt.Errorf("execution marker not found after BAT chain: %s", markerPath)
 	}
 
 	LogMessage("INFO", TECHNIQUE_ID, "Decoy PDF displayed and execution marker written — victim interaction chain complete")
-	return nil
+	return usedFallback, nil
+}
+
+// Exit codes that mean the conhost -> cmd.exe chain was denied rather than
+// unavailable. conhost.exe reports a failed child creation as an HRESULT.
+const (
+	hresultAccessDenied  = 0x80070005 // E_ACCESSDENIED (observed when the EDR blocks the cmd.exe child)
+	ntStatusAccessDenied = 0xC0000022 // STATUS_ACCESS_DENIED
+)
+
+// conhostChainDenied reports whether conhostErr shows the chain was prevented
+// (access denied launching conhost, or conhost exiting with an access-denied
+// code because its cmd.exe child was blocked). Any other failure, such as a
+// missing conhost.exe or an unsupported --headless flag, is environmental and
+// returns false.
+func conhostChainDenied(conhostErr error) (bool, string) {
+	if conhostErr == nil {
+		return false, ""
+	}
+	if exitErr, ok := conhostErr.(*exec.ExitError); ok {
+		switch uint32(exitErr.ExitCode()) {
+		case hresultAccessDenied:
+			return true, "conhost exit 0x80070005 E_ACCESSDENIED: cmd.exe child creation denied"
+		case ntStatusAccessDenied:
+			return true, "conhost exit 0xC0000022 STATUS_ACCESS_DENIED"
+		}
+		return false, ""
+	}
+	// Launch failure of conhost.exe itself (fork/exec error)
+	if errors.Is(conhostErr, windows.ERROR_ACCESS_DENIED) ||
+		containsAny(conhostErr.Error(), []string{"access denied", "access is denied"}) {
+		return true, fmt.Sprintf("conhost.exe launch denied: %v", conhostErr)
+	}
+	return false, ""
 }
 
 func exitCodeOf(err error) int {
