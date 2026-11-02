@@ -1,0 +1,226 @@
+// ============================================================
+// Detection: Qilin Vulnerable Driver Staging
+// Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+// MITRE ATT&CK: T1211, T1562.001
+// Confidence: High for the hash or known driver names; Medium for the generic user-writable .sys branch
+// ============================================================
+// Purpose: Detect rwdrv/hlpdrv staging and other kernel drivers dropped into user-writable locations before BYOVD abuse.
+// False Positives: Legitimate driver updaters and support tools. Validate signer and hash; allowlist only a verified publisher/package combination, not a directory.
+// Threshold: Alert on every hash/name match. For the generic branch, correlate with service creation or a driver-load event within 5 minutes.
+// ============================================================
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where SHA256 == "ea0b9eecf4ad5ec8c14aec13de7d661e7615018b1a3c65464bf5eca9bbf6ded3"
+    or FileName in~ ("rwdrv.sys", "hlpdrv.sys")
+    or (FolderPath endswith ".sys"
+        and FolderPath has_any ("\\Users\\", "\\ProgramData\\", "\\Temp\\")
+        and InitiatingProcessFileName !in~ ("System", "services.exe", "svchost.exe"))
+| extend
+    Severity = "Critical",
+    ThreatType = "VulnerableDriverStaging",
+    MitreAttack = "T1211, T1562.001",
+    TestID = "8f68dda1-94be-430f-8f35-d8af3f9b5d2e"
+| project TimeGenerated, DeviceName, FileName, FolderPath, SHA256, InitiatingProcessFileName, InitiatingProcessCommandLine, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Qilin Kernel Driver Service and Native Load
+// Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+// MITRE ATT&CK: T1211, T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detect kernel-service ImagePath creation, sc.exe kernel-service setup, driver loads, and direct NtLoadDriver/ZwLoadDriver API telemetry.
+// False Positives: Administrative driver installation and hardware updates. Tune using the service name, driver signer, installation parent, and change ticket.
+// Threshold: Alert on direct native-load API activity or a user-writable driver ImagePath; correlate other matches with a preceding .sys drop within 5 minutes.
+// ============================================================
+union isfuzzy=true
+(
+    DeviceProcessEvents
+    | where FileName =~ "sc.exe"
+    | where ProcessCommandLine has "create" and ProcessCommandLine has "type=" and ProcessCommandLine has "kernel"
+),
+(
+    DeviceRegistryEvents
+    | where RegistryKey has "\\Services\\" and RegistryValueName =~ "ImagePath"
+    | where RegistryValueData has ".sys"
+),
+(
+    DeviceEvents
+    | where ActionType in~ ("DriverLoad", "DriverLoadAttempt")
+        or AdditionalFields has_any ("NtLoadDriver", "ZwLoadDriver")
+)
+| extend
+    Severity = "Critical",
+    ThreatType = "KernelDriverServiceOrNativeLoad",
+    MitreAttack = "T1211, T1562.001",
+    TestID = "8f68dda1-94be-430f-8f35-d8af3f9b5d2e"
+| project TimeGenerated, DeviceName, ActionType, FileName, ProcessCommandLine, RegistryKey, RegistryValueName, RegistryValueData, AdditionalFields, InitiatingProcessFileName, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Qilin Foxit msimg32 DLL Sideloading
+// Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+// MITRE ATT&CK: T1574.002, T1518.001
+// Confidence: High
+// ============================================================
+// Purpose: Detect msimg32.dll loaded by FoxitPDFReader.exe from outside Windows system directories, consistent with the Qilin sideload chain.
+// False Positives: Portable or repackaged Foxit installations and rare software compatibility shims. Confirm the DLL signer/hash and installation directory.
+// Threshold: Alert on the first non-system load; repeated loads from one approved portable installation can be tuned by signer and hash.
+// ============================================================
+DeviceImageLoadEvents
+| where FileName =~ "msimg32.dll"
+| where InitiatingProcessFileName =~ "FoxitPDFReader.exe"
+| where not(FolderPath startswith @"C:\Windows\System32\" or FolderPath startswith @"C:\Windows\SysWOW64\")
+| extend
+    Severity = "High",
+    ThreatType = "DLLSideLoading",
+    MitreAttack = "T1574.002",
+    TestID = "8f68dda1-94be-430f-8f35-d8af3f9b5d2e"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, InitiatingProcessFolderPath, InitiatingProcessCommandLine, FileName, FolderPath, SHA256, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Qilin Security and System Discovery Burst
+// Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+// MITRE ATT&CK: T1518.001, T1082
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect a process performing SecurityCenter2 antivirus enumeration together with OS, process, or service discovery.
+// False Positives: Inventory, vulnerability-management, support, and software-deployment tools. Tune approved service accounts and management parents.
+// Threshold: At least 2 distinct discovery commands from one initiating process on a device within 5 minutes; raise to 3 for noisy management hosts.
+// ============================================================
+DeviceProcessEvents
+| where (ProcessCommandLine has_any ("SecurityCenter2", "AntiVirusProduct", "Win32_OperatingSystem"))
+    or FileName =~ "tasklist.exe"
+    or (FileName =~ "sc.exe" and ProcessCommandLine has "query")
+| summarize
+    DiscoveryCount = dcount(ProcessCommandLine),
+    DiscoveryCommands = make_set(ProcessCommandLine, 20),
+    ProcessNames = make_set(FileName, 10)
+    by DeviceId, DeviceName, InitiatingProcessId, InitiatingProcessFileName, bin(TimeGenerated, 5m)
+| where DiscoveryCount >= 2
+| extend
+    Severity = "Medium",
+    ThreatType = "SecurityAndSystemDiscovery",
+    MitreAttack = "T1518.001, T1082",
+    TestID = "8f68dda1-94be-430f-8f35-d8af3f9b5d2e"
+| project TimeGenerated, DeviceName, InitiatingProcessId, InitiatingProcessFileName, DiscoveryCount, ProcessNames, DiscoveryCommands, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Qilin Remote LoadLibrary Thread Injection
+// Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+// MITRE ATT&CK: T1055
+// Confidence: High
+// ============================================================
+// Purpose: Detect cross-process thread creation targeting svchost.exe or thread telemetry associated with LoadLibraryW, including the pwndll injection chain.
+// False Positives: Debuggers, profilers, accessibility software, and security products. Review source signer, target PID, thread start address, and loaded module path before tuning.
+// Threshold: Alert on every LoadLibraryW-associated remote thread or unexpected remote thread targeting svchost.exe; do not suppress solely by source process name.
+// ============================================================
+DeviceEvents
+| where ActionType =~ "CreateRemoteThread"
+    or AdditionalFields has_any ("CreateRemoteThread", "NtCreateThreadEx", "RtlCreateUserThread")
+| extend TargetProcessName = tostring(parse_json(AdditionalFields).TargetProcessName)
+| where TargetProcessName =~ "svchost.exe"
+    or FileName =~ "svchost.exe"
+    or AdditionalFields has_any ("LoadLibraryW", "pwndll.dll")
+| extend
+    Severity = "Critical",
+    ThreatType = "RemoteThreadDLLInjection",
+    MitreAttack = "T1055",
+    TestID = "8f68dda1-94be-430f-8f35-d8af3f9b5d2e"
+| project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName, InitiatingProcessId, TargetProcessName, FileName, AdditionalFields, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Qilin LSASS VM Read Access
+// Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+// MITRE ATT&CK: T1003.001
+// Confidence: High for PROCESS_VM_READ; Medium for generic LsassAccess telemetry
+// ============================================================
+// Purpose: Detect OpenProcess-style LSASS access with PROCESS_VM_READ, including attempts made after SeDebugPrivilege is enabled.
+// False Positives: Endpoint security, credential-protection, crash-dump, and support tools. Tune only verified signer/path/access-mask combinations.
+// Threshold: Alert on each non-approved PROCESS_VM_READ handle. Generic LsassAccess events should be correlated with SeDebugPrivilege or an untrusted source.
+// ============================================================
+DeviceEvents
+| where ActionType in~ ("LsassAccess", "OpenProcess", "ProcessAccess")
+    or AdditionalFields has "lsass.exe"
+| extend DesiredAccess = tostring(parse_json(AdditionalFields).DesiredAccess)
+| where ActionType =~ "LsassAccess"
+    or AdditionalFields has "PROCESS_VM_READ"
+    or DesiredAccess in~ ("0x10", "0x410", "0x1410", "0x1438", "0x1fffff", "0x001fffff")
+| where FileName =~ "lsass.exe" or AdditionalFields has "lsass.exe" or ActionType =~ "LsassAccess"
+| extend
+    Severity = "Critical",
+    ThreatType = "LSASSMemoryAccess",
+    MitreAttack = "T1003.001",
+    TestID = "8f68dda1-94be-430f-8f35-d8af3f9b5d2e"
+| project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName, InitiatingProcessId, FileName, DesiredAccess, AdditionalFields, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Qilin Security Process Termination
+// Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+// MITRE ATT&CK: T1562.001
+// Confidence: High for native termination APIs; Medium for an unannotated process-terminated event
+// ============================================================
+// Purpose: Detect NtTerminateProcess/TerminateProcess activity and termination events affecting endpoint security processes.
+// False Positives: Product upgrades, service control, and vendor support actions. Validate the initiating signer and correlate with driver activity before excluding it.
+// Threshold: Alert on native termination from a non-vendor process; correlate generic termination with BYOVD or service tampering within 10 minutes.
+// ============================================================
+DeviceEvents
+| where ActionType in~ ("NtTerminateProcess", "TerminateProcess", "ProcessTerminated")
+    or AdditionalFields has_any ("NtTerminateProcess", "PROCESS_TERMINATE")
+| extend TargetProcessName = tostring(parse_json(AdditionalFields).TargetProcessName)
+| where TargetProcessName in~ ("MsMpEng.exe", "CSFalconService.exe", "CrowdStrike.exe", "SentinelAgent.exe", "MsSense.exe", "SophosEndpointDefense.exe")
+    or FileName in~ ("MsMpEng.exe", "CSFalconService.exe", "CrowdStrike.exe", "SentinelAgent.exe", "MsSense.exe", "SophosEndpointDefense.exe")
+    or AdditionalFields has_any ("MsMpEng.exe", "CSFalconService.exe", "CrowdStrike.exe", "SentinelAgent.exe", "MsSense.exe", "SophosEndpointDefense.exe")
+| extend
+    Severity = "Critical",
+    ThreatType = "SecurityProcessTermination",
+    MitreAttack = "T1562.001",
+    TestID = "8f68dda1-94be-430f-8f35-d8af3f9b5d2e"
+| project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName, InitiatingProcessId, TargetProcessName, FileName, AdditionalFields, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Qilin Recovery Inhibition
+// Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+// MITRE ATT&CK: T1490
+// Confidence: High
+// ============================================================
+// Purpose: Detect shadow-copy deletion and disabling Windows recovery through vssadmin or bcdedit.
+// False Positives: Backup maintenance, imaging, and deliberate administrator recovery changes. Tune approved management parents and change windows.
+// Threshold: Alert on the first occurrence outside approved administration; correlate with encryption or driver-defense-evasion activity within 15 minutes.
+// ============================================================
+DeviceProcessEvents
+| where (FileName =~ "vssadmin.exe"
+        and ProcessCommandLine has "delete"
+        and ProcessCommandLine has "shadows")
+    or (FileName =~ "bcdedit.exe"
+        and ProcessCommandLine has "recoveryenabled"
+        and ProcessCommandLine has "no")
+| extend
+    Severity = "Critical",
+    ThreatType = "InhibitSystemRecovery",
+    MitreAttack = "T1490",
+    TestID = "8f68dda1-94be-430f-8f35-d8af3f9b5d2e"
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Qilin Encrypted File Burst
+// Test ID: 8f68dda1-94be-430f-8f35-d8af3f9b5d2e
+// MITRE ATT&CK: T1486
+// Confidence: High at the stated burst threshold; Medium for a single extension match
+// ============================================================
+// Purpose: Detect rapid creation of Qilin-suffixed encrypted files by one process, a direct ransomware impact behavior.
+// False Positives: Uncommon applications using the same suffix or test data conversion. Validate file entropy, original-file deletion, and ransom-note creation.
+// Threshold: At least 3 distinct .qilin files from one initiating process on a device within 2 minutes; investigate single matches when other chain indicators exist.
+// ============================================================
+DeviceFileEvents
+| where ActionType in~ ("FileCreated", "FileModified", "FileRenamed")
+| where FileName endswith ".qilin" or FolderPath endswith ".qilin"
+| summarize
+    EncryptedFileCount = dcount(FolderPath),
+    EncryptedFiles = make_set(FolderPath, 100)
+    by DeviceId, DeviceName, InitiatingProcessId, InitiatingProcessFileName, bin(TimeGenerated, 2m)
+| where EncryptedFileCount >= 3
+| extend
+    Severity = "Critical",
+    ThreatType = "RansomwareDataEncryption",
+    MitreAttack = "T1486",
+    TestID = "8f68dda1-94be-430f-8f35-d8af3f9b5d2e"
+| project TimeGenerated, DeviceName, InitiatingProcessId, InitiatingProcessFileName, EncryptedFileCount, EncryptedFiles, Severity, ThreatType, MitreAttack, TestID
