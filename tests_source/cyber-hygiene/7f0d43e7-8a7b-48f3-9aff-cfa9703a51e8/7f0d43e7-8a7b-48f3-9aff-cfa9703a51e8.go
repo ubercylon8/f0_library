@@ -3,7 +3,7 @@
 
 /*
 ID: 7f0d43e7-8a7b-48f3-9aff-cfa9703a51e8
-NAME: CIS Linux Endpoint Level 1 Hardening Bundle
+NAME: CIS Linux Endpoint Level 1 Core Hardening Bundle
 TECHNIQUES: T1562.001, T1021.004, T1548.001, T1059.004, T1070.002, T1543.002
 TACTICS: defense-evasion, lateral-movement, privilege-escalation, execution, persistence
 SEVERITY: high
@@ -31,7 +31,7 @@ import (
 
 const (
 	TEST_UUID = "7f0d43e7-8a7b-48f3-9aff-cfa9703a51e8"
-	TEST_NAME = "CIS Linux Endpoint Level 1 Hardening Bundle"
+	TEST_NAME = "CIS Linux Endpoint Level 1 Core Hardening Bundle"
 	VERSION   = "1.0.0"
 
 	// Exit codes
@@ -337,7 +337,7 @@ func main() {
 // printBanner displays the test banner
 func printBanner() {
 	fmt.Println("==================================================================")
-	fmt.Println("  F0RT1KA CIS Linux Endpoint Level 1 Hardening Bundle v1.0")
+	fmt.Println("  F0RT1KA CIS Linux Endpoint Level 1 Core Hardening Bundle v1.0")
 	fmt.Println("  Multi-Binary Architecture (quarantine-resilient)")
 	fmt.Println("==================================================================")
 	fmt.Printf("\nTest UUID: %s\n", TEST_UUID)

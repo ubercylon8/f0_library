@@ -10,7 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
-	"time"
+
+	cyberhygiene "f0_library/tests_source/cyber-hygiene/shared"
 )
 
 // ==============================================================================
@@ -41,17 +42,23 @@ type ValidatorOutput struct {
 
 // CheckOutput is a single check result in the validator output JSON
 type CheckOutput struct {
-	ControlID   string   `json:"control_id"`
-	Name        string   `json:"name"`
-	Category    string   `json:"category"`
-	Description string   `json:"description"`
-	Passed      bool     `json:"passed"`
-	Expected    string   `json:"expected"`
-	Actual      string   `json:"actual"`
-	Details     string   `json:"details"`
-	Severity    string   `json:"severity"`
-	Techniques  []string `json:"techniques"`
-	Tactics     []string `json:"tactics"`
+	ControlID      string                     `json:"control_id"`
+	Name           string                     `json:"name"`
+	Category       string                     `json:"category"`
+	Description    string                     `json:"description"`
+	Passed         bool                       `json:"passed"`
+	Status         cyberhygiene.ControlStatus `json:"status"`
+	Expected       string                     `json:"expected"`
+	Actual         string                     `json:"actual"`
+	Details        string                     `json:"details"`
+	Severity       string                     `json:"severity"`
+	Techniques     []string                   `json:"techniques"`
+	Tactics        []string                   `json:"tactics"`
+	Applicability  string                     `json:"applicability,omitempty"`
+	EvidenceSource string                     `json:"evidence_source,omitempty"`
+	ObservedAt     string                     `json:"observed_at,omitempty"`
+	Remediation    string                     `json:"remediation,omitempty"`
+	Evidence       map[string]interface{}     `json:"evidence,omitempty"`
 }
 
 // IsAdmin checks if the current process has administrator privileges
@@ -64,46 +71,12 @@ func IsAdmin() bool {
 // BUNDLE RESULTS PROTOCOL (moved from check_utils.go)
 // ==============================================================================
 
-// ControlResult represents a single control's result for bundle_results.json
-type ControlResult struct {
-	ControlID    string   `json:"control_id"`
-	ControlName  string   `json:"control_name"`
-	Validator    string   `json:"validator"`
-	ExitCode     int      `json:"exit_code"`
-	Compliant    bool     `json:"compliant"`
-	Severity     string   `json:"severity"`
-	Category     string   `json:"category"`
-	Subcategory  string   `json:"subcategory"`
-	Techniques   []string `json:"techniques"`
-	Tactics      []string `json:"tactics"`
-	Expected     string   `json:"expected"`
-	Actual       string   `json:"actual"`
-	Details      string   `json:"details"`
-	Skipped      bool     `json:"skipped"`
-	ErrorMessage string   `json:"error_message"`
-}
-
-// BundleResults represents the complete bundle output written to bundle_results.json
-type BundleResults struct {
-	SchemaVersion     string          `json:"schema_version"`
-	BundleID          string          `json:"bundle_id"`
-	BundleName        string          `json:"bundle_name"`
-	BundleCategory    string          `json:"bundle_category"`
-	BundleSubcategory string          `json:"bundle_subcategory"`
-	ExecutionID       string          `json:"execution_id"`
-	StartedAt         string          `json:"started_at"`
-	CompletedAt       string          `json:"completed_at"`
-	OverallExitCode   int             `json:"overall_exit_code"`
-	TotalControls     int             `json:"total_controls"`
-	PassedControls    int             `json:"passed_controls"`
-	FailedControls    int             `json:"failed_controls"`
-	SkippedControls   int             `json:"skipped_controls"`
-	Controls          []ControlResult `json:"controls"`
-}
+type ControlResult = cyberhygiene.ControlResult
+type BundleResults = cyberhygiene.BundleResults
 
 // WriteBundleResults writes bundle_results.json to c:\F0
 func WriteBundleResults(results *BundleResults) error {
-	results.CompletedAt = time.Now().UTC().Format(time.RFC3339)
+	cyberhygiene.FinalizeBundleResults(results)
 
 	data, err := json.MarshalIndent(results, "", "  ")
 	if err != nil {
@@ -176,16 +149,16 @@ func MakeSkippedControls(vd ValidatorDef, category, subcategory, reason string) 
 	controls := make([]ControlResult, len(vd.ControlIDs))
 	for i, id := range vd.ControlIDs {
 		controls[i] = ControlResult{
-			ControlID:    id,
-			ControlName:  fmt.Sprintf("%s (skipped)", vd.DisplayName),
-			Validator:    vd.DisplayName,
-			ExitCode:     0,
-			Compliant:    false,
-			Severity:     "medium",
-			Category:     category,
-			Subcategory:  subcategory,
-			Skipped:      true,
-			ErrorMessage: reason,
+			ControlID:      id,
+			ControlName:    fmt.Sprintf("%s (skipped)", vd.DisplayName),
+			Validator:      vd.DisplayName,
+			Status:         cyberhygiene.StatusSkipped,
+			Severity:       "medium",
+			Category:       category,
+			Subcategory:    subcategory,
+			Skipped:        true,
+			ErrorMessage:   reason,
+			EvidenceSource: "orchestrator",
 		}
 	}
 	return controls
@@ -195,26 +168,26 @@ func MakeSkippedControls(vd ValidatorDef, category, subcategory, reason string) 
 func ConvertOutputToControls(validatorName, category, subcategory string, output *ValidatorOutput) []ControlResult {
 	results := make([]ControlResult, 0, len(output.Checks))
 	for _, check := range output.Checks {
-		exitCode := 126 // compliant
-		if !check.Passed {
-			exitCode = 101 // non-compliant
-		}
-
 		results = append(results, ControlResult{
-			ControlID:   check.ControlID,
-			ControlName: check.Name,
-			Validator:   validatorName,
-			ExitCode:    exitCode,
-			Compliant:   check.Passed,
-			Severity:    check.Severity,
-			Category:    category,
-			Subcategory: subcategory,
-			Techniques:  check.Techniques,
-			Tactics:     check.Tactics,
-			Expected:    check.Expected,
-			Actual:      check.Actual,
-			Details:     check.Details,
-			Skipped:     false,
+			ControlID:      check.ControlID,
+			ControlName:    check.Name,
+			Validator:      validatorName,
+			Compliant:      check.Passed,
+			Status:         check.Status,
+			Severity:       check.Severity,
+			Category:       category,
+			Subcategory:    subcategory,
+			Techniques:     check.Techniques,
+			Tactics:        check.Tactics,
+			Expected:       check.Expected,
+			Actual:         check.Actual,
+			Details:        check.Details,
+			Description:    check.Description,
+			Applicability:  check.Applicability,
+			EvidenceSource: check.EvidenceSource,
+			ObservedAt:     check.ObservedAt,
+			Remediation:    check.Remediation,
+			Evidence:       check.Evidence,
 		})
 	}
 	return results

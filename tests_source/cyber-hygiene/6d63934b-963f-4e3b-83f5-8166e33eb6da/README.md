@@ -1,4 +1,4 @@
-# CIS macOS Endpoint Level 1 Hardening Bundle
+# CIS macOS Endpoint Level 1 Core Hardening Bundle
 
 **Test Score**: **9.1/10**
 

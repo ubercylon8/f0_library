@@ -1,10 +1,10 @@
-# CIS Identity & Active Directory Level 1 Bundle
+# CIS Identity & Active Directory Level 1 Core Bundle
 
 **Test UUID**: `602a5333-e9cf-4ddf-a132-a22aa7126447`
 
 ## Overview
 
-This bundled security test validates the identity and Active Directory security posture of a domain-joined Windows environment against CIS Benchmark Level 1 controls. It queries on-premises Active Directory via PowerShell AD cmdlets and optionally validates Entra ID (Azure AD) tenant controls via Microsoft Graph API. The bundle covers 6 security domains with 28 controls total.
+This bundled security test validates selected identity and Active Directory controls aligned with CIS Level 1 guidance. It is a Core baseline, not a complete CIS product/version/profile assessment. It queries on-premises Active Directory via PowerShell AD cmdlets and optionally validates Entra ID (Azure AD) tenant controls via Microsoft Graph API. The bundle covers 6 security domains with 28 controls total.
 
 **Test Score**: **9.3/10**
 

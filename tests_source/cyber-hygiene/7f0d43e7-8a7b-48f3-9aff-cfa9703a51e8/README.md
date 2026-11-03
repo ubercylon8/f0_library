@@ -1,4 +1,4 @@
-# CIS Linux Endpoint Level 1 Hardening Bundle
+# CIS Linux Endpoint Level 1 Core Hardening Bundle
 
 **Test Score**: **9.2/10**
 

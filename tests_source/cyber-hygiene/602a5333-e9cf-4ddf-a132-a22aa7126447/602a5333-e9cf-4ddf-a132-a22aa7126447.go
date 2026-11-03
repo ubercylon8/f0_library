@@ -3,7 +3,7 @@
 
 /*
 ID: 602a5333-e9cf-4ddf-a132-a22aa7126447
-NAME: CIS Identity & Active Directory Level 1 Bundle
+NAME: CIS Identity & Active Directory Level 1 Core Bundle
 TECHNIQUES: T1078.002, T1098.001, T1098.003, T1558.003, T1558.004, T1078.004, T1556.007, T1484.001
 TACTICS: credential-access, persistence, privilege-escalation, defense-evasion
 SEVERITY: critical
@@ -31,7 +31,7 @@ import (
 
 const (
 	TEST_UUID = "602a5333-e9cf-4ddf-a132-a22aa7126447"
-	TEST_NAME = "CIS Identity & Active Directory Level 1 Bundle"
+	TEST_NAME = "CIS Identity & Active Directory Level 1 Core Bundle"
 	VERSION   = "1.0.0"
 
 	// Exit codes
@@ -255,7 +255,7 @@ func main() {
 // printBanner displays the test banner
 func printBanner() {
 	fmt.Println("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557")
-	fmt.Println("\u2551   F0RT1KA CIS Identity & Active Directory Level 1 Bundle      \u2551")
+	fmt.Println("\u2551   F0RT1KA CIS Identity & Active Directory Level 1 Core Bundle      \u2551")
 	fmt.Println("\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d")
 	fmt.Printf("\nTest UUID: %s\n", TEST_UUID)
 	fmt.Printf("Version:   %s\n", VERSION)

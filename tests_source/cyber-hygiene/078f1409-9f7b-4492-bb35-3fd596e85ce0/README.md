@@ -1,4 +1,4 @@
-# CIS Windows Endpoint Level 1 Hardening Bundle
+# CIS Windows Endpoint Level 1 Core Hardening Bundle
 
 **Test UUID**: `078f1409-9f7b-4492-bb35-3fd596e85ce0`
 
@@ -6,7 +6,7 @@
 
 ## Overview
 
-This bundled security test validates 52 CIS Benchmark Level 1 security controls across 7 security domains for Windows endpoints. It uses multi-binary architecture with quarantine-resilient validator binaries, ensuring that if AV/EDR quarantines one validator, the remaining validators still execute and report results.
+This bundled security test validates 52 selected CIS-aligned Level 1 controls across 7 security domains for Windows endpoints. It is a Core baseline, not a complete CIS product/version/profile assessment. It uses multi-binary architecture with quarantine-resilient validator binaries, ensuring that if AV/EDR quarantines one validator, the remaining validators still execute and report results.
 
 ## Included Validators
 
@@ -26,7 +26,7 @@ This bundled security test validates 52 CIS Benchmark Level 1 security controls 
 
 | Code | Status | Description |
 |------|--------|-------------|
-| 126 | COMPLIANT | All 7 validators passed - endpoint meets CIS Level 1 |
+| 126 | COMPLIANT | All 7 validators passed - endpoint meets the 52 selected Core controls |
 | 101 | NON-COMPLIANT | One or more validators failed - compliance gaps detected |
 | 999 | ERROR | Test error (administrator privileges required) |
 

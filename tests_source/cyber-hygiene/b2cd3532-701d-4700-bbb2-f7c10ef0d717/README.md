@@ -83,10 +83,10 @@ The CrowdStrike validator performs 6 checks specific to Falcon sensor configurat
 |-----------|-------|----------|--------|
 | CH-CRW-001 | Falcon Service Running | CSFalconService running, auto-start | `sc query` + registry |
 | CH-CRW-002 | Sensor Operational Status | AG + Agent ID present | Registry query |
-| CH-CRW-003 | Prevention Mode | Prevention policy enabled | Registry query |
-| CH-CRW-004 | Sensor Version | Valid version detected | File version query |
-| CH-CRW-005 | Cloud Connectivity | Cloud connection established | Registry (provisioning state) |
-| CH-CRW-006 | Tamper Protection | Tamper protection enabled | Registry query |
+| CH-CRW-003 | Prevention Mode | UNKNOWN without effective central policy | Central Falcon API required |
+| CH-CRW-004 | Sensor Version Detected | Local version reported; no currency claim | Registry or file version query |
+| CH-CRW-005 | Recent Cloud Check-in | UNKNOWN without recent central last-seen evidence | Central Falcon API required |
+| CH-CRW-006 | Tamper Protection | UNKNOWN without effective central policy | Central Falcon API required |
 
 ## Differences from Baseline Bundle
 

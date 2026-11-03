@@ -29,14 +29,16 @@ These consolidate prior point-tests (LAPS, ASR, LSASS, SMB, etc.) into validator
 | [`a3c923ae-…be6c2731a628`](a3c923ae-1a46-4b1f-b696-be6c2731a628/) | Cyber-Hygiene Bundle (Windows Defender Edition) | Windows Endpoint | Defender | T1562.001, T1003.001, T1059.001, T1110, T1547.001 |
 | [`b2cd3532-…f7c10ef0d717`](b2cd3532-701d-4700-bbb2-f7c10ef0d717/) | Cyber-Hygiene Bundle (CrowdStrike Falcon Edition) | Windows Endpoint | CrowdStrike | T1562.001, T1003.001, T1059.001, T1110, T1547.001 |
 
-### CIS Level 1 Benchmark Bundles
+### CIS Level 1 Core Bundles
+
+These are selected, CIS-aligned hardening controls. **Core bundles are not complete CIS Level 1 benchmark assessments** and must not be used to claim full benchmark compliance. Complete, versioned product/profile assessments are being developed separately.
 
 | UUID | Name | Target | Controls | Key Techniques |
 |---|---|---|---:|---|
-| [`078f1409-…3fd596e85ce0`](078f1409-9f7b-4492-bb35-3fd596e85ce0/) | CIS Windows Endpoint Level 1 Hardening Bundle | Windows | 52 | T1110, T1003.001, T1562.001, T1059.001 |
-| [`7f0d43e7-…cfa9703a51e8`](7f0d43e7-8a7b-48f3-9aff-cfa9703a51e8/) | CIS Linux Endpoint Level 1 Hardening Bundle | Linux | 35 | T1562.001, T1059.004, T1543.002, T1070.002 |
-| [`6d63934b-…8166e33eb6da`](6d63934b-963f-4e3b-83f5-8166e33eb6da/) | CIS macOS Endpoint Level 1 Hardening Bundle | macOS | 22 | T1562.001, T1553.001, T1071.001 |
-| [`602a5333-…a22aa7126447`](602a5333-e9cf-4ddf-a132-a22aa7126447/) | CIS Identity & Active Directory Level 1 Bundle | Windows / AD / Entra | 28 | T1078.002, T1098.001, T1558.003, T1484.001 |
+| [`078f1409-…3fd596e85ce0`](078f1409-9f7b-4492-bb35-3fd596e85ce0/) | CIS Windows Endpoint Level 1 Core Hardening Bundle | Windows | 52 | T1110, T1003.001, T1562.001, T1059.001 |
+| [`7f0d43e7-…cfa9703a51e8`](7f0d43e7-8a7b-48f3-9aff-cfa9703a51e8/) | CIS Linux Endpoint Level 1 Core Hardening Bundle | Linux | 35 | T1562.001, T1059.004, T1543.002, T1070.002 |
+| [`6d63934b-…8166e33eb6da`](6d63934b-963f-4e3b-83f5-8166e33eb6da/) | CIS macOS Endpoint Level 1 Core Hardening Bundle | macOS | 22 | T1562.001, T1553.001, T1071.001 |
+| [`602a5333-…a22aa7126447`](602a5333-e9cf-4ddf-a132-a22aa7126447/) | CIS Identity & Active Directory Level 1 Core Bundle | Windows / AD / Entra | 28 | T1078.002, T1098.001, T1558.003, T1484.001 |
 
 ### Cloud & Endpoint Identity Bundles
 
