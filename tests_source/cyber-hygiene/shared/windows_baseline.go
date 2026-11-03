@@ -3,6 +3,7 @@
 package cyberhygiene
 
 import (
+	"encoding/csv"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -250,13 +251,22 @@ func auditBaselineControls() []ControlResult {
 			controls = append(controls, control)
 			continue
 		}
-		lines := strings.Split(output, "\n")
+		records, parseErr := csv.NewReader(strings.NewReader(output)).ReadAll()
 		setting := ""
-		if len(lines) > 0 {
-			parts := strings.Split(strings.TrimSpace(lines[len(lines)-1]), ",")
-			setting = strings.TrimSpace(parts[len(parts)-1])
+		if parseErr == nil {
+			for _, record := range records {
+				if len(record) >= 5 && strings.EqualFold(strings.TrimSpace(record[2]), spec.name) {
+					setting = strings.TrimSpace(record[4])
+				}
+			}
 		}
 		control.Actual = setting
+		if parseErr != nil || setting == "" {
+			control.Status = StatusUnknown
+			control.Actual = "Audit inclusion setting was not reported"
+			controls = append(controls, control)
+			continue
+		}
 		lower := strings.ToLower(setting)
 		success := strings.Contains(lower, "success")
 		failure := strings.Contains(lower, "failure")
