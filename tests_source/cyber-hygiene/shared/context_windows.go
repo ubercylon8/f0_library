@@ -12,6 +12,7 @@ func discoverPlatformContext(ctx *EndpointContext) error {
 $os = Get-CimInstance Win32_OperatingSystem
 $cs = Get-CimInstance Win32_ComputerSystem
 $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+$entra = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CDJ\AAD' -ErrorAction SilentlyContinue
 [pscustomobject]@{
   caption = $os.Caption
   version = $os.Version
@@ -20,6 +21,7 @@ $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
   product_type = $os.ProductType
   domain_role = $cs.DomainRole
   part_of_domain = $cs.PartOfDomain
+  entra_joined = [bool]($entra -and $entra.TenantId)
   architecture = $env:PROCESSOR_ARCHITECTURE
 } | ConvertTo-Json -Compress`
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)

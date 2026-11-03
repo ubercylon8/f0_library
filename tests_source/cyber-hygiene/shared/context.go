@@ -28,6 +28,7 @@ type EndpointContext struct {
 	OSRole       OSRole `json:"os_role"`
 	RoleSource   string `json:"role_source"`
 	DomainJoined bool   `json:"domain_joined"`
+	EntraJoined  bool   `json:"entra_joined"`
 }
 
 func DiscoverEndpointContext() (EndpointContext, error) {
@@ -79,6 +80,7 @@ type windowsSystemInfo struct {
 	ProductType  int    `json:"product_type"`
 	DomainRole   int    `json:"domain_role"`
 	PartOfDomain bool   `json:"part_of_domain"`
+	EntraJoined  bool   `json:"entra_joined"`
 	Architecture string `json:"architecture"`
 }
 
@@ -95,6 +97,7 @@ func applyWindowsSystemInfo(ctx *EndpointContext, raw []byte) error {
 		ctx.OSBuild = fmt.Sprintf("%s.%d", ctx.OSBuild, info.UBR)
 	}
 	ctx.DomainJoined = info.PartOfDomain
+	ctx.EntraJoined = info.EntraJoined
 	if info.Architecture != "" {
 		ctx.Architecture = strings.ToLower(info.Architecture)
 	}
