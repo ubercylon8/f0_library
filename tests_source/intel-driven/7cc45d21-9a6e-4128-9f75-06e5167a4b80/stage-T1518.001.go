@@ -118,19 +118,38 @@ func performTechnique() int {
 		"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 		"Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | Select-Object displayName,productState"))
 
-	// 1b. Known AV/EDR service probes (sc.exe query — registry service names,
-	// Rule 6; read-only telemetry, services are never touched). Includes the
-	// Sophos endpoint-defense service names: the 2026-11 win lab runs Sophos
-	// Intercept X (Sophos CTU is also a primary source for this test).
-	for _, svc := range []string{"WinDefend", "Sense", "CSFalconService", "SepMasterService", "SophosMMS", "Sophos Endpoint Defense", "SEDService", "WdNisSvc"} {
+	// 1b. Security-product service census (sc.exe query — registry service
+	// names, Rule 6; read-only telemetry, services are never touched).
+	//
+	// EDR-INDEPENDENT BY DESIGN: the list is a stable, vendor-neutral census
+	// of well-known AV/EDR service names — the kind every attacker recon
+	// script carries (The Gentlemen's own tooling targets security products
+	// across hundreds of vendors; Trend Micro documents the group tailoring
+	// to whatever endpoint protection it finds). The list must NEVER be
+	// tuned to the EDR deployed on any particular lab. Absent services
+	// simply return 1060 and are classified benign — presence/absence of any
+	// single product never gates the stage.
+	for _, svc := range []string{
+		"WinDefend", "Sense", "WdNisSvc",              // Microsoft Defender family
+		"CSFalconService",                              // CrowdStrike
+		"SepMasterService",                             // Symantec/Broadcom
+		"SophosMMS", "Sophos Endpoint Defense",         // Sophos
+		"SentinelAgent",                                // SentinelOne
+		"CBDefense",                                    // Carbon Black
+		"TrendMicro Endpoint Basecamp",                 // Trend Micro
+		"mcafeevalidation",                             // McAfee
+		"ekrn",                                         // ESET
+	} {
 		steps = append(steps, runStep(fmt.Sprintf("sc query %s", svc),
 			fmt.Sprintf("sc.exe query %s", svc), "sc.exe", "query", svc))
 	}
 
-	// 1c. Known EDR process hunt via tasklist (actor's tasklist findstr shape).
-	steps = append(steps, runStep("EDR process hunt",
-		`tasklist /v /fo csv | findstr /i "csagent sensedefend sophos sep"`,
-		"cmd.exe", "/Q", "/c", `tasklist /v /fo csv | findstr /i "csagent sensedefend sophos sep"`))
+	// 1c. Security-product process census via tasklist (actor tasklist findstr
+	// shape). Vendor-neutral keyword set across major EDR families; the
+	// SecurityCenter2 query above is the authoritative product enumeration.
+	steps = append(steps, runStep("security process hunt",
+		`tasklist /v /fo csv | findstr /i "csagent sense sophos sep cbdefense sentinelagent"`,
+		"cmd.exe", "/Q", "/c", `tasklist /v /fo csv | findstr /i "csagent sense sophos sep cbdefense sentinelagent"`))
 
 	// ------------------------------------------------------------------
 	// Step 2: Mass account enumeration (T1087) — the 1.bat shape
