@@ -1,0 +1,260 @@
+# Sophos Intercept X cyber-hygiene control-tampering detections.
+# The source is a read-only validator; these rules detect independent tampering with assessed
+# controls, not its queries, result files, paths, binary, or UUID. No file/network rules are
+# included because the source contains no attack file writes or network connections.
+# Date: 2026-11-03
+
+---
+title: Sophos Service Disablement or Print Spooler Re-enablement
+id: e8cf22db-83f8-47f7-a351-f20f5a1a472f
+status: experimental
+description: Detects command-line attempts to stop, delete, disable, or reconfigure the Sophos services assessed by the validator, or to start/re-enable the Print Spooler service. Read-only service queries do not match.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+  - https://attack.mitre.org/techniques/T1569/002/
+author: F0RT1KA Detection Rules Generator
+date: "2026-11-03"
+tags:
+  - attack.defense_evasion
+  - attack.execution
+  - attack.t1562.001
+  - attack.t1569.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_sophos:
+    CommandLine|contains:
+      - Sophos Endpoint Defense Service
+      - Sophos MCS Agent
+  selection_sophos_action:
+    CommandLine|contains:
+      - ' stop '
+      - Stop-Service
+      - Set-Service
+      - Remove-Service
+      - Disable-Service
+      - ' config '
+      - ' delete '
+  selection_spooler:
+    CommandLine|contains: Spooler
+  selection_spooler_action:
+    CommandLine|contains:
+      - Start-Service
+      - ' start '
+      - start=auto
+      - start= auto
+      - start=demand
+      - start= demand
+  condition: (selection_sophos and selection_sophos_action) or (selection_spooler and selection_spooler_action)
+falsepositives:
+  - Authorized Sophos administration or troubleshooting
+  - Approved Print Spooler changes on systems with a documented print role
+level: high
+
+---
+title: LSASS and Virtualization-Based Credential Protection Disabled
+id: 60af21a3-cb92-43e4-97d6-25ff6f3c26f1
+status: experimental
+description: Detects deletion or zeroing of RunAsPPL, LsaCfgFlags, or EnableVirtualizationBasedSecurity registry values, weakening protections against LSASS credential access.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Detection Rules Generator
+date: "2026-11-03"
+tags:
+  - attack.credential_access
+  - attack.defense_evasion
+  - attack.t1003.001
+  - attack.t1562.001
+logsource:
+  category: registry_event
+  product: windows
+detection:
+  selection_target:
+    TargetObject|endswith:
+      - '\RunAsPPL'
+      - '\LsaCfgFlags'
+      - '\EnableVirtualizationBasedSecurity'
+  selection_zero:
+    Details|contains: 0x00000000
+  selection_delete:
+    EventType: DeleteValue
+  condition: selection_target and (selection_zero or selection_delete)
+falsepositives:
+  - Approved credential-protection rollback or compatibility remediation
+  - Security baseline deployment by authorized management tooling
+level: high
+
+---
+title: PowerShell Logging or Constrained-Language Policy Disabled
+id: 320ba866-5cda-491c-b404-a589191c0002
+status: experimental
+description: Detects deletion or zeroing of PowerShell script-block logging, module logging, transcription, or constrained-language policy values. Nonzero __PSLockdownPolicy changes other than the required value 4 need supplemental policy-diff monitoring.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1562/006/
+author: F0RT1KA Detection Rules Generator
+date: "2026-11-03"
+tags:
+  - attack.execution
+  - attack.defense_evasion
+  - attack.t1059.001
+  - attack.t1562.006
+logsource:
+  category: registry_event
+  product: windows
+detection:
+  selection_target:
+    TargetObject|endswith:
+      - '\EnableScriptBlockLogging'
+      - '\EnableModuleLogging'
+      - '\EnableTranscripting'
+      - '\__PSLockdownPolicy'
+  selection_zero:
+    Details|contains: 0x00000000
+  selection_delete:
+    EventType: DeleteValue
+  condition: selection_target and (selection_zero or selection_delete)
+falsepositives:
+  - Authorized PowerShell policy troubleshooting
+  - Approved endpoint baseline or Group Policy changes
+level: high
+
+---
+title: Audit Disablement or Account and Lockout Policy Manipulation
+id: eff82ddb-e59b-4b47-a28e-d04a91e0d797
+status: experimental
+description: Detects auditpol commands that disable or remove auditing, net accounts changes to assessed lockout/password settings, local account creation, or local Administrators group additions. Read-only auditpol /get and net accounts queries do not match.
+references:
+  - https://attack.mitre.org/techniques/T1562/002/
+  - https://attack.mitre.org/techniques/T1110/
+  - https://attack.mitre.org/techniques/T1136/
+  - https://attack.mitre.org/techniques/T1098/
+  - https://attack.mitre.org/techniques/T1078/
+author: F0RT1KA Detection Rules Generator
+date: "2026-11-03"
+tags:
+  - attack.defense_evasion
+  - attack.credential_access
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1562.002
+  - attack.t1110
+  - attack.t1136
+  - attack.t1098
+  - attack.t1078
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_auditpol:
+    Image|endswith: '\auditpol.exe'
+  selection_audit_disable:
+    CommandLine|contains:
+      - /clear
+      - /remove
+      - /success:disable
+      - /failure:disable
+  selection_net_accounts:
+    CommandLine|contains: ' accounts'
+  selection_policy_change:
+    CommandLine|contains:
+      - /lockoutthreshold:0
+      - /lockoutduration:
+      - /lockoutwindow:
+      - /minpwlen:
+  selection_net_user:
+    CommandLine|contains: ' user '
+  selection_new_local_user:
+    CommandLine|contains: New-LocalUser
+  selection_group_tool:
+    CommandLine|contains:
+      - localgroup
+      - Add-LocalGroupMember
+  selection_add:
+    CommandLine|contains:
+      - /add
+      - Add-LocalGroupMember
+  selection_administrators:
+    CommandLine|contains: Administrators
+  condition: >-
+    (selection_auditpol and selection_audit_disable) or
+    (selection_net_accounts and selection_policy_change) or
+    (selection_net_user and selection_add) or selection_new_local_user or
+    (selection_group_tool and selection_add and selection_administrators)
+falsepositives:
+  - Authorized audit or account policy administration
+  - Help-desk account provisioning and approved privileged group changes
+level: high
+
+---
+title: Endpoint Network LAPS and Print Protections Weakened
+id: f2c6cc55-8274-4ac1-84ae-c62161608395
+status: experimental
+description: Detects common registry changes that disable assessed SMB signing/encryption/null-session protections, re-enable SMBv1 or LLMNR, remove WPAD or LAPS protections, clear IPv6 tunnel-disabled settings, or weaken Point and Print restrictions. IPv6 coverage is limited to zero/delete; other bitmask changes require policy-diff evaluation.
+references:
+  - https://attack.mitre.org/techniques/T1021/002/
+  - https://attack.mitre.org/techniques/T1557/001/
+  - https://attack.mitre.org/techniques/T1572/
+  - https://attack.mitre.org/techniques/T1078/003/
+  - https://attack.mitre.org/techniques/T1547/012/
+author: F0RT1KA Detection Rules Generator
+date: "2026-11-03"
+tags:
+  - attack.lateral_movement
+  - attack.credential_access
+  - attack.command_and_control
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1021.002
+  - attack.t1557.001
+  - attack.t1572
+  - attack.t1078.003
+  - attack.t1547.012
+logsource:
+  category: registry_event
+  product: windows
+detection:
+  selection_zero_disables:
+    TargetObject|endswith:
+      - '\RequireSecuritySignature'
+      - '\EncryptData'
+      - '\RestrictNullSessAccess'
+      - '\WpadOverride'
+      - '\DisabledComponents'
+      - '\BackupDirectory'
+      - '\AdmPwdEnabled'
+      - '\RestrictDriverInstallationToAdministrators'
+  selection_llmnr:
+    TargetObject|endswith: '\EnableMulticast'
+  selection_print_prompt_bypass:
+    TargetObject|endswith:
+      - '\NoWarningNoElevationOnInstall'
+      - '\UpdatePromptSettings'
+  selection_smbv1:
+    TargetObject|endswith: '\mrxsmb10\Start'
+  selection_zero:
+    Details|contains: 0x00000000
+  selection_nonzero:
+    Details|contains:
+      - 0x00000001
+      - 0x00000002
+  selection_smbv1_enabled:
+    Details|contains:
+      - 0x00000000
+      - 0x00000001
+      - 0x00000002
+      - 0x00000003
+  selection_delete:
+    EventType: DeleteValue
+  condition: >-
+    (selection_zero_disables and (selection_zero or selection_delete)) or
+    (selection_llmnr and (selection_nonzero or selection_delete)) or
+    (selection_print_prompt_bypass and (selection_nonzero or selection_delete)) or
+    (selection_smbv1 and selection_smbv1_enabled)
+falsepositives:
+  - Approved legacy-protocol compatibility exceptions
+  - Network, proxy, LAPS, or print-policy migration by authorized administrators
+  - Endpoint baseline deployment and Group Policy refresh
+level: high
