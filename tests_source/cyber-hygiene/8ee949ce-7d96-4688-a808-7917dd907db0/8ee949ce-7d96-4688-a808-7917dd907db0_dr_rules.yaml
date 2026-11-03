@@ -1,0 +1,403 @@
+# Sophos Intercept X cyber-hygiene control-tampering D&R rules (file format).
+# Test ID: 8ee949ce-7d96-4688-a808-7917dd907db0
+# Date: 2026-11-03
+# Source scope: read-only compliance validation. These rules detect independent tampering
+# with assessed controls, not validator queries, result files, paths, binary, or UUID.
+# No file/network rules are included because the source contains no attack file/network activity.
+# Registry rules use REGISTRY_VALUE_SET only; deletion coverage is provided in formats with
+# suitable deletion telemetry. IPv6 detection covers clearing DisabledComponents, not every
+# possible bitmask downgrade. Tune authorized management tools and maintenance windows.
+
+rules:
+  sophos-service-disablement-or-spooler-enablement:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: Sophos Endpoint Defense Service
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: Sophos MCS Agent
+                  case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: " stop "
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: Stop-Service
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: Set-Service
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: Remove-Service
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: Disable-Service
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: " config "
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: " delete "
+                  case sensitive: false
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: Spooler
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: Start-Service
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: " start "
+                  case sensitive: false
+                - op: matches
+                  path: event/COMMAND_LINE
+                  re: (?i)start=\s*(auto|demand)
+    respond:
+      - action: report
+        name: sophos-service-disablement-or-spooler-enablement
+        metadata:
+          test_id: 8ee949ce-7d96-4688-a808-7917dd907db0
+          mitre_attack: T1562.001,T1569.002
+          severity: high
+          confidence: high
+          description: Detects Sophos service tampering or Print Spooler re-enablement; read-only queries do not match
+          false_positives: Authorized service administration and approved print-role changes
+
+  credential-protection-disabled:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: is
+              path: event/VALUE_NAME
+              value: RunAsPPL
+              case sensitive: false
+            - op: is
+              path: event/VALUE_NAME
+              value: LsaCfgFlags
+              case sensitive: false
+            - op: is
+              path: event/VALUE_NAME
+              value: EnableVirtualizationBasedSecurity
+              case sensitive: false
+        - op: or
+          rules:
+            - op: is
+              path: event/VALUE_DATA
+              value: 0
+            - op: is
+              path: event/VALUE_DATA
+              value: "0"
+            - op: contains
+              path: event/VALUE_DATA
+              value: 0x00000000
+              case sensitive: false
+    respond:
+      - action: report
+        name: credential-protection-disabled
+        metadata:
+          test_id: 8ee949ce-7d96-4688-a808-7917dd907db0
+          mitre_attack: T1003.001,T1562.001
+          severity: high
+          confidence: high
+          description: Detects zeroing RunAsPPL, LsaCfgFlags, or virtualization-based security policy
+          false_positives: Approved credential-protection rollback or baseline deployment
+
+  powershell-security-policy-disabled:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: is
+              path: event/VALUE_NAME
+              value: EnableScriptBlockLogging
+              case sensitive: false
+            - op: is
+              path: event/VALUE_NAME
+              value: EnableModuleLogging
+              case sensitive: false
+            - op: is
+              path: event/VALUE_NAME
+              value: EnableTranscripting
+              case sensitive: false
+            - op: is
+              path: event/VALUE_NAME
+              value: __PSLockdownPolicy
+              case sensitive: false
+        - op: or
+          rules:
+            - op: is
+              path: event/VALUE_DATA
+              value: 0
+            - op: is
+              path: event/VALUE_DATA
+              value: "0"
+            - op: contains
+              path: event/VALUE_DATA
+              value: 0x00000000
+              case sensitive: false
+    respond:
+      - action: report
+        name: powershell-security-policy-disabled
+        metadata:
+          test_id: 8ee949ce-7d96-4688-a808-7917dd907db0
+          mitre_attack: T1059.001,T1562.006
+          severity: high
+          confidence: high
+          description: Detects zeroing PowerShell logging, transcription, or constrained-language policy
+          false_positives: Authorized PowerShell policy troubleshooting or Group Policy changes
+
+  audit-account-and-lockout-policy-manipulation:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \auditpol.exe
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: /clear
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: /remove
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: /success:disable
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: /failure:disable
+                  case sensitive: false
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: " accounts"
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "/lockoutthreshold:0"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "/lockoutduration:"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "/lockoutwindow:"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "/minpwlen:"
+                  case sensitive: false
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: " user "
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: /add
+              case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: New-LocalUser
+          case sensitive: false
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: Administrators
+              case sensitive: false
+            - op: or
+              rules:
+                - op: and
+                  rules:
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: localgroup
+                      case sensitive: false
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: /add
+                      case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: Add-LocalGroupMember
+                  case sensitive: false
+    respond:
+      - action: report
+        name: audit-account-and-lockout-policy-manipulation
+        metadata:
+          test_id: 8ee949ce-7d96-4688-a808-7917dd907db0
+          mitre_attack: T1562.002,T1110,T1136,T1098,T1078
+          severity: high
+          confidence: medium
+          description: Detects audit disablement, assessed account-policy changes, local account creation, or Administrators additions
+          false_positives: Approved audit/account administration and help-desk provisioning
+
+  endpoint-baseline-protections-weakened:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: or
+              rules:
+                - op: is
+                  path: event/VALUE_NAME
+                  value: RequireSecuritySignature
+                  case sensitive: false
+                - op: is
+                  path: event/VALUE_NAME
+                  value: EncryptData
+                  case sensitive: false
+                - op: is
+                  path: event/VALUE_NAME
+                  value: RestrictNullSessAccess
+                  case sensitive: false
+                - op: is
+                  path: event/VALUE_NAME
+                  value: WpadOverride
+                  case sensitive: false
+                - op: is
+                  path: event/VALUE_NAME
+                  value: DisabledComponents
+                  case sensitive: false
+                - op: is
+                  path: event/VALUE_NAME
+                  value: BackupDirectory
+                  case sensitive: false
+                - op: is
+                  path: event/VALUE_NAME
+                  value: AdmPwdEnabled
+                  case sensitive: false
+                - op: is
+                  path: event/VALUE_NAME
+                  value: RestrictDriverInstallationToAdministrators
+                  case sensitive: false
+            - op: or
+              rules:
+                - op: is
+                  path: event/VALUE_DATA
+                  value: 0
+                - op: is
+                  path: event/VALUE_DATA
+                  value: "0"
+                - op: contains
+                  path: event/VALUE_DATA
+                  value: 0x00000000
+                  case sensitive: false
+        - op: and
+          rules:
+            - op: or
+              rules:
+                - op: is
+                  path: event/VALUE_NAME
+                  value: EnableMulticast
+                  case sensitive: false
+                - op: is
+                  path: event/VALUE_NAME
+                  value: NoWarningNoElevationOnInstall
+                  case sensitive: false
+                - op: is
+                  path: event/VALUE_NAME
+                  value: UpdatePromptSettings
+                  case sensitive: false
+            - op: or
+              rules:
+                - op: is
+                  path: event/VALUE_DATA
+                  value: 1
+                - op: is
+                  path: event/VALUE_DATA
+                  value: 2
+                - op: contains
+                  path: event/VALUE_DATA
+                  value: 0x00000001
+                  case sensitive: false
+                - op: contains
+                  path: event/VALUE_DATA
+                  value: 0x00000002
+                  case sensitive: false
+        - op: and
+          rules:
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: \mrxsmb10
+              case sensitive: false
+            - op: is
+              path: event/VALUE_NAME
+              value: Start
+              case sensitive: false
+            - op: or
+              rules:
+                - op: is
+                  path: event/VALUE_DATA
+                  value: 0
+                - op: is
+                  path: event/VALUE_DATA
+                  value: 1
+                - op: is
+                  path: event/VALUE_DATA
+                  value: 2
+                - op: is
+                  path: event/VALUE_DATA
+                  value: 3
+                - op: matches
+                  path: event/VALUE_DATA
+                  re: (?i)0x0{7}[0-3]
+    respond:
+      - action: report
+        name: endpoint-baseline-protections-weakened
+        metadata:
+          test_id: 8ee949ce-7d96-4688-a808-7917dd907db0
+          mitre_attack: T1021.002,T1557.001,T1572,T1078.003,T1547.012
+          severity: high
+          confidence: medium
+          description: Detects common SMB, LLMNR, WPAD, IPv6 tunnel, LAPS, or Point and Print policy weakening
+          false_positives: Approved compatibility exceptions and authorized network, LAPS, print, or baseline changes

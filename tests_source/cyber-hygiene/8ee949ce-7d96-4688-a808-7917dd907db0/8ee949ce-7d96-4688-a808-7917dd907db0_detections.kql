@@ -1,0 +1,251 @@
+// Sophos Intercept X cyber-hygiene control-tampering detections
+// Source scope: the validator reads service, registry, audit, account, and file-version state.
+// It does not perform attack actions. These queries detect independent, real-world tampering
+// with the assessed controls; they deliberately exclude read-only queries and test artifacts.
+// No file or network query is included: the source has no attack file writes or network activity.
+// Telemetry: Microsoft Defender for Endpoint Advanced Hunting.
+
+// ============================================================
+// Detection: Sophos Service Disablement or Print Spooler Re-enablement
+// Test ID: 8ee949ce-7d96-4688-a808-7917dd907db0
+// MITRE ATT&CK: T1562.001, T1569.002
+// Confidence: High for Sophos disablement; Medium for Spooler enablement
+// ============================================================
+// Purpose: Detect command-line attempts to stop, delete, or reconfigure Sophos services,
+// or to start/re-enable the Print Spooler service assessed by the baseline.
+// False Positives: Authorized Sophos administration, troubleshooting, and print-role changes.
+// Tune by approved administrator, management host, and change window; do not exclude queries.
+// Threshold: Alert on each event; correlate with unauthorized change activity.
+// ============================================================
+DeviceProcessEvents
+| extend Command = tolower(ProcessCommandLine)
+| where (Command contains "sophos endpoint defense service" or Command contains "sophos mcs agent")
+    and (Command contains " stop " or Command contains "stop-service" or
+         Command contains "set-service" or Command contains "remove-service" or
+         Command contains "disable-service" or Command contains " config " or
+         Command contains " delete ")
+    or (Command contains "spooler" and
+        (Command contains "start-service" or Command contains " start " or
+         Command contains "start=auto" or Command contains "start= auto" or
+         Command contains "start=demand" or Command contains "start= demand"))
+| extend
+    Severity = "High",
+    ThreatType = "SecurityServiceTampering",
+    MitreAttack = "T1562.001; T1569.002",
+    TestID = "8ee949ce-7d96-4688-a808-7917dd907db0"
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessAccountName, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: LSASS and Virtualization-Based Credential Protection Disabled
+// Test ID: 8ee949ce-7d96-4688-a808-7917dd907db0
+// MITRE ATT&CK: T1003.001, T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detect deletion or zeroing of RunAsPPL, LsaCfgFlags, or VBS policy values.
+// False Positives: Hardening rollback, operating-system deployment, or compatibility repair.
+// Tune with approved management processes and change windows, not broad registry-key exclusions.
+// Threshold: Alert on each event.
+// ============================================================
+DeviceRegistryEvents
+| extend ValueName = tostring(RegistryValueName), ValueData = tostring(RegistryValueData)
+| where RegistryKey has @"SYSTEM\CurrentControlSet\Control\Lsa"
+    or RegistryKey has @"SYSTEM\CurrentControlSet\Control\DeviceGuard"
+| where ValueName in ("RunAsPPL", "LsaCfgFlags", "EnableVirtualizationBasedSecurity")
+| where ActionType == "RegistryValueDeleted"
+    or (ActionType == "RegistryValueSet" and
+        (ValueData == "0" or ValueData has "0x00000000"))
+| extend
+    Severity = "High",
+    ThreatType = "CredentialProtectionTampering",
+    MitreAttack = "T1003.001; T1562.001",
+    TestID = "8ee949ce-7d96-4688-a808-7917dd907db0"
+| project TimeGenerated, DeviceName, RegistryKey, RegistryValueName, RegistryValueData,
+    ActionType, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: PowerShell Logging or Constrained-Language Policy Disabled
+// Test ID: 8ee949ce-7d96-4688-a808-7917dd907db0
+// MITRE ATT&CK: T1059.001, T1562.006
+// Confidence: High
+// ============================================================
+// Purpose: Detect deletion or zeroing of script-block, module, transcription, or lockdown policy.
+// False Positives: Policy troubleshooting or intentional baseline changes.
+// Tune by approved deployment tooling; investigate the new value when deletion is not present.
+// Threshold: Alert on each event. Zero-value coverage is conservative; other nonzero lockdown
+// changes require supplemental policy-diff monitoring.
+// ============================================================
+DeviceRegistryEvents
+| extend ValueName = tostring(RegistryValueName), ValueData = tostring(RegistryValueData)
+| where ValueName in ("EnableScriptBlockLogging", "EnableModuleLogging",
+    "EnableTranscripting", "__PSLockdownPolicy")
+| where RegistryKey has @"PowerShell" or RegistryKey has @"Session Manager\Environment"
+| where ActionType == "RegistryValueDeleted"
+    or (ActionType == "RegistryValueSet" and
+        (ValueData == "0" or ValueData has "0x00000000"))
+| extend
+    Severity = "High",
+    ThreatType = "PowerShellSecurityPolicyTampering",
+    MitreAttack = "T1059.001; T1562.006",
+    TestID = "8ee949ce-7d96-4688-a808-7917dd907db0"
+| project TimeGenerated, DeviceName, RegistryKey, RegistryValueName, RegistryValueData,
+    ActionType, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Windows Audit Policy Disablement
+// Test ID: 8ee949ce-7d96-4688-a808-7917dd907db0
+// MITRE ATT&CK: T1562.002
+// Confidence: High
+// ============================================================
+// Purpose: Detect auditpol commands that clear policy, remove per-user policy, or disable
+// success/failure auditing for the logon, process, account, and audit-change controls assessed.
+// False Positives: Authorized audit-policy administration and security baseline deployment.
+// Tune by approved administrator and management host; read-only auditpol /get is not matched.
+// Threshold: Alert on each event.
+// ============================================================
+DeviceProcessEvents
+| where FileName =~ "auditpol.exe"
+| where ProcessCommandLine contains "/clear" or ProcessCommandLine contains "/remove"
+    or ProcessCommandLine contains "/success:disable" or ProcessCommandLine contains "/failure:disable"
+| extend
+    Severity = "High",
+    ThreatType = "AuditPolicyTampering",
+    MitreAttack = "T1562.002",
+    TestID = "8ee949ce-7d96-4688-a808-7917dd907db0"
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessAccountName, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: SMB Security Controls Weakened
+// Test ID: 8ee949ce-7d96-4688-a808-7917dd907db0
+// MITRE ATT&CK: T1021.002, T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detect disabling SMB signing, encryption, null-session restrictions, or re-enabling
+// the SMBv1 driver through a Start value other than disabled (4).
+// False Positives: Legacy compatibility changes and authorized server configuration.
+// Tune with documented exceptions; do not whitelist all LanmanServer or LanmanWorkstation events.
+// Threshold: Alert on each event.
+// ============================================================
+DeviceRegistryEvents
+| extend ValueName = tostring(RegistryValueName), ValueData = tostring(RegistryValueData)
+| where
+    (ValueName in ("RequireSecuritySignature", "EncryptData", "RestrictNullSessAccess")
+        and (ActionType == "RegistryValueDeleted" or
+            (ActionType == "RegistryValueSet" and
+                (ValueData == "0" or ValueData has "0x00000000"))))
+    or (RegistryKey has @"SYSTEM\CurrentControlSet\Services\mrxsmb10"
+        and ValueName == "Start" and ActionType == "RegistryValueSet"
+        and (ValueData in ("0", "1", "2", "3") or
+            ValueData has "0x00000000" or ValueData has "0x00000001" or
+            ValueData has "0x00000002" or ValueData has "0x00000003"))
+| extend
+    Severity = "High",
+    ThreatType = "SMBSecurityDowngrade",
+    MitreAttack = "T1021.002; T1562.001",
+    TestID = "8ee949ce-7d96-4688-a808-7917dd907db0"
+| project TimeGenerated, DeviceName, RegistryKey, RegistryValueName, RegistryValueData,
+    ActionType, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Name-Resolution, WPAD, or IPv6 Tunnel Protections Weakened
+// Test ID: 8ee949ce-7d96-4688-a808-7917dd907db0
+// MITRE ATT&CK: T1557.001, T1572, T1562.001
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect enabling LLMNR, removing the WPAD override, or clearing all assessed IPv6
+// tunnel-disable bits. These changes can facilitate poisoning, relay, or protocol tunneling.
+// False Positives: Network troubleshooting, proxy migrations, and approved IPv6 configuration.
+// Tune by management process and network-change window. DisabledComponents coverage is limited
+// to zero/delete; other bitmask changes require policy-diff evaluation.
+// Threshold: Alert on each event on workstations; review approved server exceptions.
+// ============================================================
+DeviceRegistryEvents
+| extend ValueName = tostring(RegistryValueName), ValueData = tostring(RegistryValueData)
+| where
+    (ValueName == "EnableMulticast" and RegistryKey has @"DNSClient"
+        and (ActionType == "RegistryValueDeleted" or
+            (ActionType == "RegistryValueSet" and not(ValueData == "0" or ValueData has "0x00000000"))))
+    or (ValueName in ("WpadOverride", "DisabledComponents")
+        and (ActionType == "RegistryValueDeleted" or
+            (ActionType == "RegistryValueSet" and
+                (ValueData == "0" or ValueData has "0x00000000"))))
+| extend
+    Severity = "Medium",
+    ThreatType = "NetworkProtectionDowngrade",
+    MitreAttack = "T1557.001; T1572; T1562.001",
+    TestID = "8ee949ce-7d96-4688-a808-7917dd907db0"
+| project TimeGenerated, DeviceName, RegistryKey, RegistryValueName, RegistryValueData,
+    ActionType, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Account Policy Weakening or Privileged Account Manipulation
+// Test ID: 8ee949ce-7d96-4688-a808-7917dd907db0
+// MITRE ATT&CK: T1110, T1136, T1098, T1078
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect changes to assessed lockout/password settings, local account creation, or
+// addition to the local Administrators group. Read-only net accounts output is not matched.
+// False Positives: Help-desk provisioning, approved local administration, and policy changes.
+// Tune by approved administrator and provisioning host; review numeric values against baseline.
+// Threshold: Alert on each local Administrators addition; aggregate other changes per device.
+// ============================================================
+DeviceProcessEvents
+| extend Command = tolower(ProcessCommandLine)
+| where
+    (Command contains " accounts" and
+        (Command contains "/lockoutthreshold:0" or Command contains "/lockoutduration:"
+            or Command contains "/lockoutwindow:" or Command contains "/minpwlen:"))
+    or (Command contains " user " and Command contains "/add")
+    or (Command contains "localgroup" and Command contains "administrators" and Command contains "/add")
+    or (Command contains "add-localgroupmember" and Command contains "administrators")
+| extend
+    Severity = "Medium",
+    ThreatType = "AccountPolicyOrPrivilegeTampering",
+    MitreAttack = "T1110; T1136; T1098; T1078",
+    TestID = "8ee949ce-7d96-4688-a808-7917dd907db0"
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessAccountName, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// Detection: Correlated Multi-Control Registry Tampering
+// Test ID: 8ee949ce-7d96-4688-a808-7917dd907db0
+// MITRE ATT&CK: T1562.001, T1003.001, T1059.001, T1021.002, T1557.001,
+//               T1572, T1078.003, T1547.012
+// Confidence: Medium
+// ============================================================
+// Purpose: Correlate modifications to two or more distinct assessed control families on one
+// device within 15 minutes, which can indicate broad defense weakening rather than one repair.
+// False Positives: Group Policy refresh, imaging, and authorized baseline rollouts.
+// Tune by approved deployment process and change window. Inspect values: this correlation uses
+// modification scope, not proof that every resulting value is noncompliant.
+// Threshold: At least two distinct control families per device per 15 minutes.
+// ============================================================
+DeviceRegistryEvents
+| where ActionType in ("RegistryValueSet", "RegistryValueDeleted", "RegistryKeyDeleted")
+| extend ValueName = tostring(RegistryValueName)
+| extend TamperClass = case(
+    ValueName in ("RunAsPPL", "LsaCfgFlags", "EnableVirtualizationBasedSecurity"), "CredentialProtection",
+    ValueName in ("EnableScriptBlockLogging", "EnableModuleLogging", "EnableTranscripting", "__PSLockdownPolicy"), "PowerShellSecurity",
+    ValueName in ("RequireSecuritySignature", "EncryptData", "RestrictNullSessAccess") or (ValueName == "Start" and RegistryKey has "mrxsmb10"), "SMBSecurity",
+    ValueName in ("EnableMulticast", "WpadOverride", "DisabledComponents"), "NetworkProtocolSecurity",
+    ValueName in ("BackupDirectory", "AdmPwdEnabled"), "LAPS",
+    ValueName in ("RestrictDriverInstallationToAdministrators", "NoWarningNoElevationOnInstall", "UpdatePromptSettings"), "PrintSecurity",
+    "")
+| where isnotempty(TamperClass)
+| summarize TamperClasses = make_set(TamperClass),
+    ModifiedValues = make_set(strcat(RegistryKey, "\\", ValueName)),
+    Processes = make_set(InitiatingProcessFileName)
+    by DeviceName, bin(TimeGenerated, 15m)
+| where array_length(TamperClasses) >= 2
+| extend
+    Severity = "High",
+    ThreatType = "CorrelatedSecurityControlTampering",
+    MitreAttack = "T1562.001; T1003.001; T1059.001; T1021.002; T1557.001; T1572; T1078.003; T1547.012",
+    TestID = "8ee949ce-7d96-4688-a808-7917dd907db0"
+| project TimeGenerated, DeviceName, TamperClasses, ModifiedValues, Processes,
+    Severity, ThreatType, MitreAttack, TestID
