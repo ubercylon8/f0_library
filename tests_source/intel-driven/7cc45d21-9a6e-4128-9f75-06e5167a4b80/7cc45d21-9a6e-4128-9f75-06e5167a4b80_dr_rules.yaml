@@ -1,0 +1,904 @@
+# ============================================================
+# The Gentlemen (GOLD SHERWOOD) — GPO-Driven LOLBin Intrusion
+# LimaCharlie D&R Rules
+# Test ID: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+# MITRE ATT&CK: T1518.001, T1087, T1082, T1036, T1219, T1047,
+#               T1021.002, T1021.001, T1484.001, T1053.005,
+#               T1543.003, T1136.001
+# Platform: Windows
+# Generated: 2026-11-02
+# ============================================================
+#
+# FILE FORMAT: For use with `limacharlie dr add` or `config push`
+#
+# Deployment:
+#   limacharlie dr add -f 7cc45d21-9a6e-4128-9f75-06e5167a4b80_dr_rules.yaml
+#
+# Technique-focused: every rule targets The Gentlemen's tradecraft
+# shape (LOLBin command lines, deployment artifacts, persistence
+# surface) — never any test-harness artifact.
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: Security Software Discovery (T1518.001)
+  # ============================================================
+  # Confidence: High
+  # Description: SecurityCenter2 AntiVirusProduct enumeration via
+  #              wmic/PowerShell, sc.exe query of EDR services, or
+  #              tasklist|findstr EDR process hunting
+  # False Positives: Asset-inventory scripts, vulnerability scanners
+  # ============================================================
+  gentlemen-av-edr-discovery:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "SecurityCenter2"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "AntiVirusProduct"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \sc.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "query"
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "query WinDefend"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "query Sense"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "query CSFalconService"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "query SophosMMS"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "query SepMasterService"
+                  case sensitive: false
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \cmd.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "tasklist"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "findstr"
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "csagent"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "sophos"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "crowdstrike"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "sentinel"
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen AV/EDR Discovery
+        metadata:
+          severity: high
+          mitre_attack: T1518.001
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: Security software enumeration via SecurityCenter2, EDR service queries, or EDR process hunting
+
+
+  # ============================================================
+  # Rule 2: Mass Account Enumeration (T1087/T1082)
+  # ============================================================
+  # Confidence: Medium-High
+  # Description: net.exe domain user/group census including domain
+  #              admins, enterprise admins, local administrators and
+  #              __vmware__ groups — the actor's 1.bat shape
+  # False Positives: Onboarding scripts, AD audits
+  # ============================================================
+  gentlemen-account-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \net.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: \net1.exe
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "user /domain"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "domain admins"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Enterprise admins"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "localgroup administrators"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "__vmware__"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen Mass Account Enumeration
+        metadata:
+          severity: medium
+          mitre_attack: T1087,T1082
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: Mass domain/local account enumeration via net.exe including __vmware__ group hunting
+
+
+  # ============================================================
+  # Rule 3: Encoded PowerShell Recon Probe (T1082)
+  # ============================================================
+  # Confidence: Medium
+  # Description: powershell -enc/-EncodedCommand with -noni/-nop/-w 1
+  #              evasion flags — actor probe decodes to
+  #              (Get-ADDomain).PDCEmulator
+  # False Positives: Encoded-command automation — decode payload first
+  # ============================================================
+  gentlemen-encoded-powershell-recon:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \powershell.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: " -enc"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-EncodedCommand"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-noni"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-nop"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-w 1"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen Encoded PowerShell Recon Probe
+        metadata:
+          severity: medium
+          mitre_attack: T1082
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: Encoded PowerShell with evasion flags — known actor probe resolves to (Get-ADDomain).PDCEmulator
+
+
+  # ============================================================
+  # Rule 4: Velociraptor Deployment Artifacts (T1219/T1036)
+  # ============================================================
+  # Confidence: High
+  # Description: Creation of Velociraptor client artifacts
+  #              (client.config.yaml, client.writeback) or a
+  #              velociraptor executable in staging directories
+  #              (PerfLogs/Temp/Public)
+  # False Positives: Sanctioned DFIR deployments — allowlist hosts
+  # ============================================================
+  gentlemen-velociraptor-deployment:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \client.config.yaml
+          case sensitive: false
+        - op: ends with
+          path: event/FILE_PATH
+          value: \client.writeback
+          case sensitive: false
+        - op: and
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "velociraptor"
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/FILE_PATH
+                  value: '\PerfLogs\'
+                  case sensitive: false
+                - op: contains
+                  path: event/FILE_PATH
+                  value: '\Windows\Temp\'
+                  case sensitive: false
+                - op: contains
+                  path: event/FILE_PATH
+                  value: '\Users\Public\'
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen Velociraptor Deployment Artifacts
+        metadata:
+          severity: high
+          mitre_attack: T1219,T1036
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: Velociraptor client config/writeback artifacts or masqueraded client staged in non-standard directories
+
+
+  # ============================================================
+  # Rule 5: Velociraptor C2 Beacon to Frontend (T1219)
+  # ============================================================
+  # Confidence: Medium
+  # Description: Velociraptor process connecting to default frontend
+  #              ports 8000/8800 — client-to-C2 channel shape
+  # False Positives: Sanctioned Velociraptor frontends — allowlist IPs
+  # ============================================================
+  gentlemen-velociraptor-c2-frontend:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "velociraptor"
+          case sensitive: false
+        - op: or
+          rules:
+            - op: is
+              path: event/REMOTE_PORT
+              value: "8000"
+            - op: is
+              path: event/REMOTE_PORT
+              value: "8800"
+
+    respond:
+      - action: report
+        name: Gentlemen Velociraptor C2 Beacon
+        metadata:
+          severity: high
+          mitre_attack: T1219
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: Velociraptor client connecting to a frontend on default ports 8000/8800 — unsanctioned remote-access channel
+
+
+  # ============================================================
+  # Rule 6: WMI Remote Process Creation (T1047)
+  # ============================================================
+  # Confidence: High
+  # Description: wmic /node: process call create, or PowerShell DCOM
+  #              fallback (New-CimSession + Invoke-CimMethod
+  #              Win32_Process)
+  # False Positives: Rare legit remote-admin scripts
+  # ============================================================
+  gentlemen-wmi-remote-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \wmic.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/node:"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "process call create"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \powershell.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "New-CimSession"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Invoke-CimMethod"
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "DCOM"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "Win32_Process"
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen WMI Remote Process Creation
+        metadata:
+          severity: critical
+          mitre_attack: T1047
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: WMI remote execution via wmic remote-node process call create or PowerShell DCOM CIM session
+
+
+  # ============================================================
+  # Rule 7: NetExec Credential Dumping (T1047/T1003.002)
+  # ============================================================
+  # Confidence: High
+  # Description: nxc/netexec smb invocations with --sam/--lsa/--ntds
+  #              dumping flags
+  # False Positives: Authorized penetration tests
+  # ============================================================
+  gentlemen-netexec-dumping:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \nxc.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: \netexec.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "nxc smb"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "netexec smb"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--sam"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--lsa"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--ntds"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen NetExec Credential Dumping
+        metadata:
+          severity: critical
+          mitre_attack: T1047,T1003.002
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: NetExec/nxc SMB invocation with SAM/LSA/NTDS dumping flags
+
+
+  # ============================================================
+  # Rule 8: SMB Session to ADMIN$ Share (T1021.002)
+  # ============================================================
+  # Confidence: High
+  # Description: net use against a remote ADMIN$ share — the PsExec
+  #              prerequisite used for lateral movement
+  # False Positives: SCCM/PDQ/GPO deployment pushes
+  # ============================================================
+  gentlemen-admin-share-session:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \net.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: \net1.exe
+              case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "use"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "ADMIN$"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen ADMIN$ Share Session
+        metadata:
+          severity: high
+          mitre_attack: T1021.002
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: SMB session established to remote ADMIN$ share — PsExec-style lateral movement prerequisite
+
+
+  # ============================================================
+  # Rule 9: RDP Enablement (T1021.001)
+  # ============================================================
+  # Confidence: Medium-High
+  # Description: reg add fDenyTSConnections=0 or netsh advfirewall
+  #              rule opening RDP/3389
+  # False Positives: Server builds enabling RDP by design
+  # ============================================================
+  gentlemen-rdp-enablement:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \reg.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "fDenyTSConnections"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "add"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \netsh.exe
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "advfirewall"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "add rule"
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "3389"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "rdp"
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen RDP Enablement
+        metadata:
+          severity: high
+          mitre_attack: T1021.001
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: RDP enabled via fDenyTSConnections registry write or firewall rule addition
+
+
+  # ============================================================
+  # Rule 10: GPO Management Abuse (T1484.001)
+  # ============================================================
+  # Confidence: High
+  # Description: GPME against LDAP-addressed GPO (gpobject:LDAP://) or
+  #              GroupPolicy cmdlets (New-GPO/Set-GPRegistryValue/
+  #              New-GPLink)
+  # False Positives: Group Policy admins on DCs/tier-0 stations
+  # ============================================================
+  gentlemen-gpo-management-abuse:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "gpobject:"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "LDAP://"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \powershell.exe
+              case sensitive: false
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "New-GPO"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "Set-GPRegistryValue"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "New-GPLink"
+                  case sensitive: false
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "Set-GPPermissions"
+                  case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen GPO Management Abuse
+        metadata:
+          severity: critical
+          mitre_attack: T1484.001
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: Group Policy modification via GPME LDAP-addressed GPO or GroupPolicy cmdlets — domain-wide deployment
+
+
+  # ============================================================
+  # Rule 11: SYSVOL Policy File Write (T1484.001)
+  # ============================================================
+  # Confidence: High
+  # Description: Registry.pol/gpt.ini writes inside SYSVOL policy
+  #              paths — file surface of malicious GPO deployment
+  # False Positives: Legitimate GPMC/AGPM edits from DCs
+  # ============================================================
+  gentlemen-sysvol-policy-write:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: '\SYSVOL\'
+          case sensitive: false
+        - op: contains
+          path: event/FILE_PATH
+          value: '\Policies\'
+          case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: \Registry.pol
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: \gpt.ini
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen SYSVOL Policy File Write
+        metadata:
+          severity: high
+          mitre_attack: T1484.001
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: Registry.pol or gpt.ini written inside SYSVOL policy path — GPO payload deployment surface
+
+
+  # ============================================================
+  # Rule 12: NETLOGON Payload Launch (T1484.001)
+  # ============================================================
+  # Confidence: High
+  # Description: Execution launched from the NETLOGON share, with
+  #              --password key as the actor's deployment shape
+  # False Positives: Legacy logon scripts — allowlist names
+  # ============================================================
+  gentlemen-netlogon-launch:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: '\NETLOGON\'
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--password"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".exe"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".bat"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".cmd"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen NETLOGON Payload Launch
+        metadata:
+          severity: critical
+          mitre_attack: T1484.001
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: Payload launched from NETLOGON share (with --password key) — domain-wide deployment launcher
+
+
+  # ============================================================
+  # Rule 13: Masqueraded SYSTEM Scheduled Task (T1053.005)
+  # ============================================================
+  # Confidence: High
+  # Description: schtasks /create /ru SYSTEM with minute-scale
+  #              schedule, Temp-path binary, or the actor's
+  #              masqueraded task/binary names
+  # False Positives: None expected for this shape
+  # ============================================================
+  gentlemen-masqueraded-scheduled-task:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \schtasks.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/create"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/ru"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "SYSTEM"
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/sc minute"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/mo 1"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/mo 2"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: '\Windows\Temp\'
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "WindowsConnSvc"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "svchost32"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen Masqueraded SYSTEM Scheduled Task
+        metadata:
+          severity: critical
+          mitre_attack: T1053.005
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: SYSTEM-run scheduled task with minute-scale schedule, Temp-path binary, or masqueraded Windows-like name
+
+
+  # ============================================================
+  # Rule 14: Masqueraded Service Creation (T1543.003)
+  # ============================================================
+  # Confidence: High
+  # Description: sc create with binPath in Temp/PerfLogs/Public
+  #              staging dirs or service/display names masquerading
+  #              as legitimate tools (Velociraptor/Cloudflared/AnyDesk)
+  # False Positives: Software installers using Temp staging
+  # ============================================================
+  gentlemen-masqueraded-service:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: \sc.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "create"
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "binPath="
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: '\Temp\'
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: '\PerfLogs\'
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: '\Users\Public\'
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Velociraptor"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Cloudflared"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "AnyDesk"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen Masqueraded Service Creation
+        metadata:
+          severity: high
+          mitre_attack: T1543.003
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: Service created with staging-path binary or legitimate-tool masquerade display name
+
+
+  # ============================================================
+  # Rule 15: Account Creation then Administrators Elevation (T1136.001)
+  # ============================================================
+  # Confidence: High
+  # Description: net user <name> <password> /add followed by
+  #              net localgroup administrators <name> /add — the
+  #              actor's new-account privilege escalation sequence
+  # False Positives: Helpdesk provisioning — allowlist workflow
+  # ============================================================
+  gentlemen-account-escalation:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: and
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: \net.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: \net1.exe
+                  case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "user"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/add"
+              case sensitive: false
+        - op: and
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: \net.exe
+                  case sensitive: false
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: \net1.exe
+                  case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "localgroup"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "administrators"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/add"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: Gentlemen Account Creation/Elevation
+        metadata:
+          severity: high
+          mitre_attack: T1136.001
+          test_id: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+          description: net user /add or net localgroup administrators /add — correlate a user-add followed by group-add on one host as the actor escalation sequence

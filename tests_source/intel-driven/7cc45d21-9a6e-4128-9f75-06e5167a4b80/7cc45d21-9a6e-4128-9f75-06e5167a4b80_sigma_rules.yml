@@ -1,0 +1,772 @@
+# ============================================================
+# The Gentlemen (GOLD SHERWOOD) — GPO-Driven LOLBin Intrusion
+# Sigma Rules — vendor-agnostic detections
+# Test ID: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+# Channels: 4688 (process_creation), Sysmon 1 (process), 3 (network),
+#           11 (file), 13 (registry); Security 4698, 7045, 4720,
+#           4728/4732, 5140
+# Actor: The Gentlemen (GOLD SHERWOOD) — ransomware operator
+# Sources: Trend Micro, Sophos CTU, Huntress (2025)
+# Generated: 2026-11-02
+# ============================================================
+
+title: Security Software Enumeration via SecurityCenter2 WMI
+id: 1f3a2c8e-4b7d-4e9a-8c1f-0d2b3a4c5e61
+status: experimental
+description: Detects wmic or PowerShell enumeration of installed antivirus products via root\SecurityCenter2 AntiVirusProduct (T1518.001) — The Gentlemen's pre-evasion endpoint-protection fingerprinting
+references:
+    - https://attack.mitre.org/techniques/T1518/001/
+    - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_wmic:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains|all:
+            - 'SecurityCenter2'
+            - 'AntiVirusProduct'
+    selection_ps:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|contains|all:
+            - 'SecurityCenter2'
+            - 'AntiVirusProduct'
+    condition: selection_wmic or selection_ps
+falsepositives:
+    - Asset-inventory and compliance scripts
+    - Sanctioned DFIR collectors
+level: high
+tags:
+    - attack.discovery
+    - attack.t1518.001
+---
+title: EDR Service and Process Discovery via sc.exe and tasklist
+id: 2e4b3d9f-4c8e-4f0a-9d2b-1e3c4d5e6f72
+status: experimental
+description: Detects EDR fingerprinting via sc.exe query loops against security-vendor service names or tasklist piped to findstr filtering for EDR process names (T1518.001) — The Gentlemen's security-product recon
+references:
+    - https://attack.mitre.org/techniques/T1518/001/
+    - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_sc:
+        Image|endswith: '\sc.exe'
+        CommandLine|contains: 'query'
+        CommandLine|contains:
+            - 'WinDefend'
+            - 'WdNisSvc'
+            - 'Sense'
+            - 'MsMpSvc'
+            - 'SecurityHealthService'
+            - 'CSFalconService'
+            - 'SepMasterService'
+            - 'SophosMMS'
+            - 'TmListen'
+    selection_tasklist:
+        Image|endswith: '\cmd.exe'
+        CommandLine|contains|all:
+            - 'tasklist'
+            - 'findstr'
+        CommandLine|contains:
+            - 'csagent'
+            - 'csfalcon'
+            - 'sensedefend'
+            - 'sophos'
+            - 'crowdstrike'
+            - 'sentinel'
+    condition: selection_sc or selection_tasklist
+falsepositives:
+    - Vulnerability scanners and asset-inventory tooling
+level: medium
+tags:
+    - attack.discovery
+    - attack.t1518.001
+---
+title: Mass Domain and Local Account Enumeration via net.exe
+id: 3d5c4e0a-4d9f-4a1b-8e3c-2f4d5e6f7083
+status: experimental
+description: Detects mass account enumeration via net.exe — domain user/group census including domain admins, enterprise admins, local administrators and __vmware__ virtualization groups (T1087) — The Gentlemen's 1.bat enumeration shape
+references:
+    - https://attack.mitre.org/techniques/T1087/
+    - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith:
+            - '\net.exe'
+            - '\net1.exe'
+    selection_domain:
+        CommandLine|contains:
+            - 'user /domain'
+            - 'group "domain admins" /domain'
+            - 'group "Enterprise admins" /domain'
+    selection_local:
+        CommandLine|contains:
+            - 'localgroup administrators'
+    selection_vmware:
+        CommandLine|contains: '__vmware__'
+    condition: selection_img and (selection_domain or selection_local or selection_vmware)
+falsepositives:
+    - Onboarding and group-audit scripts
+    - Helpdesk account validation workflows
+level: medium
+tags:
+    - attack.discovery
+    - attack.t1087
+    - attack.t1082
+---
+title: Encoded PowerShell Execution with Recon Evasion Flags
+id: 4c6d5f1b-4e0a-4b2c-9f4d-3a5e6f7a8194
+status: experimental
+description: Detects PowerShell launched with an encoded command combined with -noni/-nop/-w 1 evasion flags (T1082) — The Gentlemen's encoded domain-recon probe decodes to (Get-ADDomain).PDCEmulator
+references:
+    - https://attack.mitre.org/techniques/T1082/
+    - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+    selection_enc:
+        CommandLine|contains:
+            - '-enc '
+            - ' -enc'
+            - '-EncodedCommand'
+    selection_flags:
+        CommandLine|contains:
+            - '-noni'
+            - '-nop'
+            - '-w 1'
+            - '-WindowStyle Hidden'
+    condition: selection_img and selection_enc and selection_flags
+falsepositives:
+    - Legitimate automation using encoded commands — decode the payload before escalating
+level: medium
+tags:
+    - attack.discovery
+    - attack.t1082
+    - attack.defense_evasion
+    - attack.t1027
+---
+title: Velociraptor Remote-Access Deployment Artifacts on Disk
+id: 5a7e6f2c-4f1b-4c3d-8a5e-4b6f7a8b92a5
+status: experimental
+description: Detects creation of Velociraptor client deployment artifacts (client.config.yaml, client.writeback, server.config.yaml) via Sysmon file-create events (T1219) — The Gentlemen repurposes the Velociraptor DFIR client as its C2
+references:
+    - https://attack.mitre.org/techniques/T1219/
+    - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '\client.config.yaml'
+            - '\client.writeback'
+            - '\server.config.yaml'
+    condition: selection
+falsepositives:
+    - Sanctioned incident-response/DFIR Velociraptor deployments — allowlist approved hosts and operator accounts
+level: high
+tags:
+    - attack.command_and_control
+    - attack.t1219
+    - attack.defense_evasion
+    - attack.t1036
+---
+title: Remote Access Tool Executed from Non-Standard or Staging Path
+id: 6b8f7a3d-4a2c-4d4e-9b6f-5c7a8b9ca3b6
+status: experimental
+description: Detects execution of remote-access tooling (Velociraptor, AnyDesk, Cloudflared) outside Program Files, or any executable run from trusted-but-rarely-used staging directories such as C:\PerfLogs (T1036/T1219) — The Gentlemen stages its masqueraded C2 client in PerfLogs-style paths
+references:
+    - https://attack.mitre.org/techniques/T1036/
+    - https://www.sophos.com/en-us/blog/ungentlemanly-behavior-insights-into-a-ransomware-operation
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_tool:
+        Image|endswith:
+            - '\velociraptor.exe'
+            - '\velociraptorClient.exe'
+            - '\anydesk.exe'
+            - '\cloudflared.exe'
+    filter_programfiles:
+        Image|startswith:
+            - 'C:\Program Files'
+            - 'C:\Program Files (x86)'
+    selection_staging:
+        Image|endswith: '.exe'
+        Image|contains:
+            - '\PerfLogs\'
+            - '\Windows\Temp\'
+            - '\Users\Public\'
+    condition: (selection_tool and not filter_programfiles) or selection_staging
+falsepositives:
+    - Sanctioned portable tooling on admin workstations
+    - Software installers using Temp staging directories
+level: high
+tags:
+    - attack.command_and_control
+    - attack.t1219
+    - attack.defense_evasion
+    - attack.t1036
+    - attack.t1036.005
+---
+title: WMI Remote Process Creation via wmic or PowerShell DCOM
+id: 7c9a8b4e-4b3d-4e5f-8c7a-6d8b9cabd4c7
+status: experimental
+description: Detects WMI remote execution via wmic process call create against a remote /node:<target>, or PowerShell New-CimSession DCOM + Invoke-CimMethod Win32_Process.Create (T1047) — The Gentlemen's living-off-the-land lateral execution primitive
+references:
+    - https://attack.mitre.org/techniques/T1047/
+    - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_wmic:
+        Image|endswith: '\wmic.exe'
+        CommandLine|contains|all:
+            - '/node:'
+            - 'process call create'
+    selection_ps:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|contains|all:
+            - 'New-CimSession'
+            - 'Invoke-CimMethod'
+        CommandLine|contains:
+            - 'DCOM'
+            - 'Win32_Process'
+    condition: selection_wmic or selection_ps
+falsepositives:
+    - Rare legitimate remote-admin scripts using WMI process creation
+level: critical
+tags:
+    - attack.execution
+    - attack.t1047
+    - attack.lateral_movement
+---
+title: NetExec Credential Dumping via SMB Flags
+id: 8d0b9c5f-4c4e-4f6a-9d8b-7e9cbadce5d8
+status: experimental
+description: Detects NetExec/nxc SMB invocations carrying --sam/--lsa/--ntds dumping flags (T1021.002/T1003.002) — The Gentlemen's LOLBin credential harvesting for lateral movement
+references:
+    - https://attack.mitre.org/techniques/T1021/002/
+    - https://attack.mitre.org/techniques/T1003/002/
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith:
+            - '\nxc.exe'
+            - '\netexec.exe'
+    selection_cli:
+        CommandLine|contains:
+            - 'nxc smb'
+            - 'netexec smb'
+    selection_dump:
+        CommandLine|contains:
+            - '--sam'
+            - '--lsa'
+            - '--ntds'
+    condition: (selection_img or selection_cli) and selection_dump
+falsepositives:
+    - Authorized penetration-testing engagements using NetExec
+level: critical
+tags:
+    - attack.lateral_movement
+    - attack.t1021.002
+    - attack.credential_access
+    - attack.t1003.002
+---
+title: SMB Session to ADMIN$ Share via net.exe
+id: 9e1c0d6a-4d5f-4a7b-8e9c-8f0adcefdf6e
+status: experimental
+description: Detects establishment of an SMB session to a remote ADMIN$ share (T1021.002) — the PsExec prerequisite used by The Gentlemen for lateral movement
+references:
+    - https://attack.mitre.org/techniques/T1021/002/
+    - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith:
+            - '\net.exe'
+            - '\net1.exe'
+        CommandLine|contains|all:
+            - 'use'
+            - 'ADMIN$'
+    condition: selection
+falsepositives:
+    - SCCM/PDQ/GPO software deployment pushes — allowlist deployment accounts
+    - Administrator drive-mapping scripts
+level: high
+tags:
+    - attack.lateral_movement
+    - attack.t1021.002
+---
+title: Network Share Object Accessed - ADMIN$ or NETLOGON via SMB (Event 5140)
+id: 0f2d1e7b-4e6a-4b8c-9f0d-9a1bcdef0e7f
+status: experimental
+description: Detects SMB access (Event 5140) to ADMIN$ or NETLOGON shares — the shares abused for PsExec-style lateral movement and domain-wide GPO/NETLOGON deployment by The Gentlemen
+references:
+    - https://attack.mitre.org/techniques/T1021/002/
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 5140
+        ShareName|contains:
+            - 'ADMIN$'
+            - 'NETLOGON'
+            - 'SYSVOL'
+    filter_admin_processes:
+        SubjectUserName|endswith: '$'
+    condition: selection and not filter_admin_processes
+falsepositives:
+    - Legitimate administrator tooling (SCCM, PDQ) and logon scripts — correlate with process/plan context
+level: low
+tags:
+    - attack.lateral_movement
+    - attack.t1021.002
+---
+title: Executable Written to ADMIN$ Share
+id: 1a3e2f8c-4f7b-4c9d-8a1e-0b2cdefa1e8b
+status: experimental
+description: Detects executable/script writes into a remote ADMIN$ share (T1021.002/T1570) — the lateral tool-transfer step of PsExec-style movement used by The Gentlemen
+references:
+    - https://attack.mitre.org/techniques/T1570/
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|contains: '\ADMIN$\'
+        TargetFilename|endswith:
+            - '.exe'
+            - '.dll'
+            - '.ps1'
+            - '.bat'
+            - '.cmd'
+            - '.sys'
+    condition: selection
+falsepositives:
+    - Software deployment systems (SCCM/PDQ) — allowlist deployment accounts
+level: high
+tags:
+    - attack.lateral_movement
+    - attack.t1021.002
+    - attack.t1570
+---
+title: Remote Desktop Enablement via Registry or Firewall Rule
+id: 2b4f3a9d-4a8c-4d0e-9b2f-1c3defab2f9c
+status: experimental
+description: Detects enabling of RDP by setting fDenyTSConnections to 0 via reg.exe add or registry set (Sysmon 13), or opening the firewall for RDP via netsh (T1021.001) — The Gentlemen flips RDP before pivoting between internal systems
+references:
+    - https://attack.mitre.org/techniques/T1021/001/
+    - https://www.sophos.com/en-us/blog/ungentlemanly-behavior-insights-into-a-ransomware-operation
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: registry_event
+    product: windows
+detection:
+    selection_reg:
+        TargetObject|endswith: '\Terminal Server\fDenyTSConnections'
+        Details|contains:
+            - 'DWORD (0x00000000)'
+            - '0x00000000'
+    condition: selection_reg
+falsepositives:
+    - Server builds enabling RDP by design — baseline and allowlist server images
+level: high
+tags:
+    - attack.lateral_movement
+    - attack.t1021.001
+    - attack.defense_evasion
+    - attack.t1112
+---
+title: Firewall Rule Addition Enabling Remote Desktop via netsh
+id: 3c5a4b0e-4b9d-4e1f-8c3a-2d4efabc3f1d
+status: experimental
+description: Detects netsh advfirewall firewall rule additions that open RDP/3389 (T1021.001) — companion to fDenyTSConnections enablement used by The Gentlemen before RDP pivots
+references:
+    - https://attack.mitre.org/techniques/T1021/001/
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\netsh.exe'
+        CommandLine|contains|all:
+            - 'advfirewall'
+            - 'add rule'
+        CommandLine|contains:
+            - '3389'
+            - 'rdp'
+            - 'Remote Desktop'
+    condition: selection
+falsepositives:
+    - Golden-image builds enabling RDP firewall rules — allowlist build accounts
+level: medium
+tags:
+    - attack.lateral_movement
+    - attack.t1021.001
+    - attack.defense_evasion
+---
+title: Group Policy Modification via GPME or GroupPolicy Cmdlets
+id: 4d6b5c1f-4c0e-4f2a-9d4b-3e5fabcd4e2e
+status: experimental
+description: Detects Group Policy abuse — GPME launched against an LDAP-addressed GPO (actor IO, gpme.msc /s /gpobject:LDAP://...) or GPO manipulation via New-GPO/Set-GPRegistryValue/New-GPLink (T1484.001) — The Gentlemen's domain-wide deployment mechanism
+references:
+    - https://attack.mitre.org/techniques/T1484/001/
+    - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_gpme:
+        CommandLine|contains|all:
+            - 'gpobject:'
+            - 'LDAP://'
+    selection_cmdlets:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|contains:
+            - 'New-GPO'
+            - 'Set-GPRegistryValue'
+            - 'New-GPLink'
+            - 'Set-GPPermissions'
+    condition: selection_gpme or selection_cmdlets
+falsepositives:
+    - Group Policy administrators working from DCs or tier-0 management stations
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.t1484.001
+---
+title: Registry.pol or gpt.ini Written in SYSVOL Policy Path
+id: 5e7c6d2a-4d1f-4a3b-8e5c-4f6abcde5f3f
+status: experimental
+description: Detects creation or modification of Registry.pol/gpt.ini inside SYSVOL policy folders via Sysmon file-create events (T1484.001) — the file surface of malicious GPO payload deployment
+references:
+    - https://attack.mitre.org/techniques/T1484/001/
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: file_event
+    product: windows
+detection:
+    selection:
+        TargetFilename|contains|all:
+            - '\SYSVOL\'
+            - '\Policies\'
+        TargetFilename|endswith:
+            - '\Registry.pol'
+            - '\gpt.ini'
+            - '\Scripts.ini'
+            - '\pScripts.ini'
+    condition: selection
+falsepositives:
+    - Legitimate GPMC/AGPM policy edits — restrict alerts to non-DC hosts or unusual initiating processes
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.t1484.001
+---
+title: Payload Execution from NETLOGON Share with Password Argument
+id: 6f8d7e3b-4e2a-4b4c-9f6d-5a7bcdef6a4a
+status: experimental
+description: Detects execution of payloads launched directly from the NETLOGON share, especially with an embedded --password key (T1484.001) — The Gentlemen's domain-wide deployment launcher shape (\\<domain>\NETLOGON\<payload>.exe --password <key>)
+references:
+    - https://attack.mitre.org/techniques/T1484/001/
+    - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        CommandLine|contains: '\NETLOGON\'
+        CommandLine|contains:
+            - '.exe'
+            - '.bat'
+            - '.cmd'
+            - '--password'
+    condition: selection
+falsepositives:
+    - Legacy logon scripts — allowlist approved script names in NETLOGON
+level: critical
+tags:
+    - attack.defense_evasion
+    - attack.t1484.001
+    - attack.execution
+---
+title: Masqueraded Scheduled Task Created to Run as SYSTEM at High Frequency
+id: 7a9e8f4c-4f3b-4c5d-8a7e-6b8cdef07b5b
+status: experimental
+description: Detects schtasks /create registering a task to run as SYSTEM on a minute-scale schedule or launching a binary from Temp/staging paths, including the actor's masqueraded task name WindowsConnSvc (T1053.005) — The Gentlemen's persistence shape (schtasks /create /tn WindowsConnSvc /tr C:\Windows\Temp\svchost32.exe ... /sc minute /mo 2 /ru SYSTEM)
+references:
+    - https://attack.mitre.org/techniques/T1053/005/
+    - https://www.huntress.com/blog/the-gentlemen-ransomware-defense-evasion-ttps
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        Image|endswith: '\schtasks.exe'
+        CommandLine|contains|all:
+            - '/create'
+            - '/ru'
+            - 'SYSTEM'
+    selection_masq:
+        CommandLine|contains:
+            - 'WindowsConnSvc'
+            - 'svchost32'
+    selection_schedule:
+        CommandLine|contains:
+            - '/sc minute'
+            - '/mo 1'
+            - '/mo 2'
+            - '\Windows\Temp\'
+            - '\Users\Public\'
+    condition: selection_img and 1 of (selection_masq, selection_schedule)
+falsepositives:
+    - Rare — minute-frequency SYSTEM tasks launching from Temp are not legitimate IT practice
+level: high
+tags:
+    - attack.persistence
+    - attack.t1053.005
+    - attack.privilege_escalation
+    - attack.defense_evasion
+    - attack.t1036
+---
+title: Suspicious Scheduled Task Creation via Event 4698
+id: 8b0f9a5d-4a4c-4d6e-9b8f-7c9def018c6c
+status: experimental
+description: Detects scheduled-task creation (Event 4698) whose task content launches binaries from Temp/Public staging paths or carries masqueraded names like WindowsConnSvc/svchost32 (T1053.005) — The Gentlemen's masqueraded persistence task
+references:
+    - https://attack.mitre.org/techniques/T1053/005/
+    - https://www.huntress.com/blog/the-gentlemen-ransomware-defense-evasion-ttps
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4698
+    selection_content:
+        TaskContent|contains:
+            - '\Windows\Temp\'
+            - '\Users\Public\'
+            - '\PerfLogs\'
+            - 'WindowsConnSvc'
+            - 'svchost32'
+    condition: selection and selection_content
+falsepositives:
+    - Legitimate tasks rarely launch from Temp/Public staging paths
+level: high
+tags:
+    - attack.persistence
+    - attack.t1053.005
+---
+title: Service Installed with Staging-Path or Masqueraded Binary via Event 7045
+id: 9c1a0b6e-4b5d-4e7f-8c9a-8d0ef0129d7d
+status: experimental
+description: Detects service installation (Event 7045) whose image path lives in Temp/PerfLogs/Public staging directories or whose service/display name masquerades as legitimate tooling such as Velociraptor Client or Cloudflared (T1543.003) — The Gentlemen's service persistence under a legitimate-tool guise
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+    - https://www.sophos.com/en-us/blog/ungentlemanly-behavior-insights-into-a-ransomware-operation
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_event:
+        EventID: 7045
+    selection_path:
+        ImagePath|contains:
+            - '\Temp\'
+            - '\PerfLogs\'
+            - '\Users\Public\'
+            - '\AppData\'
+    selection_masq_name:
+        ServiceName|contains:
+            - 'Velociraptor'
+            - 'Cloudflared'
+            - 'AnyDesk'
+    condition: selection_event and 1 of (selection_path, selection_masq_name)
+falsepositives:
+    - Software installers using Temp staging — allowlist deployment accounts
+level: high
+tags:
+    - attack.persistence
+    - attack.t1543.003
+    - attack.defense_evasion
+    - attack.t1036
+---
+title: Local User Account Created via Event 4720
+id: 0d2b1c7f-4c6e-4f8a-9d0b-9e1f0123ae8e
+status: experimental
+description: Detects creation of a local user account (Event 4720) — The Gentlemen creates new accounts then immediately elevates them into Administrators; pair with the 4728/4732 group-add rule for the escalation sequence
+references:
+    - https://attack.mitre.org/techniques/T1136/001/
+    - https://www.sophos.com/en-us/blog/ungentlemanly-behavior-insights-into-a-ransomware-operation
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4720
+    filter_provisioning:
+        SubjectUserName|startswith:
+            - 'svc-'
+            - 'provision'
+    condition: selection and not filter_provisioning
+falsepositives:
+    - Helpdesk provisioning workflows — tune with a change-management join
+level: low
+tags:
+    - attack.persistence
+    - attack.t1136.001
+---
+title: Account Added to Administrators Group via Events 4728/4732
+id: 1e3c2d8a-4d7f-4a9b-8e1c-0f2a1234bf9f
+status: experimental
+description: Detects addition of a member to a domain security group or local group named Administrators (Events 4728/4732) — the elevation step of The Gentlemen's net user <name> <password> /add then net localgroup administrators <name> /add sequence; correlate with a preceding 4720 from the same subject
+references:
+    - https://attack.mitre.org/techniques/T1136/001/
+    - https://www.sophos.com/en-us/blog/ungentlemanly-behavior-insights-into-a-ransomware-operation
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID:
+            - 4728
+            - 4732
+        TargetUserName|contains:
+            - 'Admin'
+    condition: selection
+falsepositives:
+    - Legitimate privilege grants by delegated administrators — verify against change management
+level: medium
+tags:
+    - attack.persistence
+    - attack.t1136.001
+    - attack.privilege_escalation
+    - attack.t1078
+---
+title: Local Account Creation then Administrators Elevation via net.exe
+id: 2f4d3e9b-4e8a-4b0c-9f2d-1a3b2345cda0
+status: experimental
+description: Detects the net.exe shape of The Gentlemen's account-escalation sequence — net user <name> <password> /add followed by net localgroup administrators <name> /add (T1136.001) — the process-creation complement to Events 4720/4728
+references:
+    - https://attack.mitre.org/techniques/T1136/001/
+    - https://www.sophos.com/en-us/blog/ungentlemanly-behavior-insights-into-a-ransomware-operation
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_create:
+        Image|endswith:
+            - '\net.exe'
+            - '\net1.exe'
+        CommandLine|contains|all:
+            - 'user'
+            - '/add'
+    selection_elevate:
+        Image|endswith:
+            - '\net.exe'
+            - '\net1.exe'
+        CommandLine|contains|all:
+            - 'localgroup'
+            - 'administrators'
+            - '/add'
+    condition: selection_create or selection_elevate
+falsepositives:
+    - Helpdesk account provisioning — allowlist privileged-access workflow accounts
+level: high
+tags:
+    - attack.persistence
+    - attack.t1136.001
+    - attack.privilege_escalation
+---
+title: Velociraptor Client Network Connection to Frontend Port (Sysmon 3)
+id: 3a5e4f0c-4f9b-4c2d-8a4e-2b4c3456deb1
+status: experimental
+description: Detects a Velociraptor process initiating outbound network connections to default frontend ports 8000/8800 (Sysmon network-connection events, T1219) — beaconing of the Velociraptor client The Gentlemen repurposes as C2
+references:
+    - https://attack.mitre.org/techniques/T1219/
+author: sectest-builder
+date: 2026-11-02
+logsource:
+    category: network_connection
+    product: windows
+detection:
+    selection:
+        Image|endswith:
+            - '\velociraptor.exe'
+            - '\velociraptorClient.exe'
+        DestinationPort:
+            - 8000
+            - 8800
+    condition: selection
+falsepositives:
+    - Sanctioned Velociraptor DFIR deployments — allowlist approved frontend destinations
+level: medium
+tags:
+    - attack.command_and_control
+    - attack.t1219
