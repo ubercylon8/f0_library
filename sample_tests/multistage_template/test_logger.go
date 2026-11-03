@@ -523,14 +523,15 @@ func LogPhaseEnd(phaseNumber int, status string, details string) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
-	if phaseNumber >= 0 && phaseNumber < len(globalLog.Phases) {
-		globalLog.Phases[phaseNumber].EndTime = NewJSONTime(time.Now().UTC())
-		globalLog.Phases[phaseNumber].Status = status
-		globalLog.Phases[phaseNumber].Details = details
-		globalLog.Phases[phaseNumber].DurationMs = time.Now().UTC().Sub(globalLog.Phases[phaseNumber].StartTime.Time).Milliseconds()
+	index := phaseNumber - 1
+	if index >= 0 && index < len(globalLog.Phases) {
+		globalLog.Phases[index].EndTime = NewJSONTime(time.Now().UTC())
+		globalLog.Phases[index].Status = status
+		globalLog.Phases[index].Details = details
+		globalLog.Phases[index].DurationMs = time.Now().UTC().Sub(globalLog.Phases[index].StartTime.Time).Milliseconds()
 
-		addMessage("INFO", globalLog.Phases[phaseNumber].PhaseName,
-			fmt.Sprintf("Phase %d completed: %s (%d ms)", phaseNumber, status, globalLog.Phases[phaseNumber].DurationMs))
+		addMessage("INFO", globalLog.Phases[index].PhaseName,
+			fmt.Sprintf("Phase %d completed: %s (%d ms)", phaseNumber, status, globalLog.Phases[index].DurationMs))
 	}
 }
 
@@ -539,9 +540,10 @@ func LogPhaseError(phaseNumber int, errorMsg string) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
-	if phaseNumber >= 0 && phaseNumber < len(globalLog.Phases) {
-		globalLog.Phases[phaseNumber].Errors = append(globalLog.Phases[phaseNumber].Errors, errorMsg)
-		addMessage("ERROR", globalLog.Phases[phaseNumber].PhaseName, errorMsg)
+	index := phaseNumber - 1
+	if index >= 0 && index < len(globalLog.Phases) {
+		globalLog.Phases[index].Errors = append(globalLog.Phases[index].Errors, errorMsg)
+		addMessage("ERROR", globalLog.Phases[index].PhaseName, errorMsg)
 	}
 }
 

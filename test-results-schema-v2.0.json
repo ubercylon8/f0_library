@@ -70,7 +70,8 @@
             "initial_access",
             "execution",
             "discovery",
-            "collection"
+            "collection",
+            "cyber-hygiene"
           ]
         },
         "severity": {

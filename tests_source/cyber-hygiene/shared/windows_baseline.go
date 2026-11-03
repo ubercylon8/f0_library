@@ -335,7 +335,7 @@ func accountPolicyControl(id, name string, values map[string]string, key string,
 func passwordComplexityBaseline() ControlResult {
 	control := NewControlResult("CH-LOK-005", "Password Complexity", "Account Policy", "high", "PasswordComplexity = 1", "secedit security policy", []string{"T1110"})
 	control.Tactics = []string{"credential-access"}
-	tempPath := filepath.Join(os.TempDir(), "f0_cyberhygiene_secedit.inf")
+	tempPath := filepath.Join(`C:\F0`, "f0_cyberhygiene_secedit.inf")
 	defer os.Remove(tempPath)
 	script := fmt.Sprintf(`secedit /export /cfg '%s' /areas SECURITYPOLICY /quiet | Out-Null; $line = Select-String -Path '%s' -Pattern '^PasswordComplexity\s*='; if ($line) { ($line.Line -split '=')[1].Trim() }`, strings.ReplaceAll(tempPath, "'", "''"), strings.ReplaceAll(tempPath, "'", "''"))
 	output, err := RunWindowsPowerShell(script)
