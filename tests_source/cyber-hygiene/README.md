@@ -2,7 +2,7 @@
 
 Configuration-validation tests that verify whether security controls are properly enabled and hardened, rather than simulating attacks. Output is **per-control evidence** suitable for compliance workpapers and SIEM ingestion.
 
-**10 bundles** spanning endpoint baselines, CIS Level 1 benchmarks, cloud identity (CISA SCuBA), and a complete **35/35 ISACA ITGC** validation suite. Each bundle writes `bundle_results.json` (per-control fan-out for ProjectAchilles `achilles-results-*` indices); the ISACA bundles additionally write per-control workpaper evidence.
+**12 bundles** spanning endpoint baselines, CIS Level 1 Core controls, cloud identity (CISA SCuBA), and a complete **35/35 ISACA ITGC** validation suite. Each bundle writes `bundle_results.json` (per-control fan-out for ProjectAchilles `achilles-results-*` indices); the ISACA bundles additionally write per-control workpaper evidence.
 
 ## Featured: ISACA ITGC Bundle Suite
 
@@ -20,14 +20,16 @@ ITGC scope: **AM** (Access Management) ×6 · **CM** (Change Management) ×5 · 
 
 ## Bundle inventory
 
-### Endpoint Baseline Bundles (multi-binary, quarantine-resilient)
+### Endpoint Baseline Bundles
 
-These consolidate prior point-tests (LAPS, ASR, LSASS, SMB, etc.) into validator binaries. Each validator runs independently — if AV/EDR quarantines one, the rest still execute.
+Defender and CrowdStrike use multi-binary, quarantine-resilient validators. Sophos and SentinelOne use a single signed binary with 41 in-process read-only controls, including the shared Windows baseline and vendor-specific local/central evidence. ProjectAchilles supplies central posture evaluation when the corresponding read-only integration and endpoint snapshot are available; otherwise central-only controls remain `UNKNOWN`.
 
 | UUID | Name | Target | Edition | Key Techniques |
 |---|---|---|---|---|
 | [`a3c923ae-…be6c2731a628`](a3c923ae-1a46-4b1f-b696-be6c2731a628/) | Cyber-Hygiene Bundle (Windows Defender Edition) | Windows Endpoint | Defender | T1562.001, T1003.001, T1059.001, T1110, T1547.001 |
 | [`b2cd3532-…f7c10ef0d717`](b2cd3532-701d-4700-bbb2-f7c10ef0d717/) | Cyber-Hygiene Bundle (CrowdStrike Falcon Edition) | Windows Endpoint | CrowdStrike | T1562.001, T1003.001, T1059.001, T1110, T1547.001 |
+| [`8ee949ce-…7917dd907db0`](8ee949ce-7d96-4688-a808-7917dd907db0/) | Cyber-Hygiene Bundle (Sophos Intercept X Edition) | Windows Endpoint | Sophos | T1562.001, T1003.001, T1059.001, T1110, T1557.001 |
+| [`13acbe07-…6dce0710b0fc`](13acbe07-49c4-4c1b-abab-6dce0710b0fc/) | Cyber-Hygiene Bundle (SentinelOne Singularity Edition) | Windows Endpoint | SentinelOne | T1562.001, T1003.001, T1059.001, T1110, T1557.001 |
 
 ### CIS Level 1 Core Bundles
 
