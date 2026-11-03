@@ -42,8 +42,11 @@ const (
 	// stand-ins are simulation artifacts and belong in the NON-whitelisted dir
 	// so EDR file operations are visible (CLAUDE.md rule 2).
 	ARTIFACT_SUBDIR = ARTIFACT_DIR + "\\downloads"
-	TEST_URL        = "http://example.com/robots.txt"
-	TEST_URL_2      = "http://httpbin.org/robots.txt"
+	// NOTE (2026-11-03): example.com/robots.txt now returns 404 (example.com
+	// no longer serves robots.txt and asks not to be used for monitoring);
+	// curl also needs --fail so HTTP errors are real failures, not "success".
+	TEST_URL   = "https://raw.githubusercontent.com/torvalds/linux/master/README"
+	TEST_URL_2 = "https://httpbin.org/robots.txt"
 
 	// ExitTestError is the framework test-error exit code. The vendored prelude
 	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
@@ -144,7 +147,7 @@ func getLOLBINTests() []LOLBINTest {
 		{
 			Name:        "curl.exe download",
 			Binary:      "curl.exe",
-			CommandArgs: []string{"-o", filepath.Join(ARTIFACT_SUBDIR, "test_curl.txt"), TEST_URL, "--silent"},
+			CommandArgs: []string{"--fail", "-o", filepath.Join(ARTIFACT_SUBDIR, "test_curl.txt"), TEST_URL, "--silent"},
 			OutputFile:  "test_curl.txt",
 			Technique:   "T1105",
 		},
@@ -228,6 +231,16 @@ func executeLOLBINTest(test LOLBINTest) (bool, bool, bool, string) {
 	if err != nil {
 		errorStr := err.Error()
 		outputStr := outputBuffer.String()
+
+		// Process-Creation denial: "fork/exec <path>: Access is denied." is an
+		// OS-emitted denial on the test's own operation (spawning a system
+		// binary that normally starts) — affirmative protection evidence
+		// (observed: Sophos Intercept X blocking certutil.exe, 2026-11-03).
+		if strings.Contains(errorStr, "fork/exec") && strings.Contains(errorStr, "Access is denied") {
+			LogProcessExecution(test.Binary, cmdLine, pid, false, 126, "Blocked at process creation (OS denial)")
+			LogMessage("INFO", test.Name, "BLOCKED: process creation denied (fork/exec Access is denied)")
+			return false, true, false, "Blocked: security product denied process creation"
+		}
 
 		// Block ONLY on explicit security-product action text AND the artifact
 		// is absent (Rule 8: positive evidence only; proxy denials, PATH errors

@@ -252,10 +252,18 @@ func createTestService() error {
 	if binPath == "" {
 		binPath = TEST_SERVICE_BINARY
 	}
+	// Call sc.exe DIRECTLY with argv-style args. Going through `cmd /C` with a
+	// pre-quoted command line mangles the inner quotes (Go escapes them for
+	// cmd.exe, producing sc error 1639 ERROR_INVALID_COMMAND_LINE — observed on
+	// the win lab 2026-11-03). sc's `key= value` syntax maps cleanly to argv.
+	cmd = exec.Command("sc", "create", TEST_SERVICE_NAME,
+		"binPath=", binPath,
+		"type=", "own",
+		"start=", "demand",
+		"displayname=", TEST_SERVICE_DISPLAY)
 	cmdLine := fmt.Sprintf("sc create %s binPath= \"%s\" type= own start= demand displayname= \"%s\"",
 		TEST_SERVICE_NAME, binPath, TEST_SERVICE_DISPLAY)
 
-	cmd = exec.Command("cmd", "/C", cmdLine)
 	var outputBuffer bytes.Buffer
 	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuffer)
 	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuffer)
