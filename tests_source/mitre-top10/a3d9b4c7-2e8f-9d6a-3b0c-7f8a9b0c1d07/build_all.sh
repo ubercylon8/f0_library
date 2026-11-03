@@ -51,8 +51,21 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $TAGS -o "$OUT_DIR/a3d9b4c7-2e8
 echo "[SUCCESS] Built: $OUT_DIR/a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07.exe ($(du -h "$OUT_DIR/a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07.exe" | cut -f1))"
 
 # Sign (fail-loud when signing is configured, per CLAUDE.md 2026-10-15)
-if [[ -f "$ROOT/signing-certs/F0RT1KA.pfx" || -n "$F0_SIGN_CERT_PATH" ]]; then
-    "$ROOT/utils/codesign" sign "$OUT_DIR/a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07.exe" || { echo "[ERROR] Signing failed — aborting (fail-loud)"; exit 1; }
+#   - ProjectAchilles build service: F0_SIGN_CERT_PATH + F0_SIGN_CERT_PASS_FILE.
+#     utils/codesign only knows signing-certs/ (gitignored, absent on PA servers),
+#     so sign with osslsigncode directly, password via file (never on argv).
+#   - Local f0_library checkout: signing-certs/F0RT1KA.pfx via utils/codesign.
+BIN="$OUT_DIR/a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07.exe"
+if [[ -n "${F0_SIGN_CERT_PATH:-}" ]]; then
+    command -v osslsigncode >/dev/null || { echo "[ERROR] osslsigncode not installed but F0_SIGN_CERT_PATH is set — aborting (fail-loud)" >&2; exit 1; }
+    [[ -f "${F0_SIGN_CERT_PASS_FILE:-}" ]] || { echo "[ERROR] F0_SIGN_CERT_PASS_FILE missing/unreadable (${F0_SIGN_CERT_PASS_FILE:-unset}) — aborting (fail-loud)" >&2; exit 1; }
+    rm -f "$BIN.signed"
+    osslsigncode sign -pkcs12 "$F0_SIGN_CERT_PATH" -readpass "$F0_SIGN_CERT_PASS_FILE" -in "$BIN" -out "$BIN.signed" \
+        || { rm -f "$BIN.signed"; echo "[ERROR] osslsigncode failed (cert=$F0_SIGN_CERT_PATH) — aborting (fail-loud)" >&2; exit 1; }
+    mv "$BIN.signed" "$BIN"
+    echo "[SUCCESS] Signed (ProjectAchilles active cert)"
+elif [[ -f "$ROOT/signing-certs/F0RT1KA.pfx" ]]; then
+    "$ROOT/utils/codesign" sign "$BIN" || { echo "[ERROR] Signing failed — aborting (fail-loud)" >&2; exit 1; }
     echo "[SUCCESS] Signed"
 else
     echo "[WARNING] No signing configuration — binary is UNSIGNED (dev-only)"
