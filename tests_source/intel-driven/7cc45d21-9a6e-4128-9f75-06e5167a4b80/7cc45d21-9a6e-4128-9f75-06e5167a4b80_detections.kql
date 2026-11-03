@@ -1,0 +1,387 @@
+// ============================================================
+// The Gentlemen (GOLD SHERWOOD) — GPO-Driven LOLBin Intrusion
+// KQL Detection Queries — Microsoft Sentinel / Defender Advanced Hunting
+// Test ID: 7cc45d21-9a6e-4128-9f75-06e5167a4b80
+// Techniques: T1518.001, T1087, T1082, T1036, T1219, T1047,
+//             T1021.002, T1021.001, T1484.001, T1053.005,
+//             T1543.003, T1136.001
+// Actor: The Gentlemen (GOLD SHERWOOD) — ransomware operator
+// Sources: Trend Micro, Sophos CTU, Huntress (2025)
+// Generated: 2026-11-02
+//
+// Principle: every query targets the actor's tradecraft shape
+// (LOLBin command lines, deployment artifacts, OS event surface),
+// never any test-harness artifact. Would fire on a real intrusion
+// using the actor's own tooling.
+// ============================================================
+
+// ------------------------------------------------------------
+// Query 1: Security Software Enumeration via SecurityCenter2 WMI (T1518.001)
+// Confidence: High | FP: Asset-inventory/compliance scripts, sanctioned DFIR collectors
+// Threshold: Alert on any occurrence outside approved management hosts
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName =~ "wmic.exe" or FileName in~ ("powershell.exe", "pwsh.exe")
+| where ProcessCommandLine has_all ("SecurityCenter2", "AntiVirusProduct")
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, SHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 2: EDR Service & Process Probing Burst (T1518.001)
+// The actor fingerprints installed EDR by looping sc.exe query over
+// vendor service names and tasklist|findstr over EDR process names.
+// Confidence: Medium-High | FP: Vulnerability scanners, asset inventory
+// Threshold: >= 3 probes per device/account in 10 minutes (single probe = tune)
+// ------------------------------------------------------------
+let EDRServiceNames = dynamic(["WinDefend","WdNisSvc","Sense","MsMpSvc","SecurityHealthService",
+                               "CSFalconService","CSFalconContainer","SepMasterService","SophosMMS",
+                               "SophosAgent","TmListen","kxe32eng"]);
+union isfuzzy=true
+    (DeviceProcessEvents
+    | where FileName =~ "sc.exe"
+    | where ProcessCommandLine has "query"
+    | where ProcessCommandLine has_any (EDRServiceNames)
+    | extend Probe = "sc.exe query of EDR service"),
+    (DeviceProcessEvents
+    | where FileName =~ "cmd.exe"
+    | where ProcessCommandLine has_all ("tasklist", "findstr")
+    | where ProcessCommandLine has_any ("csagent","csfalcon","sophos","sensedefend","crowdstrike",
+                                        "sentinelone","defender","sep","mbam")
+    | extend Probe = "tasklist filtered for EDR processes")
+| summarize Probes = count(), ProbeTypes = make_set(Probe, 2), SampleCmds = make_set(ProcessCommandLine, 8)
+    by DeviceName, AccountName, bin(TimeGenerated, 10m)
+| where Probes >= 3
+| project TimeGenerated, DeviceName, AccountName, Probes, ProbeTypes, SampleCmds
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 3: Mass Domain/Local Account Enumeration Burst (T1087/T1082)
+// The actor's batch-script shape: 60+ net.exe enumerations including
+// domain admins, enterprise admins, local administrators and
+// __vmware__* groups (virtualization-admin hunt).
+// Confidence: Medium-High | FP: Onboarding scripts, group audits
+// Threshold: >= 4 net.exe enumeration commands in 15 min; any
+//            __vmware__ group enum alone warrants review
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName in~ ("net.exe", "net1.exe")
+| where ProcessCommandLine has "domain" or ProcessCommandLine has "localgroup"
+| where ProcessCommandLine has "user" or ProcessCommandLine has "group"
+| extend VMWareGroupEnum = ProcessCommandLine contains "__vmware__"
+| summarize EnumCommands = count(), VMWareGroupEnum = any(VMWareGroupEnum),
+            SampleCmds = make_set(ProcessCommandLine, 10)
+    by DeviceName, AccountName, bin(TimeGenerated, 15m)
+| where EnumCommands >= 4 or VMWareGroupEnum
+| project TimeGenerated, DeviceName, AccountName, EnumCommands, VMWareGroupEnum, SampleCmds
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 4: Encoded PowerShell Recon Probe with Evasion Flags (T1082)
+// Actor IO: powershell -noni -nop -w 1 -enc <UTF16LE base64> decoding to
+// (Get-ADDomain).PDCEmulator. KQL cannot decode the payload — pair with
+// a decode automation or hunting workbook.
+// Confidence: Medium | FP: Legit automation using encoded commands
+// Threshold: Alert on interactive-user execution; batch/service context = tune
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName in~ ("powershell.exe", "powershell_ise.exe", "pwsh.exe")
+| where ProcessCommandLine contains "-enc" or ProcessCommandLine contains "-EncodedCommand"
+| where ProcessCommandLine contains "-noni" or ProcessCommandLine contains "-nop"
+    or ProcessCommandLine contains "-w 1" or ProcessCommandLine contains "-WindowStyle Hidden"
+| extend PayloadHint = "decode base64 — known actor probe resolves to (Get-ADDomain).PDCEmulator"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, PayloadHint,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, SHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 5: Remote-Access Tool Executed from Non-Standard Path (T1036/T1219)
+// The actor repurposes legitimate tools (Velociraptor as C2) and stages
+// binaries in trusted-but-rarely-used dirs (C:\PerfLogs, C:\Windows\Temp).
+// Confidence: High | FP: Sanctioned Velociraptor/DFIR deployments — allowlist
+//            by approved install paths and service accounts
+// Threshold: Alert on any occurrence on workstations
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName endswith ".exe"
+| where (FileName startswith "velociraptor" and FolderPath !startswith @"C:\Program Files"
+        and FolderPath !startswith @"C:\Program Files (x86)")
+    or FolderPath contains @"\PerfLogs\"
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, SHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 6: Velociraptor Deployment Artifacts on Disk (T1219)
+// client.config.yaml / client.writeback are what a Velociraptor client
+// deployment leaves behind — only expected where DFIR teams operate.
+// Confidence: High | FP: Sanctioned incident-response tooling
+// Threshold: Alert on any creation outside approved hosts; the config
+//            drop (not the client's own writeback write) is the signal
+// ------------------------------------------------------------
+DeviceFileEvents
+| where FileName in~ ("client.config.yaml", "client.writeback", "server.config.yaml")
+| extend ConfigDrop = not(InitiatingProcessFileName startswith "velociraptor")
+| project TimeGenerated, DeviceName, FolderPath, FileName, ConfigDrop,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, InitiatingProcessAccountName
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 7: Velociraptor Control-Plane Beacon Shape (T1219)
+// Client-to-frontend POST /control?v=1&client_id=C.<hex>&nonce=<hex> with a
+// "Velociraptor <ver> (windows amd64)" User-Agent; default frontend ports 8000/8800.
+// Confidence: High | FP: Sanctioned Velociraptor frontends — allowlist destinations
+// Threshold: Alert on any beacon to a non-approved destination
+// ------------------------------------------------------------
+union isfuzzy=true
+    (DeviceNetworkEvents
+    | where RemoteUrl contains "/control"
+    | where RemoteUrl contains "client_id=C."
+    | extend BeaconShape = "Velociraptor control URL (/control?v=1&client_id=C.<hex>)"),
+    (DeviceNetworkEvents
+    | where InitiatingProcessFileName startswith "velociraptor"
+    | where RemotePort in (8000, 8800)
+    | extend BeaconShape = strcat("Velociraptor process to frontend port ", RemotePort))
+| project TimeGenerated, DeviceName, RemoteUrl, RemoteIP, RemotePort,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, BeaconShape
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 8: WMI Remote Process Creation (T1047)
+// wmic /node:<host> process call create, and the PowerShell DCOM fallback
+// (New-CimSession -Protocol DCOM + Invoke-CimMethod Win32_Process.Create).
+// Confidence: High | FP: Legit remote-admin scripts (rare via wmic today)
+// Threshold: Alert on any occurrence; wmic process-call-create is near-dead
+//            in legitimate use on modern estates
+// ------------------------------------------------------------
+union isfuzzy=true
+    (DeviceProcessEvents
+    | where FileName =~ "wmic.exe"
+    | where ProcessCommandLine has_all ("/node:", "process", "call", "create")
+    | extend LateralShape = "wmic /node: process call create"),
+    (DeviceProcessEvents
+    | where FileName in~ ("powershell.exe", "pwsh.exe")
+    | where ProcessCommandLine contains "New-CimSession" and ProcessCommandLine contains "Invoke-CimMethod"
+    | where ProcessCommandLine contains "DCOM" or ProcessCommandLine contains "Win32_Process"
+    | extend LateralShape = "PowerShell DCOM WMI remote execution")
+| project TimeGenerated, DeviceName, AccountName, LateralShape, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 9: NetExec Credential-Dumping Command Shape (T1047/T1021.002)
+// nxc/netexec smb <host> -u <user> with --sam/--lsa/--ntds — LOLBin
+// credential dumping over SMB the actor uses for lateral spread.
+// Confidence: High | FP: None expected — these flags are dump-only
+// Threshold: Alert on any occurrence
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName in~ ("nxc.exe", "netexec.exe")
+    or ProcessCommandLine contains "nxc smb" or ProcessCommandLine contains "netexec smb"
+| where ProcessCommandLine contains "--sam"
+    or ProcessCommandLine contains "--lsa"
+    or ProcessCommandLine contains "--ntds"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, SHA256
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 10: ADMIN$ Share Session + Lateral Tool Transfer (T1021.002/T1570)
+// net use \\<host>\ADMIN$ followed by executable writes into ADMIN$\Temp —
+// the PsExec prerequisite the actor used for lateral movement.
+// Confidence: High | FP: SCCM/PDQ/GPO software pushes — allowlist deploy accounts
+// Threshold: Alert on executable writes to ADMIN$ from non-deploy principals
+// ------------------------------------------------------------
+union isfuzzy=true
+    (DeviceProcessEvents
+    | where FileName in~ ("net.exe", "net1.exe")
+    | where ProcessCommandLine has "use" and ProcessCommandLine contains "ADMIN$"
+    | extend Signal = "SMB session to ADMIN$ share"),
+    (DeviceFileEvents
+    | where FolderPath contains @"\ADMIN$\"
+    | where FileName endswith_any (".exe", ".dll", ".ps1", ".bat", ".cmd", ".sys")
+    | extend Signal = "Executable written into ADMIN$")
+| project TimeGenerated, DeviceName, AccountName, Signal, ProcessCommandLine, FolderPath, FileName,
+          InitiatingProcessFileName, InitiatingProcessAccountName, InitiatingProcessRemoteSessionDeviceName
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 11: RDP Enablement Probe & Tamper (T1021.001)
+// The actor checks/flips fDenyTSConnections and opens firewall for RDP
+// before pivoting between internal systems over RDP.
+// Confidence: Medium (reads) / High (writes) | FP: Server builds enabling RDP by design
+// Threshold: Alert on any write on workstations; reads alone = context signal
+// ------------------------------------------------------------
+union isfuzzy=true
+    (DeviceProcessEvents
+    | where FileName =~ "reg.exe"
+    | where ProcessCommandLine has "fDenyTSConnections"
+    | extend RdpSignal = iff(ProcessCommandLine has "add",
+        "RDP enablement WRITE (fDenyTSConnections)", "RDP enablement probe (read)")),
+    (DeviceProcessEvents
+    | where FileName =~ "netsh.exe"
+    | where ProcessCommandLine has_all ("advfirewall", "add", "rule")
+    | where ProcessCommandLine has "3389" or ProcessCommandLine has "rdp"
+    | extend RdpSignal = "Firewall rule added for RDP"),
+    (DeviceRegistryEvents
+    | where RegistryKey has @"Terminal Server"
+    | where RegistryValueName =~ "fDenyTSConnections"
+    | where toint(RegistryValueData) == 0
+    | extend RdpSignal = "fDenyTSConnections set to 0 (RDP enabled)")
+| project TimeGenerated, DeviceName, AccountName, RdpSignal, ProcessCommandLine, RegistryKey,
+          RegistryValueName, RegistryValueData, InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 12: Group Policy Management Abuse (T1484.001)
+// GPME launched against an LDAP-addressed GPO (actor IO:
+// gpme.msc /s /gpobject:"LDAP://CN={...},CN=Policies,CN=System,DC=..."),
+// or GPO manipulation via GroupPolicy cmdlets.
+// Confidence: High | FP: Group Policy administrators on DCs/mgmt stations
+// Threshold: Alert on any occurrence outside tier-0 admin hosts
+// ------------------------------------------------------------
+union isfuzzy=true
+    (DeviceProcessEvents
+    | where ProcessCommandLine contains "gpobject:" and ProcessCommandLine contains "LDAP://"
+    | extend GpoSignal = "GPME against LDAP-addressed GPO"),
+    (DeviceProcessEvents
+    | where FileName in~ ("powershell.exe", "pwsh.exe")
+    | where ProcessCommandLine contains "New-GPO" or ProcessCommandLine contains "Set-GPRegistryValue"
+        or ProcessCommandLine contains "New-GPLink" or ProcessCommandLine contains "Set-GPPermissions"
+    | extend GpoSignal = "GPO manipulation via GroupPolicy cmdlets")
+| project TimeGenerated, DeviceName, AccountName, GpoSignal, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 13: SYSVOL Policy File Modification (T1484.001)
+// Registry.pol / gpt.ini writes inside SYSVOL policy paths — the file
+// surface of domain-wide GPO payload deployment.
+// Confidence: High | FP: Legitimate GPMC/AGPM edits from DCs and tier-0 stations
+// Threshold: Alert on writes whose initiating process is not an approved
+//            GPO management tool or originates off-domain-controllers
+// ------------------------------------------------------------
+DeviceFileEvents
+| where FolderPath contains @"\SYSVOL\"
+| where FolderPath contains @"\Policies\"
+| where FileName in~ ("Registry.pol", "gpt.ini", "Scripts.ini", "pScripts.ini")
+| extend IsVersionBump = FileName =~ "gpt.ini"
+| project TimeGenerated, DeviceName, FolderPath, FileName, IsVersionBump,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, InitiatingProcessAccountName
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 14: Payload Launch from NETLOGON Share (T1484.001)
+// Actor deployment shape: \\<domain>\NETLOGON\<payload>.exe --password <key>
+// and cmd.exe /c \\NETLOGON\<script>.bat for domain-wide execution.
+// Confidence: High | FP: Legacy logon scripts — allowlist approved script names
+// Threshold: Alert on any .exe launch from NETLOGON; --password argument = critical
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where ProcessCommandLine contains @"\NETLOGON\"
+| where ProcessCommandLine contains ".exe" or ProcessCommandLine contains ".bat"
+    or ProcessCommandLine contains ".cmd" or ProcessCommandLine contains "--password"
+| extend DeploySignal = iff(ProcessCommandLine contains "--password",
+    "NETLOGON payload launch with embedded password key", "Execution from NETLOGON share")
+| project TimeGenerated, DeviceName, AccountName, DeploySignal, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 15: Masqueraded SYSTEM Scheduled Task with High-Frequency Schedule (T1053.005)
+// Actor IO (Huntress): schtasks /create /tn WindowsConnSvc /tr
+// C:\Windows\Temp\svchost32.exe ... /sc minute /mo 2 /ru SYSTEM — task and
+// binary both named to look like Windows components.
+// Confidence: High | FP: Rare — minute-frequency SYSTEM tasks are not legitimate IT practice
+// Threshold: Alert on any occurrence
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName =~ "schtasks.exe"
+| where ProcessCommandLine contains "/create" and ProcessCommandLine contains "/ru"
+| where ProcessCommandLine contains "SYSTEM"
+| where ProcessCommandLine contains "/sc minute" or ProcessCommandLine contains "/mo 1"
+    or ProcessCommandLine contains "/mo 2" or ProcessCommandLine contains @"\Windows\Temp\"
+    or ProcessCommandLine contains "WindowsConnSvc"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 16: Service Created with Staging-Path or Masqueraded Binary (T1543.003)
+// sc create whose binPath lives in Temp/PerfLogs/Public (staging dirs), or
+// whose DisplayName masquerades as a legitimate tool (e.g. "Velociraptor Client").
+// Confidence: High | FP: Software installers — filter known deployment accounts
+// Threshold: Alert on any occurrence outside approved software-deployment channels
+// ------------------------------------------------------------
+DeviceProcessEvents
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has "create" and ProcessCommandLine contains "binPath="
+| where ProcessCommandLine contains @"\Temp\" or ProcessCommandLine contains @"\PerfLogs\"
+    or ProcessCommandLine contains @"\Users\Public\"
+    or ProcessCommandLine contains "Velociraptor" or ProcessCommandLine contains "Cloudflared"
+    or ProcessCommandLine contains "AnyDesk"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by TimeGenerated desc
+
+// ------------------------------------------------------------
+// Query 17: New Account Added then Elevated to Administrators (T1136.001)
+// Actor shape (Sophos CTU): net user <name> <password> /add followed by
+// net localgroup administrators <name> /add — events 4720 then 4728/4732.
+// Confidence: High | FP: Helpdesk provisioning — allowlist privileged-access workflow
+// Threshold: Alert on any sequence within 30 min
+// ------------------------------------------------------------
+let AccountAdd = DeviceProcessEvents
+| where FileName in~ ("net.exe", "net1.exe")
+| where ProcessCommandLine has "user" and ProcessCommandLine contains "/add"
+| project AddTime = TimeGenerated, DeviceId, DeviceName, AccountName,
+          NewUser = tostring(extract(@"user\s+([^\s/]+)", 1, ProcessCommandLine)),
+          AddCmd = ProcessCommandLine, AddInitiator = InitiatingProcessFileName;
+let GroupAdd = DeviceProcessEvents
+| where FileName in~ ("net.exe", "net1.exe")
+| where ProcessCommandLine has "localgroup" and ProcessCommandLine has "administrators"
+    and ProcessCommandLine contains "/add"
+| project GroupTime = TimeGenerated, DeviceId, DeviceName, GroupCmd = ProcessCommandLine;
+AccountAdd
+| join kind=inner GroupAdd on DeviceId, DeviceName
+| where GroupTime between (AddTime .. (AddTime + 30m))
+| project AddTime, GroupTime, DeviceName, AccountName, NewUser, AddCmd, GroupCmd
+| order by AddTime desc
+
+// ------------------------------------------------------------
+// Query 18: Multi-Stage Behavioral Correlation — Gentlemen Kill Chain (all tactics)
+// Fusion across discovery, RAT deployment, lateral movement and persistence
+// signals on one device within one hour.
+// Confidence: Critical when >= 2 distinct stages | FP: Very low with 2+ stages
+// Threshold: >= 2 distinct stage signals = High, >= 3 = Critical
+// ------------------------------------------------------------
+let ReconSignals = DeviceProcessEvents
+| where ProcessCommandLine has_all ("SecurityCenter2", "AntiVirusProduct")
+    or (FileName =~ "sc.exe" and ProcessCommandLine has "query"
+        and ProcessCommandLine has_any ("WinDefend","Sense","CSFalconService","SepMasterService","SophosMMS"))
+    or (FileName in~ ("net.exe", "net1.exe") and ProcessCommandLine has "domain")
+| project TimeGenerated, DeviceName, Signal = "Discovery: security-product/account enumeration (T1518.001/T1087)";
+let RatSignals = DeviceFileEvents
+| where FileName in~ ("client.config.yaml", "client.writeback")
+| project TimeGenerated, DeviceName, Signal = "Unsanctioned remote-access tool deployment artifacts (T1219)";
+let LateralSignals = DeviceProcessEvents
+| where (FileName =~ "wmic.exe" and ProcessCommandLine has_all ("/node:", "process", "call", "create"))
+    or (FileName in~ ("net.exe", "net1.exe") and ProcessCommandLine has "use"
+        and ProcessCommandLine contains "ADMIN$")
+    or FileName in~ ("nxc.exe", "netexec.exe")
+| project TimeGenerated, DeviceName, Signal = "LOLBin lateral movement (T1047/T1021.002)";
+let PersistSignals = DeviceProcessEvents
+| where (FileName =~ "schtasks.exe" and ProcessCommandLine contains "/create"
+        and ProcessCommandLine contains "/ru" and ProcessCommandLine contains "SYSTEM")
+    or (FileName =~ "sc.exe" and ProcessCommandLine has "create"
+        and ProcessCommandLine contains "binPath=")
+    or (FileName in~ ("net.exe", "net1.exe") and ProcessCommandLine has "user"
+        and ProcessCommandLine contains "/add")
+| project TimeGenerated, DeviceName, Signal = "Persistence primitives (T1053.005/T1543.003/T1136.001)";
+union isfuzzy=true ReconSignals, RatSignals, LateralSignals, PersistSignals
+| summarize Signals = make_set(Signal), StageCount = dcount(Signal), Events = count()
+    by DeviceName, bin(TimeGenerated, 1h)
+| where StageCount >= 2
+| extend Severity = iff(StageCount >= 3, "Critical", "High")
+| project TimeGenerated, DeviceName, StageCount, Events, Signals, Severity
+| order by TimeGenerated desc
