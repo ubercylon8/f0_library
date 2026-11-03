@@ -1,0 +1,143 @@
+# Behavioral coverage for real SentinelOne agent tampering (T1562.001).
+# Date: 2026-11-03
+# These rules intentionally exclude read-only compliance queries and framework artifacts.
+# Authorized maintenance, upgrades, and product removal are expected false positives.
+# Central prevention, anti-tampering, and detection-engine policy state require
+# SentinelOne management telemetry and are not inferred from endpoint activity.
+
+rules:
+  sentinelone-agent-tampering-command:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: SentinelAgent
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: stop sentinelagent
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: stop-service
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: stop-process
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: taskkill
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: delete sentinelagent
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: config sentinelagent
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: set-service
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: uninstall
+              case sensitive: false
+    respond:
+      - action: report
+        name: SentinelOne Agent Tampering Command - T1562.001
+
+  sentinelone-installation-binary-modified:
+    detect:
+      target: edr
+      event: FILE_MODIFIED
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: \SentinelOne\Sentinel Agent\
+          case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: .exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: .dll
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: .sys
+              case sensitive: false
+    respond:
+      - action: report
+        name: SentinelOne Installation Binary Modified - T1562.001
+
+  sentinelone-installation-binary-deleted:
+    detect:
+      target: edr
+      event: FILE_DELETE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: \SentinelOne\Sentinel Agent\
+          case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: .exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: .dll
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: .sys
+              case sensitive: false
+    respond:
+      - action: report
+        name: SentinelOne Installation Binary Deleted - T1562.001
+
+  sentinelone-service-registry-tampering:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        - op: contains
+          path: event/REGISTRY_KEY
+          value: \Services\SentinelAgent
+          case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/REGISTRY_VALUE
+              value: \Start
+              case sensitive: false
+            - op: ends with
+              path: event/REGISTRY_VALUE
+              value: \ImagePath
+              case sensitive: false
+            - op: ends with
+              path: event/REGISTRY_VALUE
+              value: \FailureActions
+              case sensitive: false
+            - op: ends with
+              path: event/REGISTRY_VALUE
+              value: \ObjectName
+              case sensitive: false
+    respond:
+      - action: report
+        name: SentinelOne Service Registry Tampering - T1562.001
