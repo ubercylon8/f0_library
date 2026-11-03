@@ -25,8 +25,9 @@ This test evaluates EDR/AV detection capabilities against Remote Desktop Protoco
 This test simulates RDP lateral movement patterns to evaluate defensive capabilities:
 
 - Uses native Windows commands (sc, reg, qwinsta, cmdkey)
-- Creates and immediately removes test credentials (safe operation)
-- Optionally executes SharpRDP if the binary is embedded
+- Enumerates saved credentials (`cmdkey /list`), creates and immediately removes an RDP-style saved credential (`/generic:TERMSRV/...`) — safe operation
+- Optionally executes SharpRDP if the binary is present at runtime in `c:\F0\tools\SharpRDP.exe` (NOT embedded — no rebuild needed; the test loads it at runtime)
+- SharpRDP phases only run when RDP prerequisites are met (TermService running + RDP enabled in registry); otherwise they are skipped explicitly
 - All operations are local-only (no actual lateral movement)
 
 ## Expected Outcomes
@@ -51,8 +52,8 @@ This test simulates RDP lateral movement patterns to evaluate defensive capabili
 To enable SharpRDP testing:
 
 1. Obtain SharpRDP.exe from [0xthirteen/SharpRDP](https://github.com/0xthirteen/SharpRDP)
-2. Place it in `tools/SharpRDP.exe`
-3. Rebuild the test binary (SharpRDP will be embedded)
+2. Place it in `c:\F0\tools\SharpRDP.exe` on the TARGET host (runtime loading — the binary is NOT embedded and no rebuild is needed)
+3. Ensure the host has RDP enabled and TermService running (the test skips the SharpRDP phase otherwise)
 
 See `tools/README.md` for detailed instructions.
 

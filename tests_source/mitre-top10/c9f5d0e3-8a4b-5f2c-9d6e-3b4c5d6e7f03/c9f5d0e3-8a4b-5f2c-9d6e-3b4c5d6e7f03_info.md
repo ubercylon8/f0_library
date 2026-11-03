@@ -69,8 +69,8 @@ The test simulates both reconnaissance activities (service status checks, sessio
    - Tests T1555.004 (Credentials from Password Stores)
    - Safe operation - no persistent credentials
 
-6. **Phase 6: SharpRDP Execution (if embedded)**
-   - Extract SharpRDP.exe from embedded binary
+6. **Phase 6: SharpRDP Execution (if present at runtime)**
+   - Load SharpRDP.exe from c:\F0\tools\ at runtime (NOT embedded; skipped when RDP prerequisites are not met)
    - Check for quarantine on extraction
    - Execute: `SharpRDP computername=localhost command=whoami`
    - Safe local-only execution
@@ -131,7 +131,7 @@ The test simulates both reconnaissance activities (service status checks, sessio
 - Registry queries return configuration data
 - qwinsta enumeration completes without blocking
 - cmdkey credential manipulation succeeds
-- SharpRDP executes (if embedded) without detection
+- SharpRDP executes (if present at runtime) without detection
 - All patterns indicate unmonitored RDP reconnaissance
 
 ### Protected System (Enhanced Detection)
@@ -167,7 +167,7 @@ This test includes a placeholder for SharpRDP, a C# tool that enables headless R
 - Bypassing interactive session requirements
 - Reduced network footprint compared to full RDP sessions
 
-See `tools/README.md` for instructions on obtaining and embedding SharpRDP.
+See `tools/README.md` for instructions on obtaining SharpRDP (runtime-loaded from `c:\F0\tools\`, not embedded).
 
 ## Enhancement Notes
 

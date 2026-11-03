@@ -6,6 +6,8 @@
 
 This test simulates local account enumeration techniques commonly used by adversaries during initial reconnaissance and credential access phases. It combines native Windows commands with optional Rubeus Kerberos operations to evaluate EDR detection capabilities against account discovery and Kerberoasting attacks.
 
+**Domain prerequisite:** Rubeus kerberoast/asreproast phases require a domain-joined host with DC reachability. On a standalone host the test detects this in Phase 1 and skips both Rubeus phases with an explicit log entry (the native enumeration phases still run). Rubeus is loaded at runtime from `c:\F0\tools\Rubeus.exe` — it is NOT embedded in the binary (see `tools/README.md`).
+
 ## MITRE ATT&CK Mapping
 
 - **Tactic**: Defense Evasion, Persistence, Privilege Escalation, Initial Access, Discovery, Credential Access

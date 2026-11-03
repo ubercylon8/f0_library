@@ -12,6 +12,7 @@ COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: lateral-movement
 TAGS: rdp, remote-desktop, credential-theft, windows-credential-manager
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
 CREATED: 2026-01-11
 AUTHOR: sectest-builder
@@ -20,7 +21,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,16 +30,42 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
-	"golang.org/x/sys/windows"
 )
 
 const (
 	TEST_UUID  = "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03"
 	TEST_NAME  = "RDP Lateral Movement Simulation"
 	TARGET_DIR = "c:\\F0"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 )
+
+// isAdminContext gates denial classification (Bug Prevention Rule 8).
+var isAdminContext = false
+
+// probeAdminContext checks whether the current context is elevated.
+func probeAdminContext() bool {
+	return exec.Command("net", "session").Run() == nil
+}
+
+// isPositiveProtectionEvidence returns true ONLY for exact, security-product-
+// or OS-emitted denial markers (generic words anywhere in output are NOT evidence).
+func isPositiveProtectionEvidence(s string) bool {
+	return strings.Contains(s, "Access is denied") ||
+		strings.Contains(s, "This program is blocked by group policy") ||
+		strings.Contains(s, "Operation did not complete successfully because the file contains a virus") ||
+		strings.Contains(s, "running scripts is disabled") ||
+		strings.Contains(s, "script contains malicious content")
+}
+
+// fileExists is a small os.Stat wrapper
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 // SharpRDP binary is loaded at runtime from c:\F0\tools\SharpRDP.exe
 // User must place the binary there before running the test
@@ -148,12 +174,9 @@ func enumerateRDPSessions() (bool, bool, string, int) {
 	if err != nil {
 		errorStr := err.Error()
 
-		// Check for blocking indicators
-		if strings.Contains(strings.ToLower(output), "blocked") ||
-			strings.Contains(strings.ToLower(output), "denied") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") {
-
-			LogProcessExecution("qwinsta.exe", "qwinsta", pid, false, 126, "Blocked by security controls")
+		// Block ONLY on exact denial markers, admin-gated (Rule 8)
+		if isAdminContext && (isPositiveProtectionEvidence(output) || isPositiveProtectionEvidence(errorStr)) {
+			LogProcessExecution("qwinsta.exe", "qwinsta", pid, false, 126, "Blocked by security controls (positive evidence)")
 			LogMessage("INFO", "Session Enumeration", fmt.Sprintf("Command blocked after %v", duration))
 			return false, true, "Session enumeration blocked by EDR", 0
 		}
@@ -183,19 +206,47 @@ func enumerateRDPSessions() (bool, bool, string, int) {
 }
 
 // testCmdkeyCredentialManager tests cmdkey manipulation (T1555.004)
-// Creates and immediately deletes a test credential
+// Mirrors real tradecraft: enumerate saved credentials first (cmdkey /list —
+// the discovery step EDRs key on), then create an RDP-style saved credential
+// under the TERMSRV/ target namespace, then immediately delete it.
 func testCmdkeyCredentialManager() (bool, bool, string) {
 	Endpoint.Say("  Testing cmdkey credential manipulation (T1555.004)")
 
-	// Step 1: Add test credential
+	// Step 0: Enumerate saved credentials (real tradecraft discovery step)
+	listCmd := exec.Command("cmdkey", "/list")
+	var listOutput bytes.Buffer
+	listCmd.Stdout = io.MultiWriter(os.Stdout, &listOutput)
+	listCmd.Stderr = io.MultiWriter(os.Stderr, &listOutput)
+	listErr := listCmd.Run()
+	listPid := 0
+	if listCmd.Process != nil {
+		listPid = listCmd.Process.Pid
+	}
+	listStr := listOutput.String()
+	termsrvEntries := strings.Contains(strings.ToUpper(listStr), "TERMSRV")
+	if listErr != nil {
+		LogProcessExecution("cmdkey.exe", "cmdkey /list", listPid, false, exitCodeOf(listErr), listErr.Error())
+		LogMessage("WARN", "Cmdkey Test", fmt.Sprintf("cmdkey /list failed: %v (continuing)", listErr))
+	} else {
+		LogProcessExecution("cmdkey.exe", "cmdkey /list", listPid, true, 0, "")
+		LogMessage("INFO", "Cmdkey Test", fmt.Sprintf("Enumerated saved credentials (TERMSRV entries present: %v)", termsrvEntries))
+	}
+	if len(listStr) > 0 {
+		outputPath := filepath.Join(TARGET_DIR, "cmdkey_list_output.txt")
+		os.WriteFile(outputPath, []byte(listStr), 0644)
+		LogFileDropped("cmdkey_list_output.txt", outputPath, int64(len(listStr)), false)
+	}
+
+	// Step 1: Add test credential in the RDP saved-credential form (/generic:TERMSRV/...)
+	credTarget := fmt.Sprintf("TERMSRV/%s", testServerName)
 	addCmd := exec.Command("cmdkey",
-		fmt.Sprintf("/add:%s", testServerName),
+		fmt.Sprintf("/generic:%s", credTarget),
 		fmt.Sprintf("/user:%s", testUsername),
 		fmt.Sprintf("/pass:%s", testPassword))
 
 	var addOutput bytes.Buffer
-	addCmd.Stdout = &addOutput
-	addCmd.Stderr = &addOutput
+	addCmd.Stdout = io.MultiWriter(os.Stdout, &addOutput)
+	addCmd.Stderr = io.MultiWriter(os.Stderr, &addOutput)
 
 	startTime := time.Now()
 	err := addCmd.Run()
@@ -211,32 +262,27 @@ func testCmdkeyCredentialManager() (bool, bool, string) {
 	if err != nil {
 		errorStr := err.Error()
 
-		// Check for blocking
-		if strings.Contains(strings.ToLower(addOutputStr), "blocked") ||
-			strings.Contains(strings.ToLower(addOutputStr), "denied") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") ||
-			strings.Contains(strings.ToLower(addOutputStr), "not allowed") {
-
-			LogProcessExecution("cmdkey.exe", "cmdkey /add:"+testServerName, addPid, false, 126, "Blocked by security controls")
+		if isAdminContext && (isPositiveProtectionEvidence(addOutputStr) || isPositiveProtectionEvidence(errorStr)) {
+			LogProcessExecution("cmdkey.exe", "cmdkey /generic:"+credTarget, addPid, false, 126, "Blocked by security controls (positive evidence)")
 			LogMessage("INFO", "Cmdkey Test", "Credential creation blocked by EDR")
 			return false, true, "Cmdkey credential creation blocked by EDR"
 		}
 
-		LogProcessExecution("cmdkey.exe", "cmdkey /add:"+testServerName, addPid, false, addCmd.ProcessState.ExitCode(), errorStr)
+		LogProcessExecution("cmdkey.exe", "cmdkey /generic:"+credTarget, addPid, false, exitCodeOf(err), errorStr)
 		return false, false, fmt.Sprintf("Failed to add credential: %s", errorStr)
 	}
 
-	LogProcessExecution("cmdkey.exe", "cmdkey /add:"+testServerName, addPid, true, 0, "")
+	LogProcessExecution("cmdkey.exe", "cmdkey /generic:"+credTarget, addPid, true, 0, "")
 	LogMessage("INFO", "Cmdkey Test", fmt.Sprintf("Test credential created in %v", addDuration))
 
 	// Step 2: Immediately delete the test credential
 	Endpoint.Say("  Removing test credential immediately...")
 
-	deleteCmd := exec.Command("cmdkey", fmt.Sprintf("/delete:%s", testServerName))
+	deleteCmd := exec.Command("cmdkey", fmt.Sprintf("/delete:%s", credTarget))
 
 	var deleteOutput bytes.Buffer
-	deleteCmd.Stdout = &deleteOutput
-	deleteCmd.Stderr = &deleteOutput
+	deleteCmd.Stdout = io.MultiWriter(os.Stdout, &deleteOutput)
+	deleteCmd.Stderr = io.MultiWriter(os.Stderr, &deleteOutput)
 
 	startTime = time.Now()
 	err = deleteCmd.Run()
@@ -248,15 +294,26 @@ func testCmdkeyCredentialManager() (bool, bool, string) {
 	}
 
 	if err != nil {
-		LogProcessExecution("cmdkey.exe", "cmdkey /delete:"+testServerName, deletePid, false, deleteCmd.ProcessState.ExitCode(), err.Error())
+		LogProcessExecution("cmdkey.exe", "cmdkey /delete:"+credTarget, deletePid, false, exitCodeOf(err), err.Error())
 		LogMessage("WARN", "Cmdkey Test", fmt.Sprintf("Failed to delete test credential: %v", err))
 		// Still return success for the add operation since we're testing detection
 	} else {
-		LogProcessExecution("cmdkey.exe", "cmdkey /delete:"+testServerName, deletePid, true, 0, "")
+		LogProcessExecution("cmdkey.exe", "cmdkey /delete:"+credTarget, deletePid, true, 0, "")
 		LogMessage("INFO", "Cmdkey Test", fmt.Sprintf("Test credential deleted in %v", deleteDuration))
 	}
 
 	return true, false, "Cmdkey credential manipulation succeeded (credential created and removed)"
+}
+
+// exitCodeOf maps a cmd error to a numeric exit status for logging
+func exitCodeOf(err error) int {
+	if err == nil {
+		return 0
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode()
+	}
+	return 1
 }
 
 // checkSharpRDPAvailable checks if SharpRDP binary is available
@@ -375,40 +432,27 @@ func testSharpRDPExecution(sharpRDPPath string) (bool, bool, string) {
 	if err != nil {
 		errorStr := err.Error()
 
-		// Check for execution prevention
-		if strings.Contains(strings.ToLower(output), "blocked") ||
-			strings.Contains(strings.ToLower(output), "denied") ||
-			strings.Contains(strings.ToLower(errorStr), "not recognized") ||
-			strings.Contains(strings.ToLower(errorStr), "operation is not allowed") ||
-			strings.Contains(strings.ToLower(errorStr), "blocked by") {
-
-			LogProcessExecution("SharpRDP.exe", "SharpRDP computername=localhost command=whoami", pid, false, 126, "Execution blocked")
+		// Block ONLY on exact security-product/OS denial markers (Rule 8).
+		// "not recognized"/PATH errors and non-zero exits without denial text are
+		// benign operational failures.
+		if isPositiveProtectionEvidence(output) || isPositiveProtectionEvidence(errorStr) {
+			LogProcessExecution("SharpRDP.exe", "SharpRDP computername=localhost command=whoami", pid, false, 126, "Execution blocked (positive evidence)")
 			LogMessage("INFO", "SharpRDP", "SharpRDP execution blocked by EDR")
 			return false, true, "SharpRDP execution blocked by EDR"
 		}
 
-		// Check for exit code indicating EDR block
 		exitCode := 0
 		if cmd.ProcessState != nil {
 			exitCode = cmd.ProcessState.ExitCode()
 		}
 
-		// Some EDRs return specific exit codes
-		if exitCode == -1073741502 || // STATUS_DLL_NOT_FOUND (common for blocked executables)
-			exitCode == -1073740760 { // STATUS_NONCONTINUABLE_EXCEPTION
-
-			LogProcessExecution("SharpRDP.exe", "SharpRDP computername=localhost command=whoami", pid, false, 126, "Execution prevented")
-			LogMessage("INFO", "SharpRDP", fmt.Sprintf("SharpRDP execution prevented (exit code: %d)", exitCode))
-			return false, true, "SharpRDP execution prevented by EDR"
-		}
-
-		// Normal execution failure (tool ran but operation failed)
-		LogProcessExecution("SharpRDP.exe", "SharpRDP computername=localhost command=whoami", pid, false, exitCode, errorStr)
-		LogMessage("INFO", "SharpRDP", fmt.Sprintf("SharpRDP execution completed with error: %s (duration: %v)", errorStr, duration))
-
-		// If the tool executed (not blocked), it's still a detection opportunity
-		// Return success=true since the binary wasn't blocked
-		return true, false, fmt.Sprintf("SharpRDP executed but operation failed: %s", errorStr)
+		// Tool ran but the RDP operation failed (typical on hosts with no RDP
+		// listener): benign operational failure — NOT success, NOT a block
+		// (Bug Prevention Rules 4 & 8).
+		LogProcessExecution("SharpRDP.exe", "SharpRDP computername=localhost command=whoami", pid, false, exitCode,
+			"tool executed but RDP operation failed (benign operational failure — not counted)")
+		LogMessage("WARN", "SharpRDP", fmt.Sprintf("SharpRDP operation failed: %s (duration: %v)", errorStr, duration))
+		return false, false, fmt.Sprintf("SharpRDP executed but operation failed: %s", errorStr)
 	}
 
 	LogProcessExecution("SharpRDP.exe", "SharpRDP computername=localhost command=whoami", pid, true, 0, "")
@@ -422,6 +466,7 @@ func cleanup() {
 
 	filesToRemove := []string{
 		"qwinsta_output.txt",
+		"cmdkey_list_output.txt",
 		"sharprdp_output.txt",
 		"rdp_test_summary.txt",
 		"rdp_registry_config.txt",
@@ -435,7 +480,8 @@ func cleanup() {
 		}
 	}
 
-	// Ensure test credential is removed (safety cleanup)
+	// Ensure test credential is removed (safety cleanup — matches the TERMSRV/ target form)
+	exec.Command("cmdkey", fmt.Sprintf("/delete:TERMSRV/%s", testServerName)).Run()
 	exec.Command("cmdkey", fmt.Sprintf("/delete:%s", testServerName)).Run()
 }
 
@@ -445,8 +491,10 @@ func test() {
 		if r := recover(); r != nil {
 			if globalLog != nil {
 				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+				SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
 			}
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -459,19 +507,23 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initializing test environment")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		LogPhaseError(0, fmt.Sprintf("Dropper initialization failed: %v", err))
-		LogPhaseEnd(0, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
 	// Create target directory
 	if err := os.MkdirAll(TARGET_DIR, 0755); err != nil {
 		LogPhaseError(0, fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to create target directory")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Failed to create target directory")
+		Endpoint.Stop(ExitTestError)
+	}
+
+	// Probe privilege context once — gates denial classification (Rule 8)
+	isAdminContext = probeAdminContext()
+	if isAdminContext {
+		LogMessage("INFO", "Initialization", "Running elevated (administrator)")
+	} else {
+		LogMessage("WARN", "Initialization", "Running NON-elevated — access-denied outcomes will be treated as benign environment results")
 	}
 
 	LogPhaseEnd(0, "success", "Environment initialized")
@@ -560,12 +612,16 @@ func test() {
 
 	Endpoint.Wait(2)
 
-	// Phase 6: SharpRDP Test (if available)
+	// Phase 6: SharpRDP Test (if available AND RDP prerequisites met)
 	LogPhaseStart(6, "SharpRDP Execution Test")
-	Endpoint.Say("\nPhase 6: Testing SharpRDP execution (PLACEHOLDER)")
+	Endpoint.Say("\nPhase 6: Testing SharpRDP execution")
 
-	if checkSharpRDPAvailable() {
-		Endpoint.Say("  SharpRDP binary is embedded - extracting...")
+	if !rdpRunning || !rdpEnabled {
+		Endpoint.Say("  [SKIP] RDP listener prerequisites not met (TermService running: %v, RDP enabled: %v) — SharpRDP could not succeed; skipping doomed execution", rdpRunning, rdpEnabled)
+		LogMessage("INFO", "SharpRDP", fmt.Sprintf("Skipped: RDP prerequisites not met (running=%v, enabled=%v)", rdpRunning, rdpEnabled))
+		LogPhaseEnd(5, "skipped", "RDP prerequisites not met")
+	} else if checkSharpRDPAvailable() {
+		Endpoint.Say("  SharpRDP binary found at runtime - extracting...")
 
 		sharpRDPPath, err := extractSharpRDP()
 		if err != nil {
@@ -575,11 +631,12 @@ func test() {
 		} else {
 			Endpoint.Say("  [+] SharpRDP extracted to: %s", sharpRDPPath)
 
-			// Wait for potential quarantine
+			// Wait for potential quarantine, then verify via os.Stat on the exact
+			// extracted path (pure-stat check; the library Quarantined() helper
+			// re-writes the file into CWD — audit 2026-11-03).
 			Endpoint.Wait(3)
 
-			// Check if quarantined
-			if Endpoint.Quarantined("SharpRDP.exe", sharpRDPBinary) {
+			if !fileExists(sharpRDPPath) {
 				Endpoint.Say("  [QUARANTINED] SharpRDP.exe was quarantined on extraction")
 				LogFileDropped("SharpRDP.exe", sharpRDPPath, int64(len(sharpRDPBinary)), true)
 				sharpRDPQuarantined = true
@@ -603,8 +660,8 @@ func test() {
 			}
 		}
 	} else {
-		Endpoint.Say("  [INFO] SharpRDP not embedded - see tools/README.md for instructions")
-		LogMessage("INFO", "SharpRDP", "Binary not embedded - skipping execution test")
+		Endpoint.Say("  [INFO] SharpRDP not found at runtime (c:\\F0\\tools\\SharpRDP.exe) - see tools/README.md")
+		LogMessage("INFO", "SharpRDP", "Binary not available at runtime (not embedded) - skipping execution test")
 		LogPhaseEnd(5, "skipped", "SharpRDP binary not available")
 	}
 
@@ -703,16 +760,16 @@ Assessment:
 		// RDP service not running and no clear results
 		Endpoint.Say("\n[RESULT] ERROR - RDP service not running, test incomplete")
 		LogMessage("WARN", "Final Assessment", "Test incomplete - RDP service not running")
-		SaveLog(999, "RDP service not running - test incomplete")
+		SaveLog(ExitTestError, "RDP service not running - test incomplete")
 		cleanup()
-		Endpoint.Stop(999)
+		Endpoint.Stop(ExitTestError)
 	} else {
 		// No clear result
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Test did not produce clear results")
 		LogMessage("WARN", "Final Assessment", "Test inconclusive")
-		SaveLog(Endpoint.UnexpectedTestError, "Test inconclusive")
+		SaveLog(ExitTestError, "Test inconclusive")
 		cleanup()
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		Endpoint.Stop(ExitTestError)
 	}
 }
 
@@ -803,6 +860,7 @@ func main() {
 			LogMessage("ERROR", "Timeout", fmt.Sprintf("Test exceeded timeout of %v", timeout))
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("Test exceeded timeout of %v", timeout))
 		}
+		cleanup()
 		Endpoint.Stop(Endpoint.TimeoutExceeded)
 	}
 }

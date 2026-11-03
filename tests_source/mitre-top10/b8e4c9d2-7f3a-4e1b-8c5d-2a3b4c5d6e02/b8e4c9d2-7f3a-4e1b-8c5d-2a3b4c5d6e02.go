@@ -5,13 +5,14 @@
 ID: b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02
 NAME: Local Account Enumeration
 TECHNIQUES: T1078.003, T1087.001, T1558.003
-TACTICS: defense-evasion, discovery, credential-access
+TACTICS: defense-evasion, persistence, privilege-escalation, initial-access, discovery, credential-access
 SEVERITY: high
 TARGET: windows-endpoint
 COMPLEXITY: low
 THREAT_ACTOR: N/A
-SUBCATEGORY: discovery
+SUBCATEGORY: credential-access
 TAGS: account-enumeration, local-accounts, kerberoasting, valid-accounts
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
 CREATED: 2026-01-11
 AUTHOR: sectest-builder
@@ -20,7 +21,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,16 +30,55 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
-	"golang.org/x/sys/windows"
 )
 
 const (
 	TEST_UUID  = "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02"
 	TEST_NAME  = "Local Account Enumeration"
 	TARGET_DIR = "c:\\F0"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 )
+
+// isAdminContext is probed once in Phase 1; OS access-denied outcomes are only
+// treated as protection evidence when the test already holds the privilege the
+// operation requires (Bug Prevention Rule 8: benign != blocked).
+var isAdminContext = false
+
+// isDomainJoined reports whether the host is domain-joined (prerequisite for
+// Kerberos roasting operations). Uses wmic with a PowerShell CIM fallback for
+// wmic-less hosts (wmic is removed on Win11 24H2+).
+func isDomainJoined() bool {
+	if out, err := exec.Command("wmic", "computersystem", "get", "partofdomain").CombinedOutput(); err == nil {
+		return strings.Contains(strings.ToLower(string(out)), "true")
+	}
+	out, err := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
+		"(Get-CimInstance Win32_ComputerSystem).PartOfDomain").CombinedOutput()
+	if err == nil {
+		return strings.Contains(strings.ToLower(string(out)), "true")
+	}
+	return false
+}
+
+// probeAdminContext checks whether the current context is elevated (net session
+// requires administrator privileges).
+func probeAdminContext() bool {
+	return exec.Command("net", "session").Run() == nil
+}
+
+// isPositiveProtectionEvidence returns true ONLY for exact, security-product- or
+// OS-emitted denial markers (generic words like "denied" anywhere in output are
+// NOT evidence). Caller must additionally hold the required privilege context.
+func isPositiveProtectionEvidence(s string) bool {
+	return strings.Contains(s, "Access is denied") ||
+		strings.Contains(s, "This program is blocked by group policy") ||
+		strings.Contains(s, "Operation did not complete successfully because the file contains a virus") ||
+		strings.Contains(s, "running scripts is disabled") ||
+		strings.Contains(s, "script contains malicious content")
+}
 
 // Rubeus binary is loaded at runtime from c:\F0\tools\Rubeus.exe
 // User must place the binary there before running the test
@@ -84,23 +123,16 @@ func executeCommand(name string, args ...string) CommandResult {
 	if err != nil {
 		result.ErrorMessage = err.Error()
 
-		// Check for blocking indicators
-		outputLower := strings.ToLower(result.Output)
-		errorLower := strings.ToLower(result.ErrorMessage)
-
-		if strings.Contains(outputLower, "blocked") ||
-			strings.Contains(outputLower, "denied") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorLower, "access is denied") ||
-			strings.Contains(errorLower, "operation is not allowed") ||
-			strings.Contains(outputLower, "not allowed") ||
-			strings.Contains(errorLower, "blocked by") {
-
-			result.Blocked = true
-			if cmd.ProcessState != nil {
-				result.ExitCode = 126
-			}
-		} else if cmd.ProcessState != nil {
+		if cmd.ProcessState != nil {
 			result.ExitCode = cmd.ProcessState.ExitCode()
+		}
+
+		// Block classification ONLY on exact security-product/OS denial markers,
+		// and only when the test holds the privilege the operation requires —
+		// a non-elevated access-denied is a benign environmental outcome.
+		if isAdminContext && (isPositiveProtectionEvidence(result.Output) || isPositiveProtectionEvidence(result.ErrorMessage)) {
+			result.Blocked = true
+			result.ExitCode = 126
 		}
 	} else {
 		result.Success = true
@@ -310,32 +342,26 @@ func rubeusKerberoast(rubeusPath string) CommandResult {
 	hashOutputPath := filepath.Join(TARGET_DIR, "hashes.txt")
 	result := executeCommand(rubeusPath, "kerberoast", "/outfile:"+hashOutputPath, "/opsec")
 
-	cmdLine := "Rubeus kerberoast /outfile:hashes.txt /opsec"
+	cmdLine := "Rubeus kerberoast /outfile:" + hashOutputPath + " /opsec"
 	if result.Blocked {
 		LogProcessExecution("Rubeus.exe", cmdLine, result.PID, false, 126, "Blocked by security controls")
 		LogMessage("INFO", "Rubeus Kerberoast", "Kerberoast execution blocked by EDR")
-	} else if result.Success {
+	} else if result.Success && (strings.Contains(result.Output, "$krb5tgs$") || fileExists(hashOutputPath)) {
+		// Success ONLY on positive roasting evidence: hash output written.
 		LogProcessExecution("Rubeus.exe", cmdLine, result.PID, true, 0, "")
 		LogMessage("INFO", "Rubeus Kerberoast", fmt.Sprintf("Kerberoast completed in %v", result.Duration))
-
-		// Check if hash file was created
 		if _, err := os.Stat(hashOutputPath); err == nil {
 			LogFileDropped("hashes.txt", hashOutputPath, 0, false)
 		}
 	} else {
-		// Check for specific EDR block exit codes
-		if result.ExitCode == -1073741502 || // STATUS_DLL_NOT_FOUND
-			result.ExitCode == -1073740760 { // STATUS_NONCONTINUABLE_EXCEPTION
-			result.Blocked = true
-			LogProcessExecution("Rubeus.exe", cmdLine, result.PID, false, 126, "Execution prevented")
-			LogMessage("INFO", "Rubeus Kerberoast", fmt.Sprintf("Kerberoast execution prevented (exit code: %d)", result.ExitCode))
-		} else {
-			LogProcessExecution("Rubeus.exe", cmdLine, result.PID, false, result.ExitCode, result.ErrorMessage)
-			LogMessage("INFO", "Rubeus Kerberoast", fmt.Sprintf("Kerberoast completed with error: %s", result.ErrorMessage))
-			// If the tool executed (not blocked), it's still a detection opportunity
-			// Return success=true since the binary wasn't blocked
-			result.Success = true
-		}
+		// Tool ran but roasting did not complete (e.g. non-domain host, no SPN
+		// accounts, auth/DLL errors). Benign operational failure: NOT success,
+		// NOT a block (Bug Prevention Rules 4 & 8).
+		result.Success = false
+		result.Blocked = false
+		LogProcessExecution("Rubeus.exe", cmdLine, result.PID, false, result.ExitCode,
+			"tool executed but kerberoast did not complete (benign operational failure — not counted as success or block)")
+		LogMessage("WARN", "Rubeus Kerberoast", fmt.Sprintf("Kerberoast did not complete: %s", result.ErrorMessage))
 	}
 
 	// Save output to file
@@ -367,22 +393,18 @@ func rubeusAsreproast(rubeusPath string) CommandResult {
 	if result.Blocked {
 		LogProcessExecution("Rubeus.exe", cmdLine, result.PID, false, 126, "Blocked by security controls")
 		LogMessage("INFO", "Rubeus ASREProast", "ASREProast execution blocked by EDR")
-	} else if result.Success {
+	} else if result.Success && strings.Contains(result.Output, "$krb5asrep$") {
+		// Success ONLY on positive roasting evidence: AS-REP hash material in output.
 		LogProcessExecution("Rubeus.exe", cmdLine, result.PID, true, 0, "")
 		LogMessage("INFO", "Rubeus ASREProast", fmt.Sprintf("ASREProast completed in %v", result.Duration))
 	} else {
-		// Check for specific EDR block exit codes
-		if result.ExitCode == -1073741502 || // STATUS_DLL_NOT_FOUND
-			result.ExitCode == -1073740760 { // STATUS_NONCONTINUABLE_EXCEPTION
-			result.Blocked = true
-			LogProcessExecution("Rubeus.exe", cmdLine, result.PID, false, 126, "Execution prevented")
-			LogMessage("INFO", "Rubeus ASREProast", fmt.Sprintf("ASREProast execution prevented (exit code: %d)", result.ExitCode))
-		} else {
-			LogProcessExecution("Rubeus.exe", cmdLine, result.PID, false, result.ExitCode, result.ErrorMessage)
-			LogMessage("INFO", "Rubeus ASREProast", fmt.Sprintf("ASREProast completed with error: %s", result.ErrorMessage))
-			// If the tool executed (not blocked), it's still a detection opportunity
-			result.Success = true
-		}
+		// Benign operational failure (no AS-REP-roastable accounts, non-domain
+		// host, auth/DLL errors): NOT success, NOT a block.
+		result.Success = false
+		result.Blocked = false
+		LogProcessExecution("Rubeus.exe", cmdLine, result.PID, false, result.ExitCode,
+			"tool executed but asreproast did not produce hash material (benign operational failure — not counted)")
+		LogMessage("WARN", "Rubeus ASREProast", fmt.Sprintf("ASREProast did not produce hash material: %s", result.ErrorMessage))
 	}
 
 	// Save output to file
@@ -393,6 +415,12 @@ func rubeusAsreproast(rubeusPath string) CommandResult {
 	}
 
 	return result
+}
+
+// fileExists is a small os.Stat wrapper
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // cleanup removes test artifacts
@@ -425,8 +453,10 @@ func test() {
 		if r := recover(); r != nil {
 			if globalLog != nil {
 				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+				SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
 			}
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -439,19 +469,30 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initializing test environment")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		LogPhaseError(0, fmt.Sprintf("Dropper initialization failed: %v", err))
-		LogPhaseEnd(0, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
 	// Create target directory
 	if err := os.MkdirAll(TARGET_DIR, 0755); err != nil {
 		LogPhaseError(0, fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to create target directory")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Failed to create target directory")
+		Endpoint.Stop(ExitTestError)
+	}
+
+	// Probe privilege context once — gates denial classification (Rule 8)
+	isAdminContext = probeAdminContext()
+	if isAdminContext {
+		LogMessage("INFO", "Initialization", "Running elevated (administrator) — OS denials are classifiable protection evidence")
+	} else {
+		LogMessage("WARN", "Initialization", "Running NON-elevated — access-denied outcomes will be treated as benign environment results")
+	}
+
+	domainJoined := isDomainJoined()
+	if domainJoined {
+		LogMessage("INFO", "Initialization", "Host is domain-joined — Kerberos roasting prerequisites may be met")
+	} else {
+		LogMessage("WARN", "Initialization", "Host is NOT domain-joined — Rubeus kerberoast/asreproast phases will be skipped (prerequisites not met)")
 	}
 
 	LogPhaseEnd(0, "success", "Environment initialized")
@@ -536,11 +577,15 @@ func test() {
 
 	Endpoint.Wait(2)
 
-	// Phase 6: Rubeus Kerberoasting (T1558.003) - PLACEHOLDER
+	// Phase 6: Rubeus Kerberoasting (T1558.003)
 	LogPhaseStart(6, "Rubeus Kerberoasting")
-	Endpoint.Say("\nPhase 6: Testing Rubeus Kerberoasting (T1558.003) - PLACEHOLDER")
+	Endpoint.Say("\nPhase 6: Testing Rubeus Kerberoasting (T1558.003)")
 
-	if checkRubeusAvailable() {
+	if !domainJoined {
+		Endpoint.Say("  [SKIP] Host is not domain-joined — kerberoast prerequisites not met")
+		LogMessage("INFO", "Rubeus", "Skipped: standalone host, kerberoast requires domain + DC reachability")
+		LogPhaseEnd(5, "skipped", "not domain-joined — kerberoast prerequisites not met")
+	} else if checkRubeusAvailable() {
 		Endpoint.Say("  Rubeus binary found - loading...")
 
 		rubeusPath, err := extractRubeus()
@@ -551,11 +596,12 @@ func test() {
 		} else {
 			Endpoint.Say("  [+] Rubeus extracted to: %s", rubeusPath)
 
-			// Wait for potential quarantine
+			// Wait for potential quarantine, then verify via os.Stat on the exact
+			// extracted path (pure-stat check; the library Quarantined() helper
+			// re-writes the file into CWD — audit 2026-11-03).
 			Endpoint.Wait(3)
 
-			// Check if quarantined
-			if Endpoint.Quarantined("Rubeus.exe", rubeusBinary) {
+			if !fileExists(rubeusPath) {
 				Endpoint.Say("  [QUARANTINED] Rubeus.exe was quarantined on extraction")
 				LogFileDropped("Rubeus.exe", rubeusPath, int64(len(rubeusBinary)), true)
 				rubeusQuarantined = true
@@ -579,7 +625,7 @@ func test() {
 			}
 		}
 	} else {
-		Endpoint.Say("  [INFO] Rubeus not available - see tools/README.md for instructions")
+		Endpoint.Say("  [INFO] Rubeus not available or host not domain-joined - see tools/README.md for instructions")
 		Endpoint.Say("        To enable Rubeus testing, place Rubeus.exe in c:\\F0\\tools\\")
 		LogMessage("INFO", "Rubeus", "Binary not available - skipping Kerberoast test")
 		LogPhaseEnd(5, "skipped", "Rubeus binary not available")
@@ -587,11 +633,15 @@ func test() {
 
 	Endpoint.Wait(2)
 
-	// Phase 7: Rubeus AS-REP Roasting (T1558.003) - PLACEHOLDER
+	// Phase 7: Rubeus AS-REP Roasting (T1558.003)
 	LogPhaseStart(7, "Rubeus AS-REP Roasting")
-	Endpoint.Say("\nPhase 7: Testing Rubeus AS-REP Roasting (T1558.003) - PLACEHOLDER")
+	Endpoint.Say("\nPhase 7: Testing Rubeus AS-REP Roasting (T1558.003)")
 
-	if checkRubeusAvailable() && !rubeusQuarantined {
+	if !domainJoined {
+		Endpoint.Say("  [SKIP] Host is not domain-joined — AS-REP roast prerequisites not met")
+		LogMessage("INFO", "Rubeus", "Skipped: standalone host, asreproast requires domain + DC reachability")
+		LogPhaseEnd(6, "skipped", "not domain-joined — asreproast prerequisites not met")
+	} else if checkRubeusAvailable() && !rubeusQuarantined {
 		rubeusPath := filepath.Join(TARGET_DIR, "Rubeus.exe")
 
 		// Check if Rubeus still exists (may have been deleted/quarantined during previous phase)
@@ -723,9 +773,9 @@ Assessment:
 		// No clear result
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Test did not produce clear results")
 		LogMessage("WARN", "Final Assessment", "Test inconclusive")
-		SaveLog(Endpoint.UnexpectedTestError, "Test inconclusive")
+		SaveLog(ExitTestError, "Test inconclusive")
 		cleanup()
-		Endpoint.Stop(Endpoint.UnexpectedTestError) // Exit 999
+		Endpoint.Stop(ExitTestError) // Exit 999
 	}
 }
 
@@ -816,6 +866,7 @@ func main() {
 			LogMessage("ERROR", "Timeout", fmt.Sprintf("Test exceeded timeout of %v", timeout))
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("Test exceeded timeout of %v", timeout))
 		}
+		cleanup()
 		Endpoint.Stop(Endpoint.TimeoutExceeded)
 	}
 }

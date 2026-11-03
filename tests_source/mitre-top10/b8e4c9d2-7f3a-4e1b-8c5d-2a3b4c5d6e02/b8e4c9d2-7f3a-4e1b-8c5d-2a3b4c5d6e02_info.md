@@ -34,7 +34,8 @@ This combination reflects real-world attack patterns where adversaries first enu
 **Key Strengths**:
 - Combines native Windows commands with real offensive tooling (Rubeus)
 - Tests multiple ATT&CK techniques in a single execution
-- Optional tool loading allows testing with or without Rubeus
+- Optional tool loading allows testing with or without Rubeus (runtime-loaded from `c:\F0\tools\` — not embedded)
+- Domain-joined hosts are auto-detected: on standalone hosts the Rubeus phases skip explicitly; a failed kerberoast/asreproast run is classified as a benign operational failure (never as attack success, never as a block)
 - Read-only operations ensure safety
 - Comprehensive output capture for forensic analysis
 
