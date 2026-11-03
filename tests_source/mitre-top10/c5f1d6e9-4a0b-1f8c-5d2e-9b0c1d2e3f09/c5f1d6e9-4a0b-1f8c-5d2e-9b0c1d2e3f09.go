@@ -12,6 +12,7 @@ COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: initial-access
 TAGS: webshell, cmd-execution, exploit-public-facing, post-exploitation
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
 CREATED: 2026-01-11
 AUTHOR: sectest-builder
@@ -19,7 +20,7 @@ AUTHOR: sectest-builder
 package main
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,16 +31,34 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
-	"golang.org/x/sys/windows"
 )
 
 const (
 	TEST_UUID  = "c5f1d6e9-4a0b-1f8c-5d2e-9b0c1d2e3f09"
 	TEST_NAME  = "Webshell Post-Exploitation Simulation"
 	TARGET_DIR = "c:\\F0"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 )
+
+// isAdminContext gates denial classification (Bug Prevention Rule 8).
+var isAdminContext = false
+
+// probeAdminContext checks whether the current context is elevated.
+func probeAdminContext() bool {
+	return exec.Command("net", "session").Run() == nil
+}
+
+// isPositiveProtectionEvidence returns true ONLY for exact OS/policy denial
+// markers (generic words, PATH errors and localized variants are NOT evidence).
+func isPositiveProtectionEvidence(s string) bool {
+	return strings.Contains(s, "Access is denied") ||
+		strings.Contains(s, "This program is blocked by group policy") ||
+		strings.Contains(s, "Operation did not complete successfully because the file contains a virus")
+}
 
 // C2 test endpoint - harmless public service for connectivity verification
 const C2_ENDPOINT = "https://httpbin.org/post"
@@ -118,9 +137,14 @@ func executeReconCommand(rc ReconCommand) CommandResult {
 		cmd = exec.Command(rc.Command)
 	}
 
-	output, err := cmd.CombinedOutput()
+	// Tee output to console AND buffer; persist per-command output file
+	var outputBuffer bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuffer)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuffer)
+
+	err := cmd.Run()
 	result.Duration = time.Since(startTime)
-	result.Output = string(output)
+	result.Output = outputBuffer.String()
 
 	pid := 0
 	exitCode := 0
@@ -128,30 +152,30 @@ func executeReconCommand(rc ReconCommand) CommandResult {
 		pid = cmd.Process.Pid
 	}
 
+	if len(result.Output) > 0 {
+		outputPath := filepath.Join(TARGET_DIR, fmt.Sprintf("%s_output.txt", rc.Name))
+		os.WriteFile(outputPath, []byte(result.Output), 0644)
+	}
+
+	cmdLine := strings.Join(append([]string{rc.Command}, rc.Args...), " ")
+
 	if err != nil {
 		result.Error = err.Error()
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
 
-		// Check for blocked/denied indicators
-		outputLower := strings.ToLower(result.Output)
-		errorLower := strings.ToLower(err.Error())
-
-		if strings.Contains(outputLower, "access denied") ||
-			strings.Contains(outputLower, "blocked") ||
-			strings.Contains(outputLower, "not recognized") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorLower, "access denied") ||
-			strings.Contains(errorLower, "blocked") {
+		// Block ONLY on exact OS denial, admin-gated (Rule 8). "not recognized"
+		// is a PATH/missing-binary environment error — benign.
+		if isAdminContext && (isPositiveProtectionEvidence(result.Output) || isPositiveProtectionEvidence(result.Error)) {
 			result.Blocked = true
 			result.ExitCode = 126
-			LogProcessExecution(rc.Command, strings.Join(append([]string{rc.Command}, rc.Args...), " "), pid, false, 126, "Blocked by security controls")
+			LogProcessExecution(rc.Command, cmdLine, pid, false, 126, "Blocked by security controls (OS denial)")
 		} else {
-			// Command failed but not necessarily blocked
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				exitCode = exitErr.ExitCode()
-			} else {
-				exitCode = 1
-			}
 			result.ExitCode = exitCode
-			LogProcessExecution(rc.Command, strings.Join(append([]string{rc.Command}, rc.Args...), " "), pid, false, exitCode, err.Error())
+			LogProcessExecution(rc.Command, cmdLine, pid, false, exitCode, err.Error())
 		}
 		return result
 	}
@@ -159,7 +183,7 @@ func executeReconCommand(rc ReconCommand) CommandResult {
 	// Command succeeded
 	result.Success = true
 	result.ExitCode = 0
-	LogProcessExecution(rc.Command, strings.Join(append([]string{rc.Command}, rc.Args...), " "), pid, true, 0, "")
+	LogProcessExecution(rc.Command, cmdLine, pid, true, 0, "")
 
 	return result
 }
@@ -189,15 +213,10 @@ func performC2Callback(data string) (bool, bool, string) {
 	duration := time.Since(startTime)
 
 	if err != nil {
-		// Check if blocked by network security
+		// Network errors (DNS failure, refused connections, timeouts) are
+		// environmental conditions, NOT endpoint protection evidence (Rule 8).
 		errorStr := err.Error()
-		if strings.Contains(errorStr, "blocked") ||
-			strings.Contains(errorStr, "forbidden") ||
-			strings.Contains(errorStr, "connection refused") {
-			LogMessage("INFO", "C2 Callback", fmt.Sprintf("C2 callback blocked: %s (%v)", errorStr, duration))
-			return false, true, fmt.Sprintf("Blocked: %v", err)
-		}
-		LogMessage("ERROR", "C2 Callback", fmt.Sprintf("C2 callback failed: %s (%v)", errorStr, duration))
+		LogMessage("WARN", "C2 Callback", fmt.Sprintf("C2 callback network failure (benign, not protection evidence): %s (%v)", errorStr, duration))
 		return false, false, fmt.Sprintf("Network error: %v", err)
 	}
 	defer resp.Body.Close()
@@ -210,12 +229,11 @@ func performC2Callback(data string) (bool, bool, string) {
 		return true, false, fmt.Sprintf("HTTP %d - %d bytes received", resp.StatusCode, len(body))
 	}
 
-	// Non-success status codes
+	// Non-success status codes are the REMOTE service's response (httpbin),
+	// not endpoint protection — never classified as blocked (Rule 8).
 	if resp.StatusCode == 403 || resp.StatusCode == 451 {
-		LogMessage("INFO", "C2 Callback", fmt.Sprintf("C2 callback blocked by proxy/firewall: HTTP %d", resp.StatusCode))
-		return false, true, fmt.Sprintf("Blocked: HTTP %d", resp.StatusCode)
+		LogMessage("WARN", "C2 Callback", fmt.Sprintf("Remote endpoint returned HTTP %d (remote-service response, not endpoint protection)", resp.StatusCode))
 	}
-
 	return false, false, fmt.Sprintf("HTTP %d", resp.StatusCode)
 }
 
@@ -264,6 +282,12 @@ func cleanup() {
 	files := []string{
 		"webshell_recon_output.txt",
 		"test_summary.txt",
+		"whoami_output.txt",
+		"hostname_output.txt",
+		"ipconfig_output.txt",
+		"systeminfo_output.txt",
+		"netstat_output.txt",
+		"tasklist_output.txt",
 	}
 
 	for _, file := range files {
@@ -280,8 +304,10 @@ func test() {
 		if r := recover(); r != nil {
 			if globalLog != nil {
 				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+				SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
 			}
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -296,19 +322,23 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initializing test environment")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		LogPhaseError(0, fmt.Sprintf("Dropper initialization failed: %v", err))
-		LogPhaseEnd(0, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
 	// Create target directory
 	if err := os.MkdirAll(TARGET_DIR, 0755); err != nil {
 		LogPhaseError(0, fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to create target directory")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Failed to create target directory")
+		Endpoint.Stop(ExitTestError)
+	}
+
+	// Probe privilege context once — gates denial classification (Rule 8)
+	isAdminContext = probeAdminContext()
+	if isAdminContext {
+		LogMessage("INFO", "Initialization", "Running elevated (administrator)")
+	} else {
+		LogMessage("WARN", "Initialization", "Running NON-elevated — access-denied outcomes will be treated as benign environment results")
 	}
 
 	LogMessage("INFO", "Initialization", "Test environment ready")
@@ -457,9 +487,9 @@ Assessment:
 		// C2 failed but not blocked, some commands failed - network issue
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Network issues prevented full test")
 		LogMessage("WARN", "Final Assessment", "Test inconclusive due to network/environmental issues")
-		SaveLog(999, "Network unavailable for C2 callback")
+		SaveLog(ExitTestError, "Network unavailable for C2 callback")
 		cleanup()
-		Endpoint.Stop(999) // Exit 999 - network unavailable
+		Endpoint.Stop(ExitTestError) // Exit 999 - network unavailable
 	} else if successCount > 0 || c2Success {
 		// Some or all commands succeeded and C2 worked - unprotected
 		Endpoint.Say("\n[RESULT] UNPROTECTED - Webshell reconnaissance and C2 activity succeeded")
@@ -471,9 +501,9 @@ Assessment:
 		// Edge case
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Unable to determine protection status")
 		LogMessage("WARN", "Final Assessment", "Test inconclusive")
-		SaveLog(Endpoint.UnexpectedTestError, "Test inconclusive")
+		SaveLog(ExitTestError, "Test inconclusive")
 		cleanup()
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		Endpoint.Stop(ExitTestError)
 	}
 }
 
@@ -559,6 +589,7 @@ func main() {
 			LogMessage("ERROR", "Timeout", fmt.Sprintf("Test exceeded timeout of %v", timeout))
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("Test exceeded timeout of %v", timeout))
 		}
+		cleanup()
 		Endpoint.Stop(Endpoint.TimeoutExceeded)
 	}
 }

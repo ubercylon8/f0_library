@@ -1,4 +1,4 @@
-# Ransomware Encryption (Safe Mode)
+# Ransomware Encryption Simulation
 
 **Test Score**: **8.5/10**
 

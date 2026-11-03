@@ -1,9 +1,9 @@
-# Ransomware Encryption (Safe Mode)
+# Ransomware Encryption Simulation
 
 ## Test Information
 
 **Test ID**: b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08
-**Test Name**: Ransomware Encryption (Safe Mode)
+**Test Name**: Ransomware Encryption Simulation
 **Category**: Impact / Ransomware Simulation
 **Severity**: Critical
 **MITRE ATT&CK**: T1486, T1491.001

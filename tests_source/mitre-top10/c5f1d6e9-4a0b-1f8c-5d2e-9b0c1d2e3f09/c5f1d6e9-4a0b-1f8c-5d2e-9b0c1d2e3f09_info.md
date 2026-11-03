@@ -187,3 +187,13 @@ cd /home/jimx/F0RT1KA/f0_library
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2026-01-11 | Initial release with 6 recon commands + C2 callback |
+
+## Size Justification
+
+The compiled orchestrator is ~15 MB (Yellow tier, 10–25 MB): a single Go binary carrying the Schema v2.0 telemetry stack plus six child-process output captures and the TLS C2-beacon client. No .NET runtime or web-server components are embedded.
+
+## Realism constraints
+
+- **No webshell exists in this test**: no script file is dropped and no web-server worker process is exercised. Recon commands run as children of the test binary, so the defining `w3wp.exe -> cmd.exe` lineage is absent (future work; requires a lab web role).
+- **C2 beacon** targets the benign public service httpbin.org; a controlled attacker-style endpoint would strengthen network detections.
+- **T1190 mapping** denotes the attack stage the recon represents (post-exploitation after a hypothetical public-facing-app compromise), not an executed exploitation step.

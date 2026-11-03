@@ -4,7 +4,9 @@
 
 ## Overview
 
-This test simulates the POST-EXPLOITATION phase after a webshell has been deployed on a compromised system. It executes reconnaissance commands that webshells typically run to gather system information and attempts a C2 (Command and Control) callback to simulate data exfiltration. This test evaluates whether EDR/AV solutions can detect and block webshell-like activity patterns.
+This test simulates the POST-EXPLOITATION phase after a webshell has been deployed on a compromised system. It executes reconnaissance commands that webshells typically run to gather system information and attempts a C2 (Command and Control) callback to simulate data exfiltration. **Scope honesty (audit 2026-11-03):** this test does NOT drop a webshell and does NOT exploit a public-facing application — no web server is involved. It executes the post-exploitation recon sequence (whoami/hostname/ipconfig/systeminfo/netstat/tasklist + a TLS C2-style beacon) as children of the test binary, not of a web-server worker process. The `w3wp.exe -> cmd.exe` lineage that defines real webshell detection cannot be produced by this test; that variant is future work. The T1190 mapping reflects the attack stage this recon represents.
+
+This test evaluates whether EDR/AV solutions can detect and block webshell-like activity patterns.
 
 ## MITRE ATT&CK Mapping
 

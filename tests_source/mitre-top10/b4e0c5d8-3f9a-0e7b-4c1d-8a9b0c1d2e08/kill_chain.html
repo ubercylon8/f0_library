@@ -169,7 +169,7 @@
 
         <div class="diagram-panel">
             <div class="diagram-bar">
-                <h2>Kill Chain &mdash; Stage Progression</h2>
+                <h2>Kill Chain &mdash; Monolithic Single-Binary Flow (in-process phases)</h2>
                 <div class="legend">
                     <span class="legend-item"><span class="legend-dot stage"></span> Stage</span>
                     <span class="legend-item"><span class="legend-dot prot"></span> Protected</span>
@@ -189,19 +189,19 @@
             <div class="stage-card">
                 <div class="sc-header"><div class="sc-num">2</div><span class="sc-title">AES Key Generation</span></div>
                 <div class="sc-tech">T1486 &mdash; Data Encrypted for Impact</div>
-                <p class="sc-desc">Generates a 256-bit AES encryption key and validates it by creating an AES cipher. The key is logged but never used for actual encryption.</p>
-                <div class="sc-chips"><span class="chip">AES-256</span><span class="chip">crypto/aes</span><span class="chip">key validation</span></div>
+                <p class="sc-desc">Generates a 256-bit AES session key and validates it by creating an AES-GCM cipher. The key encrypts the test's own decoy files; plaintext is retained in memory for restoration.</p>
+                <div class="sc-chips"><span class="chip">AES-256-GCM</span><span class="chip">crypto/aes+cipher</span><span class="chip">session key</span></div>
             </div>
             <div class="stage-card">
                 <div class="sc-header"><div class="sc-num">3</div><span class="sc-title">File Encryption Sim</span></div>
                 <div class="sc-tech">T1486 &mdash; Data Encrypted for Impact</div>
-                <p class="sc-desc">Renames each document file with a .f0rtika extension, simulating mass encryption. Monitors for EDR intervention on file rename operations.</p>
-                <div class="sc-chips"><span class="chip">.f0rtika ext</span><span class="chip">mass rename</span><span class="chip">os.Rename</span></div>
+                <p class="sc-desc">Encrypts each decoy in place with AES-256-GCM (ciphertext verified &ne; plaintext), then renames with the .f0rtika extension. Quarantine of decoys is detected via os.Stat re-poll.</p>
+                <div class="sc-chips"><span class="chip">AES-256-GCM in-place</span><span class="chip">.f0rtika ext</span><span class="chip">os.Stat quarantine check</span></div>
             </div>
             <div class="stage-card">
                 <div class="sc-header"><div class="sc-num">4</div><span class="sc-title">Ransom Note Drop</span></div>
                 <div class="sc-tech">T1491.001 &mdash; Internal Defacement</div>
-                <p class="sc-desc">Creates README_F0RTIKA.txt ransom note in the user directory containing simulated payment instructions and attack details.</p>
+                <p class="sc-desc">Creates README_F0RTIKA.txt in the user directory; disappearance of the note after a wait window is os.Stat-verified quarantine evidence (exit 127).</p>
                 <div class="sc-chips"><span class="chip">README_F0RTIKA.txt</span><span class="chip">defacement</span><span class="chip">user dir</span></div>
             </div>
         </div>
@@ -209,11 +209,11 @@
         <div class="outcomes">
             <div class="outcome prot">
                 <h3>&#x2705; Protected <span class="code">(Exit 126)</span></h3>
-                <p>EDR blocked file rename operations or ransom note creation. Behavioral detection triggered on mass file operations or suspicious extension pattern.</p>
+                <p>Positive protection evidence only: OS denial on the test's own file writes/renames, or os.Stat-confirmed quarantine of decoys (126) / ransom note (127). Benign failures map to 999.</p>
             </div>
             <div class="outcome unprot">
                 <h3>&#x26A0; Unprotected <span class="code">(Exit 101)</span></h3>
-                <p>All 4 stages executed without EDR intervention. Files renamed with .f0rtika extension and ransom note created successfully.</p>
+                <p>All in-process phases executed without intervention: decoys encrypted (AES-256-GCM) and renamed, ransom note created. Originals restored at cleanup.</p>
             </div>
         </div>
     </div>
@@ -238,27 +238,23 @@
 
     // -- Kill Chain Strip --
     const elements = [
-        { data: { id: 'deploy', label: 'DEPLOY\nc:\\F0', type: 'orchestrator' } },
-        { data: { id: 'extract', label: 'EXTRACT\n4 stages', type: 'orchestrator' } },
-        { data: { id: 's1', label: 'STAGE 1\nFile Staging\nT1486', type: 'stage', stage: 1 } },
-        { data: { id: 's2', label: 'STAGE 2\nAES Key Gen\nT1486', type: 'stage', stage: 2 } },
-        { data: { id: 's3', label: 'STAGE 3\nFile Encryption\nT1486', type: 'stage', stage: 3 } },
-        { data: { id: 's4', label: 'STAGE 4\nRansom Note\nT1491.001', type: 'stage', stage: 4 } },
+        { data: { id: 'deploy', label: 'DEPLOY\nsingle binary\nc:\\F0', type: 'orchestrator' } },
+        { data: { id: 's1', label: 'PHASE 1-2\nDecoy Staging\n10 documents', type: 'stage', stage: 1 } },
+        { data: { id: 's2', label: 'PHASE 3\nAES-256 Key Gen\nT1486', type: 'stage', stage: 2 } },
+        { data: { id: 's3', label: 'PHASE 4\nEncrypt + Rename\nT1486', type: 'stage', stage: 3 } },
+        { data: { id: 's4', label: 'PHASE 4b\nRansom Note\nT1491.001', type: 'stage', stage: 4 } },
+        { data: { id: 'cleanup', label: 'CLEANUP\nrestore plaintext\ndelete artifacts', type: 'orchestrator' } },
         { data: { id: 'success', label: 'EXIT 101\nUNPROTECTED', type: 'unprotected' } },
-        { data: { id: 'p1', label: '126\nFile creation blocked', type: 'protected' } },
-        { data: { id: 'p2', label: '126\nCrypto blocked', type: 'protected' } },
-        { data: { id: 'p3', label: '126\nRename blocked', type: 'protected' } },
-        { data: { id: 'p4', label: '126\nNote blocked', type: 'protected' } },
-        { data: { source: 'deploy', target: 'extract' } },
-        { data: { source: 'extract', target: 's1' } },
+        { data: { id: 'p1', label: '127\nNote quarantined\n(os.Stat)', type: 'protected' } },
+        { data: { id: 'p3', label: '126\nWrite/rename denied\nor decoy quarantined', type: 'protected' } },
+        { data: { source: 'deploy', target: 's1' } },
         { data: { source: 's1', target: 's2', label: 'pass' } },
         { data: { source: 's2', target: 's3', label: 'pass' } },
         { data: { source: 's3', target: 's4', label: 'pass' } },
         { data: { source: 's4', target: 'success', label: 'pass' } },
-        { data: { source: 's1', target: 'p1', label: 'blocked' } },
-        { data: { source: 's2', target: 'p2', label: 'blocked' } },
         { data: { source: 's3', target: 'p3', label: 'blocked' } },
-        { data: { source: 's4', target: 'p4', label: 'blocked' } },
+        { data: { source: 's4', target: 'p1', label: 'quarantined' } },
+        { data: { source: 'success', target: 'cleanup' } },
     ];
 
     const cy = cytoscape({
