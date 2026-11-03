@@ -10,22 +10,29 @@ import (
 	"strings"
 	"syscall"
 
+	cyberhygiene "f0_library/tests_source/cyber-hygiene/shared"
 	"golang.org/x/sys/windows/registry"
 )
 
 // CheckResult represents the result of a single configuration check
 type CheckResult struct {
-	ControlID   string // Stable control ID e.g. "CH-DEF-001"
-	Name        string
-	Category    string
-	Description string
-	Passed      bool
-	Expected    string
-	Actual      string
-	Details     string
-	Severity    string   // critical, high, medium, low
-	Techniques  []string // MITRE ATT&CK technique IDs
-	Tactics     []string // MITRE ATT&CK tactic names (kebab-case)
+	ControlID      string
+	Name           string
+	Category       string
+	Description    string
+	Passed         bool
+	Status         cyberhygiene.ControlStatus
+	Expected       string
+	Actual         string
+	Details        string
+	Severity       string
+	Techniques     []string
+	Tactics        []string
+	Applicability  string
+	EvidenceSource string
+	ObservedAt     string
+	Remediation    string
+	Evidence       map[string]interface{}
 }
 
 // ValidatorResult represents the result of a complete validator (group of checks)

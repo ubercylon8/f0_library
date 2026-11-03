@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -28,6 +29,8 @@ func RunDefenderChecks() ValidatorResult {
 		checkCloudProtection(),
 		checkSampleSubmission(),
 		checkPUAProtection(),
+		checkDefenderServiceMode(),
+		checkSignatureFreshness(),
 	}
 
 	passed, failed := AggregateValidatorResults(checks)
@@ -45,103 +48,100 @@ func RunDefenderChecks() ValidatorResult {
 // checkRealTimeProtection verifies real-time protection is enabled
 func checkRealTimeProtection() CheckResult {
 	result := CheckResult{
-		ControlID:   "CH-DEF-001",
-		Name:        "Real-time Protection",
-		Category:    "defender",
-		Description: "Checks if real-time protection is enabled",
-		Severity:    "critical",
-		Expected:    "Enabled (DisableRealtimeMonitoring = 0 or not set)",
-		Techniques:  []string{"T1562.001"},
-		Tactics:     []string{"defense-evasion"},
+		ControlID:      "CH-DEF-001",
+		Name:           "Real-time Protection",
+		Category:       "defender",
+		Description:    "Checks live Defender real-time protection and antimalware service state",
+		Severity:       "critical",
+		Expected:       "RealTimeProtectionEnabled=True and AMServiceEnabled=True",
+		Techniques:     []string{"T1562.001"},
+		Tactics:        []string{"defense-evasion"},
+		EvidenceSource: "Get-MpComputerStatus",
 	}
 
-	// Check via PowerShell first (most reliable)
-	output, err := RunPowerShell("(Get-MpPreference).DisableRealtimeMonitoring")
-	if err == nil {
-		isDisabled := strings.TrimSpace(output) == "True"
-		result.Passed = !isDisabled
-		result.Actual = BoolToEnabledDisabled(!isDisabled)
-		result.Details = result.Actual
-		return result
-	}
-
-	// Fallback to registry
-	// If DisableRealtimeMonitoring doesn't exist or is 0, protection is enabled
-	match, val, err := CheckRegistryDWORD(registry.LOCAL_MACHINE, DefenderRealTimePath, "DisableRealtimeMonitoring", 0)
+	output, err := RunPowerShell(`$s = Get-MpComputerStatus -ErrorAction Stop; $s | Select-Object RealTimeProtectionEnabled, AMServiceEnabled | ConvertTo-Json -Compress`)
 	if err != nil {
-		// Key doesn't exist - protection is enabled by default
-		result.Passed = true
-		result.Actual = "Enabled (default)"
-		result.Details = result.Actual
+		result.Status = "UNKNOWN"
+		result.Actual = "Unable to query Defender status"
+		result.Details = err.Error()
 		return result
 	}
-
-	result.Passed = match
-	result.Actual = fmt.Sprintf("DisableRealtimeMonitoring = %d", val)
-	result.Details = BoolToEnabledDisabled(match)
+	var status struct {
+		RealTimeProtectionEnabled *bool `json:"RealTimeProtectionEnabled"`
+		AMServiceEnabled          *bool `json:"AMServiceEnabled"`
+	}
+	if err := json.Unmarshal([]byte(output), &status); err != nil || status.RealTimeProtectionEnabled == nil || status.AMServiceEnabled == nil {
+		result.Status = "UNKNOWN"
+		result.Actual = "Defender status response was incomplete"
+		result.Details = strings.TrimSpace(output)
+		return result
+	}
+	result.Passed = *status.RealTimeProtectionEnabled && *status.AMServiceEnabled
+	result.Actual = fmt.Sprintf("RealTimeProtectionEnabled=%t, AMServiceEnabled=%t", *status.RealTimeProtectionEnabled, *status.AMServiceEnabled)
+	result.Details = result.Actual
 	return result
 }
 
 // checkBehaviorMonitoring verifies behavior monitoring is enabled
 func checkBehaviorMonitoring() CheckResult {
 	result := CheckResult{
-		ControlID:   "CH-DEF-002",
-		Name:        "Behavior Monitoring",
-		Category:    "defender",
-		Description: "Checks if behavior monitoring is enabled",
-		Severity:    "high",
-		Expected:    "Enabled (DisableBehaviorMonitoring = 0 or not set)",
-		Techniques:  []string{"T1562.001"},
-		Tactics:     []string{"defense-evasion"},
+		ControlID:      "CH-DEF-002",
+		Name:           "Behavior Monitoring",
+		Category:       "defender",
+		Description:    "Checks live Defender behavior monitoring state",
+		Severity:       "high",
+		Expected:       "BehaviorMonitorEnabled=True",
+		Techniques:     []string{"T1562.001"},
+		Tactics:        []string{"defense-evasion"},
+		EvidenceSource: "Get-MpComputerStatus",
 	}
 
-	output, err := RunPowerShell("(Get-MpPreference).DisableBehaviorMonitoring")
-	if err == nil {
-		isDisabled := strings.TrimSpace(output) == "True"
-		result.Passed = !isDisabled
-		result.Actual = BoolToEnabledDisabled(!isDisabled)
-		result.Details = result.Actual
-		return result
-	}
-
-	match, val, err := CheckRegistryDWORD(registry.LOCAL_MACHINE, DefenderRealTimePath, "DisableBehaviorMonitoring", 0)
+	output, err := RunPowerShell(`$s = Get-MpComputerStatus -ErrorAction Stop; $s | Select-Object BehaviorMonitorEnabled | ConvertTo-Json -Compress`)
 	if err != nil {
-		result.Passed = true
-		result.Actual = "Enabled (default)"
-		result.Details = result.Actual
+		result.Status = "UNKNOWN"
+		result.Actual = "Unable to query Defender behavior monitoring"
+		result.Details = err.Error()
 		return result
 	}
-
-	result.Passed = match
-	result.Actual = fmt.Sprintf("DisableBehaviorMonitoring = %d", val)
-	result.Details = BoolToEnabledDisabled(match)
+	var status struct {
+		BehaviorMonitorEnabled *bool `json:"BehaviorMonitorEnabled"`
+	}
+	if err := json.Unmarshal([]byte(output), &status); err != nil || status.BehaviorMonitorEnabled == nil {
+		result.Status = "UNKNOWN"
+		result.Actual = "Behavior monitoring state was not reported"
+		result.Details = strings.TrimSpace(output)
+		return result
+	}
+	result.Passed = *status.BehaviorMonitorEnabled
+	result.Actual = BoolToEnabledDisabled(result.Passed)
+	result.Details = result.Actual
 	return result
 }
 
 // checkTamperProtection verifies tamper protection is enabled
 func checkTamperProtection() CheckResult {
 	result := CheckResult{
-		ControlID:   "CH-DEF-003",
-		Name:        "Tamper Protection",
-		Category:    "defender",
-		Description: "Checks if tamper protection is enabled",
-		Severity:    "critical",
-		Expected:    "Enabled",
-		Techniques:  []string{"T1562.001"},
-		Tactics:     []string{"defense-evasion"},
+		ControlID:      "CH-DEF-003",
+		Name:           "Tamper Protection",
+		Category:       "defender",
+		Description:    "Checks if tamper protection is enabled",
+		Severity:       "critical",
+		Expected:       "Enabled",
+		Techniques:     []string{"T1562.001"},
+		Tactics:        []string{"defense-evasion"},
+		EvidenceSource: "Get-MpComputerStatus.IsTamperProtected",
 	}
 
 	output, err := RunPowerShell("(Get-MpComputerStatus).IsTamperProtected")
-	if err == nil {
-		isEnabled := strings.TrimSpace(output) == "True"
-		result.Passed = isEnabled
-		result.Actual = BoolToEnabledDisabled(isEnabled)
+	value := strings.TrimSpace(output)
+	if err == nil && value != "" {
+		result.Passed = value == "True"
+		result.Actual = BoolToEnabledDisabled(result.Passed)
 		result.Details = result.Actual
 		return result
 	}
 
-	// Cannot determine status
-	result.Passed = false
+	result.Status = "UNKNOWN"
 	result.Actual = "Unable to determine"
 	result.Details = "Could not query tamper protection status"
 	return result
@@ -150,22 +150,27 @@ func checkTamperProtection() CheckResult {
 // checkCloudProtection verifies cloud-delivered protection (MAPS) is enabled
 func checkCloudProtection() CheckResult {
 	result := CheckResult{
-		ControlID:   "CH-DEF-004",
-		Name:        "Cloud Protection (MAPS)",
-		Category:    "defender",
-		Description: "Checks if cloud-delivered protection is enabled",
-		Severity:    "high",
-		Expected:    "Enabled (MAPSReporting >= 1)",
-		Techniques:  []string{"T1562.001"},
-		Tactics:     []string{"defense-evasion"},
+		ControlID:      "CH-DEF-004",
+		Name:           "Cloud Protection (MAPS)",
+		Category:       "defender",
+		Description:    "Checks if cloud-delivered protection is enabled",
+		Severity:       "high",
+		Expected:       "Enabled (MAPSReporting >= 1)",
+		Techniques:     []string{"T1562.001"},
+		Tactics:        []string{"defense-evasion"},
+		EvidenceSource: "Get-MpPreference.MAPSReporting or SpynetReporting policy",
 	}
 
 	output, err := RunPowerShell("(Get-MpPreference).MAPSReporting")
 	if err == nil {
 		level := strings.TrimSpace(output)
-		// 0 = Disabled, 1 = Basic, 2 = Advanced
-		isEnabled := level != "0" && level != ""
-		result.Passed = isEnabled
+		if level == "" {
+			result.Status = "UNKNOWN"
+			result.Actual = "MAPSReporting was not reported"
+			result.Details = result.Actual
+			return result
+		}
+		result.Passed = level != "0"
 		switch level {
 		case "0":
 			result.Actual = "Disabled"
@@ -180,15 +185,13 @@ func checkCloudProtection() CheckResult {
 		return result
 	}
 
-	// Fallback to registry - SpynetReporting
 	match, val, err := CheckRegistryDWORDMinimum(registry.LOCAL_MACHINE, DefenderSpynetPath, "SpynetReporting", 1)
 	if err != nil {
-		result.Passed = true
-		result.Actual = "Enabled (default)"
-		result.Details = result.Actual
+		result.Status = "UNKNOWN"
+		result.Actual = "Cloud protection state unavailable"
+		result.Details = "PowerShell query failed and no explicit SpynetReporting policy exists"
 		return result
 	}
-
 	result.Passed = match
 	result.Actual = fmt.Sprintf("SpynetReporting = %d", val)
 	result.Details = BoolToEnabledDisabled(match)
@@ -198,22 +201,27 @@ func checkCloudProtection() CheckResult {
 // checkSampleSubmission verifies automatic sample submission is enabled
 func checkSampleSubmission() CheckResult {
 	result := CheckResult{
-		ControlID:   "CH-DEF-005",
-		Name:        "Sample Submission",
-		Category:    "defender",
-		Description: "Checks if automatic sample submission is enabled",
-		Severity:    "medium",
-		Expected:    "Enabled (SubmitSamplesConsent >= 1)",
-		Techniques:  []string{"T1562.001"},
-		Tactics:     []string{"defense-evasion"},
+		ControlID:      "CH-DEF-005",
+		Name:           "Sample Submission",
+		Category:       "defender",
+		Description:    "Checks if automatic sample submission is enabled",
+		Severity:       "medium",
+		Expected:       "Send safe samples (1) or all samples (3)",
+		Techniques:     []string{"T1562.001"},
+		Tactics:        []string{"defense-evasion"},
+		EvidenceSource: "Get-MpPreference.SubmitSamplesConsent or policy registry",
 	}
 
 	output, err := RunPowerShell("(Get-MpPreference).SubmitSamplesConsent")
 	if err == nil {
 		level := strings.TrimSpace(output)
-		// 0 = Always prompt, 1 = Send safe samples, 2 = Never send, 3 = Send all
-		isEnabled := level == "1" || level == "3"
-		result.Passed = isEnabled
+		if level == "" {
+			result.Status = "UNKNOWN"
+			result.Actual = "SubmitSamplesConsent was not reported"
+			result.Details = result.Actual
+			return result
+		}
+		result.Passed = level == "1" || level == "3"
 		switch level {
 		case "0":
 			result.Actual = "Always Prompt"
@@ -230,16 +238,14 @@ func checkSampleSubmission() CheckResult {
 		return result
 	}
 
-	// Fallback to registry
-	match, val, err := CheckRegistryDWORDMinimum(registry.LOCAL_MACHINE, DefenderSpynetPath, "SubmitSamplesConsent", 1)
+	_, val, err := CheckRegistryDWORDMinimum(registry.LOCAL_MACHINE, DefenderSpynetPath, "SubmitSamplesConsent", 1)
 	if err != nil {
-		result.Passed = true
-		result.Actual = "Enabled (default)"
-		result.Details = result.Actual
+		result.Status = "UNKNOWN"
+		result.Actual = "Sample submission state unavailable"
+		result.Details = "PowerShell query failed and no explicit SubmitSamplesConsent policy exists"
 		return result
 	}
-
-	result.Passed = match && val != 2
+	result.Passed = val == 1 || val == 3
 	result.Actual = fmt.Sprintf("SubmitSamplesConsent = %d", val)
 	result.Details = BoolToEnabledDisabled(result.Passed)
 	return result
@@ -248,29 +254,34 @@ func checkSampleSubmission() CheckResult {
 // checkPUAProtection verifies potentially unwanted application protection is enabled
 func checkPUAProtection() CheckResult {
 	result := CheckResult{
-		ControlID:   "CH-DEF-006",
-		Name:        "PUA Protection",
-		Category:    "defender",
-		Description: "Checks if potentially unwanted application protection is enabled",
-		Severity:    "medium",
-		Expected:    "Enabled (PUAProtection = 1 or 2)",
-		Techniques:  []string{"T1562.001"},
-		Tactics:     []string{"defense-evasion"},
+		ControlID:      "CH-DEF-006",
+		Name:           "PUA Protection",
+		Category:       "defender",
+		Description:    "Checks if potentially unwanted application protection blocks unwanted software",
+		Severity:       "medium",
+		Expected:       "Block mode (PUAProtection = 1); Audit mode is not blocking",
+		Techniques:     []string{"T1562.001"},
+		Tactics:        []string{"defense-evasion"},
+		EvidenceSource: "Get-MpPreference.PUAProtection or MpEnablePus policy",
 	}
 
 	output, err := RunPowerShell("(Get-MpPreference).PUAProtection")
 	if err == nil {
 		level := strings.TrimSpace(output)
-		// 0 = Disabled, 1 = Enabled (block), 2 = Audit mode
-		isEnabled := level == "1" || level == "2"
-		result.Passed = isEnabled
+		if level == "" {
+			result.Status = "UNKNOWN"
+			result.Actual = "PUAProtection was not reported"
+			result.Details = result.Actual
+			return result
+		}
+		result.Passed = level == "1"
 		switch level {
 		case "0":
 			result.Actual = "Disabled"
 		case "1":
 			result.Actual = "Enabled (Block)"
 		case "2":
-			result.Actual = "Audit Mode"
+			result.Actual = "Audit Mode (not blocking)"
 		default:
 			result.Actual = level
 		}
@@ -278,17 +289,86 @@ func checkPUAProtection() CheckResult {
 		return result
 	}
 
-	// Fallback to registry
-	match, val, err := CheckRegistryDWORDMinimum(registry.LOCAL_MACHINE, DefenderMpEnginePath, "MpEnablePus", 1)
+	_, val, err := CheckRegistryDWORDMinimum(registry.LOCAL_MACHINE, DefenderMpEnginePath, "MpEnablePus", 1)
 	if err != nil {
-		result.Passed = false
-		result.Actual = "Not configured"
-		result.Details = result.Actual
+		result.Status = "UNKNOWN"
+		result.Actual = "PUA protection state unavailable"
+		result.Details = "PowerShell query failed and no explicit MpEnablePus policy exists"
 		return result
 	}
-
-	result.Passed = match
+	result.Passed = val == 1
 	result.Actual = fmt.Sprintf("MpEnablePus = %d", val)
-	result.Details = BoolToEnabledDisabled(match)
+	result.Details = BoolToEnabledDisabled(result.Passed)
+	return result
+}
+
+func checkDefenderServiceMode() CheckResult {
+	result := CheckResult{
+		ControlID:      "CH-DEF-007",
+		Name:           "Defender Active Service Mode",
+		Category:       "defender",
+		Description:    "Checks that Defender Antivirus is active rather than disabled or in passive mode",
+		Severity:       "critical",
+		Expected:       "AMServiceEnabled=True and AMRunningMode is Normal or Active",
+		Techniques:     []string{"T1562.001"},
+		Tactics:        []string{"defense-evasion"},
+		EvidenceSource: "Get-MpComputerStatus",
+	}
+	output, err := RunPowerShell(`$s = Get-MpComputerStatus -ErrorAction Stop; $s | Select-Object AMServiceEnabled, AMRunningMode | ConvertTo-Json -Compress`)
+	if err != nil {
+		result.Status = "UNKNOWN"
+		result.Actual = "Unable to query Defender service mode"
+		result.Details = err.Error()
+		return result
+	}
+	var status struct {
+		AMServiceEnabled *bool  `json:"AMServiceEnabled"`
+		AMRunningMode    string `json:"AMRunningMode"`
+	}
+	if err := json.Unmarshal([]byte(output), &status); err != nil || status.AMServiceEnabled == nil || strings.TrimSpace(status.AMRunningMode) == "" {
+		result.Status = "UNKNOWN"
+		result.Actual = "Defender service mode was not fully reported"
+		result.Details = strings.TrimSpace(output)
+		return result
+	}
+	mode := strings.ToLower(strings.TrimSpace(status.AMRunningMode))
+	result.Passed = *status.AMServiceEnabled && (mode == "normal" || mode == "active")
+	result.Actual = fmt.Sprintf("AMServiceEnabled=%t, AMRunningMode=%s", *status.AMServiceEnabled, status.AMRunningMode)
+	result.Details = result.Actual
+	return result
+}
+
+func checkSignatureFreshness() CheckResult {
+	result := CheckResult{
+		ControlID:      "CH-DEF-008",
+		Name:           "Defender Signature Freshness",
+		Category:       "defender",
+		Description:    "Checks that Defender antivirus signatures are current",
+		Severity:       "high",
+		Expected:       "AntivirusSignatureAge <= 7 days",
+		Techniques:     []string{"T1562.001"},
+		Tactics:        []string{"defense-evasion"},
+		EvidenceSource: "Get-MpComputerStatus",
+	}
+	output, err := RunPowerShell(`$s = Get-MpComputerStatus -ErrorAction Stop; $s | Select-Object AntivirusSignatureAge, AntivirusSignatureVersion | ConvertTo-Json -Compress`)
+	if err != nil {
+		result.Status = "UNKNOWN"
+		result.Actual = "Unable to query Defender signature age"
+		result.Details = err.Error()
+		return result
+	}
+	var status struct {
+		AntivirusSignatureAge     *int   `json:"AntivirusSignatureAge"`
+		AntivirusSignatureVersion string `json:"AntivirusSignatureVersion"`
+	}
+	if err := json.Unmarshal([]byte(output), &status); err != nil || status.AntivirusSignatureAge == nil || *status.AntivirusSignatureAge < 0 {
+		result.Status = "UNKNOWN"
+		result.Actual = "Defender signature age was not reported"
+		result.Details = strings.TrimSpace(output)
+		return result
+	}
+	result.Passed = *status.AntivirusSignatureAge <= 7
+	result.Actual = fmt.Sprintf("Age=%d days, Version=%s", *status.AntivirusSignatureAge, status.AntivirusSignatureVersion)
+	result.Details = result.Actual
 	return result
 }

@@ -1,0 +1,160 @@
+// Scope: behavioral detections for real SentinelOne agent tampering (T1562.001).
+// The assessed implementation is read-only and performs no attack or network activity.
+// No network query is included: local service, executable-version, and central-policy
+// compliance checks do not provide a defensible network detection. Central prevention,
+// anti-tampering, and detection-engine policy state require SentinelOne management telemetry.
+// Data sources: Microsoft Defender advanced hunting tables and Microsoft Sentinel WindowsEvent.
+
+// ============================================================
+// Detection: SentinelOne Service or Process Tampering Command
+// MITRE ATT&CK: T1562.001
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect commands that stop, disable, delete, or terminate SentinelAgent.
+// False Positives: Authorized maintenance, upgrades, and incident-response actions.
+// Tuning: Allow approved administrators and maintenance windows, not broad tool names.
+// Threshold: Investigate every occurrence outside an approved change window.
+// ============================================================
+DeviceProcessEvents
+| where Timestamp > ago(24h)
+| where ProcessCommandLine has "SentinelAgent"
+| where ProcessCommandLine has_any ("stop", "delete", "disabled", "kill", "taskkill", "terminate", "uninstall")
+| extend
+    Severity = "High",
+    ThreatType = "SentinelOne defense-evasion command",
+    MitreAttack = "T1562.001"
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: SentinelOne Agent Service Stopped or Reconfigured
+// MITRE ATT&CK: T1562.001
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect unexpected termination, a stopped state, or a start-type change.
+// False Positives: Administrator service control, endpoint upgrades, and system shutdown.
+// Tuning: Correlate with approved change records and Windows shutdown events.
+// Threshold: Investigate every 7031/7034 event and every non-approved 7036/7040 event.
+// ============================================================
+WindowsEvent
+| where TimeGenerated > ago(24h)
+| extend ServiceEvent = tostring(EventData)
+| where ServiceEvent has "SentinelAgent"
+| where EventID in (7031, 7034, 7040)
+    or (EventID == 7036 and ServiceEvent has "stopped")
+| extend
+    Severity = "High",
+    ThreatType = "SentinelOne service impairment",
+    MitreAttack = "T1562.001"
+| project TimeGenerated, Computer, EventID, ServiceEvent, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: SentinelOne Agent Process Termination
+// MITRE ATT&CK: T1562.001
+// Confidence: Low
+// ============================================================
+// Purpose: Detect termination of the SentinelOne agent process using Security event 4689.
+// False Positives: Normal shutdown, upgrades, and authorized service administration.
+// Tuning: Require process-termination auditing and correlate with the initiating logon/session.
+// Threshold: Investigate termination without a corresponding approved maintenance activity.
+// ============================================================
+WindowsEvent
+| where TimeGenerated > ago(24h)
+| where EventID == 4689
+| extend ProcessPath = tostring(EventData.ProcessName)
+| where ProcessPath endswith @"\SentinelAgent.exe"
+| extend
+    Severity = "Medium",
+    ThreatType = "SentinelOne process termination",
+    MitreAttack = "T1562.001"
+| project TimeGenerated, Computer, ProcessPath, EventData, Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: SentinelOne Installation Binary Modified or Removed
+// MITRE ATT&CK: T1562.001
+// Confidence: Medium
+// ============================================================
+// Purpose: Detect changes to executable content under the assessed installation directory.
+// False Positives: SentinelOne upgrades, repair operations, and authorized removal.
+// Tuning: Review the initiating process and signer; suppress only verified updater activity.
+// Threshold: Investigate every non-updater modification, deletion, or rename.
+// ============================================================
+DeviceFileEvents
+| where Timestamp > ago(24h)
+| where ActionType in ("FileModified", "FileDeleted", "FileRenamed")
+| where FolderPath startswith @"C:\Program Files\SentinelOne\Sentinel Agent\"
+| where FileName endswith ".exe" or FileName endswith ".dll" or FileName endswith ".sys"
+| extend
+    Severity = "High",
+    ThreatType = "SentinelOne installation tampering",
+    MitreAttack = "T1562.001"
+| project Timestamp, DeviceName, ActionType, FileName, FolderPath,
+    InitiatingProcessAccountName, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: SentinelOne Service Registry Configuration Changed
+// MITRE ATT&CK: T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detect modification or deletion of settings that control SentinelAgent startup.
+// False Positives: Installation, upgrade, repair, and authorized endpoint reconfiguration.
+// Tuning: Verify the initiating process against a signed SentinelOne installer or updater.
+// Threshold: Investigate every change to Start, ImagePath, FailureActions, or ObjectName.
+// ============================================================
+DeviceRegistryEvents
+| where Timestamp > ago(24h)
+| where ActionType in ("RegistryValueSet", "RegistryValueDeleted", "RegistryKeyDeleted")
+| where RegistryKey has @"\Services\SentinelAgent"
+| where ActionType == "RegistryKeyDeleted"
+    or RegistryValueName in ("Start", "ImagePath", "FailureActions", "ObjectName")
+| extend
+    Severity = "High",
+    ThreatType = "SentinelOne service configuration tampering",
+    MitreAttack = "T1562.001"
+| project Timestamp, DeviceName, ActionType, RegistryKey, RegistryValueName, RegistryValueData,
+    InitiatingProcessAccountName, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack
+
+// ============================================================
+// Detection: Correlated SentinelOne Command and Persistent Tampering
+// MITRE ATT&CK: T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Correlate a tampering command with a file or service-registry change on one host.
+// False Positives: Authorized removal or upgrade can produce the same sequence.
+// Tuning: Use change windows as exceptions only after validating administrator and installer.
+// Threshold: Two distinct evidence categories on one device within 10 minutes.
+// ============================================================
+let TamperCommands = DeviceProcessEvents
+    | where Timestamp > ago(24h)
+    | where ProcessCommandLine has "SentinelAgent"
+    | where ProcessCommandLine has_any ("stop", "delete", "disabled", "kill", "taskkill", "terminate", "uninstall")
+    | project Timestamp, DeviceName, Evidence = "Tampering command", Details = ProcessCommandLine;
+let AgentChanges = union
+    (DeviceFileEvents
+        | where Timestamp > ago(24h)
+        | where ActionType in ("FileModified", "FileDeleted", "FileRenamed")
+        | where FolderPath startswith @"C:\Program Files\SentinelOne\Sentinel Agent\"
+        | where FileName endswith ".exe" or FileName endswith ".dll" or FileName endswith ".sys"
+        | project Timestamp, DeviceName, Evidence = "Installation file change",
+            Details = strcat(ActionType, ": ", FolderPath)),
+    (DeviceRegistryEvents
+        | where Timestamp > ago(24h)
+        | where ActionType in ("RegistryValueSet", "RegistryValueDeleted", "RegistryKeyDeleted")
+        | where RegistryKey has @"\Services\SentinelAgent"
+        | where ActionType == "RegistryKeyDeleted"
+            or RegistryValueName in ("Start", "ImagePath", "FailureActions", "ObjectName")
+        | project Timestamp, DeviceName, Evidence = "Service registry change",
+            Details = strcat(ActionType, ": ", RegistryKey, "\\", RegistryValueName));
+union TamperCommands, AgentChanges
+| summarize EvidenceTypes = make_set(Evidence), EventCount = count(),
+    FirstSeen = min(Timestamp), LastSeen = max(Timestamp), Examples = make_set(Details, 5)
+    by DeviceName, TimeWindow = bin(Timestamp, 10m)
+| where array_length(EvidenceTypes) >= 2
+| extend
+    Severity = "Critical",
+    ThreatType = "Correlated SentinelOne defense evasion",
+    MitreAttack = "T1562.001"
+| project TimeWindow, DeviceName, EvidenceTypes, EventCount, FirstSeen, LastSeen,
+    Examples, Severity, ThreatType, MitreAttack

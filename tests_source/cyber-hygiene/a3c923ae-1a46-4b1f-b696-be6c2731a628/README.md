@@ -12,7 +12,7 @@ This bundled security test consolidates 10 Windows cyber-hygiene validators into
 
 | # | Validator | Checks | Key Configurations |
 |---|-----------|--------|-------------------|
-| 1 | Microsoft Defender Configuration | 6 | Real-time, Behavior, Tamper, Cloud, Sample, PUA |
+| 1 | Microsoft Defender Configuration | 8 | Real-time, Behavior, Tamper, Cloud, Sample, PUA, Active Service Mode, Signature Freshness |
 | 2 | LSASS Protection | 3 | RunAsPPL, Credential Guard, VBS |
 | 3 | Attack Surface Reduction Rules | 8 | Critical ASR rules in Block mode |
 | 4 | SMB Hardening | 5 | SMBv1 disabled, signing, encryption |

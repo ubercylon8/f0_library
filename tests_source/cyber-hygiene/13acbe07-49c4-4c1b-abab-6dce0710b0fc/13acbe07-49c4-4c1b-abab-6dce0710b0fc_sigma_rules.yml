@@ -1,0 +1,122 @@
+# Behavioral coverage for real SentinelOne agent tampering (T1562.001).
+# Read-only service queries, executable-version reads, and registry reads are excluded.
+# Central prevention, anti-tampering, and detection-engine policy state require
+# SentinelOne management telemetry and cannot be inferred from these endpoint rules.
+
+title: SentinelOne Agent Tampering Command
+id: 1fdde02c-b0d3-4e23-bf3c-d4a6ccba8eb1
+status: experimental
+description: Detects command-line attempts to stop, disable, delete, or terminate the SentinelOne agent rather than read-only service inspection.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-03
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_target:
+    CommandLine|contains: SentinelAgent
+  selection_action:
+    CommandLine|contains:
+      - stop sentinelagent
+      - stop-service
+      - stop-process
+      - taskkill
+      - delete sentinelagent
+      - config sentinelagent
+      - set-service
+      - uninstall
+  condition: selection_target and selection_action
+falsepositives:
+  - Authorized SentinelOne maintenance, upgrade, removal, or incident response
+level: high
+---
+title: SentinelOne Installation Binary Modified or Removed
+id: b62247e4-5c23-4c18-95df-56b0c02d33c9
+status: experimental
+description: Detects modification or deletion events for executable content in the SentinelOne installation directory.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-03
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_path:
+    TargetFilename|contains: \SentinelOne\Sentinel Agent\
+  selection_extension:
+    TargetFilename|endswith:
+      - .exe
+      - .dll
+      - .sys
+  condition: selection_path and selection_extension
+falsepositives:
+  - SentinelOne upgrades, repairs, and authorized product removal
+level: high
+---
+title: SentinelOne Agent Service Registry Tampering
+id: 0f21c0d6-b9c2-4c34-8f37-baa06ae17a41
+status: experimental
+description: Detects changes to registry values that control SentinelAgent service startup, image, recovery, or logon configuration.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-03
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+logsource:
+  category: registry_event
+  product: windows
+detection:
+  selection_key:
+    TargetObject|contains: \Services\SentinelAgent\
+  selection_value:
+    TargetObject|endswith:
+      - \Start
+      - \ImagePath
+      - \FailureActions
+      - \ObjectName
+  condition: selection_key and selection_value
+falsepositives:
+  - SentinelOne installation, upgrade, repair, or authorized service reconfiguration
+level: high
+---
+title: SentinelOne Agent Service Stopped or Reconfigured
+id: 77c4ec10-9dc1-4e1c-94e2-05cb8db66707
+status: experimental
+description: Detects Windows Service Control Manager events reporting SentinelAgent termination, a stopped state, or a start-type change.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-03
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+logsource:
+  product: windows
+  service: system
+detection:
+  selection_service:
+    Message|contains: SentinelAgent
+  selection_control_event:
+    EventID:
+      - 7031
+      - 7034
+      - 7040
+  selection_stopped_event:
+    EventID: 7036
+  selection_stopped_message:
+    Message|contains: stopped
+  condition: selection_service and (selection_control_event or (selection_stopped_event and selection_stopped_message))
+falsepositives:
+  - Normal shutdown, upgrades, and authorized administration
+level: medium

@@ -26,13 +26,14 @@ import (
 	"strings"
 	"time"
 
+	cyberhygiene "f0_library/tests_source/cyber-hygiene/shared"
 	"github.com/google/uuid"
 )
 
 const (
 	TEST_UUID = "a3c923ae-1a46-4b1f-b696-be6c2731a628"
 	TEST_NAME = "Cyber-Hygiene Bundle (Windows Defender Edition)"
-	VERSION   = "2.0.0"
+	VERSION   = "2.1.0"
 
 	// Exit codes
 	EXIT_COMPLIANT     = 126 // All validators passed
@@ -86,8 +87,9 @@ func main() {
 		os.Exit(EXIT_ERROR)
 	}
 
-	// Resolve organization
+	// Resolve organization and capture the context used to interpret controls.
 	orgInfo := ResolveOrganization("")
+	endpointContext, contextErr := cyberhygiene.DiscoverEndpointContext()
 
 	// Initialize Schema v2.0 logging
 	metadata := TestMetadata{
@@ -144,7 +146,7 @@ func main() {
 		{
 			Name: "defender", DisplayName: "Microsoft Defender Configuration",
 			Binary:     validatorDefenderBin,
-			ControlIDs: []string{"CH-DEF-001", "CH-DEF-002", "CH-DEF-003", "CH-DEF-004", "CH-DEF-005", "CH-DEF-006"},
+			ControlIDs: []string{"CH-DEF-001", "CH-DEF-002", "CH-DEF-003", "CH-DEF-004", "CH-DEF-005", "CH-DEF-006", "CH-DEF-007", "CH-DEF-008"},
 		},
 		{
 			Name: "lsass", DisplayName: "LSASS Protection",
@@ -299,26 +301,24 @@ func main() {
 	}
 
 	// Build and write bundle_results.json
-	overallExitCode := EXIT_COMPLIANT
-	if validatorsFailed > 0 || validatorsSkipped > 0 {
-		overallExitCode = EXIT_NON_COMPLIANT
+	contextError := ""
+	if contextErr != nil {
+		contextError = contextErr.Error()
+		LogMessage("WARNING", "System Context", contextError)
 	}
-
 	bundleResults := &BundleResults{
-		SchemaVersion:     "1.0",
+		SchemaVersion:     "1.1",
 		BundleID:          TEST_UUID,
 		BundleName:        TEST_NAME,
 		BundleCategory:    "cyber-hygiene",
 		BundleSubcategory: "baseline",
 		ExecutionID:       executionContext.ExecutionID,
 		StartedAt:         startedAt,
-		OverallExitCode:   overallExitCode,
-		TotalControls:     len(allControls),
-		PassedControls:    totalPassed,
-		FailedControls:    totalFailed,
-		SkippedControls:   totalSkipped,
+		EndpointContext:   &endpointContext,
+		ContextError:      contextError,
 		Controls:          allControls,
 	}
+	cyberhygiene.FinalizeBundleResults(bundleResults)
 
 	if err := WriteBundleResults(bundleResults); err != nil {
 		fmt.Printf("\n[WARNING] Failed to write bundle_results.json: %v\n", err)
@@ -329,29 +329,17 @@ func main() {
 	// Print summary
 	printSummary(validatorsPassed, validatorsFailed, validatorsSkipped, totalPassed, totalFailed, totalSkipped, failedNames, skippedNames)
 
-	// Determine exit code and log outcome
-	var exitCode int
-	var outcome string
-	var outcomeDescription string
-
-	if validatorsFailed == 0 && validatorsSkipped == 0 {
-		exitCode = EXIT_COMPLIANT
-		outcome = "compliant"
-		outcomeDescription = "All validators passed - endpoint is properly hardened"
-		LogMessage("INFO", "Result", fmt.Sprintf("COMPLIANT: All %d validators passed", len(validators)))
-	} else {
-		exitCode = EXIT_NON_COMPLIANT
-		outcome = "non_compliant"
-		parts := []string{}
-		if validatorsFailed > 0 {
-			parts = append(parts, fmt.Sprintf("%d failed", validatorsFailed))
-		}
-		if validatorsSkipped > 0 {
-			parts = append(parts, fmt.Sprintf("%d skipped/quarantined", validatorsSkipped))
-		}
-		outcomeDescription = fmt.Sprintf("Validators: %s - security gaps detected", strings.Join(parts, ", "))
-		LogMessage("WARNING", "Result", fmt.Sprintf("NON-COMPLIANT: %d/%d validators OK (%s)",
-			validatorsPassed, len(validators), strings.Join(parts, ", ")))
+	exitCode := bundleResults.OverallExitCode
+	outcome := bundleResults.ComplianceStatus
+	outcomeDescription := fmt.Sprintf("%d of %d controls compliant; execution %s",
+		bundleResults.PassedControls, bundleResults.PassedControls+bundleResults.FailedControls, bundleResults.ExecutionStatus)
+	switch bundleResults.ComplianceStatus {
+	case "compliant":
+		LogMessage("INFO", "Result", outcomeDescription)
+	case "non_compliant":
+		LogMessage("WARNING", "Result", outcomeDescription)
+	default:
+		LogMessage("ERROR", "Result", outcomeDescription)
 	}
 
 	LogPhaseEnd(1, outcome, outcomeDescription)

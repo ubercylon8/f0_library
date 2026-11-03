@@ -3,7 +3,7 @@
 
 /*
 ID: 078f1409-9f7b-4492-bb35-3fd596e85ce0
-NAME: CIS Windows Endpoint Level 1 Hardening Bundle
+NAME: CIS Windows Endpoint Level 1 Core Hardening Bundle
 TECHNIQUES: T1110, T1078.001, T1557.001, T1003.001, T1562.001, T1562.004, T1059.001, T1021.001
 TACTICS: credential-access, defense-evasion, lateral-movement, execution, persistence
 SEVERITY: high
@@ -31,7 +31,7 @@ import (
 
 const (
 	TEST_UUID = "078f1409-9f7b-4492-bb35-3fd596e85ce0"
-	TEST_NAME = "CIS Windows Endpoint Level 1 Hardening Bundle"
+	TEST_NAME = "CIS Windows Endpoint Level 1 Core Hardening Bundle"
 	VERSION   = "1.0.0"
 
 	// Exit codes
@@ -314,7 +314,7 @@ func main() {
 	if validatorsFailed == 0 && validatorsSkipped == 0 {
 		exitCode = EXIT_COMPLIANT
 		outcome = "compliant"
-		outcomeDescription = "All validators passed - endpoint meets CIS Level 1 hardening requirements"
+		outcomeDescription = "All validators passed - endpoint meets the selected CIS Level 1 Core controls; this is not a complete CIS benchmark assessment"
 		LogMessage("INFO", "Result", fmt.Sprintf("COMPLIANT: All %d validators passed", len(validators)))
 	} else {
 		exitCode = EXIT_NON_COMPLIANT
@@ -340,7 +340,7 @@ func main() {
 // printBanner displays the test banner
 func printBanner() {
 	fmt.Println("+=======================================================================+")
-	fmt.Println("|  F0RT1KA CIS Windows Endpoint Level 1 Hardening Bundle                 |")
+	fmt.Println("|  F0RT1KA CIS Windows Endpoint Level 1 Core Hardening Bundle                 |")
 	fmt.Println("|  Multi-Binary Architecture (quarantine-resilient)                       |")
 	fmt.Println("+=======================================================================+")
 	fmt.Printf("\nTest UUID: %s\n", TEST_UUID)

@@ -3,7 +3,7 @@
 
 /*
 ID: 6d63934b-963f-4e3b-83f5-8166e33eb6da
-NAME: CIS macOS Endpoint Level 1 Hardening Bundle
+NAME: CIS macOS Endpoint Level 1 Core Hardening Bundle
 TECHNIQUES: T1562.001, T1059.004, T1071.001, T1021.004, T1548.004, T1553.001, T1070.002
 TACTICS: defense-evasion, execution, command-and-control, lateral-movement, privilege-escalation
 SEVERITY: high
@@ -31,7 +31,7 @@ import (
 
 const (
 	TEST_UUID = "6d63934b-963f-4e3b-83f5-8166e33eb6da"
-	TEST_NAME = "CIS macOS Endpoint Level 1 Hardening Bundle"
+	TEST_NAME = "CIS macOS Endpoint Level 1 Core Hardening Bundle"
 	VERSION   = "1.0.0"
 
 	// Exit codes
@@ -331,7 +331,7 @@ func main() {
 // printBanner displays the test banner
 func printBanner() {
 	fmt.Println("================================================================")
-	fmt.Println("  F0RT1KA CIS macOS Endpoint Level 1 Hardening Bundle v1.0")
+	fmt.Println("  F0RT1KA CIS macOS Endpoint Level 1 Core Hardening Bundle v1.0")
 	fmt.Println("  Multi-Binary Architecture (quarantine-resilient)")
 	fmt.Println("================================================================")
 	fmt.Printf("\nTest UUID: %s\n", TEST_UUID)

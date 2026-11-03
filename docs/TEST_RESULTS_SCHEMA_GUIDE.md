@@ -161,6 +161,7 @@ test-results-schema-v2.0.json
   - `execution`
   - `discovery`
   - `collection`
+  - `cyber-hygiene`
 - **Description**: Primary test category for filtering
 - **Example**: `"defense_evasion"`
 - **Usage**: Dashboard filtering and grouping
