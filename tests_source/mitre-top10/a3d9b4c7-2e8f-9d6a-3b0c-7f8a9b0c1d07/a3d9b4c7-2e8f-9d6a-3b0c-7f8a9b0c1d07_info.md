@@ -19,7 +19,7 @@ This test simulates pre-encryption reconnaissance behavior commonly observed in 
 
 The test includes optional integration with **Seatbelt**, a comprehensive host security enumeration tool that performs 60+ security checks. When Seatbelt is available, the test evaluates EDR detection of advanced enumeration tooling.
 
-## Test Score: 7.7/10
+## Test Score: 8.2/10
 
 ### Score Breakdown (Rubric v2.1)
 
@@ -28,9 +28,9 @@ Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC
 | Tier | Sub-dimension | Score | Rationale |
 |---|---|---|---|
 | **1** | Safety Gate | **PASS** | All writes confined to `LOG_DIR` / `ARTIFACT_DIR`; no real system targets touched; cleanup on every exit path incl. panic and timeout; loopback-only networking except technique-inherent egress to fixed, documented benign public endpoints (see test README). |
-| **2a** | API Fidelity (0–2.5) | **1.5** | Real cmd.exe dir /s /b recursive enumeration with 17 extension filters (exact pre-encryption recon form) plus Go filepath.Walk target-list generation. Seatbelt (the comprehensive-collection form) is runtime-optional and currently placeholder-grade. |
+| **2a** | API Fidelity (0–2.5) | **1.8** | Real cmd.exe dir /s /b recursive enumeration with 17 extension filters (exact pre-encryption recon form) plus Go filepath.Walk target-list generation. **UPGRADED 2026-11-03: REAL Seatbelt now EMBEDDED** (built from pinned source GhostPack@392171df, net472, 585 KB, sha256 ee09f12b…3800e; build-tag `seatbelt`, see build_all.sh) and executed with its canonical arguments (-group=all; WindowsCredentialFiles WindowsVault InterestingFiles). |
 | **2b** | Identifier Fidelity (0–1.5) | **1.2** | Real user-profile directories enumerated at runtime (C:\Users\*\Documents, Desktop — live identifiers); realistic decoy document names; target extensions match real ransomware victim-file profiles. |
-| **2c** | Telemetry Signal Quality (0–2) | **1.8** | Lab-verified 2026-11-03 (exit 101; decoy + real-profile enumeration reached, output persisted). Signal richness ✅ (high-volume dir enumeration telemetry). Sensor mapping ✅. Rule artifacts parse ✅. Seatbelt phases skipped per Lab-Bound Observability. |
+| **2c** | Telemetry Signal Quality (0–2) | **2.0** | **EMPIRICALLY verified 2026-11-03: Sophos Intercept X BLOCKED both embedded Seatbelt executions** (positive denial evidence; exit 126) — the tool's signals are demonstrably detectable. Native enumeration phases also reached with persisted output. Signal richness ✅, sensor mapping ✅, rule artifacts parse ✅. |
 | **2d** | Execution-Context Fidelity (0–1) | **0.6** | Admin probe gates denial classification. Read-only enumeration is context-portable; no deeper branching. |
 | **3a** | Schema & Metadata (0–1) | **1.0** | Schema v2.0 InitLogger + complete metadata header (incl. SOURCE_URL) + org UUID resolution + Authenticode-signed binary. RubricVersion: v2.1. |
 | **3b** | Documentation Completeness (0–1) | **1.0** | README + info.md (this v2.1 scorecard + lab-evidence block) + references.md present; `utils/validate-score-format.sh` passes; MITRE mapping cites official technique/sub-technique IDs. |
@@ -40,13 +40,8 @@ Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC
 
 ### Lab Execution Evidence (2026-11-03)
 
-Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — 3 enumeration patterns executed incl. real user-profile sweep; Seatbelt skipped (tool absent).** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
+Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 126 — embedded Seatbelt extracted, executed, and BLOCKED by Sophos Intercept X on both invocations (positive evidence); native enumeration phases succeeded.** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
 
-### Lab-Bound Observability (v2.1 §2c criterion 4)
-
-**Phases affected:** Seatbelt -group=all (Phase 6) and Seatbelt credential checks (Phase 7).
-
-**Cause:** runtime-optional external tool not provided (`c:\F0\tools\`) and/or technique prerequisites not met on the lab host (documented in the phase log as explicit `skipped` — never counted as success or block). This is the designed degradation path for tool-optional tests, not a test deficiency: all native phases reached terminal status in the same run. Providing the tool (and, for Kerberos phases, a domain-joined host) re-enables the phase without rebuild.
 
 ### Key Strengths
 

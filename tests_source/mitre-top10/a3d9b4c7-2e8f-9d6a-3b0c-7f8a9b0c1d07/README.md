@@ -1,6 +1,6 @@
 # Pre-Encryption File Enumeration
 
-**Test Score**: **7.7/10**
+**Test Score**: **8.2/10**
 
 ## Overview
 

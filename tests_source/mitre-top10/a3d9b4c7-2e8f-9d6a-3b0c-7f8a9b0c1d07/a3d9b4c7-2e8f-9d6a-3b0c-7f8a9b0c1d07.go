@@ -379,6 +379,11 @@ func generateTargetList(targetDir string) (bool, bool, string, string) {
 // checkSeatbeltAvailable checks if Seatbelt binary is available
 // It looks for Seatbelt.exe in c:\F0\tools\ directory
 func checkSeatbeltAvailable() bool {
+	// Embedded build (built with the `seatbelt` tag, see build_all.sh)
+	if isEmbeddedSeatbeltValid() {
+		return true
+	}
+
 	// Check if Seatbelt binary was loaded at runtime
 	if len(seatbeltBinary) > 0 {
 		return true
@@ -419,9 +424,30 @@ func loadSeatbelt() (bool, string) {
 	return true, seatbeltToolPath
 }
 
-// extractSeatbelt copies Seatbelt from tools directory to c:\F0 for execution
+// isEmbeddedSeatbeltValid reports whether a real PE was embedded at build time
+func isEmbeddedSeatbeltValid() bool {
+	return len(seatbeltEmbedded) > 2 && seatbeltEmbedded[0] == 'M' && seatbeltEmbedded[1] == 'Z'
+}
+
+// extractSeatbelt makes Seatbelt executable-ready under c:\F0, preferring the
+// build-time embedded copy (single-binary deployment, CLAUDE.md rule 3) and
+// falling back to the runtime-provided copy in c:\F0\tools\.
 func extractSeatbelt() (string, error) {
-	// First try to load from tools directory
+	// 1) Embedded copy (built with the `seatbelt` tag; provenance in build_all.sh)
+	if isEmbeddedSeatbeltValid() {
+		seatbeltPath := filepath.Join(TARGET_DIR, "Seatbelt.exe")
+		if err := os.WriteFile(seatbeltPath, seatbeltEmbedded, 0755); err != nil {
+			return "", fmt.Errorf("failed to write embedded Seatbelt: %v", err)
+		}
+		seatbeltBinary = seatbeltEmbedded
+		sum := sha256.Sum256(seatbeltEmbedded)
+		LogMessage("INFO", "Seatbelt", fmt.Sprintf("Extracted EMBEDDED Seatbelt.exe: size=%d sha256=%s (GhostPack@392171df, built from pinned source)",
+			len(seatbeltEmbedded), hex.EncodeToString(sum[:])))
+		LogFileDropped("Seatbelt.exe", seatbeltPath, int64(len(seatbeltEmbedded)), false)
+		return seatbeltPath, nil
+	}
+
+	// 2) Runtime-provided copy
 	if len(seatbeltBinary) == 0 {
 		available, msg := loadSeatbelt()
 		if !available {
@@ -975,7 +1001,7 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1083", "T1119", "T1082"},
 		Tactics:       []string{"discovery", "collection"},
-		Score:         7.7, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		Score:         8.2, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
 		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
 		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown

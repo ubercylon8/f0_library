@@ -110,3 +110,5 @@ This test is designed to be completely safe to run repeatedly:
 - [MITRE ATT&CK T1490](https://attack.mitre.org/techniques/T1490/)
 - [Ransomware: Shadow Copy Deletion](https://www.microsoft.com/en-us/security/blog/2022/01/15/destructive-malware-targeting-ukrainian-organizations/)
 - [Understanding Volume Shadow Copy Service](https://docs.microsoft.com/en-us/windows-server/storage/file-server/volume-shadow-copy-service)
+
+**Destructive phase (gated, 2026-11-03):** the REAL destructive T1490 command set (`vssadmin delete shadows /all /quiet`, `bcdedit /set {default} recoveryenabled No`, `bootstatuspolicy ignoreallfailures` with revert-first cleanup, `wbadmin delete catalog`) is implemented but **disabled by default**. To arm: take a hypervisor snapshot of the lab VM, then run with env `F0_DESTRUCTIVE_T1490=1`. Safe-mode boot staging is intentionally excluded even when armed (un-reverted safeboot bricks normal boot; overlapping detection value).

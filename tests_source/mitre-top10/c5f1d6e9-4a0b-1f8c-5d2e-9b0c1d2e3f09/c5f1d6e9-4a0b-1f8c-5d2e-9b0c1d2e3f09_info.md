@@ -20,7 +20,7 @@ The test focuses on two key behaviors:
 
 This test does NOT deploy an actual webshell - it simulates the behavior that would occur AFTER deployment to evaluate whether security controls can detect webshell-like activity patterns.
 
-## Test Score: 6.9/10
+## Test Score: 7.7/10
 
 ### Score Breakdown (Rubric v2.1)
 
@@ -29,9 +29,9 @@ Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC
 | Tier | Sub-dimension | Score | Rationale |
 |---|---|---|---|
 | **1** | Safety Gate | **PASS** | All writes confined to `LOG_DIR` / `ARTIFACT_DIR`; no real system targets touched; cleanup on every exit path incl. panic and timeout; loopback-only networking except technique-inherent egress to fixed, documented benign public endpoints (see test README). |
-| **2a** | API Fidelity (0–2.5) | **1.2** | Six real recon binaries (whoami /all, hostname, ipconfig /all, systeminfo, netstat -an, tasklist) in a realistic sequence plus a real TLS beacon POST. Main deduction: NO webshell exists — no script file is dropped and the recon runs as children of the test binary, not of a web-server worker (w3wp.exe → cmd.exe lineage is the defining webshell signal). Real-webshell variant deferred (needs lab web role). |
+| **2a** | API Fidelity (0–2.5) | **1.7** | Six real recon binaries (whoami /all, hostname, ipconfig /all, systeminfo, netstat -an, tasklist) in a realistic sequence plus a real TLS beacon POST. **UPGRADED 2026-11-03: REAL ASPX webshell now dropped** (runtime base64-decoded, never committed) into an IIS web application and invoked over loopback — producing the defining **w3wp.exe → cmd.exe** lineage, lab-verified. Remaining deduction: no actual exploitation of a public-facing app (out of scope by design). |
 | **2b** | Identifier Fidelity (0–1.5) | **0.9** | Real recon command arguments; beacon target is a benign public service (httpbin.org) rather than an attacker-style endpoint. |
-| **2c** | Telemetry Signal Quality (0–2) | **1.6** | Lab-verified 2026-11-03 (exit 101; 6/6 recon + beacon succeeded). Signal richness ✅ for the recon/beacon surfaces; the webshell-specific surfaces are absent by design. Sensor mapping ✅. Rule artifacts parse ✅. |
+| **2c** | Telemetry Signal Quality (0–2) | **1.9** | Lab-verified 2026-11-03 (exit 101): 6/6 recon + beacon succeeded AND the webshell executed through IIS with the w3wp.exe → cmd.exe lineage. Webshell-specific surfaces (aspx file drop in webroot, web-worker process creation) now present. Sensor mapping ✅. Rule artifacts parse ✅. |
 | **2d** | Execution-Context Fidelity (0–1) | **0.6** | Admin probe gates denial classification; recon commands are context-portable. Parent-process shape is unrealistic (documented). |
 | **3a** | Schema & Metadata (0–1) | **1.0** | Schema v2.0 InitLogger + complete metadata header (incl. SOURCE_URL) + org UUID resolution + Authenticode-signed binary. RubricVersion: v2.1. |
 | **3b** | Documentation Completeness (0–1) | **1.0** | README + info.md (this v2.1 scorecard + lab-evidence block) + references.md present; `utils/validate-score-format.sh` passes; MITRE mapping cites official technique/sub-technique IDs. |
@@ -41,7 +41,7 @@ Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC
 
 ### Lab Execution Evidence (2026-11-03)
 
-Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — 6/6 reconnaissance commands and the TLS C2 beacon succeeded.** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
+Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — 6/6 recon + TLS beacon + webshell executed via IIS (w3wp.exe → cmd.exe lineage, loopback-only); webroot and web app fully cleaned.** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
 
 ### Key Strengths
 
