@@ -1,6 +1,6 @@
 # Webshell Post-Exploitation Simulation
 
-**Test Score**: **7.5/10**
+**Test Score**: **6.9/10**
 
 ## Overview
 

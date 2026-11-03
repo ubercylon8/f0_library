@@ -649,15 +649,11 @@ func main() {
 		Severity:      "critical",
 		Techniques:    []string{"T1490"},
 		Tactics:       []string{"impact"},
-		Score:         8.0,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Tests actual tools used by ransomware
-			TechnicalSophistication: 1.5, // Read-only checks (intentionally limited)
-			SafetyMechanisms:        2.0, // Full safety - no destructive operations
-			DetectionOpportunities:  1.0, // Multiple detection points documented
-			LoggingObservability:    1.0, // Comprehensive logging
-		},
+		Score:         7.1, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"ransomware", "recovery-inhibition", "vssadmin", "bcdedit", "wbadmin", "safe-mode", "native"},
 	}
 

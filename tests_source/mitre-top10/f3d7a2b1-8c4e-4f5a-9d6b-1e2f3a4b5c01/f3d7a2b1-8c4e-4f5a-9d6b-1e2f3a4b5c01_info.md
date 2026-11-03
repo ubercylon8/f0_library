@@ -21,17 +21,28 @@ The test simulates four distinct attack patterns:
 
 All patterns are designed to be completely safe - they only create harmless marker files to verify execution, with no actual malicious payloads or network connections.
 
-## Test Score: 7.5/10
+## Test Score: 7.6/10
 
-### Score Breakdown
+### Score Breakdown (Rubric v2.1)
 
-| Criterion | Score | Justification |
-|-----------|-------|---------------|
-| **Real-World Accuracy** | **2.0/3.0** | Uses actual PowerShell command patterns observed in real attacks. Base64 encoding, download cradle, and hidden window patterns mirror real-world TTPs. AMSI bypass patterns are authentic strings found in actual bypass techniques. |
-| **Technical Sophistication** | **2.0/3.0** | Implements multiple distinct detection patterns. Tests both command-line argument detection and content-based AMSI scanning. Native test without external dependencies. |
-| **Safety Mechanisms** | **2.0/2.0** | Excellent safety profile - all commands create harmless marker files only. No actual network connections, no code execution beyond file creation. AMSI patterns are tested via string detection, not actual bypass execution. Automatic cleanup of test artifacts. |
-| **Detection Opportunities** | **1.0/1.0** | Provides 4+ distinct detection points: process creation monitoring, command-line argument analysis, AMSI integration, script block logging, and behavioral file creation patterns. |
-| **Logging & Observability** | **0.5/1.0** | Full Schema v2.0 logging with JSON/text output. Phase tracking, process execution logging, file operation logging. Some room for improvement in detailed timing metrics. |
+Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`) following the exit-code-integrity and realism remediation on branch `fix/mitre-top10-platform-files`.
+
+| Tier | Sub-dimension | Score | Rationale |
+|---|---|---|---|
+| **1** | Safety Gate | **PASS** | All writes confined to `LOG_DIR` / `ARTIFACT_DIR`; no real system targets touched; cleanup on every exit path incl. panic and timeout; loopback-only networking except technique-inherent egress to fixed, documented benign public endpoints (see test README). |
+| **2a** | API Fidelity (0–2.5) | **1.7** | Real powershell.exe child processes with canonical attacker flags (-ExecutionPolicy Bypass -EncodedCommand (verified UTF-16LE payload), -WindowStyle Hidden) and REAL IEX/WebClient DownloadString cradle command lines. AMSI phase assigns indicator strings to variables rather than executing actual bypass code (intentional safety bound) — the defining deduction from the 2.5 band. |
+| **2b** | Identifier Fidelity (0–1.5) | **0.9** | Real PowerShell invocation surface; cradle host is a reserved-TLD domain (authentic syntax, safe by construction). Sandbox marker filenames are generic. |
+| **2c** | Telemetry Signal Quality (0–2) | **1.8** | Lab-verified 2026-11-03 (exit 101, 3/3 executable patterns ran, AMSI 0/4). Signal richness ✅ (process creation + command-line + AMSI scan surfaces). Sensor mapping ✅ (Detection Opportunities section). Rule artifacts parse ✅. Optional-tool phases: none. |
+| **2d** | Execution-Context Fidelity (0–1) | **0.6** | Admin context probed at runtime and gates denial classification; user-context runs produce user-shaped telemetry. No deeper context branching. |
+| **3a** | Schema & Metadata (0–1) | **1.0** | Schema v2.0 InitLogger + complete metadata header (incl. SOURCE_URL) + org UUID resolution + Authenticode-signed binary. RubricVersion: v2.1. |
+| **3b** | Documentation Completeness (0–1) | **1.0** | README + info.md (this v2.1 scorecard + lab-evidence block) + references.md present; `utils/validate-score-format.sh` passes; MITRE mapping cites official technique/sub-technique IDs. |
+| **3c** | Logging & Plumbing (0–0.5) | **0.3** | test_logger v2.0 + per-child stdout/stderr tee persisted to `LOG_DIR/<name>_output.txt`. Monolithic single-stage test: no per-stage `bundle_results.json` and no pre/post system snapshots (the two omissions from the 0.5 band). |
+| **3d** | Operational Hygiene (0–0.5) | **0.25** | Orchestrator 5.9 MB (< 25 MB) ✅; global watchdog enforces the documented budget ✅; `Endpoint.Stop()` exits within seconds on every code path ✅; per-phase time budgets not tabulated ❌; no per-hang-risk-phase watchdogs beyond the global one ⚠️. |
+|  | **Total** | **7.6 / 10** | Realism: 5.00 / 7.00. Structure: 2.55 / 3.00. Lab-verified 2026-11-03 (win lab, Sophos Intercept X). |
+
+### Lab Execution Evidence (2026-11-03)
+
+Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — encoded/hidden/cradle patterns all executed; AMSI indicator strings not flagged by Sophos.** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
 
 ### Key Strengths
 

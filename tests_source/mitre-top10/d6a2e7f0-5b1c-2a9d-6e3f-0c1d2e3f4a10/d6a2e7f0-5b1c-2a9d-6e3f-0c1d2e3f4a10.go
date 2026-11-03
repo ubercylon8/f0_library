@@ -608,15 +608,11 @@ func test() {
 		Severity:      "high",
 		Techniques:    []string{"T1489", "T1562.001"},
 		Tactics:       []string{"impact", "defense-evasion"},
-		Score:         8.0,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5,
-			TechnicalSophistication: 2.5,
-			SafetyMechanisms:        2.0,
-			DetectionOpportunities:  0.5,
-			LoggingObservability:    0.5,
-		},
+		Score:         8.2, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"service-control", "smb", "netexec", "mitre-top10"},
 	}
 

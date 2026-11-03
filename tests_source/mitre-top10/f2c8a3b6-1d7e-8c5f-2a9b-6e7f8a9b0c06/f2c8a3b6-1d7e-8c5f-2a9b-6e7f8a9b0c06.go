@@ -610,15 +610,11 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1105", "T1059.001"},
 		Tactics:       []string{"command-and-control", "execution"},
-		Score:         8.0,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Uses actual LOLBINs (certutil, bitsadmin, curl, PowerShell)
-			TechnicalSophistication: 2.0, // Multiple download methods, proper cleanup
-			SafetyMechanisms:        2.0, // Only downloads benign content, auto-cleanup
-			DetectionOpportunities:  1.0, // 5 distinct detection points (one per LOLBIN)
-			LoggingObservability:    0.5, // Comprehensive logging with output capture
-		},
+		Score:         8.0, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"lolbin", "download", "certutil", "bitsadmin", "powershell", "curl", "native"},
 	}
 

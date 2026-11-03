@@ -1,6 +1,6 @@
 # Local Account Enumeration
 
-**Test Score**: **8.5/10**
+**Test Score**: **8.0/10**
 
 ## Overview
 

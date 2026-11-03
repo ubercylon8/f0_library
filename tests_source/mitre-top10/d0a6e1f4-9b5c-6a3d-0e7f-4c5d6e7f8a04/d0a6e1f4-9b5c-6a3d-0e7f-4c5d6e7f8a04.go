@@ -822,15 +822,11 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1047", "T1546.003"},
 		Tactics:       []string{"execution", "persistence"},
-		Score:         8.0,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Uses real WMI commands, potential for wmiexec-Pro
-			TechnicalSophistication: 2.0, // Multiple WMI patterns tested
-			SafetyMechanisms:        2.0, // Local operations only, benign markers
-			DetectionOpportunities:  1.0, // 5+ detection points documented
-			LoggingObservability:    0.5, // Comprehensive logging
-		},
+		Score:         7.9, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"wmi", "wmic", "process-creation", "native", "stealthy"},
 	}
 

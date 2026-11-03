@@ -819,15 +819,11 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1078.003", "T1087.001", "T1558.003"},
 		Tactics:       []string{"defense-evasion", "persistence", "privilege-escalation", "initial-access", "discovery", "credential-access"},
-		Score:         8.5,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.8, // Real tool (Rubeus), native Windows commands
-			TechnicalSophistication: 2.5, // Multiple techniques, Kerberos operations
-			SafetyMechanisms:        1.5, // Read-only enumeration, no credential extraction
-			DetectionOpportunities:  1.0, // 8+ detection points
-			LoggingObservability:    0.7, // Comprehensive logging with Schema v2.0
-		},
+		Score:         8.0, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"local-accounts", "enumeration", "kerberos", "rubeus", "native-tools"},
 	}
 

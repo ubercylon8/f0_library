@@ -19,17 +19,34 @@ The test covers three key MITRE ATT&CK techniques:
 
 This combination reflects real-world attack patterns where adversaries first enumerate accounts using native tools, then escalate to Kerberos-based attacks for credential theft.
 
-## Test Score: 8.5/10
+## Test Score: 8.0/10
 
-### Score Breakdown
+### Score Breakdown (Rubric v2.1)
 
-| Criterion | Score | Justification |
-|-----------|-------|---------------|
-| **Real-World Accuracy** | **2.8/3.0** | Uses real offensive tool (Rubeus/GhostPack), native Windows commands exactly as used by threat actors. Kerberoasting is documented in APT29, FIN6, and other campaigns. |
-| **Technical Sophistication** | **2.5/3.0** | Combines native enumeration (net, wmic, whoami) with advanced Kerberos operations. Multiple ATT&CK techniques tested. Optional tool loading pattern. |
-| **Safety Mechanisms** | **1.5/2.0** | All operations are read-only enumeration. No credential extraction or cracking. Kerberos queries only. Immediate cleanup of artifacts. |
-| **Detection Opportunities** | **1.0/1.0** | 8+ distinct detection points: net.exe, wmic.exe, whoami.exe patterns, Rubeus binary/process, Kerberos ticket requests, command line arguments. |
-| **Logging & Observability** | **0.7/1.0** | Full Schema v2.0 logging with phase tracking, process execution logs, file drops, and comprehensive audit trail. |
+Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`) following the exit-code-integrity and realism remediation on branch `fix/mitre-top10-platform-files`.
+
+| Tier | Sub-dimension | Score | Rationale |
+|---|---|---|---|
+| **1** | Safety Gate | **PASS** | All writes confined to `LOG_DIR` / `ARTIFACT_DIR`; no real system targets touched; cleanup on every exit path incl. panic and timeout; loopback-only networking except technique-inherent egress to fixed, documented benign public endpoints (see test README). |
+| **2a** | API Fidelity (0–2.5) | **1.5** | Real native enumeration binaries (net user, net localgroup administrators, whoami /all, wmic useraccount list brief) with exact attacker argument sets; real Rubeus CLI (kerberoast /outfile /opsec, asreproast /format:hashcat) when the tool is provided. No direct Win32 SAM/LSA API calls — process-creation tradecraft only. |
+| **2b** | Identifier Fidelity (0–1.5) | **1.2** | Enumerates REAL local accounts/groups at runtime (net user output = live identifiers); real service/CLI flags. Rubeus phases gated on real domain-join detection. |
+| **2c** | Telemetry Signal Quality (0–2) | **1.8** | Lab-verified 2026-11-03 (exit 101; native phases reached). Signal richness ✅ (net.exe/whoami.exe/wmic.exe process + WMI telemetry). Sensor mapping ✅. Rule artifacts parse ✅. Rubeus phases skipped per Lab-Bound Observability (tool absent + standalone host). |
+| **2d** | Execution-Context Fidelity (0–1) | **0.9** | Runtime context detection: admin probe gates denial classification; domain-join detection gates the Kerberos phases with explicit skip logging (standalone hosts produce honest skips, not fake success). |
+| **3a** | Schema & Metadata (0–1) | **1.0** | Schema v2.0 InitLogger + complete metadata header (incl. SOURCE_URL) + org UUID resolution + Authenticode-signed binary. RubricVersion: v2.1. |
+| **3b** | Documentation Completeness (0–1) | **1.0** | README + info.md (this v2.1 scorecard + lab-evidence block) + references.md present; `utils/validate-score-format.sh` passes; MITRE mapping cites official technique/sub-technique IDs. |
+| **3c** | Logging & Plumbing (0–0.5) | **0.3** | test_logger v2.0 + per-child stdout/stderr tee persisted to `LOG_DIR/<name>_output.txt`. Monolithic single-stage test: no per-stage `bundle_results.json` and no pre/post system snapshots (the two omissions from the 0.5 band). |
+| **3d** | Operational Hygiene (0–0.5) | **0.25** | Orchestrator 5.8 MB (< 25 MB) ✅; global watchdog enforces the documented budget ✅; `Endpoint.Stop()` exits within seconds on every code path ✅; per-phase time budgets not tabulated ❌; no per-hang-risk-phase watchdogs beyond the global one ⚠️. |
+|  | **Total** | **8.0 / 10** | Realism: 5.40 / 7.00. Structure: 2.55 / 3.00. Lab-verified 2026-11-03 (win lab, Sophos Intercept X). |
+
+### Lab Execution Evidence (2026-11-03)
+
+Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — 2 native patterns succeeded; wmic benign-skipped; Rubeus phases skipped (no domain, no tool).** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
+
+### Lab-Bound Observability (v2.1 §2c criterion 4)
+
+**Phases affected:** Rubeus kerberoast (Phase 6) and Rubeus asreproast (Phase 7).
+
+**Cause:** runtime-optional external tool not provided (`c:\F0\tools\`) and/or technique prerequisites not met on the lab host (documented in the phase log as explicit `skipped` — never counted as success or block). This is the designed degradation path for tool-optional tests, not a test deficiency: all native phases reached terminal status in the same run. Providing the tool (and, for Kerberos phases, a domain-joined host) re-enables the phase without rebuild.
 
 **Key Strengths**:
 - Combines native Windows commands with real offensive tooling (Rubeus)

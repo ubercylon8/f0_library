@@ -1,6 +1,6 @@
 # Ransomware Encryption Simulation
 
-**Test Score**: **8.5/10**
+**Test Score**: **7.2/10**
 
 ## Overview
 

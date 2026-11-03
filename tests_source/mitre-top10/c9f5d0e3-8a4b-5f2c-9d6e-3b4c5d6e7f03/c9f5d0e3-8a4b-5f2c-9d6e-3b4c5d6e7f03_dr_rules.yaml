@@ -159,10 +159,13 @@ rules:
           rules:
             - op: contains
               path: event/COMMAND_LINE
-              value: /add:
+              value: "/add:"
             - op: contains
               path: event/COMMAND_LINE
-              value: -add:
+              value: "-add:"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "/generic:TERMSRV/"
 
     respond:
       - action: report

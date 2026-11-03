@@ -19,17 +19,34 @@ This security test evaluates endpoint detection and response (EDR) capabilities 
 
 The test covers both native wmic.exe patterns and provides a placeholder for advanced testing with wmiexec-Pro, a Python-based WMI exploitation tool.
 
-## Test Score: 8.0/10
+## Test Score: 7.9/10
 
-### Score Breakdown
+### Score Breakdown (Rubric v2.1)
 
-| Criterion | Score | Justification |
-|-----------|-------|---------------|
-| **Real-World Accuracy** | **2.5/3.0** | Uses real wmic.exe commands identical to actual attacks; includes placeholder for wmiexec-Pro which is used in real-world penetration testing; covers process creation and enumeration patterns seen in APT activity |
-| **Technical Sophistication** | **2.0/3.0** | Multiple WMI patterns (enumeration, process creation, shadow copy queries); WMI event subscription registry inspection; extensible architecture for wmiexec-Pro integration |
-| **Safety Mechanisms** | **2.0/2.0** | All operations are local only; marker file creation is benign; WMI event subscription check is read-only; no persistence deployed; no network operations |
-| **Detection Opportunities** | **1.0/1.0** | 5+ distinct detection points: wmic.exe process creation, Win32_Process::Create calls, shadow copy enumeration, wmiprvse.exe child processes, registry access patterns |
-| **Logging & Observability** | **0.5/1.0** | Full Schema v2.0 logging; stdout/stderr capture; process execution details; comprehensive summary generation |
+Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`) following the exit-code-integrity and realism remediation on branch `fix/mitre-top10-platform-files`.
+
+| Tier | Sub-dimension | Score | Rationale |
+|---|---|---|---|
+| **1** | Safety Gate | **PASS** | All writes confined to `LOG_DIR` / `ARTIFACT_DIR`; no real system targets touched; cleanup on every exit path incl. panic and timeout; loopback-only networking except technique-inherent egress to fixed, documented benign public endpoints (see test README). |
+| **2a** | API Fidelity (0–2.5) | **1.7** | Real wmic.exe invocations with canonical arguments (process list brief, process call create, shadowcopy list brief, os get /format:list) PLUS the modern wmic-less variant: PowerShell Invoke-CimMethod Win32_Process::Create and Get-CimInstance — the tradecraft used on Win11 24H2+ where wmic is removed. No direct IWbemServices COM calls. |
+| **2b** | Identifier Fidelity (0–1.5) | **1.0** | Real WMI class/method identifiers (Win32_Process::Create, Win32_ComputerSystem); real service name (winmgmt). |
+| **2c** | Telemetry Signal Quality (0–2) | **1.8** | Lab-verified 2026-11-03 (exit 101; wmic + CIM phases reached). Signal richness ✅ (wmic.exe + powershell.exe CIM + WmiPrvSE provider telemetry). Sensor mapping ✅. Rule artifacts parse ✅. wmiexec-Pro phase skipped per Lab-Bound Observability (tool absent). |
+| **2d** | Execution-Context Fidelity (0–1) | **0.8** | Admin probe gates WMI-denial classification; wmic availability detected at runtime with CIM fallback branching (wmic-less hosts are first-class, not errors). |
+| **3a** | Schema & Metadata (0–1) | **1.0** | Schema v2.0 InitLogger + complete metadata header (incl. SOURCE_URL) + org UUID resolution + Authenticode-signed binary. RubricVersion: v2.1. |
+| **3b** | Documentation Completeness (0–1) | **1.0** | README + info.md (this v2.1 scorecard + lab-evidence block) + references.md present; `utils/validate-score-format.sh` passes; MITRE mapping cites official technique/sub-technique IDs. |
+| **3c** | Logging & Plumbing (0–0.5) | **0.3** | test_logger v2.0 + per-child stdout/stderr tee persisted to `LOG_DIR/<name>_output.txt`. Monolithic single-stage test: no per-stage `bundle_results.json` and no pre/post system snapshots (the two omissions from the 0.5 band). |
+| **3d** | Operational Hygiene (0–0.5) | **0.25** | Orchestrator 5.8 MB (< 25 MB) ✅; global watchdog enforces the documented budget ✅; `Endpoint.Stop()` exits within seconds on every code path ✅; per-phase time budgets not tabulated ❌; no per-hang-risk-phase watchdogs beyond the global one ⚠️. |
+|  | **Total** | **7.9 / 10** | Realism: 5.30 / 7.00. Structure: 2.55 / 3.00. Lab-verified 2026-11-03 (win lab, Sophos Intercept X). |
+
+### Lab Execution Evidence (2026-11-03)
+
+Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — wmic and Invoke-CimMethod process-creation both executed (marker files verified).** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
+
+### Lab-Bound Observability (v2.1 §2c criterion 4)
+
+**Phases affected:** wmiexec-Pro remote WMI execution (Phase 6).
+
+**Cause:** runtime-optional external tool not provided (`c:\F0\tools\`) and/or technique prerequisites not met on the lab host (documented in the phase log as explicit `skipped` — never counted as success or block). This is the designed degradation path for tool-optional tests, not a test deficiency: all native phases reached terminal status in the same run. Providing the tool (and, for Kerberos phases, a domain-joined host) re-enables the phase without rebuild.
 
 ### Key Strengths
 

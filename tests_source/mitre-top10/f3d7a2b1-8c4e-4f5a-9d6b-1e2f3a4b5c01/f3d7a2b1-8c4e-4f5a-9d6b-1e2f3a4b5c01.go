@@ -564,15 +564,11 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1059.001", "T1140"},
 		Tactics:       []string{"execution", "defense-evasion"},
-		Score:         7.5,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.0, // Uses real PowerShell patterns
-			TechnicalSophistication: 2.0, // Multiple pattern types
-			SafetyMechanisms:        2.0, // Only creates marker files
-			DetectionOpportunities:  1.0, // 4 distinct detection points
-			LoggingObservability:    0.5, // Good logging
-		},
+		Score:         7.6, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"powershell", "amsi", "base64", "download-cradle", "native"},
 	}
 

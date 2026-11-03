@@ -975,15 +975,11 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1083", "T1119", "T1082"},
 		Tactics:       []string{"discovery", "collection"},
-		Score:         8.5,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Real tool (Seatbelt with 60+ checks), realistic enumeration
-			TechnicalSophistication: 2.5, // Multiple techniques, comprehensive enumeration
-			SafetyMechanisms:        2.0, // Creates own test files, read-only enumeration, full cleanup
-			DetectionOpportunities:  1.0, // 7+ detection points
-			LoggingObservability:    0.5, // Comprehensive logging with output capture
-		},
+		Score:         7.7, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"file-discovery", "enumeration", "pre-encryption", "seatbelt", "native"},
 	}
 

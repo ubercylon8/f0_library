@@ -542,15 +542,11 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1190", "T1059.003"},
 		Tactics:       []string{"initial-access", "execution"},
-		Score:         7.5,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Authentic webshell recon patterns
-			TechnicalSophistication: 2.0, // Multiple recon commands + C2
-			SafetyMechanisms:        1.5, // Read-only commands, safe C2 endpoint
-			DetectionOpportunities:  1.0, // 6+ recon commands + C2 = many detection points
-			LoggingObservability:    0.5, // Full Schema v2.0 logging
-		},
+		Score:         6.9, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"webshell", "post-exploitation", "reconnaissance", "c2", "native"},
 	}
 

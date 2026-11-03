@@ -1,6 +1,6 @@
 # PowerShell Execution & AMSI Detection
 
-**Test Score**: **7.5/10**
+**Test Score**: **7.6/10**
 
 ## Overview
 
