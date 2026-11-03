@@ -35,7 +35,7 @@ Tests are based on:
 
 ## Tests with External Tools (5)
 
-The following tests require user-provided tools:
+The following tests support optional user-provided tools:
 
 1. **T1078.003** - Rubeus (GhostPack/Rubeus)
 2. **T1021.001** - SharpRDP (0xthirteen/SharpRDP)
@@ -43,7 +43,15 @@ The following tests require user-provided tools:
 4. **T1083** - Seatbelt (GhostPack/Seatbelt)
 5. **T1489** - NetExec (Pennyw0rth/NetExec)
 
-Place tools in each test's `tools/` directory before building.
+**Tools are loaded at RUNTIME from `c:\F0\tools\` on the target host — they are NOT embedded in the test binaries and no rebuild is needed to add them.** When a tool is absent the corresponding phase is skipped explicitly (logged, never counted as success or block). Prerequisite-aware skipping also applies: Rubeus phases require a domain-joined host; SharpRDP requires an RDP listener; wmiexec-Pro requires Python.
+
+## Remediation (2026-11-03)
+
+Full audit + remediation pass over all 10 tests (branch `fix/mitre-top10-platform-files`):
+
+- **Exit-code integrity** (CLAUDE.md Bug Prevention Rules 4/5/8): block/quarantine codes (126/105/127) are now emitted only on positive evidence — exact OS denial markers on the test's own operations (admin-gated), `os.Stat`-confirmed file disappearance, or re-query-corroborated service stops. Benign/ambiguous failures map to 999. Failed tool runs are never classified as attack success.
+- **Realism upgrades (safe variants)**: T1486 performs real AES-256-GCM encryption of its own decoys (restored at cleanup); T1059.001 executes real IEX/WebClient download-cradle command lines (reserved-TLD host); T1047 adds the wmic-less `Invoke-CimMethod` variant for Win11 24H2+; T1489 runs a real create→start→stop→corroborate service lifecycle; T1083 enumerates real user profile directories (read-only); T1021.001 adds the `cmdkey /list` discovery step and the `/generic:TERMSRV/...` credential form.
+- **Conformance**: `test_logger_windows.go` propagated to all tests (8 had been unbuildable since the Apr 2026 logger refactor); `utils/gobuild` path resolution fixed; `ExitTestError = 999` constants replace the vendored `UnexpectedTestError` (=1); metadata headers completed (SOURCE_URL, severity/category alignment, date typos); cleanup now covers panic and timeout paths; stray prelude-dropper binaries no longer dropped; false doc claims corrected (embedding, kill-chain architecture, impossible exit codes).
 
 ## Build Instructions
 
