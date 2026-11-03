@@ -12,6 +12,7 @@ COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: execution
 TAGS: wmi, wmic, event-subscription, lateral-tool-transfer
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
 CREATED: 2026-01-11
 AUTHOR: sectest-builder
@@ -20,7 +21,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,16 +30,43 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
-	"golang.org/x/sys/windows"
 )
 
 const (
 	TEST_UUID  = "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04"
 	TEST_NAME  = "WMI Execution Simulation"
 	TARGET_DIR = "c:\\F0"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 )
+
+// isAdminContext gates denial classification (Bug Prevention Rule 8).
+var isAdminContext = false
+
+// probeAdminContext checks whether the current context is elevated.
+func probeAdminContext() bool {
+	return exec.Command("net", "session").Run() == nil
+}
+
+// isWMIDenialEvidence returns true ONLY for structured WMI/OS denial codes in
+// the output of the test's OWN WMI operations (positive evidence, Rule 8):
+// 0x80041003 = WBEM_E_ACCESS_DENIED, 0x80070005 = E_ACCESS_DENIED, plus the
+// canonical OS denial string.
+func isWMIDenialEvidence(s string) bool {
+	l := strings.ToLower(s)
+	return strings.Contains(l, "0x80041003") ||
+		strings.Contains(l, "0x80070005") ||
+		strings.Contains(l, "access is denied")
+}
+
+// fileExists is a small os.Stat wrapper
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 // WMI command patterns for testing
 var (
@@ -122,16 +149,10 @@ func executeWmicCommand(args []string, description string) (bool, bool, string, 
 	if err != nil {
 		errorStr := err.Error()
 
-		// Check for EDR/AV blocking indicators
-		if strings.Contains(strings.ToLower(output), "blocked") ||
-			strings.Contains(strings.ToLower(output), "denied") ||
-			strings.Contains(strings.ToLower(output), "prevented") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") ||
-			strings.Contains(strings.ToLower(errorStr), "operation is not allowed") ||
-			strings.Contains(strings.ToLower(output), "0x80041003") || // WMI Access Denied
-			strings.Contains(strings.ToLower(output), "0x80070005") { // Access Denied
-
-			LogProcessExecution("wmic.exe", cmdLine, pid, false, 126, "Blocked by security controls")
+		// Block ONLY on structured WMI/OS denial codes in the test's own
+		// operations, admin-gated (Rule 8). Generic words are not evidence.
+		if isAdminContext && (isWMIDenialEvidence(output) || isWMIDenialEvidence(errorStr)) {
+			LogProcessExecution("wmic.exe", cmdLine, pid, false, 126, "Blocked by security controls (WMI denial code)")
 			LogMessage("INFO", description, fmt.Sprintf("Command blocked after %v: %s", duration, errorStr))
 			return false, true, output, fmt.Sprintf("Blocked: %s", errorStr)
 		}
@@ -185,11 +206,18 @@ func testWmicProcessCreate() (bool, bool, string) {
 	}
 
 	if success {
-		// Wait for process to complete and check marker file
-		Endpoint.Wait(2)
-
+		// Poll for the marker (WMI process start can be slow): 3 attempts, 2s apart
 		markerPath := filepath.Join(TARGET_DIR, "wmi_marker.txt")
-		if _, err := os.Stat(markerPath); err == nil {
+		found := false
+		for i := 0; i < 3; i++ {
+			Endpoint.Wait(2)
+			if fileExists(markerPath) {
+				found = true
+				break
+			}
+		}
+
+		if found {
 			// Read marker content
 			content, _ := os.ReadFile(markerPath)
 			LogFileDropped("wmi_marker.txt", markerPath, int64(len(content)), false)
@@ -197,14 +225,121 @@ func testWmicProcessCreate() (bool, bool, string) {
 			return true, false, "Process created and executed successfully"
 		}
 
-		// Check if wmic reported success but marker wasn't created (possible silent block)
+		// wmic reported ReturnValue = 0 but no marker after all polls: ambiguous.
+		// NOT a block — absence of success is not evidence of a protection
+		// action (Rule 8). Classify as inconclusive-benign.
 		if strings.Contains(output, "ReturnValue = 0") {
-			LogMessage("WARN", "Process Creation", "WMI reported success but marker file not found - possible silent block")
-			return false, true, "Silent block - WMI reported success but execution blocked"
+			LogMessage("WARN", "Process Creation", "WMI reported success but marker file not found after 3 polls - inconclusive (not classified as blocked)")
+			return false, false, "Inconclusive - WMI reported success but marker file not found"
 		}
 	}
 
 	return false, false, errMsg
+}
+
+// testCimProcessCreate executes the MODERN (wmic-less) WMI execution variant:
+// PowerShell Invoke-CimMethod Win32_Process::Create — the tradecraft used on
+// Win11 24H2+ where wmic.exe has been removed. Produces authentic CIM/WMI
+// telemetry. Success = marker file present; protection evidence per Rule 8.
+// Returns: success, blocked, msg
+func testCimProcessCreate() (bool, bool, string) {
+	Endpoint.Say("\n  Testing: Invoke-CimMethod Win32_Process Create (wmic-less variant)")
+
+	markerPath := filepath.Join(TARGET_DIR, "cim_marker.txt")
+	psCommand := `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='cmd.exe /c echo F0RT1KA-CIM-ProcessCreate > c:\F0\cim_marker.txt'}`
+	cmdLine := `powershell.exe -ExecutionPolicy Bypass -Command "` + psCommand + `"`
+
+	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", psCommand)
+
+	var outputBuffer bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuffer)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuffer)
+
+	startTime := time.Now()
+	err := cmd.Run()
+	duration := time.Since(startTime)
+
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
+
+	output := outputBuffer.String()
+
+	if len(output) > 0 {
+		outputPath := filepath.Join(TARGET_DIR, "cim_process_output.txt")
+		os.WriteFile(outputPath, []byte(output), 0644)
+		LogFileDropped("cim_process_output.txt", outputPath, int64(len(output)), false)
+	}
+
+	exitCode := 0
+	if err != nil {
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+	}
+
+	// Poll for the marker: 3 attempts, 2s apart
+	found := false
+	for i := 0; i < 3; i++ {
+		Endpoint.Wait(2)
+		if fileExists(markerPath) {
+			found = true
+			break
+		}
+	}
+
+	if found {
+		content, _ := os.ReadFile(markerPath)
+		LogFileDropped("cim_marker.txt", markerPath, int64(len(content)), false)
+		LogProcessExecution("powershell.exe", cmdLine, pid, true, 0, "")
+		LogMessage("INFO", "CIM Process Creation", fmt.Sprintf("CIM successfully created process that wrote marker file (%v)", duration))
+		return true, false, "CIM process created and executed successfully"
+	}
+
+	if isAdminContext && (isWMIDenialEvidence(output) || (err != nil && isWMIDenialEvidence(err.Error()))) {
+		LogProcessExecution("powershell.exe", cmdLine, pid, false, 126, "Blocked by security controls (WMI denial code)")
+		return false, true, "CIM process creation blocked (WMI denial evidence)"
+	}
+
+	LogProcessExecution("powershell.exe", cmdLine, pid, false, exitCode, "marker not found after 3 polls — inconclusive (not classified as blocked)")
+	LogMessage("WARN", "CIM Process Creation", "CIM marker not found after polls - inconclusive")
+	return false, false, "Inconclusive - CIM process creation marker not found"
+}
+
+// testCimRecon executes a Get-CimInstance reconnaissance query (benign-count
+// only — cannot drive the exit code).
+func testCimRecon() {
+	Endpoint.Say("\n  Executing: Get-CimInstance Win32_Process (recon)")
+
+	cmdLine := "powershell.exe -ExecutionPolicy Bypass -Command \"Get-CimInstance Win32_Process | Select-Object -First 5 Name,ProcessId\""
+	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command",
+		"Get-CimInstance Win32_Process | Select-Object -First 5 Name,ProcessId")
+
+	var outputBuffer bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuffer)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuffer)
+
+	err := cmd.Run()
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
+	output := outputBuffer.String()
+
+	if len(output) > 0 {
+		outputPath := filepath.Join(TARGET_DIR, "cim_recon_output.txt")
+		os.WriteFile(outputPath, []byte(output), 0644)
+		LogFileDropped("cim_recon_output.txt", outputPath, int64(len(output)), false)
+	}
+
+	exitCode := 0
+	if err != nil {
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+	}
+	LogProcessExecution("powershell.exe", cmdLine, pid, err == nil, exitCode, "CIM recon (benign count only)")
 }
 
 // testWmicShadowList tests shadow copy enumeration
@@ -243,7 +378,12 @@ func testWmicOSInfo() (bool, bool, string) {
 	}
 
 	if success {
-		LogMessage("INFO", "OS Information", fmt.Sprintf("Retrieved OS info: %s", strings.TrimSpace(output)[:min(100, len(output))]))
+		trimmed := strings.TrimSpace(output)
+		summaryOut := trimmed
+		if len(summaryOut) > 100 {
+			summaryOut = summaryOut[:100]
+		}
+		LogMessage("INFO", "OS Information", fmt.Sprintf("Retrieved OS info: %s", summaryOut))
 		return true, false, "OS information retrieved"
 	}
 
@@ -349,7 +489,10 @@ func cleanup() {
 	filesToRemove := []string{
 		"wmic_process_output.txt",
 		"wmic_shadowcopy_output.txt",
+		"cim_process_output.txt",
+		"cim_recon_output.txt",
 		"wmi_marker.txt",
+		"cim_marker.txt",
 		"wmi_event_subscription_check.txt",
 		"wmiexec_pro_notes.txt",
 		"wmi_test_summary.txt",
@@ -376,8 +519,10 @@ func test() {
 		if r := recover(); r != nil {
 			if globalLog != nil {
 				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+				SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
 			}
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -389,38 +534,43 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initializing test environment")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		LogPhaseError(0, fmt.Sprintf("Dropper initialization failed: %v", err))
-		LogPhaseEnd(0, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
 	// Create target directory
 	if err := os.MkdirAll(TARGET_DIR, 0755); err != nil {
 		LogPhaseError(0, fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to create target directory")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Failed to create target directory")
+		Endpoint.Stop(ExitTestError)
 	}
 
-	// Check WMI service availability
+	// Probe privilege context once — gates denial classification (Rule 8)
+	isAdminContext = probeAdminContext()
+	if isAdminContext {
+		LogMessage("INFO", "Initialization", "Running elevated (administrator)")
+	} else {
+		LogMessage("WARN", "Initialization", "Running NON-elevated — WMI denials will be treated as benign environment results")
+	}
+
+	// Check WMI service availability (hard prerequisite)
 	if !checkWMIServiceAvailable() {
 		LogMessage("ERROR", "Initialization", "WMI service (winmgmt) is not running")
 		LogPhaseEnd(0, "failed", "WMI service not available")
-		SaveLog(999, "WMI service not available - cannot run test")
-		Endpoint.Stop(999)
+		SaveLog(ExitTestError, "WMI service not available - cannot run test")
+		Endpoint.Stop(ExitTestError)
 	}
 	LogMessage("INFO", "Initialization", "WMI service is running")
 
-	// Check wmic availability
-	if !checkWmicAvailable() {
-		LogMessage("ERROR", "Initialization", "wmic.exe is not available (may be deprecated in newer Windows)")
-		LogPhaseEnd(0, "failed", "wmic.exe not available")
-		SaveLog(999, "wmic.exe not available on system")
-		Endpoint.Stop(999)
+	// Check wmic availability — SOFT prerequisite. wmic.exe is removed on
+	// Win11 24H2+; the test continues with the PowerShell/CIM variant in that
+	// case instead of aborting.
+	wmicAvailable := checkWmicAvailable()
+	if wmicAvailable {
+		LogMessage("INFO", "Initialization", "wmic.exe is available")
+	} else {
+		LogMessage("WARN", "Initialization", "wmic.exe NOT available (removed on Win11 24H2+) — wmic phases will be skipped, CIM/PowerShell variant runs")
 	}
-	LogMessage("INFO", "Initialization", "wmic.exe is available")
 
 	LogPhaseEnd(0, "success", "Environment initialized, WMI available")
 
@@ -428,18 +578,25 @@ func test() {
 	LogPhaseStart(2, "Process Enumeration via WMI")
 	Endpoint.Say("\nPhase 2: Testing WMI process enumeration (T1047)")
 
-	success, blocked, msg := testWmicProcessList()
-	if blocked {
-		Endpoint.Say("  [BLOCKED] Process enumeration was blocked by EDR")
-		blockedPatterns = append(blockedPatterns, "WMI Process Enumeration")
-		LogPhaseEnd(1, "blocked", msg)
-	} else if success {
-		Endpoint.Say("  [VULNERABLE] Process enumeration succeeded")
-		successfulPatterns = append(successfulPatterns, "WMI Process Enumeration")
-		LogPhaseEnd(1, "success", msg)
+	if wmicAvailable {
+		success, blocked, msg := testWmicProcessList()
+		if blocked {
+			Endpoint.Say("  [BLOCKED] Process enumeration was blocked by EDR")
+			blockedPatterns = append(blockedPatterns, "WMI Process Enumeration")
+			LogPhaseEnd(1, "blocked", msg)
+		} else if success {
+			Endpoint.Say("  [VULNERABLE] Process enumeration succeeded")
+			successfulPatterns = append(successfulPatterns, "WMI Process Enumeration")
+			LogPhaseEnd(1, "success", msg)
+		} else {
+			Endpoint.Say("  [ERROR] Process enumeration failed: %s", msg)
+			LogPhaseEnd(1, "failed", msg)
+		}
 	} else {
-		Endpoint.Say("  [ERROR] Process enumeration failed: %s", msg)
-		LogPhaseEnd(1, "failed", msg)
+		Endpoint.Say("  [SKIP] wmic unavailable — CIM recon instead")
+		testCimRecon()
+		successfulPatterns = append(successfulPatterns, "CIM Process Recon (Get-CimInstance)")
+		LogPhaseEnd(1, "success", "CIM process enumeration via Get-CimInstance")
 	}
 
 	Endpoint.Wait(2)
@@ -448,70 +605,100 @@ func test() {
 	LogPhaseStart(3, "Process Creation via WMI")
 	Endpoint.Say("\nPhase 3: Testing WMI process creation (T1047)")
 
-	success, blocked, msg = testWmicProcessCreate()
-	if blocked {
-		Endpoint.Say("  [BLOCKED] WMI process creation was blocked by EDR")
-		blockedPatterns = append(blockedPatterns, "WMI Process Creation")
-		LogPhaseEnd(2, "blocked", msg)
-	} else if success {
-		Endpoint.Say("  [VULNERABLE] WMI process creation succeeded")
-		successfulPatterns = append(successfulPatterns, "WMI Process Creation")
-		LogPhaseEnd(2, "success", msg)
+	if wmicAvailable {
+		success, blocked, msg := testWmicProcessCreate()
+		if blocked {
+			Endpoint.Say("  [BLOCKED] WMI process creation was blocked by EDR")
+			blockedPatterns = append(blockedPatterns, "WMI Process Creation")
+			LogPhaseEnd(2, "blocked", msg)
+		} else if success {
+			Endpoint.Say("  [VULNERABLE] WMI process creation succeeded")
+			successfulPatterns = append(successfulPatterns, "WMI Process Creation")
+			LogPhaseEnd(2, "success", msg)
+		} else {
+			Endpoint.Say("  [ERROR] WMI process creation failed: %s", msg)
+			LogPhaseEnd(2, "failed", msg)
+		}
 	} else {
-		Endpoint.Say("  [ERROR] WMI process creation failed: %s", msg)
-		LogPhaseEnd(2, "failed", msg)
+		Endpoint.Say("  [SKIP] wmic unavailable — skipped wmic process call create")
+		LogPhaseEnd(2, "skipped", "wmic.exe not available")
 	}
 
-	Endpoint.Wait(2)
+	// Phase 3b: CIM process creation (modern wmic-less variant, T1047)
+	LogPhaseStart(4, "CIM Process Creation (wmic-less)")
+	Endpoint.Say("\nPhase 3b: Testing Invoke-CimMethod Win32_Process Create (modern T1047)")
 
-	// Phase 4: Shadow Copy Enumeration (T1047 - Reconnaissance)
-	LogPhaseStart(4, "Shadow Copy Enumeration")
-	Endpoint.Say("\nPhase 4: Testing WMI shadow copy enumeration (reconnaissance)")
-
-	success, blocked, msg = testWmicShadowList()
+	success, blocked, msg := testCimProcessCreate()
 	if blocked {
-		Endpoint.Say("  [BLOCKED] Shadow copy enumeration was blocked")
-		blockedPatterns = append(blockedPatterns, "WMI Shadow Copy Enumeration")
+		Endpoint.Say("  [BLOCKED] CIM process creation was blocked")
+		blockedPatterns = append(blockedPatterns, "CIM Process Creation (Invoke-CimMethod)")
 		LogPhaseEnd(3, "blocked", msg)
 	} else if success {
-		Endpoint.Say("  [VULNERABLE] Shadow copy enumeration succeeded")
-		successfulPatterns = append(successfulPatterns, "WMI Shadow Copy Enumeration")
+		Endpoint.Say("  [VULNERABLE] CIM process creation succeeded")
+		successfulPatterns = append(successfulPatterns, "CIM Process Creation (Invoke-CimMethod)")
 		LogPhaseEnd(3, "success", msg)
 	} else {
-		Endpoint.Say("  [ERROR] Shadow copy enumeration failed: %s", msg)
+		Endpoint.Say("  [ERROR] CIM process creation inconclusive: %s", msg)
 		LogPhaseEnd(3, "failed", msg)
 	}
 
 	Endpoint.Wait(2)
 
-	// Phase 5: WMI Event Subscription Check (T1546.003 - Read Only)
-	LogPhaseStart(5, "WMI Event Subscription Check")
-	Endpoint.Say("\nPhase 5: Checking WMI event subscription artifacts (T1546.003 - read-only)")
+	// Phase 4: Shadow Copy Enumeration (T1047 - Reconnaissance)
+	LogPhaseStart(5, "Shadow Copy Enumeration")
+	Endpoint.Say("\nPhase 4: Testing WMI shadow copy enumeration (reconnaissance)")
+
+	if wmicAvailable {
+		success, blocked, msg = testWmicShadowList()
+		if blocked {
+			Endpoint.Say("  [BLOCKED] Shadow copy enumeration was blocked")
+			blockedPatterns = append(blockedPatterns, "WMI Shadow Copy Enumeration")
+			LogPhaseEnd(4, "blocked", msg)
+		} else if success {
+			Endpoint.Say("  [VULNERABLE] Shadow copy enumeration succeeded")
+			successfulPatterns = append(successfulPatterns, "WMI Shadow Copy Enumeration")
+			LogPhaseEnd(4, "success", msg)
+		} else {
+			Endpoint.Say("  [ERROR] Shadow copy enumeration failed: %s", msg)
+			LogPhaseEnd(4, "failed", msg)
+		}
+	} else {
+		Endpoint.Say("  [SKIP] wmic unavailable — skipped shadow copy enumeration")
+		LogPhaseEnd(4, "skipped", "wmic.exe not available")
+	}
+
+	Endpoint.Wait(2)
+
+	// Phase 5: WMI Event Subscription Check (T1546.003 - Read Only, informational)
+	// NOTE: the checked keys exist on every Windows host — this phase is
+	// informational only and never affects the exit code (audit 2026-11-03).
+	LogPhaseStart(6, "WMI Event Subscription Check")
+	Endpoint.Say("\nPhase 5: Checking WMI event subscription artifacts (T1546.003 - read-only, informational)")
 
 	foundArtifacts, findings := checkWMIEventSubscriptionRegistry()
 	if foundArtifacts {
 		Endpoint.Say("  [INFO] WMI Event Subscription artifacts found: %s", findings)
-		LogMessage("INFO", "WMI Event Subscription", "Registry check completed - artifacts found")
-		LogPhaseEnd(4, "success", "WMI ESS artifacts found (read-only check)")
+		LogMessage("INFO", "WMI Event Subscription", "Registry check completed - artifacts found (informational only)")
+		LogPhaseEnd(5, "info", "WMI ESS artifacts found (read-only, informational)")
 	} else {
 		Endpoint.Say("  [INFO] No WMI Event Subscription artifacts detected")
 		LogMessage("INFO", "WMI Event Subscription", "No event subscription artifacts found")
-		LogPhaseEnd(4, "success", "No WMI ESS artifacts (read-only check)")
+		LogPhaseEnd(5, "info", "No WMI ESS artifacts (read-only, informational)")
 	}
 
 	Endpoint.Wait(1)
 
-	// Phase 6: wmiexec-Pro Placeholder Check
-	LogPhaseStart(6, "wmiexec-Pro Availability")
-	Endpoint.Say("\nPhase 6: Checking wmiexec-Pro tool availability (PLACEHOLDER)")
+	// Phase 6: wmiexec-Pro availability (runtime-optional; never affects exit code)
+	LogPhaseStart(7, "wmiexec-Pro Availability")
+	Endpoint.Say("\nPhase 6: Checking wmiexec-Pro tool availability (runtime-optional)")
 
 	toolAvailable, toolMsg := testWmiexecProPlaceholder()
 	if toolAvailable {
 		Endpoint.Say("  [INFO] wmiexec-Pro is available - manual testing required for remote WMI")
-		LogPhaseEnd(5, "success", toolMsg)
+		LogPhaseEnd(6, "info", toolMsg)
 	} else {
 		Endpoint.Say("  [INFO] wmiexec-Pro not available: %s", toolMsg)
-		LogPhaseEnd(5, "skipped", toolMsg)
+		LogPhaseEnd(6, "skipped", toolMsg)
 	}
 
 	// Phase 7: Final Assessment
@@ -591,9 +778,9 @@ Assessment:
 		// No clear result
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Test did not produce clear results")
 		LogMessage("WARN", "Final Assessment", "Test inconclusive")
-		SaveLog(Endpoint.UnexpectedTestError, "Test inconclusive - no clear result")
+		SaveLog(ExitTestError, "Test inconclusive - no clear result")
 		cleanup()
-		Endpoint.Stop(Endpoint.UnexpectedTestError) // Exit 1
+		Endpoint.Stop(ExitTestError) // Exit 999
 	}
 }
 
@@ -682,6 +869,7 @@ func main() {
 			LogMessage("ERROR", "Timeout", fmt.Sprintf("Test exceeded timeout of %v", timeout))
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("Test exceeded timeout of %v", timeout))
 		}
+		cleanup()
 		Endpoint.Stop(Endpoint.TimeoutExceeded)
 	}
 }

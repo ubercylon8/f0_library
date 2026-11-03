@@ -1,9 +1,9 @@
-# System Recovery Inhibition (Safe Mode)
+# System Recovery Inhibition (Non-Destructive Mode)
 
 ## Test Information
 
 **Test ID**: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
-**Test Name**: System Recovery Inhibition (Safe Mode)
+**Test Name**: System Recovery Inhibition (Non-Destructive Mode)
 **Category**: Impact / Ransomware Precursor
 **Severity**: Critical
 **MITRE ATT&CK**: T1490

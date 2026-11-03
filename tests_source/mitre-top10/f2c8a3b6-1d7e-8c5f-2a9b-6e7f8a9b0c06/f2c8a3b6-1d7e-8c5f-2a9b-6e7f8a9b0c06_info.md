@@ -135,3 +135,12 @@ The test simulates realistic attacker behavior by using five common LOLBIN downl
 - Add curl with `--output` alternate flag
 - Test rundll32.exe with javascript: protocol
 - Include mshta.exe HTA download pattern
+
+## Size Justification
+
+The compiled orchestrator is ~15 MB (Yellow tier, 10–25 MB): it is a single Go binary with the standard F0RT1KA telemetry stack (Schema v2.0 logger, org resolver, per-child output capture for five LOLBIN executions). No .NET runtime or external payloads are embedded; size is dominated by Go runtime + logging infrastructure, not by simulation bulk.
+
+## Realism constraints
+
+- **Retrieval target**: downloads use `http://example.com/robots.txt` (guaranteed-reachable benign content). URL-reputation controls treat well-known benign domains differently from attacker-controlled hosts — full URL-reputation coverage requires a controlled random-looking host on owned infrastructure (future work).
+- **Download → execute linkage**: T1105's danger is delivering a payload that then executes; this test stops at retrieval of a benign text file (intentional safety bound).

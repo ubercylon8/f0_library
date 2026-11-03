@@ -12,6 +12,7 @@ COMPLEXITY: low
 THREAT_ACTOR: N/A
 SUBCATEGORY: ingress-tool-transfer
 TAGS: lolbin, certutil, bitsadmin, powershell-download
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
 CREATED: 2026-01-11
 AUTHOR: sectest-builder
@@ -30,7 +31,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
 )
 
@@ -38,9 +38,66 @@ const (
 	TEST_UUID  = "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06"
 	TEST_NAME  = "LOLBIN Download Detection"
 	TARGET_DIR = "c:\\F0"
-	TEST_URL   = "http://example.com/robots.txt"
-	TEST_URL_2 = "http://httpbin.org/robots.txt"
+	// ARTIFACT_DIR is defined in test_logger_windows.go. Downloaded payload
+	// stand-ins are simulation artifacts and belong in the NON-whitelisted dir
+	// so EDR file operations are visible (CLAUDE.md rule 2).
+	ARTIFACT_SUBDIR = ARTIFACT_DIR + "\\downloads"
+	TEST_URL        = "http://example.com/robots.txt"
+	TEST_URL_2      = "http://httpbin.org/robots.txt"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 )
+
+// isExplicitAVActionText returns true ONLY for explicit security-product action
+// text (Defender/AV-specific messages). Generic words ("denied", "dangerous",
+// proxy 403s, PATH errors) are NOT protection evidence (Bug Prevention Rule 8).
+func isExplicitAVActionText(s string) bool {
+	markers := []string{
+		"contains a virus",                                                    // Defender: "...did not complete successfully because the file contains a virus"
+		"Operation did not complete successfully because the file contains a virus",
+		"This program is blocked by group policy",                             // AppLocker/GPO
+		"was blocked by your administrator",                                   // policy block
+		"Threat found",                                                        // vendor-specific
+	}
+	l := strings.ToLower(s)
+	for _, m := range markers {
+		if strings.Contains(l, strings.ToLower(m)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isBenignDownloadFailure returns true for known-benign network/environment
+// failure text (such an outcome must never count as a block or quarantine).
+func isBenignDownloadFailure(s string) bool {
+	benign := []string{
+		"unable to complete download", // certutil network failure
+		"could not connect",           // network unreachable
+		"timed out",
+		"name or service not known",
+		"no such host",
+		"connection refused",
+		"proxy",
+		"http 403",
+		"http 407",
+	}
+	l := strings.ToLower(s)
+	for _, b := range benign {
+		if strings.Contains(l, b) {
+			return true
+		}
+	}
+	return false
+}
+
+// fileExists is a small os.Stat wrapper
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 // LOLBINTest represents a single LOLBIN download test
 type LOLBINTest struct {
@@ -57,14 +114,14 @@ func getLOLBINTests() []LOLBINTest {
 		{
 			Name:        "certutil URL cache download",
 			Binary:      "certutil.exe",
-			CommandArgs: []string{"-urlcache", "-split", "-f", TEST_URL, filepath.Join(TARGET_DIR, "test_certutil.txt")},
+			CommandArgs: []string{"-urlcache", "-split", "-f", TEST_URL, filepath.Join(ARTIFACT_SUBDIR, "test_certutil.txt")},
 			OutputFile:  "test_certutil.txt",
 			Technique:   "T1105",
 		},
 		{
 			Name:        "bitsadmin transfer download",
 			Binary:      "bitsadmin.exe",
-			CommandArgs: []string{"/transfer", "F0TestJob", "/download", "/priority", "FOREGROUND", TEST_URL, filepath.Join(TARGET_DIR, "test_bitsadmin.txt")},
+			CommandArgs: []string{"/transfer", "F0TestJob", "/download", "/priority", "FOREGROUND", TEST_URL, filepath.Join(ARTIFACT_SUBDIR, "test_bitsadmin.txt")},
 			OutputFile:  "test_bitsadmin.txt",
 			Technique:   "T1105",
 		},
@@ -72,7 +129,7 @@ func getLOLBINTests() []LOLBINTest {
 			Name:   "PowerShell Invoke-WebRequest",
 			Binary: "powershell.exe",
 			CommandArgs: []string{"-ExecutionPolicy", "Bypass", "-Command",
-				fmt.Sprintf("Invoke-WebRequest -Uri '%s' -OutFile '%s' -UseBasicParsing", TEST_URL, filepath.Join(TARGET_DIR, "test_iwr.txt"))},
+				fmt.Sprintf("Invoke-WebRequest -Uri '%s' -OutFile '%s' -UseBasicParsing", TEST_URL, filepath.Join(ARTIFACT_SUBDIR, "test_iwr.txt"))},
 			OutputFile: "test_iwr.txt",
 			Technique:  "T1059.001",
 		},
@@ -80,14 +137,14 @@ func getLOLBINTests() []LOLBINTest {
 			Name:   "PowerShell WebClient.DownloadFile",
 			Binary: "powershell.exe",
 			CommandArgs: []string{"-ExecutionPolicy", "Bypass", "-Command",
-				fmt.Sprintf("(New-Object System.Net.WebClient).DownloadFile('%s', '%s')", TEST_URL, filepath.Join(TARGET_DIR, "test_webclient.txt"))},
+				fmt.Sprintf("(New-Object System.Net.WebClient).DownloadFile('%s', '%s')", TEST_URL, filepath.Join(ARTIFACT_SUBDIR, "test_webclient.txt"))},
 			OutputFile: "test_webclient.txt",
 			Technique:  "T1059.001",
 		},
 		{
 			Name:        "curl.exe download",
 			Binary:      "curl.exe",
-			CommandArgs: []string{"-o", filepath.Join(TARGET_DIR, "test_curl.txt"), TEST_URL, "--silent"},
+			CommandArgs: []string{"-o", filepath.Join(ARTIFACT_SUBDIR, "test_curl.txt"), TEST_URL, "--silent"},
 			OutputFile:  "test_curl.txt",
 			Technique:   "T1105",
 		},
@@ -131,7 +188,7 @@ func executeLOLBINTest(test LOLBINTest) (bool, bool, bool, string) {
 		return false, false, false, fmt.Sprintf("Binary not found: %s", test.Binary)
 	}
 
-	outputPath := filepath.Join(TARGET_DIR, test.OutputFile)
+	outputPath := filepath.Join(ARTIFACT_SUBDIR, test.OutputFile)
 
 	// Build command
 	cmd := exec.Command(test.Binary, test.CommandArgs...)
@@ -172,34 +229,35 @@ func executeLOLBINTest(test LOLBINTest) (bool, bool, bool, string) {
 		errorStr := err.Error()
 		outputStr := outputBuffer.String()
 
-		// Check for EDR/AV blocking indicators
-		blockingIndicators := []string{
-			"blocked", "denied", "prevented", "quarantine",
-			"Access is denied", "Operation not allowed",
-			"virus", "threat", "malware", "dangerous",
-			"not recognized as an internal or external command",
+		// Block ONLY on explicit security-product action text AND the artifact
+		// is absent (Rule 8: positive evidence only; proxy denials, PATH errors
+		// and generic words are NOT protection).
+		if isExplicitAVActionText(outputStr) || isExplicitAVActionText(errorStr) {
+			if !fileExists(outputPath) {
+				LogProcessExecution(test.Binary, cmdLine, pid, false, 126, "Blocked by security controls (explicit AV action text)")
+				LogMessage("INFO", test.Name, fmt.Sprintf("BLOCKED: explicit AV action text (duration: %v)", executionDuration))
+				return false, true, false, "Blocked: security product action"
+			}
+			LogProcessExecution(test.Binary, cmdLine, pid, false, exitCode, "AV text present but artifact exists — logged for triage, not counted as block")
+			return false, false, false, "Ambiguous: AV text present but artifact exists"
 		}
 
-		for _, indicator := range blockingIndicators {
-			if strings.Contains(strings.ToLower(outputStr), strings.ToLower(indicator)) ||
-				strings.Contains(strings.ToLower(errorStr), strings.ToLower(indicator)) {
-				LogProcessExecution(test.Binary, cmdLine, pid, false, 126, "Blocked by security controls")
-				LogMessage("INFO", test.Name, fmt.Sprintf("BLOCKED: %s (duration: %v)", indicator, executionDuration))
-				return false, true, false, fmt.Sprintf("Blocked: %s", indicator)
-			}
+		// Benign network/environment failure — skipped, never a block
+		if isBenignDownloadFailure(outputStr) || isBenignDownloadFailure(errorStr) {
+			LogProcessExecution(test.Binary, cmdLine, pid, false, exitCode, "benign network/environment failure (skipped)")
+			LogMessage("WARN", test.Name, fmt.Sprintf("Benign download failure (skipped): %v", err))
+			return false, false, false, fmt.Sprintf("Benign failure: %s", errorStr)
 		}
 
 		LogProcessExecution(test.Binary, cmdLine, pid, false, exitCode, errorStr)
-		LogMessage("ERROR", test.Name, fmt.Sprintf("Execution failed: %v", err))
+		LogMessage("ERROR", test.Name, fmt.Sprintf("Execution failed (skipped): %v", err))
 		return false, false, false, errorStr
 	}
 
-	// Give EDR time to react (file system monitoring)
+	// Give EDR time to react (file system monitoring), then check the artifact
 	Endpoint.Wait(2)
 
-	// Check if downloaded file exists (success = vulnerability)
-	if _, err := os.Stat(outputPath); err == nil {
-		// File exists - check if it was quarantined during creation
+	if fileExists(outputPath) {
 		fileInfo, _ := os.Stat(outputPath)
 		fileSize := fileInfo.Size()
 
@@ -210,15 +268,40 @@ func executeLOLBINTest(test LOLBINTest) (bool, bool, bool, string) {
 		return true, false, false, ""
 	}
 
-	// File doesn't exist - check if it was quarantined
-	LogMessage("WARN", test.Name, fmt.Sprintf("Output file not found after execution: %s", outputPath))
+	// Artifact missing after exit 0: re-poll before concluding quarantine —
+	// some LOLBINs exit 0 on network failures without writing the file.
+	LogMessage("WARN", test.Name, fmt.Sprintf("Output file not found after execution: %s (re-polling)", outputPath))
+	found := false
+	for i := 0; i < 3; i++ {
+		Endpoint.Wait(2)
+		if fileExists(outputPath) {
+			found = true
+			break
+		}
+	}
 
-	// Command succeeded (exit 0) but file is gone - likely quarantined
-	if exitCode == 0 {
+	if found {
+		fileInfo, _ := os.Stat(outputPath)
+		LogProcessExecution(test.Binary, cmdLine, pid, true, exitCode, "")
+		LogFileDropped(test.OutputFile, outputPath, fileInfo.Size(), false)
+		return true, false, false, ""
+	}
+
+	// Exit 0 + artifact still missing after all polls + benign failure text in
+	// output => benign no-write failure, NOT a quarantine.
+	outputStr := outputBuffer.String()
+	if exitCode == 0 && !isExplicitAVActionText(outputStr) {
+		if isBenignDownloadFailure(outputStr) {
+			LogProcessExecution(test.Binary, cmdLine, pid, false, exitCode, "exit 0 but benign failure text and no artifact (skipped)")
+			return false, false, false, "Download failed benignly - file not created"
+		}
+		// Exit 0, no artifact, no benign explanation, no AV text: ambiguous —
+		// stat-confirmed disappearance of a file the tool wrote is the strongest
+		// available quarantine signal; count it but log the ambiguity.
 		LogProcessExecution(test.Binary, cmdLine, pid, true, exitCode, "")
 		LogFileDropped(test.OutputFile, outputPath, 0, true)
-		LogMessage("INFO", test.Name, "File was quarantined after download")
-		return false, false, true, "File quarantined after download"
+		LogMessage("INFO", test.Name, "File absent after exit-0 download with no benign explanation - classified quarantined (os.Stat evidence)")
+		return false, false, true, "File quarantined after download (os.Stat evidence)"
 	}
 
 	LogProcessExecution(test.Binary, cmdLine, pid, false, exitCode, "File not created")
@@ -250,6 +333,17 @@ func cleanup() {
 		}
 	}
 
+	// Remove downloaded payload stand-ins (ARTIFACT_DIR\downloads) and the dir
+	for _, file := range testFiles {
+		path := filepath.Join(ARTIFACT_SUBDIR, file)
+		if err := os.Remove(path); err == nil {
+			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed: %s", path))
+		}
+	}
+	if err := os.Remove(ARTIFACT_SUBDIR); err == nil {
+		LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed: %s", ARTIFACT_SUBDIR))
+	}
+
 	// Clean up certutil cache
 	cleanupCmd := exec.Command("certutil.exe", "-urlcache", "*", "delete")
 	cleanupCmd.Run() // Ignore errors
@@ -263,8 +357,10 @@ func test() {
 		if r := recover(); r != nil {
 			if globalLog != nil {
 				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+				SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
 			}
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -280,22 +376,24 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initializing test environment")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		LogPhaseError(0, fmt.Sprintf("Dropper initialization failed: %v", err))
-		LogPhaseEnd(0, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
-	// Create target directory
+	// Create target + artifact directories
 	if err := os.MkdirAll(TARGET_DIR, 0755); err != nil {
 		LogPhaseError(0, fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to create target directory")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Failed to create target directory")
+		Endpoint.Stop(ExitTestError)
 	}
 
-	LogMessage("INFO", "Initialization", fmt.Sprintf("Target directory: %s", TARGET_DIR))
+	if err := os.MkdirAll(ARTIFACT_SUBDIR, 0755); err != nil {
+		LogPhaseError(0, fmt.Sprintf("Failed to create artifact directory: %v", err))
+		LogPhaseEnd(0, "failed", "Failed to create artifact directory")
+		SaveLog(ExitTestError, "Failed to create artifact directory")
+		Endpoint.Stop(ExitTestError)
+	}
+	LogMessage("INFO", "Initialization", fmt.Sprintf("Target directory: %s (artifacts: %s)", TARGET_DIR, ARTIFACT_SUBDIR))
 	LogPhaseEnd(0, "success", "Environment initialized")
 
 	// Phase 2: Network Connectivity Check
@@ -304,8 +402,8 @@ func test() {
 
 	if !checkNetworkConnectivity() {
 		LogPhaseEnd(1, "failed", "Network unavailable")
-		SaveLog(999, "Network unavailable - cannot perform download tests")
-		Endpoint.Stop(999) // Exit code 999 for prerequisites not met
+		SaveLog(ExitTestError, "Network unavailable - cannot perform download tests")
+		Endpoint.Stop(ExitTestError) // Exit code 999 for prerequisites not met
 	}
 
 	LogPhaseEnd(1, "success", "Network connectivity verified")
@@ -445,9 +543,9 @@ Assessment:
 		// No clear result (all skipped)
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - All tests were skipped")
 		LogMessage("WARN", "Final Assessment", "All LOLBIN tests skipped - inconclusive result")
-		SaveLog(Endpoint.UnexpectedTestError, "All tests skipped - unable to determine protection status")
+		SaveLog(ExitTestError, "All tests skipped - unable to determine protection status")
 		cleanup()
-		Endpoint.Stop(Endpoint.UnexpectedTestError) // Exit 1
+		Endpoint.Stop(ExitTestError) // Exit 999
 	}
 }
 

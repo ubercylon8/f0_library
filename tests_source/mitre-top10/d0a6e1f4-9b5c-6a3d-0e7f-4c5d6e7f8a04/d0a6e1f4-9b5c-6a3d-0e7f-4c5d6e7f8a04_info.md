@@ -143,7 +143,7 @@ When EDR/AV properly monitors WMI:
 
 When prerequisites are not met:
 - WMI service (winmgmt) is not running
-- wmic.exe is not available (deprecated in newer Windows)
+- wmic.exe is not available (removed on Win11 24H2+): the test does NOT abort — wmic phases are skipped and the modern PowerShell `Invoke-CimMethod Win32_Process::Create` variant (plus `Get-CimInstance` recon) executes instead, which is the tradecraft used on wmic-less hosts
 - Cannot perform WMI operations
 
 ## References
