@@ -517,7 +517,7 @@ func executeDestructivePhase() (int, bool, string) {
 // phase. Called FIRST in cleanup on every exit path (revert-first ordering).
 func revertBcdSettings() {
 	for _, r := range bcdReverts {
-		Endpoint.Say("  [REVERT] bcdedit /set %s %s", r.Args, r.Revert)
+		Endpoint.Say("  [REVERT] bcdedit /set %s %s %s", r.Args, r.Set, r.Revert)
 		cmd := exec.Command("C:\\Windows\\System32\\bcdedit.exe", "/set", r.Args, r.Set, r.Revert)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -765,9 +765,14 @@ func main() {
 	Endpoint.Say("UUID: %s", TEST_UUID)
 	Endpoint.Say("MITRE ATT&CK: T1490 (Inhibit System Recovery)")
 	Endpoint.Say("")
-	Endpoint.Say("!!! NON-DESTRUCTIVE MODE TEST !!!")
-	Endpoint.Say("This test performs READ-ONLY checks only")
-	Endpoint.Say("NO destructive operations will be executed")
+	if os.Getenv(destructiveGate) == "1" {
+		Endpoint.Say("!!! DESTRUCTIVE MODE ARMED (%s=1) !!!", destructiveGate)
+		Endpoint.Say("REAL destructive T1490 commands WILL execute (snapshot required)")
+	} else {
+		Endpoint.Say("!!! NON-DESTRUCTIVE MODE TEST !!!")
+		Endpoint.Say("This test performs READ-ONLY checks only")
+		Endpoint.Say("NO destructive operations will be executed (arm with %s=1 + snapshot)", destructiveGate)
+	}
 	Endpoint.Say("")
 
 	// Initialize Schema v2.0 compliant logger
@@ -777,7 +782,7 @@ func main() {
 		Severity:      "critical",
 		Techniques:    []string{"T1490"},
 		Tactics:       []string{"impact"},
-		Score:         7.1, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		Score:         7.9, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
 		RubricVersion: "v2.1",
 		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
 		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
