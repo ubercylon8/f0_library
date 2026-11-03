@@ -138,7 +138,7 @@ func performTechnique() int {
 	// ------------------------------------------------------------------
 	// Leg 3: SMB session to loopback ADMIN$ + tool transfer (T1021.002/T1570)
 	// ------------------------------------------------------------------
-	fmt.Printf("[STAGE %s] Leg 3: SMB session to %s (T1021.002, loopback only)\n", TECHNIQUE_ID)
+	fmt.Printf("[STAGE %s] Leg 3: SMB session to %s (T1021.002, loopback only)\n", TECHNIQUE_ID, smbTarget)
 	LogMessage("WARN", "T1021.002", "T1021.002: net use \\\\127.0.0.1\\ADMIN$ — loopback lateral session telemetry (PsExec prerequisite)")
 
 	cmd := exec.Command("net.exe", "use", smbTarget)

@@ -141,10 +141,10 @@ func main() {
 			"discovery", "defense-evasion", "command-and-control",
 			"execution", "lateral-movement", "persistence",
 		},
-		Score:         8.1,
+		Score:         8.6,
 		RubricVersion: "v2.1",
 		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.2,
+			RealWorldAccuracy:       2.7,
 			TechnicalSophistication: 1.9,
 			SafetyMechanisms:        2.0,
 			DetectionOpportunities:  1.0,

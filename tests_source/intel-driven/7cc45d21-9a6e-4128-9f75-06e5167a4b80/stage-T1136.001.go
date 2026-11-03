@@ -155,17 +155,17 @@ func performTechnique() int {
 func taskLeg() int {
 	// Never clobber: if a task with this name already exists and does not run
 	// OUR marker action, leave it alone and skip the leg.
-	if existing := schtasksOutput("query", "/tn", taskName); existing.ran {
+	if existing := schtasksOutput("/query", "/tn", taskName); existing.ran {
 		if !strings.Contains(existing.output, "F0RT1KA") {
 			LogMessage("WARNING", "T1053.005", fmt.Sprintf("task %q already exists and is not ours - skipping leg (never clobber)", taskName))
 			return legError
 		}
 		LogMessage("INFO", "T1053.005", "stale task from prior run found - removing first")
-		schtasksOutput("delete", "/tn", taskName, "/f")
+		schtasksOutput("/delete", "/tn", taskName, "/f")
 	}
 
 	LogMessage("WARN", "T1053.005", fmt.Sprintf("T1053.005: schtasks /create /tn %s (masqueraded name) /sc minute /mo 2 /ru SYSTEM", taskName))
-	create := schtasksOutput("create", "/f", "/tn", taskName, "/tr", taskAction, "/sc", "minute", "/mo", "2", "/ru", "SYSTEM")
+	create := schtasksOutput("/create", "/f", "/tn", taskName, "/tr", taskAction, "/sc", "minute", "/mo", "2", "/ru", "SYSTEM")
 	if !create.ran {
 		if create.denied {
 			LogMessage("WARN", "T1053.005", fmt.Sprintf("task creation denied in elevated context (positive evidence): %s", create.output))
@@ -174,7 +174,6 @@ func taskLeg() int {
 		LogMessage("ERROR", "T1053.005", fmt.Sprintf("task creation failed (prerequisite/inconclusive): %s", create.output))
 		return legError
 	}
-	LogProcessExecution("schtasks.exe", fmt.Sprintf("schtasks /create /tn %s /tr <echo marker> /sc minute /mo 2 /ru SYSTEM", taskName), 0, true, 0, create.output)
 
 	// Deferred cleanup — runs on every return path below.
 	cleaned := false
@@ -186,7 +185,7 @@ func taskLeg() int {
 	}()
 
 	// Verify existence (positive query evidence).
-	q := schtasksOutput("query", "/tn", taskName)
+	q := schtasksOutput("/query", "/tn", taskName)
 	if !q.ran || !strings.Contains(strings.ToLower(q.output), strings.ToLower(taskName)) {
 		LogMessage("ERROR", "T1053.005", "task creation reported success but query could not verify it - inconclusive")
 		return legError
@@ -203,8 +202,8 @@ func taskLeg() int {
 // removeTask deletes the decoy task and verifies deletion. Returns true when
 // the task is confirmed absent.
 func removeTask() bool {
-	del := schtasksOutput("delete", "/tn", taskName, "/f")
-	q := schtasksOutput("query", "/tn", taskName)
+	del := schtasksOutput("/delete", "/tn", taskName, "/f")
+	q := schtasksOutput("/query", "/tn", taskName)
 	if q.ran {
 		LogMessage("CRITICAL", "T1053.005", fmt.Sprintf("CLEANUP FAILED: task %s still present after delete (delete output: %s)", taskName, del.output))
 		return false
@@ -234,7 +233,6 @@ func serviceLeg() int {
 		LogMessage("ERROR", "T1543.003", fmt.Sprintf("service creation failed (prerequisite/inconclusive): %s", create.output))
 		return legError
 	}
-	LogProcessExecution("sc.exe", fmt.Sprintf("sc create %s binPath= %s DisplayName= %q", serviceName, serviceBinPath, serviceDisplay), 0, true, 0, create.output)
 
 	cleaned := false
 	defer func() {
@@ -288,7 +286,6 @@ func accountLeg() int {
 		LogMessage("ERROR", "T1136.001", fmt.Sprintf("account creation failed (prerequisite/inconclusive): %s", create.output))
 		return legError
 	}
-	LogProcessExecution("net.exe", fmt.Sprintf("net user %s *** /add", accountName), 0, true, 0, "(output suppressed - password not logged)")
 
 	// Deferred cleanup — runs on every return path below, INCLUDING blocks
 	// on the group-add: an account that exists must never be left behind.
@@ -431,18 +428,21 @@ func serviceMarkerContent() string {
 	return sb.String()
 }
 
-// randomPassword produces a 16-char complex password (upper/lower/digit/sym)
-// that satisfies default complexity policy; it is never logged.
+// randomPassword produces a 12-char complex password (upper/lower/digit/sym)
+// that satisfies default complexity policy. It is deliberately kept at or
+// below 14 characters: longer passwords make net.exe prompt an interactive
+// Y/N confirmation ("password longer than 14 characters...") which cannot be
+// answered over non-interactive SSH and aborts the account creation. The
+// password is never logged.
 func randomPassword() string {
-	b := make([]byte, 12)
+	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
 		for i := range b {
 			b[i] = byte(i * 13)
 		}
 	}
-	hexStr := hex.EncodeToString(b) // 24 chars [0-9a-f]
-	pw := "F0g!" + strings.ToUpper(hexStr[:6]) + hexStr[6:14]
-	return pw
+	hexStr := hex.EncodeToString(b) // 8 chars [0-9a-f]
+	return "F0g!" + strings.ToUpper(hexStr[:4]) + hexStr[4:] // 12 chars total
 }
 
 func truncateOut(s string) string {

@@ -119,8 +119,10 @@ func performTechnique() int {
 		"Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | Select-Object displayName,productState"))
 
 	// 1b. Known AV/EDR service probes (sc.exe query — registry service names,
-	// Rule 6; read-only telemetry, services are never touched).
-	for _, svc := range []string{"WinDefend", "Sense", "CSFalconService", "SepMasterService", "SophosMMS", "WdNisSvc"} {
+	// Rule 6; read-only telemetry, services are never touched). Includes the
+	// Sophos endpoint-defense service names: the 2026-11 win lab runs Sophos
+	// Intercept X (Sophos CTU is also a primary source for this test).
+	for _, svc := range []string{"WinDefend", "Sense", "CSFalconService", "SepMasterService", "SophosMMS", "Sophos Endpoint Defense", "SEDService", "WdNisSvc"} {
 		steps = append(steps, runStep(fmt.Sprintf("sc query %s", svc),
 			fmt.Sprintf("sc.exe query %s", svc), "sc.exe", "query", svc))
 	}

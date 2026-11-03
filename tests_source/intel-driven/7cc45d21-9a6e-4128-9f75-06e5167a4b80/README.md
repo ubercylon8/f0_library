@@ -11,7 +11,7 @@
 | **Complexity** | high |
 | **Rubric** | v2.1 |
 
-**Test Score**: **8.1/10**
+**Test Score**: **8.6/10**
 
 ## Overview
 
@@ -81,10 +81,15 @@ context, launch-refusal errno, or verified file disappearance); benign failures 
 AD, removed `wmic`, absent RSAT/NETLOGON, missing `nxc` — map to prerequisites (999),
 never to block codes.
 
-**Lab validation: PENDING (not yet run).** Planned first detonation on the `win` lab
-(Windows 11 Pro protected by CrowdStrike Falcon, Defender passive). Per-stage detail
-will be recorded in the info card's Lab Evidence section; rubric 2c is capped until
-this run lands.
+**Lab validation (2026-11-03, `win` — Windows 11 Pro, Sophos Intercept X active,
+Defender passive):** exit **101 (VULNERABLE)** — all 5 stages executed without
+prevention on the EDR-protected host; every telemetry primitive verified (Velociraptor
+beacons 3/3, WMI loopback execution, ADMIN$ transfer, PReg policy write, real
+task/service/account registrations with 4698/7045/4720/4728-shape events) and every
+persistence artifact removed with post-run absence verification. A first run the same
+morning exited 999 after two stage-5 test bugs (schtasks verb syntax, >14-char password
+prompt) — classified inconclusive per Rule 8, fixed in source, and re-run clean. Per-stage
+detail in the info card's Lab Evidence section.
 
 Per-stage results are written to `C:\F0\bundle_results.json` for per-stage Elasticsearch
 fan-out; raw stage output to `C:\F0\<binary>_output.txt`.
