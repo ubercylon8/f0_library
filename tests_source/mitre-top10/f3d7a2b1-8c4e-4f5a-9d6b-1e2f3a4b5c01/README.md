@@ -1,6 +1,6 @@
 # PowerShell Execution & AMSI Detection
 
-**Test Score**: **7.5/10**
+**Test Score**: **7.6/10**
 
 ## Overview
 
@@ -18,7 +18,7 @@ This test evaluates endpoint protection capabilities against common PowerShell-b
 Tests detection of PowerShell's `-EncodedCommand` parameter, commonly used by attackers to obfuscate malicious commands.
 
 ### 2. Download Cradle Pattern
-Simulates the `IEX (New-Object Net.WebClient).DownloadString()` pattern commonly used for initial access and payload delivery. The test creates a marker file instead of downloading actual content.
+Executes the REAL `IEX (New-Object Net.WebClient).DownloadString()` and plain WebClient cradle command lines against a reserved-TLD host (`cdn-updates.f0rtika-lab.test`) that never resolves. This produces authentic cradle command-line/AMSI telemetry; retrieval failure is expected-benign by design (no payload infrastructure required).
 
 ### 3. Hidden Window Execution
 Tests detection of `-WindowStyle Hidden` parameter used to hide PowerShell execution from users.
@@ -66,7 +66,7 @@ All attack patterns execute successfully:
 - No AMSI pattern detection
 
 ### Script Quarantined (Exit Code 105)
-Security product quarantines the test binary or scripts before execution.
+Not applicable to this test — no quarantine-detection path exists (no embedded binaries or script files are extracted). Documented exit codes: 126 (protection evidence observed), 101 (patterns executed), 999 (test error / prerequisites), 102 (timeout).
 
 ### PowerShell Unavailable (Exit Code 999)
 PowerShell is not available on the target system (prerequisites not met).

@@ -521,9 +521,9 @@ sign_all_binaries() {
     # Find all .exe files
     while IFS= read -r -d '' exe_file; do
         if sign_binary "$exe_file" "$cert_file" "$password" "" "$description" "$url" "$timestamp_url" "$verbose"; then
-            ((signed_count++))
+            signed_count=$((signed_count + 1))
         else
-            ((failed_count++))
+            failed_count=$((failed_count + 1))
         fi
     done < <(find "$directory" -name "*.exe" -type f -print0)
     
@@ -680,9 +680,9 @@ main() {
             for binary_path in "${binary_paths[@]}"; do
                 print_info "Processing file $((signed_count + failed_count + 1)) of ${#binary_paths[@]}: $(basename "$binary_path")"
                 if sign_binary "$binary_path" "$cert_file" "$password" "$output_file" "$description" "$url" "$timestamp_url" "$verbose"; then
-                    ((signed_count++))
+                    signed_count=$((signed_count + 1))
                 else
-                    ((failed_count++))
+                    failed_count=$((failed_count + 1))
                 fi
             done
             

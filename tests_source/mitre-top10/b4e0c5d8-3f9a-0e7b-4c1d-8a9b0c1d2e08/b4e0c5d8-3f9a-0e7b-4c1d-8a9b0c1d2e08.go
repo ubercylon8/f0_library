@@ -3,7 +3,7 @@
 
 /*
 ID: b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08
-NAME: Ransomware Encryption (Safe Mode)
+NAME: Ransomware Encryption Simulation
 TECHNIQUES: T1486, T1491.001
 TACTICS: impact
 SEVERITY: critical
@@ -12,16 +12,19 @@ COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: ransomware
 TAGS: encryption, defacement, ransom-note, file-encryption
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
-CREATED: 2025-01-11
+CREATED: 2026-01-11
 AUTHOR: sectest-builder
 */
 package main
 
 import (
 	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"encoding/hex"
+	"math/big"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,22 +32,23 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
 )
 
 const (
 	TEST_UUID = "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08"
-	TEST_NAME = "Ransomware Encryption (Safe Mode)"
+	TEST_NAME = "Ransomware Encryption Simulation"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 
 	// Target directory for test files (NOT whitelisted - EDR can detect)
 	TEST_DIRECTORY = "c:\\Users\\fortika-test\\test_documents"
 
-	// Ransom note location
-	RANSOM_NOTE_PATH = "c:\\Users\\fortika-test\\README_F0RTIKA.txt"
-
-	// Extension for "encrypted" files
-	ENCRYPTED_EXTENSION = ".f0rtika"
+	// Ransom note location — RESTORE-FILES.txt is one of the most common
+	// real-world ransom note names (Phobos/Dharma/Crysis families)
+	RANSOM_NOTE_PATH = "c:\\Users\\fortika-test\\RESTORE-FILES.txt"
 )
 
 // TestFileInfo stores information about test files for cleanup
@@ -58,6 +62,26 @@ type TestFileInfo struct {
 // Global state for cleanup
 var createdTestFiles []TestFileInfo
 var generatedAESKey []byte
+
+// encryptedExtension is generated fresh per run — the modern family pattern
+// (LockBit/BlackCat append a random per-victim extension rather than a fixed
+// one). Replaces the fictional fixed ".f0rtika" identifier (audit 2026-11-03).
+var encryptedExtension string
+
+// generateEncryptedExtension returns a random 9-char lowercase alphanumeric
+// extension, matching the length/charset pattern of real per-victim extensions.
+func generateEncryptedExtension() string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 9)
+	for i := range b {
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			idx = big.NewInt(int64(i * 7 % len(charset)))
+		}
+		b[i] = charset[idx.Int64()]
+	}
+	return "." + string(b)
+}
 
 // generateAESKey generates a 256-bit AES key and logs it (never actually used for encryption)
 func generateAESKey() ([]byte, error) {
@@ -107,32 +131,92 @@ func createTestFiles() error {
 	return nil
 }
 
-// simulateEncryption renames files with .f0rtika extension (SAFE - no actual encryption)
+// encryptFile encrypts content with AES-256-GCM (nonce || ciphertext) using
+// the generated key. Only ever applied to the test's OWN decoy files.
+func encryptFile(key, plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return gcm.Seal(nonce, nonce, plaintext, nil), nil
+}
+
+// simulateEncryption performs REAL AES-256-GCM encryption of the test's own
+// decoy files (Batch B realism upgrade), then renames with the ransomware
+// extension. Plaintext is retained in memory (TestFileInfo.Content) and is
+// restored by cleanup — no file outside TEST_DIRECTORY is ever touched.
+// Returns: encrypted count, blocked count (positive evidence only), error.
 func simulateEncryption() (int, int, error) {
 	encrypted := 0
 	blocked := 0
 
 	for i, tf := range createdTestFiles {
-		// Check if original file still exists (might have been quarantined)
+		// Check if original file still exists (might have been quarantined);
+		// re-check after a short wait to avoid races with EDR scanning.
 		if _, err := os.Stat(tf.OriginalName); os.IsNotExist(err) {
-			Endpoint.Say("  [!] File not found (quarantined?): %s", filepath.Base(tf.OriginalName))
-			blocked++
+			Endpoint.Wait(2)
+			if _, err2 := os.Stat(tf.OriginalName); os2IsNotExist(err2) {
+				Endpoint.Say("  [!] Decoy file disappeared (os.Stat-confirmed quarantine): %s", filepath.Base(tf.OriginalName))
+				LogMessage("INFO", "Encryption Simulation", fmt.Sprintf("Decoy quarantined before encryption: %s", filepath.Base(tf.OriginalName)))
+				blocked++
+				continue
+			}
+		}
+
+		// 1) Read plaintext (fresh read; Content is the retained restore copy)
+		plaintext, err := os.ReadFile(tf.OriginalName)
+		if err != nil {
+			LogMessage("WARN", "Encryption Simulation", fmt.Sprintf("Read failed (benign skip): %s - %v", filepath.Base(tf.OriginalName), err))
 			continue
 		}
 
-		// Create renamed path
-		renamedPath := tf.OriginalName + ENCRYPTED_EXTENSION
+		// 2) Encrypt with AES-256-GCM
+		ciphertext, err := encryptFile(generatedAESKey, plaintext)
+		if err != nil {
+			LogMessage("WARN", "Encryption Simulation", fmt.Sprintf("Cipher failed (benign skip): %s - %v", filepath.Base(tf.OriginalName), err))
+			continue
+		}
 
-		// Attempt to rename (simulates encryption)
-		if err := os.Rename(tf.OriginalName, renamedPath); err != nil {
-			Endpoint.Say("  [!] Rename blocked for: %s - %v", filepath.Base(tf.OriginalName), err)
-			LogMessage("WARN", "Encryption Simulation", fmt.Sprintf("Rename blocked: %s - %v", filepath.Base(tf.OriginalName), err))
-			blocked++
-
-			// Check if this is an EDR block
-			if strings.Contains(err.Error(), "Access") || strings.Contains(err.Error(), "denied") {
-				return encrypted, blocked, fmt.Errorf("EDR blocked file rename operation")
+		// 3) Write ciphertext back in place
+		if err := os.WriteFile(tf.OriginalName, ciphertext, 0644); err != nil {
+			if strings.Contains(err.Error(), "Access is denied") {
+				// OS-emitted denial on the test's own file — positive block evidence
+				Endpoint.Say("  [!] Ciphertext write denied: %s - %v", filepath.Base(tf.OriginalName), err)
+				LogMessage("INFO", "Encryption Simulation", fmt.Sprintf("Write denied (OS denial on own file): %s", filepath.Base(tf.OriginalName)))
+				blocked++
+				continue
 			}
+			LogMessage("WARN", "Encryption Simulation", fmt.Sprintf("Write failed (benign skip): %s - %v", filepath.Base(tf.OriginalName), err))
+			continue
+		}
+
+		// 4) Verify ciphertext != plaintext (proof of real encryption)
+		if string(ciphertext) == string(plaintext) {
+			LogMessage("ERROR", "Encryption Simulation", "ciphertext equals plaintext — aborting phase (integrity)")
+			return encrypted, blocked, fmt.Errorf("cipher integrity check failed for %s", filepath.Base(tf.OriginalName))
+		}
+
+		// 5) Rename with ransomware extension
+		renamedPath := tf.OriginalName + encryptedExtension
+		if err := os.Rename(tf.OriginalName, renamedPath); err != nil {
+			// Restore plaintext before treating this as a skip/block so no
+			// encrypted residue remains under the original name.
+			os.WriteFile(tf.OriginalName, tf.Content, 0644)
+			if strings.Contains(err.Error(), "Access is denied") {
+				Endpoint.Say("  [!] Rename denied: %s - %v", filepath.Base(tf.OriginalName), err)
+				LogMessage("INFO", "Encryption Simulation", fmt.Sprintf("Rename denied (OS denial on own file): %s", filepath.Base(tf.OriginalName)))
+				blocked++
+				continue
+			}
+			LogMessage("WARN", "Encryption Simulation", fmt.Sprintf("Rename failed (benign skip, plaintext restored): %s - %v", filepath.Base(tf.OriginalName), err))
 			continue
 		}
 
@@ -140,66 +224,88 @@ func simulateEncryption() (int, int, error) {
 		createdTestFiles[i].RenamedName = renamedPath
 
 		encrypted++
-		Endpoint.Say("  [+] Simulated encryption: %s -> %s%s",
+		Endpoint.Say("  [+] Encrypted (AES-256-GCM): %s -> %s%s (%d -> %d bytes)",
 			filepath.Base(tf.OriginalName),
 			filepath.Base(tf.OriginalName),
-			ENCRYPTED_EXTENSION)
+			encryptedExtension,
+			len(plaintext),
+			len(ciphertext))
 
 		LogMessage("INFO", "Encryption Simulation",
-			fmt.Sprintf("File renamed: %s -> %s", filepath.Base(tf.OriginalName), filepath.Base(renamedPath)))
+			fmt.Sprintf("File encrypted+renamed: %s -> %s (AES-256-GCM, %d->%d bytes)",
+				filepath.Base(tf.OriginalName), filepath.Base(renamedPath), len(plaintext), len(ciphertext)))
 	}
 
 	return encrypted, blocked, nil
 }
 
+// os2IsNotExist avoids double-declaring os.IsNotExist results
+func os2IsNotExist(err error) bool {
+	return err != nil && os.IsNotExist(err)
+}
+
 // createRansomNote creates the ransom note file
 func createRansomNote() error {
-	ransomNote := fmt.Sprintf(`
-================================================================================
-                        F0RT1KA SECURITY TEST - RANSOMWARE SIMULATION
-================================================================================
+	victimIDBytes := make([]byte, 8)
+	rand.Read(victimIDBytes)
+	victimID := strings.ToUpper(hex.EncodeToString(victimIDBytes))
+	onionChars := "abcdefghijklmnopqrstuvwxyz234567"
+	onionBuf := make([]byte, 16)
+	for i := range onionBuf {
+		idx, _ := rand.Int(rand.Reader, big.NewInt(int64(len(onionChars))))
+		onionBuf[i] = onionChars[idx.Int64()]
+	}
+	onionHost := string(onionBuf)
 
-*** THIS IS A SECURITY TEST - NOT A REAL RANSOMWARE ATTACK ***
+	ransomNote := fmt.Sprintf(`~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ READ THIS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Your files have been SIMULATED as encrypted by the F0RT1KA security testing
-framework. This is a controlled test to evaluate your endpoint detection and
-response (EDR) capabilities.
+All your files have been encrypted using AES-256 and RSA-4096 military grade
+encryption algorithms. Nobody can recover them without our decryption service.
 
-IMPORTANT:
-- Your files are NOT actually encrypted
-- Files were only RENAMED with .f0rtika extension
-- All files remain fully readable and functional
-- This test will automatically restore all files
+  Victim ID:   %s
+  Extension:   %s
+  Deadline:    72 hours from %s
 
-SIMULATED ATTACK DETAILS:
-- Test ID: %s
-- Test Name: %s
-- Timestamp: %s
-- Technique: T1486 (Data Encrypted for Impact)
-- Simulated Key: AES-256 (key logged but never used)
+>>> What should I do?
 
-DETECTION OPPORTUNITY:
-If you are seeing this note, your EDR solution did NOT prevent the following:
-1. Mass file rename operations (.f0rtika extension)
-2. Ransom note file creation
-3. Bulk file system operations targeting documents
+1. Download the Tor browser: https://www.torproject.org
+2. Visit our recovery portal: http://%s.onion
+3. Enter your Victim ID and follow the instructions
 
-MITRE ATT&CK Coverage:
-- T1486: Data Encrypted for Impact
-- T1491.001: Internal Defacement
+>>> Payment
 
-================================================================================
-This test is part of the F0RT1KA security testing framework.
-For more information, contact your security team.
-================================================================================
-`, TEST_UUID, TEST_NAME, time.Now().Format("2006-01-02 15:04:05 MST"))
+Send 0.5 BTC to the wallet below to receive your private decryption key.
+
+  bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh
+
+Do not rename encrypted files. Do not use third-party decryption tools —
+permanent data loss will follow.
+
+   CASE REF: %s (F0RT1KA security test — files auto-restored at cleanup)
+`, victimID, encryptedExtension, time.Now().Format("2006-01-02 15:04"), onionHost, TEST_UUID)
 
 	if err := os.WriteFile(RANSOM_NOTE_PATH, []byte(ransomNote), 0644); err != nil {
 		return fmt.Errorf("failed to create ransom note: %v", err)
 	}
 
-	LogFileDropped("README_F0RTIKA.txt", RANSOM_NOTE_PATH, int64(len(ransomNote)), false)
+	LogFileDropped("RESTORE-FILES.txt", RANSOM_NOTE_PATH, int64(len(ransomNote)), false)
 	return nil
+}
+
+// removeWithRetry removes a file, retrying briefly — AV scanners can hold
+// transient handles right after a file write (observed with the ransom note).
+func removeWithRetry(path string) error {
+	var err error
+	for i := 0; i < 3; i++ {
+		if err = os.Remove(path); err == nil {
+			return nil
+		}
+		if os.IsNotExist(err) {
+			return nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return err
 }
 
 // cleanup restores all test files to their original state and removes test artifacts
@@ -215,6 +321,11 @@ func cleanup() {
 	// Restore renamed files
 	for _, tf := range createdTestFiles {
 		if tf.RenamedName != "" {
+			// Restore plaintext from the in-memory copy FIRST so that even a
+			// failed rename-back never leaves an encrypted residue on disk.
+			if err := os.WriteFile(tf.RenamedName, tf.Content, 0644); err != nil {
+				LogMessage("WARN", "Cleanup", fmt.Sprintf("Plaintext restore write failed for %s: %v", filepath.Base(tf.RenamedName), err))
+			}
 			// File was renamed, restore original name
 			if err := os.Rename(tf.RenamedName, tf.OriginalName); err != nil {
 				// If rename back fails, try to remove the renamed file
@@ -243,12 +354,10 @@ func cleanup() {
 		}
 	}
 
-	// Remove ransom note
-	if err := os.Remove(RANSOM_NOTE_PATH); err != nil {
-		if !os.IsNotExist(err) {
-			errors++
-			LogMessage("WARN", "Cleanup", fmt.Sprintf("Failed to remove ransom note: %v", err))
-		}
+	// Remove ransom note (with retry — AV may hold a transient handle)
+	if err := removeWithRetry(RANSOM_NOTE_PATH); err != nil {
+		errors++
+		LogMessage("WARN", "Cleanup", fmt.Sprintf("Failed to remove ransom note after retries: %v", err))
 	} else {
 		removed++
 	}
@@ -279,7 +388,9 @@ func test() {
 	defer func() {
 		if r := recover(); r != nil {
 			LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-			SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+			SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -287,27 +398,26 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initialization")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		Endpoint.Say("  [!] Dropper initialization failed: %v", err)
-		LogPhaseEnd(1, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
 	// Create target directory
 	if err := os.MkdirAll(TEST_DIRECTORY, 0755); err != nil {
 		Endpoint.Say("  [!] Failed to create test directory: %v", err)
 		LogPhaseEnd(1, "failed", "Failed to create test directory")
-		SaveLog(999, fmt.Sprintf("Failed to create test directory: %v", err))
-		Endpoint.Stop(999)
+		SaveLog(ExitTestError, fmt.Sprintf("Failed to create test directory: %v", err))
+		Endpoint.Stop(ExitTestError)
 	}
 
 	// Ensure c:\F0 exists for logging
 	os.MkdirAll("c:\\F0", 0755)
 
 	Endpoint.Say("  [+] Test directory created: %s", TEST_DIRECTORY)
-	Endpoint.Say("  [+] Dropper initialized successfully")
 	LogPhaseEnd(1, "success", "Initialization completed")
+
+	// Generate the per-victim extension (modern family pattern)
+	encryptedExtension = generateEncryptedExtension()
+	Endpoint.Say("  [i] Per-victim encryption extension for this run: %s", encryptedExtension)
 
 	// Phase 2: Test File Creation
 	LogPhaseStart(2, "Test File Creation")
@@ -317,8 +427,8 @@ func test() {
 	if err := createTestFiles(); err != nil {
 		Endpoint.Say("  [!] Failed to create test files: %v", err)
 		LogPhaseEnd(2, "failed", "Failed to create test files")
-		SaveLog(999, fmt.Sprintf("Failed to create test files: %v", err))
-		Endpoint.Stop(999)
+		SaveLog(ExitTestError, fmt.Sprintf("Failed to create test files: %v", err))
+		Endpoint.Stop(ExitTestError)
 	}
 
 	Endpoint.Say("  [+] Created %d test files", len(createdTestFiles))
@@ -339,16 +449,16 @@ func test() {
 	if err != nil {
 		Endpoint.Say("  [!] Key generation failed: %v", err)
 		LogPhaseEnd(3, "failed", "Key generation failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Key generation failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Key generation failed")
+		Endpoint.Stop(ExitTestError)
 	}
 
 	keyHex := hex.EncodeToString(generatedAESKey)
 	Endpoint.Say("  [+] Generated AES-256 key: %s...%s", keyHex[:8], keyHex[len(keyHex)-8:])
-	Endpoint.Say("  [i] NOTE: This key is logged but NEVER used for actual encryption")
+	Endpoint.Say("  [i] This key encrypts the test's OWN decoy files; plaintext is restored at cleanup")
 
 	LogMessage("INFO", "AES Key Generation", fmt.Sprintf("Generated key (first 8 chars): %s...", keyHex[:16]))
-	LogMessage("INFO", "AES Key Generation", "Key is logged for demonstration only - no actual encryption performed")
+	LogMessage("INFO", "AES Key Generation", "Key is used to AES-256-GCM encrypt the test decoys; originals held in memory for restoration")
 
 	// Verify key can create a cipher (proves it's valid)
 	if _, err := aes.NewCipher(generatedAESKey); err != nil {
@@ -362,9 +472,9 @@ func test() {
 	// Phase 4: Ransomware Simulation (file rename + ransom note)
 	LogPhaseStart(4, "Ransomware Simulation")
 	Endpoint.Say("")
-	Endpoint.Say("Phase 4: Simulating ransomware encryption (safe mode)")
-	Endpoint.Say("  [i] Files will be RENAMED with %s extension", ENCRYPTED_EXTENSION)
-	Endpoint.Say("  [i] NO actual encryption - files remain readable")
+	Endpoint.Say("Phase 4: Ransomware encryption simulation")
+	Endpoint.Say("  [i] Test-owned decoys are AES-256-GCM encrypted in place and renamed with per-victim extension %s", encryptedExtension)
+	Endpoint.Say("  [i] Plaintext is restored automatically at cleanup; no other files are touched")
 
 	// Simulate encryption (rename files)
 	encrypted, blocked, err := simulateEncryption()
@@ -374,7 +484,9 @@ func test() {
 		LogMessage("INFO", "Ransomware Simulation", fmt.Sprintf("Blocked by EDR: %v", err))
 		LogPhaseEnd(4, "blocked", "EDR blocked file rename operations")
 		SaveLog(Endpoint.ExecutionPrevented, "EDR blocked ransomware file operations")
-		// Cleanup will run via defer
+		// NOTE: cleanup() must be EXPLICIT — Endpoint.Stop() calls os.Exit()
+		// which skips deferred functions (residue incident 2026-11-03).
+		cleanup()
 		Endpoint.Stop(Endpoint.ExecutionPrevented)
 	}
 
@@ -388,6 +500,7 @@ func test() {
 		Endpoint.Say("  [!] All file operations were blocked - EDR protection detected")
 		LogPhaseEnd(4, "blocked", "All file operations blocked by EDR")
 		SaveLog(Endpoint.ExecutionPrevented, "EDR blocked all ransomware file operations")
+		cleanup()
 		Endpoint.Stop(Endpoint.ExecutionPrevented)
 	}
 
@@ -395,16 +508,28 @@ func test() {
 	Endpoint.Say("")
 	Endpoint.Say("Creating ransom note: %s", RANSOM_NOTE_PATH)
 	if err := createRansomNote(); err != nil {
-		Endpoint.Say("  [!] Ransom note creation blocked: %v", err)
-		LogMessage("WARN", "Ransomware Simulation", fmt.Sprintf("Ransom note creation blocked: %v", err))
+		Endpoint.Say("  [!] Ransom note creation failed: %v", err)
+		LogMessage("WARN", "Ransomware Simulation", fmt.Sprintf("Ransom note creation failed: %v", err))
 
-		// If ransom note creation is blocked but files were renamed, partial success
-		if encrypted > 0 {
-			LogPhaseEnd(4, "partial", "Files renamed but ransom note blocked")
-		} else {
-			LogPhaseEnd(4, "blocked", "EDR blocked ransom note creation")
-			SaveLog(Endpoint.ExecutionPrevented, "EDR blocked ransom note creation")
+		if strings.Contains(err.Error(), "Access is denied") {
+			// OS-emitted denial writing the test's own note — positive evidence
+			LogPhaseEnd(4, "blocked", "Ransom note write denied (OS denial)")
+			SaveLog(Endpoint.ExecutionPrevented, "Ransom note write denied by OS/EDR")
+			cleanup()
 			Endpoint.Stop(Endpoint.ExecutionPrevented)
+		}
+
+		// Benign failure (disk full, ACL, handle held). If files were already
+		// encrypted, the T1486 core still executed — partial. If nothing was
+		// encrypted, the test could not complete its objective: 999 test error,
+		// NOT a protection verdict (Bug Prevention Rule 8).
+		if encrypted > 0 {
+			LogPhaseEnd(4, "partial", "Files encrypted but ransom note write failed benignly")
+		} else {
+			LogPhaseEnd(4, "failed", "Ransom note write failed benignly with nothing encrypted")
+			SaveLog(ExitTestError, fmt.Sprintf("Ransom note creation failed benignly: %v", err))
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	} else {
 		Endpoint.Say("  [+] Ransom note created successfully")
@@ -424,6 +549,7 @@ func test() {
 		Endpoint.Say("  [!] Ransom note was quarantined - EDR detected the attack")
 		LogMessage("INFO", "Post-Execution Check", "Ransom note quarantined by EDR")
 		SaveLog(Endpoint.FileQuarantinedOnExecution, "Ransom note quarantined post-execution")
+		cleanup()
 		Endpoint.Stop(Endpoint.FileQuarantinedOnExecution)
 	}
 
@@ -432,34 +558,37 @@ func test() {
 	Endpoint.Say("================================================================================")
 	Endpoint.Say("RANSOMWARE SIMULATION COMPLETED - SYSTEM UNPROTECTED")
 	Endpoint.Say("================================================================================")
-	Endpoint.Say("  - %d files were renamed with %s extension", encrypted, ENCRYPTED_EXTENSION)
+	Endpoint.Say("  - %d test-owned decoys were AES-256-GCM encrypted and renamed with %s", encrypted, encryptedExtension)
 	Endpoint.Say("  - Ransom note created at: %s", RANSOM_NOTE_PATH)
-	Endpoint.Say("  - AES-256 key generated (but not used for encryption)")
+	Endpoint.Say("  - Originals restored automatically at cleanup")
 	Endpoint.Say("")
 	Endpoint.Say("IMPORTANT: EDR did NOT prevent this ransomware simulation!")
 	Endpoint.Say("")
 
 	LogMessage("CRITICAL", "Final Assessment", "System is UNPROTECTED - ransomware simulation succeeded")
 
-	// Cleanup will run via defer, save log before cleanup
-	SaveLog(Endpoint.Unprotected, fmt.Sprintf("Ransomware simulation succeeded - %d files renamed, ransom note created", encrypted))
+	// NOTE: cleanup() must be EXPLICIT — Endpoint.Stop() calls os.Exit()
+	// which skips deferred functions (residue incident 2026-11-03: encrypted
+	// decoys + note survived a "successful" run). defer cleanup() remains as
+	// a belt-and-braces fallback only.
+	SaveLog(Endpoint.Unprotected, fmt.Sprintf("Ransomware simulation succeeded - %d files encrypted (AES-256-GCM), ransom note created", encrypted))
 
-	// Note: Cleanup runs automatically via defer
+	cleanup()
 	Endpoint.Stop(Endpoint.Unprotected)
 }
 
 func main() {
 	Endpoint.Say("================================================================================")
-	Endpoint.Say("F0RT1KA Security Test - Ransomware Encryption (Safe Mode)")
+	Endpoint.Say("F0RT1KA Security Test - Ransomware Encryption Simulation")
 	Endpoint.Say("================================================================================")
 	Endpoint.Say("Test ID: %s", TEST_UUID)
 	Endpoint.Say("Start Time: %s", time.Now().Format("2006-01-02T15:04:05 MST"))
 	Endpoint.Say("")
 	Endpoint.Say("SAFETY NOTICE:")
-	Endpoint.Say("  - This test does NOT perform actual file encryption")
-	Endpoint.Say("  - Files are only RENAMED (remain fully readable)")
+	Endpoint.Say("  - Encrypts ONLY self-created decoy files (AES-256-GCM, restored at cleanup)")
+	Endpoint.Say("  - No file outside the test directory is ever touched")
 	Endpoint.Say("  - All test files are automatically cleaned up")
-	Endpoint.Say("  - Only self-created test files are affected")
+	Endpoint.Say("  - Original plaintext is held in memory and written back before deletion")
 	Endpoint.Say("")
 
 	// Initialize logger with Schema v2.0 metadata
@@ -469,15 +598,11 @@ func main() {
 		Severity:      "critical",
 		Techniques:    []string{"T1486", "T1491.001"},
 		Tactics:       []string{"impact"},
-		Score:         8.5,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Simulates realistic ransomware behavior patterns
-			TechnicalSophistication: 2.5, // AES key generation, file operations, ransom note
-			SafetyMechanisms:        2.0, // Full safety - no actual encryption, auto-cleanup
-			DetectionOpportunities:  1.0, // Multiple detection points
-			LoggingObservability:    0.5, // Comprehensive logging
-		},
+		Score:         7.8, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"ransomware", "safe-simulation", "file-operations", "impact"},
 	}
 

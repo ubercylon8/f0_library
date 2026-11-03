@@ -1,6 +1,6 @@
 # Security Service Stop Simulation
 
-**Test Score**: **8.0/10**
+**Test Score**: **8.2/10**
 
 ## Overview
 
@@ -109,3 +109,6 @@ GOOS=windows GOARCH=amd64 go build -o ../../../build/d6a2e7f0-5b1c-2a9d-6e3f-0c1
 - [MITRE ATT&CK T1489 - Service Stop](https://attack.mitre.org/techniques/T1489/)
 - [MITRE ATT&CK T1562.001 - Impair Defenses](https://attack.mitre.org/techniques/T1562/001/)
 - [NetExec GitHub](https://github.com/Pennyw0rth/NetExec)
+
+**Lifecycle realism (2026-11-03 remediation):** the T1489 proxy now runs a REAL service lifecycle on the test's own service — create → START (binPath is a genuine service-protocol binary, snmptrap.exe, when present) → poll to RUNNING → STOP → re-query corroboration (Bug Prevention Rule 5). A stop is only "verified" when a follow-up `sc query` confirms the state is no longer RUNNING; a no-op stop of a never-started service is never counted. Security services (including the lab EDR's) are QUERY-ONLY. NetExec is runtime-optional from `c:\F0	ools
+xc.exe` (not embedded); expected auth-failure against localhost is never classified as a block.

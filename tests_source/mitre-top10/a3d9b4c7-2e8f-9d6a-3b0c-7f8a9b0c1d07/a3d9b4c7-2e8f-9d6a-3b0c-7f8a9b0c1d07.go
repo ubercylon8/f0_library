@@ -6,12 +6,13 @@ ID: a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07
 NAME: Pre-Encryption File Enumeration
 TECHNIQUES: T1083, T1119, T1082
 TACTICS: discovery, collection
-SEVERITY: medium
+SEVERITY: high
 TARGET: windows-endpoint
 COMPLEXITY: low
 THREAT_ACTOR: N/A
 SUBCATEGORY: discovery
-TAGS: file-enumeration, system-info, automated-collection, pre-ransomware
+TAGS: file-discovery, enumeration, pre-encryption, seatbelt, native
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
 CREATED: 2026-01-11
 AUTHOR: sectest-builder
@@ -20,7 +21,8 @@ package main
 
 import (
 	"bytes"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -30,9 +32,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
-	"golang.org/x/sys/windows"
 )
 
 const (
@@ -40,7 +40,33 @@ const (
 	TEST_NAME     = "Pre-Encryption File Enumeration"
 	TARGET_DIR    = "c:\\F0"
 	TEST_DOCS_DIR = "c:\\Users\\fortika-test\\test_documents"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 )
+
+// isAdminContext gates denial classification (Bug Prevention Rule 8).
+var isAdminContext = false
+
+// probeAdminContext checks whether the current context is elevated.
+func probeAdminContext() bool {
+	return exec.Command("net", "session").Run() == nil
+}
+
+// isPositiveProtectionEvidence returns true ONLY for exact OS/policy denial
+// markers (generic words anywhere in output are NOT evidence).
+func isPositiveProtectionEvidence(s string) bool {
+	return strings.Contains(s, "Access is denied") ||
+		strings.Contains(s, "This program is blocked by group policy") ||
+		strings.Contains(s, "Operation did not complete successfully because the file contains a virus")
+}
+
+// fileExists is a small os.Stat wrapper
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 // Seatbelt binary is loaded at runtime from c:\F0\tools\Seatbelt.exe
 // User must place the binary there before running the test
@@ -126,26 +152,6 @@ func performDirEnumeration(targetDir string) (bool, bool, int, string) {
 	os.WriteFile(outputPath, []byte(output), 0644)
 	LogFileDropped("dir_enumeration_output.txt", outputPath, int64(len(output)), false)
 
-	if err != nil {
-		errorStr := err.Error()
-
-		// Check for blocking indicators
-		if strings.Contains(strings.ToLower(output), "blocked") ||
-			strings.Contains(strings.ToLower(output), "denied") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") {
-
-			LogProcessExecution("cmd.exe", cmdLine, pid, false, 126, "Blocked by security controls")
-			LogMessage("INFO", "Dir Enumeration", fmt.Sprintf("Enumeration blocked after %v", duration))
-			return false, true, 0, "Directory enumeration blocked by EDR"
-		}
-
-		LogProcessExecution("cmd.exe", cmdLine, pid, false, cmd.ProcessState.ExitCode(), errorStr)
-		// dir command may return error if no files found - not necessarily a failure
-		LogMessage("INFO", "Dir Enumeration", fmt.Sprintf("Enumeration completed with exit code %d in %v", cmd.ProcessState.ExitCode(), duration))
-	} else {
-		LogProcessExecution("cmd.exe", cmdLine, pid, true, 0, "")
-	}
-
 	// Count files found
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	filesFound := 0
@@ -155,8 +161,82 @@ func performDirEnumeration(targetDir string) (bool, bool, int, string) {
 		}
 	}
 
+	if err != nil {
+		errorStr := err.Error()
+
+		// Block ONLY on exact OS denial in the error channel, admin-gated
+		// (Rule 8). A failed dir with zero results is a benign failure, not
+		// success and not a block.
+		if isAdminContext && (isPositiveProtectionEvidence(errorStr) || isPositiveProtectionEvidence(output)) {
+			LogProcessExecution("cmd.exe", cmdLine, pid, false, 126, "Blocked by security controls (OS denial)")
+			LogMessage("INFO", "Dir Enumeration", fmt.Sprintf("Enumeration blocked after %v", duration))
+			return false, true, 0, "Directory enumeration blocked by EDR"
+		}
+
+		LogProcessExecution("cmd.exe", cmdLine, pid, false, cmd.ProcessState.ExitCode(), errorStr)
+		if filesFound == 0 {
+			// dir failed AND produced nothing: benign failure — NOT success
+			LogMessage("WARN", "Dir Enumeration", fmt.Sprintf("Enumeration failed with no results (exit %d, %v)", cmd.ProcessState.ExitCode(), duration))
+			return false, false, 0, fmt.Sprintf("Enumeration failed: %s", errorStr)
+		}
+		// Partial results: count as success with a note
+		LogMessage("INFO", "Dir Enumeration", fmt.Sprintf("Enumeration completed with exit code %d, %d files in %v", cmd.ProcessState.ExitCode(), filesFound, duration))
+	} else {
+		LogProcessExecution("cmd.exe", cmdLine, pid, true, 0, "")
+	}
+
 	LogMessage("INFO", "Dir Enumeration", fmt.Sprintf("Enumerated %d files in %v", filesFound, duration))
 	return true, false, filesFound, fmt.Sprintf("Enumerated %d files", filesFound)
+}
+
+// enumerateRealUserProfiles performs READ-ONLY enumeration of real user profile
+// directories (Documents/Desktop) — the tradecraft signal real pre-encryption
+// recon produces (Batch B realism upgrade). Benign-count only: this phase can
+// never drive the exit code.
+func enumerateRealUserProfiles() {
+	Endpoint.Say("  Enumerating real user profile directories (read-only)...")
+
+	targets, _ := filepath.Glob("C:\\Users\\*\\Documents")
+	desktops, _ := filepath.Glob("C:\\Users\\*\\Desktop")
+	targets = append(targets, desktops...)
+
+	total := 0
+	for _, dir := range targets {
+		cmd := exec.Command("cmd", "/c", "dir", "/s", "/b", dir)
+		var buf bytes.Buffer
+		cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+		cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
+		err := cmd.Run()
+		pid := 0
+		if cmd.Process != nil {
+			pid = cmd.Process.Pid
+		}
+		out := buf.String()
+		count := 0
+		for _, line := range strings.Split(out, "\n") {
+			if strings.TrimSpace(line) != "" && !strings.Contains(line, "File Not Found") {
+				count++
+			}
+		}
+		total += count
+		exitCode := 0
+		if err != nil && cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+		// Cap persisted output at 200 lines
+		capped := out
+		outLines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		if len(outLines) > 200 {
+			capped = strings.Join(outLines[:200], "\n") + "\n... (truncated)"
+		}
+		safe := strings.Map(func(r rune) rune { if r == '\\' { return '_' }; return r }, filepath.Base(filepath.Dir(dir))+"_"+filepath.Base(dir))
+		outPath := filepath.Join(TARGET_DIR, "profile_enum_"+safe+".txt")
+		os.WriteFile(outPath, []byte(capped), 0644)
+		LogFileDropped(filepath.Base(outPath), outPath, int64(len(capped)), false)
+		LogProcessExecution("cmd.exe", fmt.Sprintf("cmd /c dir /s /b \"%s\"", dir), pid, err == nil, exitCode,
+			fmt.Sprintf("user-profile enumeration (benign count: %d files)", count))
+	}
+	LogMessage("INFO", "User Profile Enumeration", fmt.Sprintf("Enumerated %d files across %d user profile directories (read-only, benign)", total, len(targets)))
 }
 
 // performExtensionFiltering filters enumerated files by target extensions
@@ -170,29 +250,48 @@ func performExtensionFiltering(targetDir string) (bool, bool, int, string) {
 	for _, ext := range targetExtensions {
 		pattern := fmt.Sprintf("%s\\*%s", targetDir, ext)
 		cmd := exec.Command("cmd", "/c", "dir", "/s", "/b", pattern)
+		cmdLine := fmt.Sprintf("cmd /c dir /s /b \"%s\"", pattern)
 
-		output, err := cmd.CombinedOutput()
+		var buf bytes.Buffer
+		cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+		cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
+
+		err := cmd.Run()
+		pid := 0
+		if cmd.Process != nil {
+			pid = cmd.Process.Pid
+		}
+		outputStr := buf.String()
+
+		exitCode := 0
+		if err != nil && cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+
+		// Persist + log every extension-filter child (was uncaptured)
+		outPath := filepath.Join(TARGET_DIR, fmt.Sprintf("dir_ext%s_output.txt", ext))
+		os.WriteFile(outPath, []byte(outputStr), 0644)
 
 		if err != nil {
 			errorStr := err.Error()
-			outputStr := string(output)
 
-			// Check for blocking
-			if strings.Contains(strings.ToLower(outputStr), "blocked") ||
-				strings.Contains(strings.ToLower(outputStr), "denied") ||
-				errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") {
-
+			// Block ONLY on exact OS denial, admin-gated (Rule 8).
+			// "File Not Found" style errors are expected for some extensions.
+			if isAdminContext && (isPositiveProtectionEvidence(errorStr) || isPositiveProtectionEvidence(outputStr)) {
+				LogProcessExecution("cmd.exe", cmdLine, pid, false, 126, "Blocked by security controls (OS denial)")
 				LogMessage("INFO", "Extension Filtering", fmt.Sprintf("Extension filtering blocked for %s", ext))
 				return false, true, 0, "Extension filtering blocked by EDR"
 			}
-			// File not found is expected for some extensions
+			LogProcessExecution("cmd.exe", cmdLine, pid, false, exitCode, fmt.Sprintf("no results for %s (expected for some extensions)", ext))
 			continue
 		}
 
+		LogProcessExecution("cmd.exe", cmdLine, pid, true, 0, fmt.Sprintf("filtered %s", ext))
+
 		// Parse files found for this extension
-		outputStr := strings.TrimSpace(string(output))
-		if outputStr != "" && !strings.Contains(outputStr, "File Not Found") {
-			for _, line := range strings.Split(outputStr, "\n") {
+		trimmed := strings.TrimSpace(outputStr)
+		if trimmed != "" && !strings.Contains(trimmed, "File Not Found") {
+			for _, line := range strings.Split(trimmed, "\n") {
 				line = strings.TrimSpace(line)
 				if line != "" {
 					targetFiles = append(targetFiles, line)
@@ -236,10 +335,14 @@ func generateTargetList(targetDir string) (bool, bool, string, string) {
 
 	if err != nil {
 		errorStr := err.Error()
-		if errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(strings.ToLower(errorStr), "access is denied") ||
-			strings.Contains(strings.ToLower(errorStr), "blocked") {
-			LogMessage("INFO", "Target List Generation", "File walk blocked by security controls")
+		if isAdminContext && (isPositiveProtectionEvidence(errorStr)) {
+			LogMessage("INFO", "Target List Generation", "File walk blocked by security controls (OS denial)")
 			return false, true, "", "Target list generation blocked by EDR"
+		}
+		// Walk errors are otherwise skipped per-file; a top-level walk error
+		// with no results is a benign failure (not success, not block).
+		if len(targetFiles) == 0 {
+			return false, false, "", fmt.Sprintf("Walk failed benignly: %s", errorStr)
 		}
 	}
 
@@ -276,6 +379,11 @@ func generateTargetList(targetDir string) (bool, bool, string, string) {
 // checkSeatbeltAvailable checks if Seatbelt binary is available
 // It looks for Seatbelt.exe in c:\F0\tools\ directory
 func checkSeatbeltAvailable() bool {
+	// Embedded build (built with the `seatbelt` tag, see build_all.sh)
+	if isEmbeddedSeatbeltValid() {
+		return true
+	}
+
 	// Check if Seatbelt binary was loaded at runtime
 	if len(seatbeltBinary) > 0 {
 		return true
@@ -316,9 +424,30 @@ func loadSeatbelt() (bool, string) {
 	return true, seatbeltToolPath
 }
 
-// extractSeatbelt copies Seatbelt from tools directory to c:\F0 for execution
+// isEmbeddedSeatbeltValid reports whether a real PE was embedded at build time
+func isEmbeddedSeatbeltValid() bool {
+	return len(seatbeltEmbedded) > 2 && seatbeltEmbedded[0] == 'M' && seatbeltEmbedded[1] == 'Z'
+}
+
+// extractSeatbelt makes Seatbelt executable-ready under c:\F0, preferring the
+// build-time embedded copy (single-binary deployment, CLAUDE.md rule 3) and
+// falling back to the runtime-provided copy in c:\F0\tools\.
 func extractSeatbelt() (string, error) {
-	// First try to load from tools directory
+	// 1) Embedded copy (built with the `seatbelt` tag; provenance in build_all.sh)
+	if isEmbeddedSeatbeltValid() {
+		seatbeltPath := filepath.Join(TARGET_DIR, "Seatbelt.exe")
+		if err := os.WriteFile(seatbeltPath, seatbeltEmbedded, 0755); err != nil {
+			return "", fmt.Errorf("failed to write embedded Seatbelt: %v", err)
+		}
+		seatbeltBinary = seatbeltEmbedded
+		sum := sha256.Sum256(seatbeltEmbedded)
+		LogMessage("INFO", "Seatbelt", fmt.Sprintf("Extracted EMBEDDED Seatbelt.exe: size=%d sha256=%s (GhostPack@392171df, built from pinned source)",
+			len(seatbeltEmbedded), hex.EncodeToString(sum[:])))
+		LogFileDropped("Seatbelt.exe", seatbeltPath, int64(len(seatbeltEmbedded)), false)
+		return seatbeltPath, nil
+	}
+
+	// 2) Runtime-provided copy
 	if len(seatbeltBinary) == 0 {
 		available, msg := loadSeatbelt()
 		if !available {
@@ -387,40 +516,25 @@ func testSeatbeltGroupAll(seatbeltPath string) (bool, bool, string) {
 
 	if err != nil {
 		errorStr := err.Error()
-
-		// Check for execution prevention
-		if strings.Contains(strings.ToLower(output), "blocked") ||
-			strings.Contains(strings.ToLower(output), "denied") ||
-			strings.Contains(strings.ToLower(errorStr), "not recognized") ||
-			strings.Contains(strings.ToLower(errorStr), "operation is not allowed") ||
-			strings.Contains(strings.ToLower(errorStr), "blocked by") {
-
-			LogProcessExecution("Seatbelt.exe", "Seatbelt -group=all", pid, false, 126, "Execution blocked")
-			LogMessage("INFO", "Seatbelt", "Seatbelt execution blocked by EDR")
-			return false, true, "Seatbelt execution blocked by EDR"
-		}
-
-		// Check for exit code indicating EDR block
 		exitCode := 0
 		if cmd.ProcessState != nil {
 			exitCode = cmd.ProcessState.ExitCode()
 		}
 
-		// Some EDRs return specific exit codes
-		if exitCode == -1073741502 || // STATUS_DLL_NOT_FOUND
-			exitCode == -1073740760 { // STATUS_NONCONTINUABLE_EXCEPTION
-
-			LogProcessExecution("Seatbelt.exe", "Seatbelt -group=all", pid, false, 126, "Execution prevented")
-			LogMessage("INFO", "Seatbelt", fmt.Sprintf("Seatbelt execution prevented (exit code: %d)", exitCode))
-			return false, true, "Seatbelt execution prevented by EDR"
+		// Block ONLY on explicit security-product action text (Rule 8);
+		// "not recognized"/DLL/exit codes are benign environment failures.
+		if isPositiveProtectionEvidence(output) || isPositiveProtectionEvidence(errorStr) {
+			LogProcessExecution("Seatbelt.exe", "Seatbelt -group=all", pid, false, 126, "Execution blocked (positive evidence)")
+			LogMessage("INFO", "Seatbelt", "Seatbelt execution blocked by EDR")
+			return false, true, "Seatbelt execution blocked by EDR"
 		}
 
-		// Normal execution failure (tool ran but some checks failed)
-		LogProcessExecution("Seatbelt.exe", "Seatbelt -group=all", pid, false, exitCode, errorStr)
-		LogMessage("INFO", "Seatbelt", fmt.Sprintf("Seatbelt execution completed with error: %s (duration: %v)", errorStr, duration))
-
-		// If the tool executed (not blocked), it's still a detection opportunity
-		return true, false, fmt.Sprintf("Seatbelt executed but some checks failed: %s", errorStr)
+		// Tool ran but failed operationally (missing runtime, crashed, etc.):
+		// benign failure — NOT success, NOT a block (Rules 4 & 8).
+		LogProcessExecution("Seatbelt.exe", "Seatbelt -group=all", pid, false, exitCode,
+			"tool executed but failed operationally (benign — not counted)")
+		LogMessage("WARN", "Seatbelt", fmt.Sprintf("Seatbelt -group=all failed operationally: %s (duration: %v)", errorStr, duration))
+		return false, false, fmt.Sprintf("Seatbelt ran but failed: %s", errorStr)
 	}
 
 	LogProcessExecution("Seatbelt.exe", "Seatbelt -group=all", pid, true, 0, "")
@@ -468,26 +582,22 @@ func testSeatbeltCredentialChecks(seatbeltPath string) (bool, bool, string) {
 
 	if err != nil {
 		errorStr := err.Error()
-
-		// Check for execution prevention
-		if strings.Contains(strings.ToLower(output), "blocked") ||
-			strings.Contains(strings.ToLower(output), "denied") ||
-			strings.Contains(strings.ToLower(errorStr), "blocked by") {
-
-			LogProcessExecution("Seatbelt.exe", "Seatbelt WindowsCredentialFiles WindowsVault InterestingFiles", pid, false, 126, "Execution blocked")
-			LogMessage("INFO", "Seatbelt", "Seatbelt credential checks blocked by EDR")
-			return false, true, "Seatbelt credential checks blocked by EDR"
-		}
-
 		exitCode := 0
 		if cmd.ProcessState != nil {
 			exitCode = cmd.ProcessState.ExitCode()
 		}
 
-		LogProcessExecution("Seatbelt.exe", "Seatbelt WindowsCredentialFiles WindowsVault InterestingFiles", pid, false, exitCode, errorStr)
-		LogMessage("INFO", "Seatbelt", fmt.Sprintf("Seatbelt credential checks completed with error: %s (duration: %v)", errorStr, duration))
+		if isPositiveProtectionEvidence(output) || isPositiveProtectionEvidence(errorStr) {
+			LogProcessExecution("Seatbelt.exe", "Seatbelt WindowsCredentialFiles WindowsVault InterestingFiles", pid, false, 126, "Execution blocked (positive evidence)")
+			LogMessage("INFO", "Seatbelt", "Seatbelt credential checks blocked by EDR")
+			return false, true, "Seatbelt credential checks blocked by EDR"
+		}
 
-		return true, false, fmt.Sprintf("Seatbelt credential checks executed: %s", errorStr)
+		// Benign operational failure — NOT success (Rules 4 & 8).
+		LogProcessExecution("Seatbelt.exe", "Seatbelt WindowsCredentialFiles WindowsVault InterestingFiles", pid, false, exitCode,
+			"tool executed but failed operationally (benign — not counted)")
+		LogMessage("WARN", "Seatbelt", fmt.Sprintf("Seatbelt credential checks failed operationally: %s (duration: %v)", errorStr, duration))
+		return false, false, fmt.Sprintf("Seatbelt credential checks ran but failed: %s", errorStr)
 	}
 
 	LogProcessExecution("Seatbelt.exe", "Seatbelt WindowsCredentialFiles WindowsVault InterestingFiles", pid, true, 0, "")
@@ -528,8 +638,10 @@ func test() {
 		if r := recover(); r != nil {
 			if globalLog != nil {
 				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+				SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
 			}
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -542,19 +654,31 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initializing test environment")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		LogPhaseError(0, fmt.Sprintf("Dropper initialization failed: %v", err))
-		LogPhaseEnd(0, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
 	// Create target directory
 	if err := os.MkdirAll(TARGET_DIR, 0755); err != nil {
 		LogPhaseError(0, fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to create target directory")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Failed to create target directory")
+		Endpoint.Stop(ExitTestError)
+	}
+
+	// Probe privilege context once — gates denial classification (Rule 8)
+	isAdminContext = probeAdminContext()
+	if isAdminContext {
+		LogMessage("INFO", "Initialization", "Running elevated (administrator)")
+	} else {
+		LogMessage("WARN", "Initialization", "Running NON-elevated — access-denied outcomes will be treated as benign environment results")
+	}
+
+	// Log SHA256 of the runtime-provided tool (integrity trail, log-only)
+	if toolPath := filepath.Join(TARGET_DIR, "tools", "Seatbelt.exe"); fileExists(toolPath) {
+		if data, err := os.ReadFile(toolPath); err == nil {
+			sum := sha256.Sum256(data)
+			LogMessage("INFO", "Initialization", fmt.Sprintf("Seatbelt.exe present: size=%d sha256=%s (log-only integrity record)", len(data), hex.EncodeToString(sum[:])))
+		}
 	}
 
 	LogPhaseEnd(0, "success", "Environment initialized")
@@ -636,9 +760,19 @@ func test() {
 
 	Endpoint.Wait(2)
 
+	// Phase 5b: Real User Profile Enumeration (read-only, benign-count only)
+	LogPhaseStart(6, "Real User Profile Enumeration")
+	Endpoint.Say("\nPhase 5b: Enumerating real user profile directories (read-only)")
+
+	enumerateRealUserProfiles()
+
+	LogPhaseEnd(5, "info", "User profile enumeration completed (read-only, benign)")
+
+	Endpoint.Wait(2)
+
 	// Phase 6: Seatbelt Group All (if available)
-	LogPhaseStart(6, "Seatbelt Comprehensive Enumeration")
-	Endpoint.Say("\nPhase 6: Seatbelt -group=all (PLACEHOLDER - requires Seatbelt.exe)")
+	LogPhaseStart(7, "Seatbelt Comprehensive Enumeration")
+	Endpoint.Say("\nPhase 6: Seatbelt -group=all (runtime-optional)")
 
 	if checkSeatbeltAvailable() {
 		Endpoint.Say("  Seatbelt binary found - extracting...")
@@ -647,48 +781,48 @@ func test() {
 		if err != nil {
 			Endpoint.Say("  [ERROR] Failed to extract Seatbelt: %v", err)
 			LogMessage("ERROR", "Seatbelt", fmt.Sprintf("Extraction failed: %v", err))
-			LogPhaseEnd(5, "failed", err.Error())
+			LogPhaseEnd(6, "failed", err.Error())
 		} else {
 			Endpoint.Say("  [+] Seatbelt extracted to: %s", seatbeltPath)
 
-			// Wait for potential quarantine
+			// Wait for potential quarantine, then verify via os.Stat on the
+			// exact extracted path (pure-stat; library helper re-writes to CWD)
 			Endpoint.Wait(3)
 
-			// Check if quarantined
-			if Endpoint.Quarantined("Seatbelt.exe", seatbeltBinary) {
+			if !fileExists(seatbeltPath) {
 				Endpoint.Say("  [QUARANTINED] Seatbelt.exe was quarantined on extraction")
 				LogFileDropped("Seatbelt.exe", seatbeltPath, int64(len(seatbeltBinary)), true)
 				seatbeltQuarantined = true
 				blockedPatterns = append(blockedPatterns, "Seatbelt (Quarantined on Extraction)")
-				LogPhaseEnd(5, "blocked", "Seatbelt quarantined on extraction")
+				LogPhaseEnd(6, "blocked", "Seatbelt quarantined on extraction")
 			} else {
 				// Try to execute Seatbelt -group=all
 				successSeatbelt, blockedSeatbelt, msgSeatbelt := testSeatbeltGroupAll(seatbeltPath)
 				if blockedSeatbelt {
 					Endpoint.Say("  [BLOCKED] Seatbelt -group=all was blocked by EDR")
 					blockedPatterns = append(blockedPatterns, "Seatbelt -group=all")
-					LogPhaseEnd(5, "blocked", msgSeatbelt)
+					LogPhaseEnd(6, "blocked", msgSeatbelt)
 				} else if successSeatbelt {
 					Endpoint.Say("  [VULNERABLE] Seatbelt -group=all executed without detection")
 					successfulPatterns = append(successfulPatterns, "Seatbelt -group=all (60+ checks)")
-					LogPhaseEnd(5, "success", msgSeatbelt)
+					LogPhaseEnd(6, "success", msgSeatbelt)
 				} else {
 					Endpoint.Say("  [ERROR] Seatbelt test failed: %s", msgSeatbelt)
-					LogPhaseEnd(5, "failed", msgSeatbelt)
+					LogPhaseEnd(6, "failed", msgSeatbelt)
 				}
 			}
 		}
 	} else {
 		Endpoint.Say("  [INFO] Seatbelt not available - see tools/README.md for instructions")
 		LogMessage("INFO", "Seatbelt", "Binary not available - skipping -group=all test")
-		LogPhaseEnd(5, "skipped", "Seatbelt binary not available")
+		LogPhaseEnd(6, "skipped", "Seatbelt binary not available")
 	}
 
 	Endpoint.Wait(2)
 
 	// Phase 7: Seatbelt Credential Checks (if available)
-	LogPhaseStart(7, "Seatbelt Credential Enumeration")
-	Endpoint.Say("\nPhase 7: Seatbelt credential checks (PLACEHOLDER - requires Seatbelt.exe)")
+	LogPhaseStart(8, "Seatbelt Credential Enumeration")
+	Endpoint.Say("\nPhase 7: Seatbelt credential checks (runtime-optional)")
 
 	if checkSeatbeltAvailable() && !seatbeltQuarantined {
 		seatbeltPath := filepath.Join(TARGET_DIR, "Seatbelt.exe")
@@ -711,20 +845,20 @@ func test() {
 		} else {
 			Endpoint.Say("  [INFO] Seatbelt was removed after previous execution")
 			LogMessage("INFO", "Seatbelt", "Seatbelt removed after -group=all execution")
-			LogPhaseEnd(6, "skipped", "Seatbelt was removed")
+			LogPhaseEnd(7, "skipped", "Seatbelt was removed")
 		}
 	} else {
 		if seatbeltQuarantined {
 			Endpoint.Say("  [INFO] Skipped - Seatbelt was quarantined")
-			LogPhaseEnd(6, "skipped", "Seatbelt was quarantined")
+			LogPhaseEnd(7, "skipped", "Seatbelt was quarantined")
 		} else {
 			Endpoint.Say("  [INFO] Seatbelt not available - skipping credential checks")
-			LogPhaseEnd(6, "skipped", "Seatbelt binary not available")
+			LogPhaseEnd(7, "skipped", "Seatbelt binary not available")
 		}
 	}
 
 	// Phase 8: Final Assessment
-	LogPhaseStart(8, "Final Assessment")
+	LogPhaseStart(9, "Final Assessment")
 	Endpoint.Say("\nPhase 8: Final assessment and summary")
 
 	// Create summary
@@ -821,9 +955,9 @@ Assessment:
 		// No clear result (unlikely, but handle gracefully)
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Test did not produce clear results")
 		LogMessage("WARN", "Final Assessment", "Test inconclusive")
-		SaveLog(Endpoint.UnexpectedTestError, "Test inconclusive")
+		SaveLog(ExitTestError, "Test inconclusive")
 		cleanup()
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		Endpoint.Stop(ExitTestError)
 	}
 }
 
@@ -867,15 +1001,11 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1083", "T1119", "T1082"},
 		Tactics:       []string{"discovery", "collection"},
-		Score:         8.5,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Real tool (Seatbelt with 60+ checks), realistic enumeration
-			TechnicalSophistication: 2.5, // Multiple techniques, comprehensive enumeration
-			SafetyMechanisms:        2.0, // Creates own test files, read-only enumeration, full cleanup
-			DetectionOpportunities:  1.0, // 7+ detection points
-			LoggingObservability:    0.5, // Comprehensive logging with output capture
-		},
+		Score:         8.2, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"file-discovery", "enumeration", "pre-encryption", "seatbelt", "native"},
 	}
 
@@ -914,6 +1044,7 @@ func main() {
 			LogMessage("ERROR", "Timeout", fmt.Sprintf("Test exceeded timeout of %v", timeout))
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("Test exceeded timeout of %v", timeout))
 		}
+		cleanup()
 		Endpoint.Stop(Endpoint.TimeoutExceeded)
 	}
 }

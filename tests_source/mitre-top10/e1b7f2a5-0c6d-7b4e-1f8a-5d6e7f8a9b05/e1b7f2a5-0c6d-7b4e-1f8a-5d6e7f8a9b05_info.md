@@ -1,9 +1,9 @@
-# System Recovery Inhibition (Safe Mode)
+# System Recovery Inhibition (Non-Destructive Mode)
 
 ## Test Information
 
 **Test ID**: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
-**Test Name**: System Recovery Inhibition (Safe Mode)
+**Test Name**: System Recovery Inhibition (Non-Destructive Mode)
 **Category**: Impact / Ransomware Precursor
 **Severity**: Critical
 **MITRE ATT&CK**: T1490
@@ -18,17 +18,28 @@ T1490 is one of the most impactful ransomware techniques because it:
 - Prevents rollback to pre-infection state
 - Is used by virtually all modern ransomware families
 
-## Test Score: 8.0/10
+## Test Score: 7.9/10
 
-### Score Breakdown
+### Score Breakdown (Rubric v2.1)
 
-| Criterion | Score | Justification |
-|-----------|-------|---------------|
-| **Real-World Accuracy** | **2.5/3.0** | Tests actual recovery tools (vssadmin, bcdedit, wbadmin) used by ransomware. Uses same executables but read-only queries instead of destructive commands. Closely models reconnaissance phase of T1490. |
-| **Technical Sophistication** | **1.5/3.0** | Intentionally limited for safety. Uses standard command-line tools with read-only flags. No advanced techniques like direct API calls or registry manipulation. |
-| **Safety Mechanisms** | **2.0/2.0** | Maximum score - completely safe implementation. All operations are read-only. Never executes destructive commands. Creates only marker files in c:\F0. Can run repeatedly without system impact. |
-| **Detection Opportunities** | **1.0/1.0** | Provides 6+ distinct detection points: 3 tool accessibility checks, 3 read-only queries, process creation events, command line logging. Comprehensive documentation of what to detect. |
-| **Logging & Observability** | **1.0/1.0** | Full Schema v2.0 logging implementation. JSON and text output. Phase tracking. Process execution logging. Comprehensive report generation with query outputs. |
+Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`) following the exit-code-integrity and realism remediation on branch `fix/mitre-top10-platform-files`.
+
+| Tier | Sub-dimension | Score | Rationale |
+|---|---|---|---|
+| **1** | Safety Gate | **PASS** | All writes confined to `LOG_DIR` / `ARTIFACT_DIR`; no real system targets touched; cleanup on every exit path incl. panic and timeout; loopback-only networking except technique-inherent egress to fixed, documented benign public endpoints (see test README). |
+| **2a** | API Fidelity (0–2.5) | **1.0** | Read-only recon queries PLUS the **REAL destructive T1490 command set, ARMED and LAB-VERIFIED 2026-11-03** (env `F0_DESTRUCTIVE_T1490=1` after hypervisor snapshot; default remains off): `vssadmin delete shadows /all /quiet`, `bcdedit /set {default} recoveryenabled No`, `bcdedit /set {default} bootstatuspolicy ignoreallfailures`, `wbadmin delete catalog -quiet` — all executed with canonical attacker arguments. Revert-first BCD cleanup verified in the same run (post-state: recoveryenabled Yes, bootstatuspolicy DisplayAllFailures). Remaining deductions: safe-mode boot staging intentionally excluded (boot-risk/marginal-value), single-host scope, and the lab had no shadow copies to delete (command telemetry complete; deletion effect unexercised). |
+| **2b** | Identifier Fidelity (0–1.5) | **0.9** | Real tool paths (System32\vssadmin.exe / bcdedit.exe / wbadmin.exe); documented command set uses exact real-family arguments (incl. LockBit-style resize shadowstorage /maxsize=401MB). |
+| **2c** | Telemetry Signal Quality (0–2) | **1.8** | Lab-verified 2026-11-03 in BOTH modes: gate-off (exit 101, recon queries) and ARMED (exit 101, destructive commands executed — the argument-based detections EDRs signature on now actually fire; post-run BCD state verified reverted). Sensor mapping ✅. Rule artifacts parse ✅. |
+| **2d** | Execution-Context Fidelity (0–1) | **1.0** | Best-in-suite context handling: privilege gate aborts with 999 BEFORE any query (non-elevated denials can never be misclassified); all denials are elevated-gated; watchdog sized for wbadmin's 30–60 s runtime. |
+| **3a** | Schema & Metadata (0–1) | **1.0** | Schema v2.0 InitLogger + complete metadata header (incl. SOURCE_URL) + org UUID resolution + Authenticode-signed binary. RubricVersion: v2.1. |
+| **3b** | Documentation Completeness (0–1) | **1.0** | README + info.md (this v2.1 scorecard + lab-evidence block) + references.md present; `utils/validate-score-format.sh` passes; MITRE mapping cites official technique/sub-technique IDs. |
+| **3c** | Logging & Plumbing (0–0.5) | **0.3** | test_logger v2.0 + per-child stdout/stderr tee persisted to `LOG_DIR/<name>_output.txt`. Monolithic single-stage test: no per-stage `bundle_results.json` and no pre/post system snapshots (the two omissions from the 0.5 band). |
+| **3d** | Operational Hygiene (0–0.5) | **0.25** | Orchestrator 5.8 MB (< 25 MB) ✅; global watchdog enforces the documented budget ✅; `Endpoint.Stop()` exits within seconds on every code path ✅; per-phase time budgets not tabulated ❌; no per-hang-risk-phase watchdogs beyond the global one ⚠️. |
+|  | **Total** | **7.1 / 10** | Realism: 4.50 / 7.00. Structure: 2.55 / 3.00. Lab-verified 2026-11-03 (win lab, Sophos Intercept X). |
+
+### Lab Execution Evidence (2026-11-03)
+
+Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — gate-off recon run AND armed destructive run (vssadmin/bcdedit/wbadmin destructive commands executed; BCD verified reverted post-run; zero residue).** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
 
 **Key Strengths**:
 - Maximum safety score - no risk of system damage

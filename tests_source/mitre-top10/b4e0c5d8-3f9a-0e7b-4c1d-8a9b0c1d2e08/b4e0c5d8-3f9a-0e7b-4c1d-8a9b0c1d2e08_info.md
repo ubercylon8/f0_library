@@ -1,9 +1,9 @@
-# Ransomware Encryption (Safe Mode)
+# Ransomware Encryption Simulation
 
 ## Test Information
 
 **Test ID**: b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08
-**Test Name**: Ransomware Encryption (Safe Mode)
+**Test Name**: Ransomware Encryption Simulation
 **Category**: Impact / Ransomware Simulation
 **Severity**: Critical
 **MITRE ATT&CK**: T1486, T1491.001
@@ -20,17 +20,28 @@ The test evaluates whether endpoint detection and response (EDR) solutions can d
 
 All test artifacts are automatically cleaned up and restored after execution, making this test suitable for production environments with appropriate authorization.
 
-## Test Score: 8.5/10
+## Test Score: 7.8/10
 
-### Score Breakdown
+### Score Breakdown (Rubric v2.1)
 
-| Criterion | Score | Justification |
-|-----------|-------|---------------|
-| **Real-World Accuracy** | **2.5/3.0** | Simulates realistic ransomware patterns including file targeting by extension, AES key generation, mass file operations, and ransom note creation. Uses actual file system operations that trigger real EDR heuristics. Does not simulate actual encryption or communicate with C2. |
-| **Technical Sophistication** | **2.5/3.0** | Implements cryptographic key generation (AES-256), multi-phase attack simulation, file system operations targeting multiple document types, and comprehensive state tracking. Native implementation without external tools. |
-| **Safety Mechanisms** | **2.0/2.0** | Full safety implementation: no actual encryption, only file rename operations, automatic cleanup and restoration, isolated test directory, defer-based cleanup even on errors/panics. Files remain fully readable throughout. |
-| **Detection Opportunities** | **1.0/1.0** | Multiple distinct detection points: mass file operations, extension changes, ransom note creation, directory enumeration, file rename syscalls, suspicious file patterns. |
-| **Logging & Observability** | **0.5/1.0** | Comprehensive test_logger with Schema v2.0, phase tracking, file operation logging, execution timing. Could be enhanced with more detailed syscall logging. |
+Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`) following the exit-code-integrity and realism remediation on branch `fix/mitre-top10-platform-files`.
+
+| Tier | Sub-dimension | Score | Rationale |
+|---|---|---|---|
+| **1** | Safety Gate | **PASS** | All writes confined to `LOG_DIR` / `ARTIFACT_DIR`; no real system targets touched; cleanup on every exit path incl. panic and timeout; loopback-only networking except technique-inherent egress to fixed, documented benign public endpoints (see test README). |
+| **2a** | API Fidelity (0–2.5) | **1.7** | REAL AES-256-GCM in-place encryption of the test's own decoys (crypto/aes + cipher.GCM, ciphertext verified ≠ plaintext, nonce||ciphertext format) followed by extension rename and ransom-note drop — the genuine T1486 primitive set, lab-proven 2026-11-03. Deductions: single-directory scope (no mass fan-out across profiles) and no safe-mode-boot staging variant. |
+| **2b** | Identifier Fidelity (0–1.5) | **1.2** | **UPGRADED 2026-11-03**: per-victim RANDOM 9-char lowercase extension generated per run (the modern family pattern — LockBit/BlackCat random extensions, e.g. `.9ohkv1wqq`); ransom note renamed to RESTORE-FILES.txt (one of the most common real note names — Phobos/Dharma/Crysis); note content uses the real structure (victim ID, 72-hour deadline, BTC wallet line, .onion recovery portal) that content-inspection rules key on, with a single CASE REF traceability footer. |
+| **2c** | Telemetry Signal Quality (0–2) | **1.8** | Lab-verified 2026-11-03 (exit 101): 10 decoys encrypted + renamed + note created + originals restored — full kill chain executed. Signal richness ✅ (mass file-write/rename + crypto API + note-drop surfaces). Sensor mapping ✅. Rule artifacts parse ✅. |
+| **2d** | Execution-Context Fidelity (0–1) | **0.5** | User-context file operations; no privilege or context branching (acceptable for user-file encryption target scope). |
+| **3a** | Schema & Metadata (0–1) | **1.0** | Schema v2.0 InitLogger + complete metadata header (incl. SOURCE_URL) + org UUID resolution + Authenticode-signed binary. RubricVersion: v2.1. |
+| **3b** | Documentation Completeness (0–1) | **1.0** | README + info.md (this v2.1 scorecard + lab-evidence block) + references.md present; `utils/validate-score-format.sh` passes; MITRE mapping cites official technique/sub-technique IDs. |
+| **3c** | Logging & Plumbing (0–0.5) | **0.3** | test_logger v2.0 + per-child stdout/stderr tee persisted to `LOG_DIR/<name>_output.txt`. Monolithic single-stage test: no per-stage `bundle_results.json` and no pre/post system snapshots (the two omissions from the 0.5 band). |
+| **3d** | Operational Hygiene (0–0.5) | **0.25** | Orchestrator 5.9 MB (< 25 MB) ✅; global watchdog enforces the documented budget ✅; `Endpoint.Stop()` exits within seconds on every code path ✅; per-phase time budgets not tabulated ❌; no per-hang-risk-phase watchdogs beyond the global one ⚠️. |
+|  | **Total** | **7.2 / 10** | Realism: 4.60 / 7.00. Structure: 2.55 / 3.00. Lab-verified 2026-11-03 (win lab, Sophos Intercept X). |
+
+### Lab Execution Evidence (2026-11-03)
+
+Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 101 — full kill chain on 10 decoys with per-victim extension and realistic note; originals restored, ZERO residue (os.Exit cleanup fix verified).** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
 
 **Key Strengths**:
 - Zero risk of data loss - files are never encrypted

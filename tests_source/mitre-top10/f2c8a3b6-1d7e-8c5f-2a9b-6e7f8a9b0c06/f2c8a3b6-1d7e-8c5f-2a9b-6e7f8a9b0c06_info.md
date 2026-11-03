@@ -16,15 +16,26 @@ The test simulates realistic attacker behavior by using five common LOLBIN downl
 
 ## Test Score: 8.0/10
 
-### Score Breakdown
+### Score Breakdown (Rubric v2.1)
 
-| Criterion | Score | Justification |
-|-----------|-------|---------------|
-| **Real-World Accuracy** | **2.5/3.0** | Uses actual Windows LOLBINs (certutil, bitsadmin, curl, PowerShell) with real command-line patterns seen in production attacks |
-| **Technical Sophistication** | **2.0/3.0** | Multiple distinct download methods, proper stdout/stderr capture, comprehensive error handling |
-| **Safety Mechanisms** | **2.0/2.0** | Only downloads benign robots.txt, no execution of downloaded content, automatic cleanup, all files to whitelisted directory |
-| **Detection Opportunities** | **1.0/1.0** | 5 distinct detection points - one for each LOLBIN pattern, plus network IOC opportunities |
-| **Logging & Observability** | **0.5/1.0** | Full Schema v2.0 logging, phase tracking, process execution logs, output capture to files |
+Re-scored 2026-11-03 from v1 under the active v2.1 rubric (`docs/PROPOSED_RUBRIC_V2.1_SIGNAL_QUALITY.md`) following the exit-code-integrity and realism remediation on branch `fix/mitre-top10-platform-files`.
+
+| Tier | Sub-dimension | Score | Rationale |
+|---|---|---|---|
+| **1** | Safety Gate | **PASS** | All writes confined to `LOG_DIR` / `ARTIFACT_DIR`; no real system targets touched; cleanup on every exit path incl. panic and timeout; loopback-only networking except technique-inherent egress to fixed, documented benign public endpoints (see test README). |
+| **2a** | API Fidelity (0–2.5) | **2.0** | Five exact canonical LOLBIN ingress invocations: certutil -urlcache -split -f, bitsadmin /transfer <job> /download /priority FOREGROUND, PowerShell Invoke-WebRequest + WebClient.DownloadFile cradles with -ExecutionPolicy Bypass, curl --fail -o. These ARE the adversary primitives — no abstraction loss. No download→execute linkage (intentional safety bound). |
+| **2b** | Identifier Fidelity (0–1.5) | **0.9** | Real system-binary paths and flags; retrieval target is a stable benign public file (GitHub raw) — URL-reputation coverage against attacker-style hosts is future work (documented). bitsadmin job name is plausible but generic. |
+| **2c** | Telemetry Signal Quality (0–2) | **2.0** | Highest in suite — EMPIRICALLY verified 2026-11-03: Sophos Intercept X blocked certutil.exe at process creation (fork/exec Access is denied), the other four LOLBINs genuinely downloaded; exit 126 PARTIAL PROTECTION from positive evidence. Signal richness ✅ (process creation + network + file-write surfaces). Sensor mapping ✅. Rule artifacts parse ✅. |
+| **2d** | Execution-Context Fidelity (0–1) | **0.5** | User-context operations throughout (context-independence is genuinely desirable for ingress tests) — no context branching. |
+| **3a** | Schema & Metadata (0–1) | **1.0** | Schema v2.0 InitLogger + complete metadata header (incl. SOURCE_URL) + org UUID resolution + Authenticode-signed binary. RubricVersion: v2.1. |
+| **3b** | Documentation Completeness (0–1) | **1.0** | README + info.md (this v2.1 scorecard + lab-evidence block) + references.md present; `utils/validate-score-format.sh` passes; MITRE mapping cites official technique/sub-technique IDs. |
+| **3c** | Logging & Plumbing (0–0.5) | **0.3** | test_logger v2.0 + per-child stdout/stderr tee persisted to `LOG_DIR/<name>_output.txt`. Monolithic single-stage test: no per-stage `bundle_results.json` and no pre/post system snapshots (the two omissions from the 0.5 band). |
+| **3d** | Operational Hygiene (0–0.5) | **0.25** | Orchestrator 11 MB (< 25 MB) ✅; global watchdog enforces the documented budget ✅; `Endpoint.Stop()` exits within seconds on every code path ✅; per-phase time budgets not tabulated ❌; no per-hang-risk-phase watchdogs beyond the global one ⚠️. |
+|  | **Total** | **8.0 / 10** | Realism: 5.40 / 7.00. Structure: 2.55 / 3.00. Lab-verified 2026-11-03 (win lab, Sophos Intercept X). |
+
+### Lab Execution Evidence (2026-11-03)
+
+Executed end-to-end on the `win` lab (Windows 11 Pro, Sophos Intercept X active, Defender disabled) with exit-code capture: **exit 126 — certutil BLOCKED by Sophos at process creation (positive evidence); bitsadmin/IWR/WebClient/curl downloaded successfully.** The 2c hard cap (1.5 without lab execution) is therefore lifted for this test.
 
 **Key Strengths**:
 - Tests 5 distinct LOLBIN download methods commonly abused by threat actors
@@ -135,3 +146,12 @@ The test simulates realistic attacker behavior by using five common LOLBIN downl
 - Add curl with `--output` alternate flag
 - Test rundll32.exe with javascript: protocol
 - Include mshta.exe HTA download pattern
+
+## Size Justification
+
+The compiled orchestrator is ~15 MB (Yellow tier, 10–25 MB): it is a single Go binary with the standard F0RT1KA telemetry stack (Schema v2.0 logger, org resolver, per-child output capture for five LOLBIN executions). No .NET runtime or external payloads are embedded; size is dominated by Go runtime + logging infrastructure, not by simulation bulk.
+
+## Realism constraints
+
+- **Retrieval target**: downloads use `https://raw.githubusercontent.com/torvalds/linux/master/README` (guaranteed-reachable benign content). URL-reputation controls treat well-known benign domains differently from attacker-controlled hosts — full URL-reputation coverage requires a controlled random-looking host on owned infrastructure (future work).
+- **Download → execute linkage**: T1105's danger is delivering a payload that then executes; this test stops at retrieval of a benign text file (intentional safety bound).

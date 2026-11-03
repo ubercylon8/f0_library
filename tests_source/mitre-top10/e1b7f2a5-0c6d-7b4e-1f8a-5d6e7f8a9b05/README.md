@@ -1,6 +1,6 @@
-# System Recovery Inhibition (Safe Mode)
+# System Recovery Inhibition (Non-Destructive Mode)
 
-**Test Score**: **8.0/10**
+**Test Score**: **7.9/10**
 
 ## Overview
 
@@ -12,11 +12,13 @@ This test evaluates EDR/AV detection capabilities against T1490 (Inhibit System 
 - **Technique**: T1490 - Inhibit System Recovery
 - **Description**: Adversaries may delete or remove built-in data and turn off services designed to aid in the recovery of a corrupted system to prevent recovery
 
-## Test Behavior (Safe Mode)
+## Test Behavior (Non-Destructive Mode)
 
 This test performs the following READ-ONLY operations:
 
 1. **vssadmin.exe accessibility check** - Verifies tool exists
+
+**Prerequisite:** administrator/elevated context is REQUIRED. The test aborts with exit 999 before any tool query when non-elevated (bcdedit/wbadmin emit access-denied artifacts that must never be classified as protection).
 2. **vssadmin list shadows** - Read-only query (does NOT delete)
 3. **bcdedit.exe accessibility check** - Verifies tool exists
 4. **bcdedit /enum** - Read-only query (does NOT modify)
@@ -108,3 +110,5 @@ This test is designed to be completely safe to run repeatedly:
 - [MITRE ATT&CK T1490](https://attack.mitre.org/techniques/T1490/)
 - [Ransomware: Shadow Copy Deletion](https://www.microsoft.com/en-us/security/blog/2022/01/15/destructive-malware-targeting-ukrainian-organizations/)
 - [Understanding Volume Shadow Copy Service](https://docs.microsoft.com/en-us/windows-server/storage/file-server/volume-shadow-copy-service)
+
+**Destructive phase (gated, 2026-11-03):** the REAL destructive T1490 command set (`vssadmin delete shadows /all /quiet`, `bcdedit /set {default} recoveryenabled No`, `bootstatuspolicy ignoreallfailures` with revert-first cleanup, `wbadmin delete catalog`) is implemented but **disabled by default**. To arm: take a hypervisor snapshot of the lab VM, then run with env `F0_DESTRUCTIVE_T1490=1`. Safe-mode boot staging is intentionally excluded even when armed (un-reverted safeboot bricks normal boot; overlapping detection value).

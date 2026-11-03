@@ -213,6 +213,12 @@ build_test() {
     # Create output directory
     mkdir -p "$output_dir/$uuid"
 
+    # Resolve test path to absolute BEFORE pushd — realpath --relative-to below
+    # is evaluated from inside the test dir, where a relative test_path no longer
+    # resolves (broke documented invocation: ./utils/gobuild build tests_source/.../<uuid>/)
+    local abs_test_path
+    abs_test_path=$(cd "$test_path" && pwd)
+
     # Change to test directory for build
     pushd "$test_path" > /dev/null
 
@@ -230,7 +236,7 @@ build_test() {
 
     # Build command - calculate relative path to output
     local rel_output_path
-    rel_output_path=$(realpath --relative-to="$test_path" "$PROJECT_ROOT/$output_path")
+    rel_output_path=$(realpath --relative-to="$abs_test_path" "$PROJECT_ROOT/$output_path")
 
     if [[ "$VERBOSE" == "true" ]]; then
         print_info "Build command: go build -o $rel_output_path $go_files"

