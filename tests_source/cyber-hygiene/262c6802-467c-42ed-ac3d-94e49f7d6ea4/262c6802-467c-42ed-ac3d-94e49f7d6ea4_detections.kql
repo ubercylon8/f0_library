@@ -1,0 +1,245 @@
+// eMudhra compromised intermediate CA detections
+// Test ID: 262c6802-467c-42ed-ac3d-94e49f7d6ea4
+// MITRE ATT&CK: T1557, T1553.002
+// Scope: real compromised certificate/key use, not the compliance validator.
+// Native Defender network events do not expose complete presented certificate chains.
+// Certificate-store presence is exposure evidence, not proof of malicious use.
+// References:
+// https://emudhra.we-have-a-problem.com/
+// https://blog.cloudflare.com/emudhra-certificate-compromise
+// https://www.microsoft.com/en-us/msrc/blog/2026/10/microsoft-response-to-compromised-emudhra-certificate-authority-keys
+// https://blog.talosintelligence.com/compromised-intermediate-certificates/
+
+// ============================================================
+// QUERY 1: Authenticode File Issued by Compromised Code-Signing CA
+// MITRE ATT&CK: T1553.002
+// Confidence: High
+// Purpose: Find signed files whose leaf signer was issued by either compromised
+//          code-signing intermediate, regardless of the final trust verdict.
+// Telemetry: Microsoft Defender XDR DeviceFileCertificateInfo. CertificateSerialNumber
+//            belongs to the leaf signer; Issuer identifies the compromised CA.
+// False Positives: Historically legitimate eMudhra-signed software and malware
+//                  research collections. Check signature/countersignature time and provenance.
+// Threshold/Tuning: Alert on any match; deduplicate by DeviceId, SHA1, Signer and Issuer.
+// ============================================================
+DeviceFileCertificateInfo
+| where Timestamp > ago(30d)
+| where IsSigned == true
+| where Issuer has "EM OV CS CA - G3B" or Issuer has "EM OV CS CA - G3C"
+| extend
+    Severity = "High",
+    ThreatType = "Authenticode issued by compromised eMudhra intermediate",
+    MitreAttack = "T1553.002",
+    TestID = "262c6802-467c-42ed-ac3d-94e49f7d6ea4"
+| project TimeGenerated = Timestamp, DeviceId, DeviceName, SHA1, Signer, SignerHash,
+    Issuer, IssuerHash, CertificateSerialNumber, CertificateCountersignatureTime,
+    IsTrusted, SignatureType, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// QUERY 2: Trusted Authenticode Signature Chained to Compromised CA
+// MITRE ATT&CK: T1553.002
+// Confidence: High
+// Purpose: Identify an actually trusted signature involving a compromised CA.
+// Telemetry: DeviceFileCertificateInfo.IsTrusted is based on WinVerifyTrust. This is
+//            a native trust result, not an inference from certificate presence.
+// False Positives: Properly timestamped legacy software may remain trusted by policy.
+//                  Confirm with incident timelines rather than allow-listing a publisher.
+// Threshold/Tuning: Alert on every match; prioritize execution or recent file creation.
+// ============================================================
+DeviceFileCertificateInfo
+| where Timestamp > ago(30d)
+| where IsSigned == true and IsTrusted == true
+| where Issuer has "EM OV CS CA - G3B" or Issuer has "EM OV CS CA - G3C"
+| extend
+    Severity = "Critical",
+    ThreatType = "Trusted Authenticode chain using compromised eMudhra intermediate",
+    MitreAttack = "T1553.002",
+    TestID = "262c6802-467c-42ed-ac3d-94e49f7d6ea4"
+| project TimeGenerated = Timestamp, DeviceId, DeviceName, SHA1, Signer, SignerHash,
+    Issuer, IssuerHash, CertificateSerialNumber, CertificateCountersignatureTime,
+    IsTrusted, SignatureType, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// QUERY 3: Direct eMudhra TLS Intermediates Present in Certificate Inventory
+// MITRE ATT&CK: T1557
+// Confidence: High for exact certificate identification; Low for malicious intent
+// Purpose: Find the six direct eMudhra-issued TLS intermediates by exact serial and issuer.
+// Telemetry: DeviceTvmCertificateInfo in Defender XDR Advanced Hunting. This TVM table
+//            is not populated in Microsoft Sentinel without a custom ingestion path.
+// False Positives: Offline incident-response stores and certificate research systems.
+// Threshold/Tuning: Alert once per DeviceId/SerialNumber/Path until removed. Presence
+//                   alone is a compliance finding, not evidence of accepted forged TLS.
+// ============================================================
+DeviceTvmCertificateInfo
+| where SerialNumber in~ (
+    "A4AEE678F23362B4C0E460B772F214",
+    "6CADA367FB1C100088120EA202D568",
+    "C7C41EFE92D825F05EAE841A4A82C1",
+    "588B2E3C2BB8CDA13E1A1209254321",
+    "296926C227A3A1526392B19482A504",
+    "8009928A64107601AF05FA2F19F109"
+  )
+| extend IssuedToText = tostring(IssuedTo), IssuedByText = tostring(IssuedBy)
+| where IssuedByText has "emSign Root TLS CA - G3"
+| where IssuedToText has "EM DV TLS CA - G3"
+    or IssuedToText has "EM OV TLS CA - G3"
+    or IssuedToText has "EM EV TLS CA - G3"
+| extend
+    Severity = "High",
+    ThreatType = "Compromised direct eMudhra TLS intermediate in certificate inventory",
+    MitreAttack = "T1557",
+    TestID = "262c6802-467c-42ed-ac3d-94e49f7d6ea4"
+| project DeviceId, Thumbprint, Path, SerialNumber, IssuedTo, IssuedBy,
+    IssueDate, ExpirationDate, ExtendedKeyUsage, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// QUERY 4: Sectigo AAA Cross-Signed TLS Intermediates in Certificate Inventory
+// MITRE ATT&CK: T1557
+// Confidence: High for exact certificate identification; Low for malicious intent
+// Purpose: Find the six Sectigo AAA cross-signed encodings of the compromised TLS keys.
+// Telemetry: DeviceTvmCertificateInfo; Defender XDR only unless custom ingestion exists.
+// False Positives: Certificate research and incident-response evidence stores.
+// Threshold/Tuning: Alert once per DeviceId/SerialNumber/Path. Do not treat inventory
+//                   presence as a successful TLS interception event.
+// ============================================================
+DeviceTvmCertificateInfo
+| where SerialNumber in~ (
+    "A024FDF4BA665C785CE4A020483858B7",
+    "E94223BDE92F914E5AB9ACABFDAC3710",
+    "D8F8685E4F2BD9D82402A85A1C1EB731",
+    "91F347F1A5B7D39962B95E0EE4E299D1",
+    "8D5A4811939EF447D77111CDD9849AE9",
+    "05F078752DECE7A1BB8595D303167171"
+  )
+| extend IssuedToText = tostring(IssuedTo), IssuedByText = tostring(IssuedBy)
+| where IssuedByText has "AAA Certificate Services"
+| where IssuedToText has "EM DV TLS CA - G3"
+    or IssuedToText has "EM OV TLS CA - G3"
+    or IssuedToText has "EM EV TLS CA - G3"
+| extend
+    Severity = "High",
+    ThreatType = "Compromised Sectigo cross-signed eMudhra TLS intermediate in inventory",
+    MitreAttack = "T1557",
+    TestID = "262c6802-467c-42ed-ac3d-94e49f7d6ea4"
+| project DeviceId, Thumbprint, Path, SerialNumber, IssuedTo, IssuedBy,
+    IssueDate, ExpirationDate, ExtendedKeyUsage, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// QUERY 5: Compromised Code-Signing Intermediates in Certificate Inventory
+// MITRE ATT&CK: T1553.002
+// Confidence: High for exact certificate identification; Low for malicious intent
+// Purpose: Find direct and AAA cross-signed encodings of both compromised CS keys.
+// Telemetry: DeviceTvmCertificateInfo; exact serial plus subject/issuer identification.
+// False Positives: Certificate research, disallow-list remediation, and evidence stores.
+// Threshold/Tuning: Alert once per DeviceId/SerialNumber/Path. A Disallowed-store match
+//                   may be a protective remediation; triage Path before escalation.
+// ============================================================
+DeviceTvmCertificateInfo
+| where SerialNumber in~ (
+    "7818933F8F85B4619A2B35FBA83D0A",
+    "41E32B73AC185D6CE0D7480BACF84E69",
+    "544B7F922C31AE220A4A922916F6E6",
+    "D6A5EF613B390F32EF9CDF349F772841"
+  )
+| extend IssuedToText = tostring(IssuedTo), IssuedByText = tostring(IssuedBy)
+| where IssuedToText has "EM OV CS CA - G3B" or IssuedToText has "EM OV CS CA - G3C"
+| where IssuedByText has "emSign Root CS CA - G3"
+    or IssuedByText has "AAA Certificate Services"
+| extend
+    Severity = "High",
+    ThreatType = "Compromised eMudhra code-signing intermediate in certificate inventory",
+    MitreAttack = "T1553.002",
+    TestID = "262c6802-467c-42ed-ac3d-94e49f7d6ea4"
+| project DeviceId, Thumbprint, Path, SerialNumber, IssuedTo, IssuedBy,
+    IssueDate, ExpirationDate, ExtendedKeyUsage, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// QUERY 6: Exact Compromised Certificate or SPKI Observation (Custom Telemetry)
+// MITRE ATT&CK: T1557, T1553.002
+// Confidence: High
+// Purpose: Match all 16 exact DER SHA-256 fingerprints or any of the eight compromised
+//          SPKI SHA-256 values. SPKI matching also catches newly forged certificates
+//          that reuse a compromised key but have a different serial or issuer.
+// Telemetry prerequisite: ingest normalized chain/file certificate observations into
+// EmudhraCertObservation_CL with TimeGenerated, DeviceName, ObservedUsage_s,
+// CertificateSHA256_s, SpkiSHA256_s, Subject_s, Issuer_s, SerialNumber_s, Source_s,
+// FilePath_s and RemoteHost_s. Hash each DER certificate and its DER SPKI independently;
+// do not put a signed file's hash in CertificateSHA256_s.
+// False Positives: Historical legitimate certificates and security-research corpora.
+// Threshold/Tuning: Alert on any match; suppress duplicates per device/hash for one hour.
+// ============================================================
+EmudhraCertObservation_CL
+| where TimeGenerated > ago(30d)
+| where ObservedUsage_s in ("tls", "code-signing")
+| where CertificateSHA256_s in~ (
+    "42C4ACCD12C4F59597925E1A08A7A90102608543809308D50EC427E118BA1493",
+    "45A883F349AEDFD5F3A649B5498FFB121712BA8B448F3F2A91DBC5A766FCDDBE",
+    "98B896625C0C230ADEEC3EB2CF6AAD5001ECF9156A68644E82374CE5833BC25B",
+    "5F1DED4DD590AF74631290CF073B122A2AAC6A1FA479778A0BD43579BD832699",
+    "E7568FE6E12331F4FD7DE61DA4C7559D0F8EB192A218D4741A3BA75184333838",
+    "579480AEA166290BD3C643589E795FC0D0E54E86505D180F1DFF99EFD3199512",
+    "0164D7CEAE5BB909C272AF151FF44B1177AE9B47D9424B94F1D9558C30934D19",
+    "62B7F9868263F72F6911FC78CEAF72C1979158B7368BF648683BB2AA39B02E72",
+    "CB6E15165AC802E9B3F993F16C25D41F4E81C21EBDE71AE1B012AC00BF9C7C3F",
+    "7485B51C0ED192878FA1D2F948FB529AE1842CC5086C4B67F7BE5B2039DE9489",
+    "432EC25F0D28DE9006D97BF752F17BBB2CD41F669933FCB072D9A1148D0261F3",
+    "FD9D5C2DBBD4995AB69B8D50C439D9527B00529199C2FD01B2174EB58F07021F",
+    "9E39DE2881273ACC225A149C72BA3E0F51424963669AB633EE1DC7DF5DB067B4",
+    "A496E23AC0CAB8155FC9B117B97EAE368EFCBB9041AEC8804D5A308D2D01C2D8",
+    "4B2460A466F95FD40113BCDCCA2CEB29B3B093921DE45474DA7DF48874C630B1",
+    "84112972B8E59D14560AE7E7119654474AAD119990CF3722BFC1E3B91615E1FD"
+  )
+  or SpkiSHA256_s in~ (
+    "EBED6475C2C2D80FCB199F3FE8DD6E6B3CE60B77EB15D4E42C3DEC0C6F5B5105",
+    "43BFFA19D6EF651451F6841E019931E96F6F2EAEFF28AB4B6F1CE4576DE2717B",
+    "E0254C7FCDC265E2F0F8A428DABB75AB4AE039B4872D62F5EE57F0877D5A8A41",
+    "49DD353DC2B919A3770645117D0E60C16115E7D1BC259EEFE734B00EA434FE5F",
+    "63ECEFEE431D49523BC1136C4E72D0206A477086CAF606CD5CF025686C109CF8",
+    "5C0660A2B164910D8FF589C18E14552E9E0EC237DCEFE2CB736D41A4811F81A0",
+    "EC4FFA1AD0AC88081314B7AAFFEF6A91F97CD57291BB5BA686C5415F5EB4F6B6",
+    "92C063D67E8F14DB71D288E11266FFDAF69CBF115F7BAB14F3BC2F68D25E0E30"
+  )
+| extend
+    Severity = "High",
+    ThreatType = "Compromised eMudhra certificate or public key observed",
+    MitreAttack = iif(ObservedUsage_s == "tls", "T1557", "T1553.002"),
+    TestID = "262c6802-467c-42ed-ac3d-94e49f7d6ea4"
+| project TimeGenerated, DeviceName, ObservedUsage_s, CertificateSHA256_s,
+    SpkiSHA256_s, Subject_s, Issuer_s, SerialNumber_s, Source_s, FilePath_s,
+    RemoteHost_s, Severity, ThreatType, MitreAttack, TestID
+
+// ============================================================
+// QUERY 7: Accepted Chain Using a Compromised Key (Custom Telemetry)
+// MITRE ATT&CK: T1557, T1553.002
+// Confidence: High
+// Purpose: Detect explicit acceptance of a TLS or Authenticode chain using any of the
+//          eight compromised public keys, including newly forged CA certificates.
+// Telemetry prerequisite: the same custom table as Query 6 plus ChainAccepted_b.
+// ChainAccepted_b must be set only by a validator that actually built and trusted the
+// chain; an absent/false value, a network handshake, or certificate presence is insufficient.
+// False Positives: Deliberately vulnerable test systems and controlled incident-response
+//                  validation. Do not infer malicious intent without host/context review.
+// Threshold/Tuning: Alert immediately on every accepted chain; no count threshold.
+// ============================================================
+EmudhraCertObservation_CL
+| where TimeGenerated > ago(30d)
+| where ObservedUsage_s in ("tls", "code-signing")
+| where ChainAccepted_b == true
+| where SpkiSHA256_s in~ (
+    "EBED6475C2C2D80FCB199F3FE8DD6E6B3CE60B77EB15D4E42C3DEC0C6F5B5105",
+    "43BFFA19D6EF651451F6841E019931E96F6F2EAEFF28AB4B6F1CE4576DE2717B",
+    "E0254C7FCDC265E2F0F8A428DABB75AB4AE039B4872D62F5EE57F0877D5A8A41",
+    "49DD353DC2B919A3770645117D0E60C16115E7D1BC259EEFE734B00EA434FE5F",
+    "63ECEFEE431D49523BC1136C4E72D0206A477086CAF606CD5CF025686C109CF8",
+    "5C0660A2B164910D8FF589C18E14552E9E0EC237DCEFE2CB736D41A4811F81A0",
+    "EC4FFA1AD0AC88081314B7AAFFEF6A91F97CD57291BB5BA686C5415F5EB4F6B6",
+    "92C063D67E8F14DB71D288E11266FFDAF69CBF115F7BAB14F3BC2F68D25E0E30"
+  )
+| extend
+    Severity = "Critical",
+    ThreatType = "Accepted certificate chain using compromised eMudhra key",
+    MitreAttack = iif(ObservedUsage_s == "tls", "T1557", "T1553.002"),
+    TestID = "262c6802-467c-42ed-ac3d-94e49f7d6ea4"
+| project TimeGenerated, DeviceName, ObservedUsage_s, CertificateSHA256_s,
+    SpkiSHA256_s, Subject_s, Issuer_s, SerialNumber_s, Source_s, FilePath_s,
+    RemoteHost_s, ChainAccepted_b, Severity, ThreatType, MitreAttack, TestID
