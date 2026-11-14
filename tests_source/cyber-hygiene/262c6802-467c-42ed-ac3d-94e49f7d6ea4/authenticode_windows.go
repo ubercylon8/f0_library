@@ -3,8 +3,11 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"os"
 	"runtime"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -41,9 +44,18 @@ var (
 
 func probeAuthenticode(path, caseName string) probeResult {
 	probe := probeResult{Runtime: "authenticode", Case: caseName, Status: probeError}
+	fileBytes, err := os.ReadFile(path)
+	if err != nil {
+		probe.Evidence = fmt.Sprintf("validation asset %q could not be opened and read before WinVerifyTrust: %v", path, err)
+		LogMessage("INFO", "Authenticode", caseName+": "+probe.Evidence)
+		return probe
+	}
+	fileEvidence := fmt.Sprintf("file=%q size=%d sha256=%x read=ok", path, len(fileBytes), sha256.Sum256(fileBytes))
+
 	filePath, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		probe.Evidence = fmt.Sprintf("file path could not be encoded: %v", err)
+		probe.Evidence = fileEvidence + fmt.Sprintf("; file path could not be encoded: %v", err)
+		LogMessage("INFO", "Authenticode", caseName+": "+probe.Evidence)
 		return probe
 	}
 	fileInfo := wintrustFileInfo{pcwszFilePath: filePath}
@@ -56,21 +68,25 @@ func probeAuthenticode(path, caseName string) probeResult {
 		dwStateAction:       1,
 	}
 	data.cbStruct = uint32(unsafe.Sizeof(data))
-	result, _, _ := procWinVerifyTrust.Call(^uintptr(0), uintptr(unsafe.Pointer(&wintrustActionGenericVerifyV2)), uintptr(unsafe.Pointer(&data)))
+	result, _, callErr := procWinVerifyTrust.Call(^uintptr(0), uintptr(unsafe.Pointer(&wintrustActionGenericVerifyV2)), uintptr(unsafe.Pointer(&data)))
 	status := uint32(result)
+	callEvidence := "ERROR_SUCCESS"
+	if callErr == nil {
+		callEvidence = "unavailable"
+	} else if callErr != syscall.Errno(0) {
+		callEvidence = callErr.Error()
+	}
 	data.dwStateAction = 2
 	_, _, _ = procWinVerifyTrust.Call(^uintptr(0), uintptr(unsafe.Pointer(&wintrustActionGenericVerifyV2)), uintptr(unsafe.Pointer(&data)))
 	runtime.KeepAlive(filePath)
 	runtime.KeepAlive(fileInfo)
 	runtime.KeepAlive(data)
 
-	probe.Evidence = fmt.Sprintf("WinVerifyTrust WTD_REVOKE_NONE returned HRESULT 0x%08X", status)
-	if status == 0 {
+	probe.Evidence = fmt.Sprintf("%s; WinVerifyTrust WTD_REVOKE_NONE returned HRESULT 0x%08X; call_error=%s", fileEvidence, status, callEvidence)
+	switch {
+	case status == 0:
 		probe.Status = probeAccepted
-		return probe
-	}
-	switch status {
-	case 0x800B0111, 0x800B0004, 0x800B0109, 0x800B010A, 0x800B010C, 0x80092010:
+	case status == 0x800B0111 || status == 0x800B0004 || status == 0x800B0109 || status == 0x800B010A || status == 0x800B010C || status == 0x80092010:
 		probe.Status = probeRejected
 	default:
 		probe.Status = probeError
