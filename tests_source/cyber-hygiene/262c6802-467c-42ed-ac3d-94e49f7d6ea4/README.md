@@ -43,9 +43,10 @@ The generic logger recognizes 105/127 quarantine outcomes, but the assessment lo
 | Platform | Status | Evidence |
 |---|---|---|
 | **Linux** | **Verified locally on 2026-11-14** | Standard-user Omarchy AMD64 run, execution ID `5d02ca07-4e90-404c-a592-9688d5173ccb`; completed in **5.202 seconds** with phase status `success` and all nine discovered controls reached. Native OpenSSL, Node.js, Java, Python default trust, and curl rejected all tested chains. Python certifi accepted six direct chains; pip-vendored certifi accepted all 12. Overall exit **101**, demonstrating independent-store exposure. MCP Schema v2.0 validation returned `ok=true` with zero schema/check errors. |
-| **Windows** | **Pending** | Schannel, `X509Chain`, four-case Authenticode, and Windows runtime paths are implemented but have not been executed in the Windows lab. The Windows and Debian labs were unreachable (connection refused) during final documentation, and no VM management tool was available. No Windows verdict, detection efficacy, or timing is inferred. |
+| **Windows** | **Verified on `win` on 2026-11-14** | Windows 11 Pro, Sophos Intercept X active and Defender passive; elevated `jimx` context. Execution ID `6a458166-7460-45e9-9893-9dbd3bf9277d` completed in **14.399 seconds**. All five assessed paths rejected every chain: six direct and six AAA Schannel cases, two rollover cases, four Authenticode cases, and 12 curl cases. Absent Node.js, Java, and Python runtimes were skipped. Overall exit **126**; Schema v2.0 validation returned `ok=true`. |
+| **Debian** | **Verified on `debian` on 2026-11-14** | Debian 13, no EDR; execution ID `4dda286f-132b-4474-8723-2fc8e84946ab` completed in **9.999 seconds**. All six available paths accepted compromised chains: native direct, AAA, rollover, Python default, certifi, and curl. Node.js, Java, and pip-vendored certifi were absent. Overall exit **101**; Schema v2.0 validation returned `ok=true`. |
 
-Linux evidence is held in `/tmp/F0/test_execution_log.json` and `/tmp/F0/bundle_results.json` from the cited run. The run verifies control reachability and result accuracy, not live SIEM tenant firing.
+Execution evidence is retained under `staging/262c6802-467c-42ed-ac3d-94e49f7d6ea4/` in the development worktree. These runs verify control reachability and result accuracy, not live SIEM tenant firing. The initial Windows run also identified and led to correction of a PowerShell DER-constructor issue and Microsoft Store Python-alias handling; the table above records the subsequent corrected run.
 
 All five detection artifact formats are bundled. Independent validation parsed five Elastic NDJSON rules, four Sigma documents, and the LimaCharlie YAML, and compiled the YARA rules with yara-python. YARA matching covered all incident/source/generated chains and all four decompressed Authenticode samples. No live tenant rule-firing claim is made.
 
@@ -56,7 +57,7 @@ All five detection artifact formats are bundled. Independent validation parsed f
 - The assessment is a point-in-time trust evaluation. It does not prove that every application uses the validated system store or that revocation, Certificate Transparency policy, and TLS behavior are identical across applications.
 - Offline tests intentionally use embedded material and historical validation times. They do not query live OCSP/CRL services or external incident hosts.
 - Windows Authenticode coverage checks signature trust only; it does not execute a signed binary or claim SmartScreen/reputation coverage.
-- Windows execution evidence remains pending, and optional runtime coverage varies by endpoint.
+- Optional runtime coverage varies by endpoint. The Windows lab did not have Node.js, Java, or a real Python interpreter on `PATH`; those controls were skipped, not counted as protected.
 
 ## Build Instructions
 

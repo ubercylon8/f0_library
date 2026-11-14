@@ -65,7 +65,7 @@ switch ($Mode) {
             $certificates = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
             foreach ($match in $matches) {
                 $der = [Convert]::FromBase64String(($match.Groups[1].Value -replace '\s', ''))
-                $certificate = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($der)
+                $certificate = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList (,$der)
                 $certificates.Add($certificate) | Out-Null
             }
             $leaf = $certificates[0]

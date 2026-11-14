@@ -79,7 +79,7 @@ func runRuntimeAssessments(ctx context.Context, workdir string) []ControlResult 
 		controls = append(controls, makeControl("CH-EMC-011", "Java JSSE default TLS trust", "runtime:java", nil, techniques))
 	}
 
-	if executable := findExecutable("python3", "python"); executable != "" {
+	if executable := findExecutable("python3", "python"); executable != "" && !pythonStoreAlias(ctx, executable) {
 		controls = append(controls, makeControl("CH-EMC-012", "Python default TLS trust", "runtime:"+executable, probeAllCases(ctx, "python-default", pythonFactory(executable, "")), techniques))
 		certifi := pythonCAPath(ctx, executable, "import certifi; print(certifi.where())")
 		if certifi != "" {
@@ -158,6 +158,11 @@ func classifyCurl(output string, err error) probeStatus {
 		return probeRejected
 	}
 	return probeError
+}
+
+func pythonStoreAlias(ctx context.Context, executable string) bool {
+	output, _ := runProcess(ctx, executable, []string{"--version"}, "")
+	return strings.Contains(output, "Python was not found; run without arguments to install from the Microsoft Store")
 }
 
 func findExecutable(names ...string) string {

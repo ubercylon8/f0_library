@@ -44,7 +44,9 @@ The T1557 mapping concerns the exposure demonstrated by acceptance of attacker-s
 
 The final local Linux run used execution ID `5d02ca07-4e90-404c-a592-9688d5173ccb` on 2026-11-14. It completed in 5,202 ms with phase status `success`, reached all nine discovered controls, and returned overall 101 after certifi accepted six direct chains and pip-vendored certifi accepted all 12 generated chains. Its Schema v2.0 execution log and per-control bundle were recorded as `/tmp/F0/test_execution_log.json` and `/tmp/F0/bundle_results.json` on the assessment host. MCP Schema v2.0 validation returned `ok=true` with zero schema/check errors.
 
-These local artifacts are execution evidence, not published threat-intelligence sources. Windows lab evidence remains pending; the Windows and Debian labs were unreachable during final documentation, so no Windows verdict is inferred.
+The Windows `win` run used execution ID `6a458166-7460-45e9-9893-9dbd3bf9277d`, completed in 14,399 ms, rejected every chain on all five available paths, and returned 126. The Debian `debian` run used execution ID `4dda286f-132b-4474-8723-2fc8e84946ab`, completed in 9,999 ms, accepted compromised chains on all six available paths, and returned 101. Both execution logs passed Schema v2.0 validation with zero schema/check errors.
+
+These artifacts are execution evidence, not published threat-intelligence sources. Final local and lab evidence is retained under `staging/262c6802-467c-42ed-ac3d-94e49f7d6ea4/` in the development worktree; lab results describe those hosts only, not the customer fleet.
 
 ## Detection Artifact Validation
 
