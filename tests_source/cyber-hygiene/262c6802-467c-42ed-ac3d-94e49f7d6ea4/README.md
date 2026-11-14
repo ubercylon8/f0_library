@@ -71,7 +71,7 @@ From the repository root:
 ./tests_source/cyber-hygiene/262c6802-467c-42ed-ac3d-94e49f7d6ea4/build_all.sh --org sb
 ```
 
-Build prerequisites are Go, `javac`, `osslsigncode`, and `gzip`. Outputs are:
+Build prerequisites are Go, `javac`, `osslsigncode`, and `gzip`. For ProjectAchilles builders, the script honors `F0_SIGN_CERT_PATH` and `F0_SIGN_CERT_PASS_FILE`, and the build-time generator explicitly uses the builder's host OS/architecture rather than the target `GOOS`/`GOARCH`. Outputs are:
 
 ```text
 build/262c6802-467c-42ed-ac3d-94e49f7d6ea4/262c6802-467c-42ed-ac3d-94e49f7d6ea4
