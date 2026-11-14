@@ -34,7 +34,9 @@ rm -rf generated
 mkdir -p generated "${BUILD_DIR}"
 
 echo "[1/7] Generating fresh validation certificates"
-go run ./cmd/generate .
+HOST_GOOS="$(go env GOHOSTOS)"
+HOST_GOARCH="$(go env GOHOSTARCH)"
+GOOS="${HOST_GOOS}" GOARCH="${HOST_GOARCH}" CGO_ENABLED=0 go run ./cmd/generate .
 
 echo "[2/7] Compiling Java 8-compatible JSSE probe"
 javac --release 8 -d generated helpers/TlsProbe.java
@@ -67,19 +69,37 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "${
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "${BUILD_DIR}/${TEST_UUID}.exe" .
 
 echo "[6/7] Signing and verifying Windows assessment binary"
+SIGNED=false
 if [[ -n "${ORG}" ]]; then
     source "${PROJECT_ROOT}/utils/resolve_org.sh"
     CERT_FILE="$(resolve_org_to_cert "${ORG}")"
     [[ -n "${CERT_FILE}" ]] || { echo "ERROR: could not resolve organization ${ORG}"; exit 1; }
     "${PROJECT_ROOT}/utils/codesign" sign-nested "${BUILD_DIR}/${TEST_UUID}.exe" \
         "${PROJECT_ROOT}/signing-certs/${CERT_FILE}" "${PROJECT_ROOT}/signing-certs/F0RT1KA.pfx"
-else
+    SIGNED=true
+elif [[ -n "${F0_SIGN_CERT_PATH:-}" ]]; then
+    [[ -f "${F0_SIGN_CERT_PATH}" ]] || { echo "ERROR: PA signing certificate not found: ${F0_SIGN_CERT_PATH}"; exit 1; }
+    [[ -n "${F0_SIGN_CERT_PASS_FILE:-}" && -f "${F0_SIGN_CERT_PASS_FILE}" ]] || {
+        echo "ERROR: F0_SIGN_CERT_PASS_FILE must reference a readable password file"; exit 1;
+    }
+    PA_SIGNED="${BUILD_DIR}/${TEST_UUID}.pa-signed.exe"
+    rm -f "${PA_SIGNED}"
+    osslsigncode sign -h sha256 -pkcs12 "${F0_SIGN_CERT_PATH}" -readpass "${F0_SIGN_CERT_PASS_FILE}" \
+        -in "${BUILD_DIR}/${TEST_UUID}.exe" -out "${PA_SIGNED}"
+    mv "${PA_SIGNED}" "${BUILD_DIR}/${TEST_UUID}.exe"
+    SIGNED=true
+elif [[ -f "${PROJECT_ROOT}/signing-certs/F0RT1KA.pfx" ]]; then
     "${PROJECT_ROOT}/utils/codesign" sign "${BUILD_DIR}/${TEST_UUID}.exe"
+    SIGNED=true
+else
+    echo "WARNING: no signing certificate configured; producing an UNSIGNED Windows binary"
 fi
-(osslsigncode verify "${BUILD_DIR}/${TEST_UUID}.exe" 2>&1 || true) | grep -q "Calculated message digest" || {
-    echo "ERROR: final Windows binary signature verification failed"
-    exit 1
-}
+if [[ "${SIGNED}" == "true" ]]; then
+    (osslsigncode verify "${BUILD_DIR}/${TEST_UUID}.exe" 2>&1 || true) | grep -q "Calculated message digest" || {
+        echo "ERROR: final Windows binary signature verification failed"
+        exit 1
+    }
+fi
 
 echo "[7/7] Reporting hashes and size budget"
 for binary in "${BUILD_DIR}/${TEST_UUID}" "${BUILD_DIR}/${TEST_UUID}.exe"; do
