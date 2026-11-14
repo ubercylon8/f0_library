@@ -1,0 +1,167 @@
+# eMudhra compromised CA detection rules
+# Test ID: 262c6802-467c-42ed-ac3d-94e49f7d6ea4
+# These rules intentionally use a documented custom certificate-observation logsource.
+# Sigma's standard process/file/network fields do not expose all certificates in a
+# presented chain or a validator's chain-acceptance result. Ingest one event per
+# observed certificate with the fields below; do not substitute process creation,
+# loopback network events, or certificate filenames as proof of compromise.
+# Required custom fields: ObservedUsage (tls|code-signing), CertificateSHA256,
+# SpkiSHA256, ChainAccepted (boolean, only when actually validated), Subject, Issuer,
+# SerialNumber, Source, FilePath, RemoteHost.
+---
+title: Compromised eMudhra TLS Intermediate Certificate or Key Observed
+id: 60f12172-bd01-5650-8c5d-c41cb3ce8779
+status: experimental
+description: >-
+  Detects any of the 12 direct or Sectigo AAA cross-signed compromised TLS
+  intermediate certificates by DER SHA-256, or their six public keys by DER SPKI
+  SHA-256. Requires normalized certificate-chain observations from a TLS sensor,
+  certificate scanner, or equivalent telemetry; this is not a process rule.
+references:
+  - https://attack.mitre.org/techniques/T1557/
+  - https://emudhra.we-have-a-problem.com/
+  - https://blog.cloudflare.com/emudhra-certificate-compromise
+  - https://blog.talosintelligence.com/compromised-intermediate-certificates/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-14
+tags:
+  - attack.credential-access
+  - attack.t1557
+logsource:
+  service: certificate-observations
+detection:
+  selection_usage:
+    ObservedUsage: tls
+  selection_certificate:
+    CertificateSHA256:
+      - 42C4ACCD12C4F59597925E1A08A7A90102608543809308D50EC427E118BA1493
+      - 45A883F349AEDFD5F3A649B5498FFB121712BA8B448F3F2A91DBC5A766FCDDBE
+      - 98B896625C0C230ADEEC3EB2CF6AAD5001ECF9156A68644E82374CE5833BC25B
+      - 5F1DED4DD590AF74631290CF073B122A2AAC6A1FA479778A0BD43579BD832699
+      - E7568FE6E12331F4FD7DE61DA4C7559D0F8EB192A218D4741A3BA75184333838
+      - 579480AEA166290BD3C643589E795FC0D0E54E86505D180F1DFF99EFD3199512
+      - 0164D7CEAE5BB909C272AF151FF44B1177AE9B47D9424B94F1D9558C30934D19
+      - 62B7F9868263F72F6911FC78CEAF72C1979158B7368BF648683BB2AA39B02E72
+      - CB6E15165AC802E9B3F993F16C25D41F4E81C21EBDE71AE1B012AC00BF9C7C3F
+      - 7485B51C0ED192878FA1D2F948FB529AE1842CC5086C4B67F7BE5B2039DE9489
+      - 432EC25F0D28DE9006D97BF752F17BBB2CD41F669933FCB072D9A1148D0261F3
+      - FD9D5C2DBBD4995AB69B8D50C439D9527B00529199C2FD01B2174EB58F07021F
+  selection_spki:
+    SpkiSHA256:
+      - EBED6475C2C2D80FCB199F3FE8DD6E6B3CE60B77EB15D4E42C3DEC0C6F5B5105
+      - 43BFFA19D6EF651451F6841E019931E96F6F2EAEFF28AB4B6F1CE4576DE2717B
+      - E0254C7FCDC265E2F0F8A428DABB75AB4AE039B4872D62F5EE57F0877D5A8A41
+      - 49DD353DC2B919A3770645117D0E60C16115E7D1BC259EEFE734B00EA434FE5F
+      - 63ECEFEE431D49523BC1136C4E72D0206A477086CAF606CD5CF025686C109CF8
+      - 5C0660A2B164910D8FF589C18E14552E9E0EC237DCEFE2CB736D41A4811F81A0
+  condition: selection_usage and (selection_certificate or selection_spki)
+falsepositives:
+  - Historically legitimate certificates issued before the compromise was disclosed
+  - Certificate research, incident-response evidence, and controlled trust validation
+level: high
+---
+title: Accepted TLS Chain Using a Compromised eMudhra Key
+id: 3146787c-3ada-5faf-8e58-1a2b2e9229c5
+status: experimental
+description: >-
+  Detects explicit TLS chain acceptance involving any of six compromised eMudhra
+  public keys. ChainAccepted must come from a validator that actually built and
+  trusted the chain; a completed TCP/TLS handshake alone does not prove acceptance.
+references:
+  - https://attack.mitre.org/techniques/T1557/
+  - https://www.microsoft.com/en-us/msrc/blog/2026/10/microsoft-response-to-compromised-emudhra-certificate-authority-keys
+  - https://blog.cloudflare.com/emudhra-certificate-compromise
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-14
+tags:
+  - attack.credential-access
+  - attack.t1557
+logsource:
+  service: certificate-observations
+detection:
+  selection_usage:
+    ObservedUsage: tls
+    ChainAccepted: true
+  selection_spki:
+    SpkiSHA256:
+      - EBED6475C2C2D80FCB199F3FE8DD6E6B3CE60B77EB15D4E42C3DEC0C6F5B5105
+      - 43BFFA19D6EF651451F6841E019931E96F6F2EAEFF28AB4B6F1CE4576DE2717B
+      - E0254C7FCDC265E2F0F8A428DABB75AB4AE039B4872D62F5EE57F0877D5A8A41
+      - 49DD353DC2B919A3770645117D0E60C16115E7D1BC259EEFE734B00EA434FE5F
+      - 63ECEFEE431D49523BC1136C4E72D0206A477086CAF606CD5CF025686C109CF8
+      - 5C0660A2B164910D8FF589C18E14552E9E0EC237DCEFE2CB736D41A4811F81A0
+  condition: selection_usage and selection_spki
+falsepositives:
+  - Deliberately vulnerable security-validation systems
+  - Controlled incident-response testing; triage by host and validation source
+level: critical
+---
+title: Compromised eMudhra Code-Signing Intermediate Certificate or Key Observed
+id: f89bcd4d-994b-53f7-86c2-db809948612a
+status: experimental
+description: >-
+  Detects the four direct or Sectigo AAA cross-signed compromised code-signing
+  intermediate certificates by DER SHA-256, or their two public keys by DER SPKI
+  SHA-256. Requires Authenticode chain/certificate telemetry, not merely file writes.
+references:
+  - https://attack.mitre.org/techniques/T1553/002/
+  - https://blog.talosintelligence.com/compromised-intermediate-certificates/
+  - https://d4.key64.com/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-14
+tags:
+  - attack.defense-evasion
+  - attack.t1553.002
+logsource:
+  service: certificate-observations
+detection:
+  selection_usage:
+    ObservedUsage: code-signing
+  selection_certificate:
+    CertificateSHA256:
+      - 9E39DE2881273ACC225A149C72BA3E0F51424963669AB633EE1DC7DF5DB067B4
+      - A496E23AC0CAB8155FC9B117B97EAE368EFCBB9041AEC8804D5A308D2D01C2D8
+      - 4B2460A466F95FD40113BCDCCA2CEB29B3B093921DE45474DA7DF48874C630B1
+      - 84112972B8E59D14560AE7E7119654474AAD119990CF3722BFC1E3B91615E1FD
+  selection_spki:
+    SpkiSHA256:
+      - EC4FFA1AD0AC88081314B7AAFFEF6A91F97CD57291BB5BA686C5415F5EB4F6B6
+      - 92C063D67E8F14DB71D288E11266FFDAF69CBF115F7BAB14F3BC2F68D25E0E30
+  condition: selection_usage and (selection_certificate or selection_spki)
+falsepositives:
+  - Historically legitimate eMudhra-signed software
+  - Malware research and incident-response certificate collections
+level: high
+---
+title: Accepted Authenticode Chain Using a Compromised eMudhra Key
+id: fa4a264c-be76-5dff-8c8f-f28f5079113e
+status: experimental
+description: >-
+  Detects explicit acceptance of an Authenticode signature chain using either
+  compromised code-signing public key. ChainAccepted must be produced by real
+  WinVerifyTrust/Authenticode or equivalent validation, not inferred from a signature
+  being present. Properly timestamped legacy software still requires contextual triage.
+references:
+  - https://attack.mitre.org/techniques/T1553/002/
+  - https://www.microsoft.com/en-us/msrc/blog/2026/10/microsoft-response-to-compromised-emudhra-certificate-authority-keys
+  - https://blog.talosintelligence.com/compromised-intermediate-certificates/
+author: F0RT1KA Detection Rules Generator
+date: 2026-11-14
+tags:
+  - attack.defense-evasion
+  - attack.t1553.002
+logsource:
+  service: certificate-observations
+detection:
+  selection_usage:
+    ObservedUsage: code-signing
+    ChainAccepted: true
+  selection_spki:
+    SpkiSHA256:
+      - EC4FFA1AD0AC88081314B7AAFFEF6A91F97CD57291BB5BA686C5415F5EB4F6B6
+      - 92C063D67E8F14DB71D288E11266FFDAF69CBF115F7BAB14F3BC2F68D25E0E30
+  condition: selection_usage and selection_spki
+falsepositives:
+  - Properly timestamped legacy software that local policy continues to trust
+  - Deliberately vulnerable security-validation systems
+level: critical

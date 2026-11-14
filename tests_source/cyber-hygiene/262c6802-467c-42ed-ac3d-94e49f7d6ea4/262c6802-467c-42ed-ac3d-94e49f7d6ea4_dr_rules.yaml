@@ -1,0 +1,117 @@
+# eMudhra compromised CA LimaCharlie Detection & Response rules
+# Test ID: 262c6802-467c-42ed-ac3d-94e49f7d6ea4
+# MITRE ATT&CK: T1557, T1553.002
+# Format: LimaCharlie file format (limacharlie dr add -f <this-file>)
+#
+# Native telemetry prerequisites and limitations:
+# - CERT_STORE_LIST_REP requires sensor 5.4.2+ and a cert_store_list task. Schedule
+#   that read-only task to obtain cross-platform store inventory. Review IS_TRUNCATED,
+#   CERT_STORES_FAILED and SCAN_STOPPED_REASON; an incomplete listing is not a clean bill.
+# - CODE_IDENTITY supplies the leaf signer's CERT_ISSUER. These rules do not interpret
+#   CERT_CHAIN_STATUS as acceptance because its bitmask semantics are sensor-specific.
+# - Native LimaCharlie network events do not expose complete certificate chains or a
+#   client's trust decision. No loopback/network correlation is fabricated here.
+# - YARA_DETECTION coverage applies only when the companion content rules are deployed
+#   and certificate-bearing files/artifacts are scanned.
+# False positives: historical legitimate certificates, timestamped legacy software,
+# disallow-list/remediation entries, and research collections. Store presence is exposure,
+# not proof of malicious use. Triage CERT_STORE and file provenance; never allow-list by
+# publisher alone. Alert on any exact fingerprint; suppress duplicate reports operationally.
+rules:
+  emudhra-compromised-tls-ca-store-inventory:
+    detect:
+      target: edr
+      event: CERT_STORE_LIST_REP
+      op: scope
+      path: event/CERTIFICATES/
+      rule:
+        op: and
+        rules:
+          - op: matches
+            path: event/HASH
+            case sensitive: false
+            re: '^(42C4ACCD12C4F59597925E1A08A7A90102608543809308D50EC427E118BA1493|45A883F349AEDFD5F3A649B5498FFB121712BA8B448F3F2A91DBC5A766FCDDBE|98B896625C0C230ADEEC3EB2CF6AAD5001ECF9156A68644E82374CE5833BC25B|5F1DED4DD590AF74631290CF073B122A2AAC6A1FA479778A0BD43579BD832699|E7568FE6E12331F4FD7DE61DA4C7559D0F8EB192A218D4741A3BA75184333838|579480AEA166290BD3C643589E795FC0D0E54E86505D180F1DFF99EFD3199512|0164D7CEAE5BB909C272AF151FF44B1177AE9B47D9424B94F1D9558C30934D19|62B7F9868263F72F6911FC78CEAF72C1979158B7368BF648683BB2AA39B02E72|CB6E15165AC802E9B3F993F16C25D41F4E81C21EBDE71AE1B012AC00BF9C7C3F|7485B51C0ED192878FA1D2F948FB529AE1842CC5086C4B67F7BE5B2039DE9489|432EC25F0D28DE9006D97BF752F17BBB2CD41F669933FCB072D9A1148D0261F3|FD9D5C2DBBD4995AB69B8D50C439D9527B00529199C2FD01B2174EB58F07021F)$'
+          - op: is
+            path: event/CERT_IS_CA
+            value: 1
+    respond:
+      - action: report
+        name: emudhra-compromised-tls-ca-store-inventory
+        priority: 3
+        metadata:
+          description: Exact direct or Sectigo AAA cross-signed compromised TLS intermediate found in trust inventory; exposure, not proof of accepted TLS interception
+          mitre_technique: T1557
+          mitre_tactic: credential-access
+          severity: high
+          tuning: Triage CERT_STORE and remediation state; rerun cert_store_list after removal
+
+  emudhra-compromised-codesign-ca-store-inventory:
+    detect:
+      target: edr
+      event: CERT_STORE_LIST_REP
+      op: scope
+      path: event/CERTIFICATES/
+      rule:
+        op: and
+        rules:
+          - op: matches
+            path: event/HASH
+            case sensitive: false
+            re: '^(9E39DE2881273ACC225A149C72BA3E0F51424963669AB633EE1DC7DF5DB067B4|A496E23AC0CAB8155FC9B117B97EAE368EFCBB9041AEC8804D5A308D2D01C2D8|4B2460A466F95FD40113BCDCCA2CEB29B3B093921DE45474DA7DF48874C630B1|84112972B8E59D14560AE7E7119654474AAD119990CF3722BFC1E3B91615E1FD)$'
+          - op: is
+            path: event/CERT_IS_CA
+            value: 1
+    respond:
+      - action: report
+        name: emudhra-compromised-codesign-ca-store-inventory
+        priority: 3
+        metadata:
+          description: Exact direct or Sectigo AAA cross-signed compromised code-signing intermediate found in trust inventory
+          mitre_technique: T1553.002
+          mitre_tactic: defense-evasion
+          severity: high
+          tuning: A Disallowed store may indicate protective remediation; other trusted stores require review
+
+  emudhra-compromised-codesign-authenticode-issuer:
+    detect:
+      target: edr
+      event: CODE_IDENTITY
+      op: or
+      rules:
+        - op: contains
+          path: event/SIGNATURE/CERT_ISSUER
+          value: CN=EM OV CS CA - G3B
+          case sensitive: false
+        - op: contains
+          path: event/SIGNATURE/CERT_ISSUER
+          value: CN=EM OV CS CA - G3C
+          case sensitive: false
+    respond:
+      - action: report
+        name: emudhra-compromised-codesign-authenticode-issuer
+        priority: 4
+        metadata:
+          description: Executed or loaded file has a leaf Authenticode signer issued by a compromised eMudhra code-signing CA; trust is not inferred
+          mitre_technique: T1553.002
+          mitre_tactic: defense-evasion
+          severity: high
+          tuning: Review file hash, path, signature timestamp and chain status with incident context
+
+  emudhra-compromised-certificate-yara-content:
+    detect:
+      target: edr
+      event: YARA_DETECTION
+      op: matches
+      path: event/RULE_NAME
+      case sensitive: false
+      re: '^EMUDHRA_COMPROMISED_(TLS|CODESIGN)_CA$'
+    respond:
+      - action: report
+        name: emudhra-compromised-certificate-yara-content
+        priority: 4
+        metadata:
+          description: Exact compromised certificate or compromised SPKI content found by companion YARA rules in a certificate-bearing file
+          mitre_technique: T1557,T1553.002
+          mitre_tactic: credential-access,defense-evasion
+          severity: high
+          tuning: Historical legitimate certificates and research corpora can match; inspect RULE_NAME, FILE_PATH and HASH
