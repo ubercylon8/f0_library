@@ -2,6 +2,9 @@ package main
 
 import (
 	"errors"
+	"io"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -57,5 +60,31 @@ func TestGeneratedCaseCoverage(t *testing.T) {
 	direct, cross, rollover := offlineTLSPaths()
 	if len(direct) != 7 || len(cross) != 7 || len(rollover) != 2 {
 		t.Fatalf("unexpected offline coverage: %d/%d/%d", len(direct), len(cross), len(rollover))
+	}
+}
+
+func TestPrintControlsIncludesInconclusiveEvidence(t *testing.T) {
+	control := makeControl("CH-TEST", "test", "test", []probeResult{{
+		Runtime: "authenticode", Case: "ov-g3b-direct", Status: probeError,
+		Evidence: "size=1220008 read=ok; HRESULT 0x80092003",
+	}}, []string{"T1553.002"})
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	original := os.Stdout
+	os.Stdout = writer
+	defer func() { os.Stdout = original }()
+	printControls([]ControlResult{control})
+	writer.Close()
+	os.Stdout = original
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "authenticode ov-g3b-direct: size=1220008 read=ok; HRESULT 0x80092003") {
+		t.Fatalf("inconclusive probe evidence missing from STDOUT:\n%s", output)
 	}
 }

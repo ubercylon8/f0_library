@@ -160,5 +160,14 @@ func printControls(controls []ControlResult) {
 		if control.ExitCode == ExitNonCompliant || control.ExitCode == ExitTestError {
 			fmt.Printf("               %s\n", strings.TrimSpace(control.Details))
 		}
+		if control.ExitCode == ExitTestError {
+			if probes, ok := control.Evidence["probes"].([]probeResult); ok {
+				for _, probe := range probes {
+					if probe.Status == probeError {
+						fmt.Printf("               %s %s: %s\n", probe.Runtime, probe.Case, probe.Evidence)
+					}
+				}
+			}
+		}
 	}
 }
