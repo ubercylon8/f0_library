@@ -37,8 +37,16 @@
 // unavailability (errors 53/67), DCOM/RPC unavailability, and missing wmic
 // are prerequisite conditions, not protection actions -> 999.
 //
+// ASR ATTRIBUTION: when the WMI leg does not produce its marker, the stage
+// queries Microsoft-Windows-Windows Defender/Operational for event 1121 (ASR
+// rule BLOCK) carrying rule d1e49aac-8f56-4280-b9ba-993a6d77406c ("Block
+// process creations originating from PSExec and WMI commands") inside the
+// stage time window. A matching 1121 is positive prevention evidence -> 126.
+// Event 1122 (audit mode) is logged for context but is NOT prevention.
+//
 // EXIT CODES: 0 = WMI execution AND ADMIN$ transfer unimpeded, 126 = positive
-// denial evidence on a critical leg, 999 = prerequisite/test error.
+// denial evidence on a critical leg (incl. ASR 1121 on the WMI leg),
+// 999 = prerequisite/test error with no prevention evidence.
 
 //go:build windows
 // +build windows
@@ -52,6 +60,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -77,6 +86,24 @@ const (
 	markerName    = "nxcsvc.exe"
 	markerRelPath = `Temp\nxcsvc.exe`
 	wmiMarkerPath = `C:\F0\gentlemen_wmi_marker.txt`
+)
+
+// Defender ASR rule "Block process creations originating from PSExec and WMI
+// commands". Event 1121 with this ID = block (prevention); 1122 = audit only.
+const (
+	asrPsexecWmiRuleID = "d1e49aac-8f56-4280-b9ba-993a6d77406c"
+	asrEventBlock      = 1121
+	asrEventAudit      = 1122
+	// Clock slack applied before the WMI call when querying the event log.
+	asrWindowSlack = 5 * time.Second
+	// Defender can write 1121 slightly after the WMI call returns; poll briefly.
+	asrPollAttempts = 3
+	asrPollInterval = 2 * time.Second
+)
+
+var (
+	reReturnValue = regexp.MustCompile(`(?i)ReturnValue\s*=\s*(-?\d+)`)
+	reProcessID   = regexp.MustCompile(`(?i)ProcessId\s*=\s*(\d+)`)
 )
 
 var elevatedContext bool
@@ -225,8 +252,35 @@ func performTechnique() int {
 
 // wmiProcessCreate performs the T1047 leg. Returns StageSuccess when the
 // loopback WMI process creation succeeded and the marker landed,
-// StageBlocked on positive denial evidence, StageError otherwise.
+// StageBlocked on positive denial evidence (OS access denial in an elevated
+// context, or a Defender ASR 1121 block for the PSExec/WMI rule inside the
+// stage window), StageError only when the failure is unexplained.
 func wmiProcessCreate() int {
+	windowStart := time.Now().Add(-asrWindowSlack)
+
+	result := wmiProcessCreateAttempt()
+	if result != StageError {
+		return result
+	}
+
+	// The WMI leg failed without positive OS denial evidence. Before calling
+	// it inconclusive, check whether Defender ASR prevented the WMI-spawned
+	// child (the typical ASR behaviour: Win32_Process.Create is accepted but
+	// the child process is blocked, so the marker never lands).
+	if blocked, detail := checkASRWmiBlock(windowStart); blocked {
+		LogMessage("WARN", "T1047", fmt.Sprintf(
+			"WMI child process creation BLOCKED by Defender ASR rule %s (Block process creations originating from PSExec and WMI commands) - Defender event %d: %s",
+			asrPsexecWmiRuleID, asrEventBlock, detail))
+		return StageBlocked
+	}
+
+	LogMessage("ERROR", "T1047", "WMI leg failed with no ASR block (event 1121) or OS denial evidence - inconclusive")
+	return StageError
+}
+
+// wmiProcessCreateAttempt runs the WMI process creation and classifies the
+// direct result. ASR attribution is done by the caller.
+func wmiProcessCreateAttempt() int {
 	wmicPath, _ := exec.LookPath("wmic.exe")
 
 	var cmd *exec.Cmd
@@ -238,7 +292,7 @@ func wmiProcessCreate() int {
 	} else {
 		LogMessage("INFO", TECHNIQUE_ID, "wmic.exe not present (Win11 24H2 removal) - using PowerShell DCOM WMI fallback")
 		psScript := fmt.Sprintf(
-			`$so=New-CimSessionOption -Protocol DCOM; $s=New-CimSession -ComputerName 127.0.0.1 -SessionOption $so; Invoke-CimMethod -CimSession $s -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='cmd.exe /c echo GENTLEMEN_WMI_MARKER> %s'} | Out-Null`,
+			`$so=New-CimSessionOption -Protocol DCOM; $s=New-CimSession -ComputerName 127.0.0.1 -SessionOption $so; $r=Invoke-CimMethod -CimSession $s -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='cmd.exe /c echo GENTLEMEN_WMI_MARKER> %s'}; if ($r) { Write-Output ('ReturnValue = {0}; ProcessId = {1};' -f $r.ReturnValue, $r.ProcessId) }`,
 			strings.ReplaceAll(wmiMarkerPath, `\`, `\\`))
 		display = "Invoke-CimMethod -CimSession DCOM(127.0.0.1) Win32_Process.Create (marker to LOG_DIR)"
 		cmd = exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript)
@@ -250,14 +304,26 @@ func wmiProcessCreate() int {
 	outLower := strings.ToLower(outStr)
 	LogProcessExecution(filepath.Base(cmd.Path), display, 0, err == nil, 0, truncateOut(outStr))
 
-	if err == nil || strings.Contains(outLower, "returnvalue = 0") || strings.Contains(outLower, "pscomputername") {
+	// Capture Win32_Process.Create's ReturnValue / ProcessId (wmic prints
+	// them natively; the PowerShell fallback emits them in the same shape).
+	returnValue, processID := "(not reported)", "(not reported)"
+	if m := reReturnValue.FindStringSubmatch(outStr); m != nil {
+		returnValue = m[1]
+	}
+	if m := reProcessID.FindStringSubmatch(outStr); m != nil {
+		processID = m[1]
+	}
+	LogMessage("INFO", "T1047", fmt.Sprintf("Win32_Process.Create result: ReturnValue=%s ProcessId=%s", returnValue, processID))
+
+	if err == nil || returnValue == "0" {
 		// Give the spawned cmd.exe a moment to flush the marker file.
 		time.Sleep(2 * time.Second)
 		if _, statErr := os.Stat(wmiMarkerPath); statErr == nil {
 			LogMessage("CRITICAL", "T1047", "WMI-created process verified via marker in LOG_DIR - remote execution unimpeded (loopback)")
 			return StageSuccess
 		}
-		LogMessage("WARNING", "T1047", "WMI call returned success but marker file not found - treating as inconclusive")
+		LogMessage("WARNING", "T1047", fmt.Sprintf(
+			"WMI call returned (ReturnValue=%s ProcessId=%s) but marker file not found - checking for ASR prevention", returnValue, processID))
 		return StageError
 	}
 
@@ -302,11 +368,70 @@ func rdpBeat() {
 // stageVerdict combines the two critical legs (Rule 4: only critical metrics
 // decide the stage). Both legs must have executed cleanly for success; any
 // positive block short-circuits earlier (returns handled at call sites).
+// A positive block on the WMI leg is never downgraded to 999 because the
+// ADMIN$ leg failed for an unrelated (prerequisite) reason.
 func stageVerdict(wmiResult int, transferOK bool) int {
+	if wmiResult == StageBlocked || wmiResult == StageQuarantined {
+		return wmiResult
+	}
 	if wmiResult == StageSuccess && transferOK {
 		return StageSuccess
 	}
 	return StageError
+}
+
+// checkASRWmiBlock looks for Defender ASR evidence for the PSExec/WMI rule
+// since windowStart. Returns true only for event 1121 (block). Event 1122
+// (audit) is logged for context but is NOT prevention evidence. The rule ID
+// is matched against the event XML (locale-independent), never the
+// localized message text.
+func checkASRWmiBlock(windowStart time.Time) (bool, string) {
+	psScript := fmt.Sprintf(
+		`$since=[DateTime]::Parse('%s',$null,[Globalization.DateTimeStyles]::RoundtripKind).ToLocalTime(); `+
+			`$ev=Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; Id=%d,%d; StartTime=$since} -ErrorAction SilentlyContinue | `+
+			`Where-Object { $_.ToXml() -match '%s' }; `+
+			`foreach ($e in $ev) { $x=[xml]$e.ToXml(); $d=@{}; foreach ($n in $x.Event.EventData.Data) { $d[$n.Name]=$n.'#text' }; `+
+			`Write-Output ('F0ASR|{0}|{1}|{2}|{3}' -f $e.Id, $e.TimeCreated.ToUniversalTime().ToString('o'), $d['Path'], $d['Process Name']) }`,
+		windowStart.UTC().Format(time.RFC3339), asrEventBlock, asrEventAudit, asrPsexecWmiRuleID)
+
+	sawAudit := ""
+	for attempt := 1; attempt <= asrPollAttempts; attempt++ {
+		out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript).CombinedOutput()
+		if err != nil {
+			LogMessage("WARNING", "T1047", fmt.Sprintf("ASR event query failed (attempt %d/%d): %v | %s",
+				attempt, asrPollAttempts, err, truncateOut(strings.TrimSpace(string(out)))))
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "F0ASR|") {
+				continue
+			}
+			parts := strings.SplitN(line, "|", 5)
+			if len(parts) < 5 {
+				continue
+			}
+			detail := fmt.Sprintf("time=%s path=%s process=%s", parts[2], parts[3], parts[4])
+			switch parts[1] {
+			case fmt.Sprint(asrEventBlock):
+				return true, detail
+			case fmt.Sprint(asrEventAudit):
+				sawAudit = detail
+			}
+		}
+		if attempt < asrPollAttempts {
+			time.Sleep(asrPollInterval)
+		}
+	}
+
+	if sawAudit != "" {
+		LogMessage("WARNING", "T1047", fmt.Sprintf(
+			"ASR rule %s fired in AUDIT mode (event %d: %s) - audit is not prevention, not counted as blocked",
+			asrPsexecWmiRuleID, asrEventAudit, sawAudit))
+	} else {
+		LogMessage("INFO", "T1047", fmt.Sprintf("No Defender ASR event %d for rule %s in stage window (since %s)",
+			asrEventBlock, asrPsexecWmiRuleID, windowStart.UTC().Format(time.RFC3339)))
+	}
+	return false, ""
 }
 
 // buildMarkerContent produces the benign lateral-transfer payload: a plain
