@@ -83,7 +83,7 @@ The orchestrator has **no `default → blocked` path** — the zero-value verdic
 ```bash
 cd tests_source/intel-driven/aa764293-94ed-4b25-a7fb-7d6fc14ac9a4
 ./build_all.sh                 # F0RT1KA-only signing (recommended)
-./build_all.sh --org sb        # dual-sign with org cert for ASR compatibility
+./build_all.sh --org sb        # dual-sign with org cert for WDAC/App Control signer trust (does not bypass ASR)
 ```
 
 Output: `build/aa764293-94ed-4b25-a7fb-7d6fc14ac9a4/aa764293-94ed-4b25-a7fb-7d6fc14ac9a4.exe`

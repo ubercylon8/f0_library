@@ -33,7 +33,7 @@ A comprehensive security testing framework for evaluating endpoint detection and
 - **Multi-Organization Support**: UUID-based organization tracking for enterprise deployments
 - **LimaCharlie Integration**: Infrastructure as Code for detection rules and certificate deployment
 - **Elasticsearch Analytics**: Pre-built dashboards and enrichment pipelines
-- **Code Signing Support**: Integrated Windows executable signing with dual-signing for ASR bypass
+- **Code Signing Support**: Integrated Windows executable signing with dual-signing for WDAC/App Control and SmartScreen signer trust (signing does not bypass Defender ASR rules)
 - **Test Provenance**: References tracking with `_references.md` files linking tests to source intelligence
 
 ## Test Categories
@@ -243,7 +243,7 @@ Sign Windows executables using the `codesign` utility:
 # Sign a specific binary
 ./utils/codesign sign build/<test-uuid>/<test-uuid>.exe
 
-# Dual-sign with organization certificate (for ASR bypass)
+# Dual-sign with organization certificate (WDAC/App Control signer trust; does not bypass ASR)
 ./utils/codesign sign-nested build/<test-uuid>/<test-uuid>.exe --org sb
 
 # Sign all binaries in build directory

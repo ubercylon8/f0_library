@@ -75,7 +75,7 @@ SSH as `jimx`, local admin), 2026-10-01:
 
 Final orchestrator: **24,638,064 bytes (23.5 MB) — Yellow tier** (10–25 MB band).
 Justification: five dual-signed stage binaries are gzip-embedded (Authenticode is per-file;
-dual signing for ASR compatibility is mandatory per framework). The largest contributor is
+dual signing for WDAC/App Control signer trust is mandatory per framework). The largest contributor is
 stage 4 (`stage-T1567.002`, 11 MB signed / 6.3 MB gz), which embeds Go's `net/http` stack to
 run a real loopback HTTP listener for byte-counted exfiltration classification with a genuine
 rclone client signature — required to match LockBit's StealBit/cloud-exfil tradecraft rather

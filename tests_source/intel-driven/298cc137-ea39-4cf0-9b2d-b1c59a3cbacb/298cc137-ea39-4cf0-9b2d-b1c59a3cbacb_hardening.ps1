@@ -129,7 +129,7 @@ function Set-DefenderEnforcement([bool]$Enable) {
 # ---------------------------------------------------------------
 $AsrRules = @{
     '9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2' = 'Block credential stealing from LSASS'
-    'd1e49aac-8f56-4280-b9ba-993a6d77406a' = 'Block process creations from PSExec/WMI'
+    'd1e49aac-8f56-4280-b9ba-993a6d77406c' = 'Block process creations from PSExec/WMI'
     '56a863a9-875e-4185-98a7-b882c64b5ce5' = 'Block abuse of exploited vulnerable signed drivers'
     'c1db55ab-c21a-4637-bb3f-a12568109d35' = 'Advanced ransomware protection'
 }

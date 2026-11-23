@@ -68,7 +68,7 @@ EXAMPLES:
     # Sign all binaries in build directory
     $(basename "$0") sign-all
 
-    # Dual-sign with org cert + F0RT1KA cert (for ASR compatibility + self-healing)
+    # Dual-sign with org cert + F0RT1KA cert (for WDAC/App Control signer trust + self-healing; does not bypass ASR)
     $(basename "$0") sign-nested build/test-uuid/test-uuid.exe signing-certs/sb_cert.pfx signing-certs/F0RT1KA.pfx
 
     # Sign with description and URL
