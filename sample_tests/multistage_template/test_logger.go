@@ -683,7 +683,23 @@ func mergePersistedStageData() {
 
 	// Stage bookkeeping is only ever written by stage binaries
 	for _, s := range prev.Stages {
-		if !s.StartTime.Time.Before(runStart) {
+		if s.StartTime.Time.Before(runStart) {
+			continue // stale previous-run record
+		}
+		// Reconcile by (StageID, Technique). The orchestrator registers and
+		// finalizes every stage itself (LogStageStart + LogStageEnd/LogStageBlocked),
+		// so its in-memory record is authoritative. A stage binary also persists its
+		// own record for the same stage; appending it blindly double-counts stages[]
+		// (and the successfulTechniques derived from it). Skip the duplicate; only
+		// adopt a persisted stage with no orchestrator counterpart.
+		dup := false
+		for i := range globalLog.Stages {
+			if globalLog.Stages[i].StageID == s.StageID && globalLog.Stages[i].Technique == s.Technique {
+				dup = true
+				break
+			}
+		}
+		if !dup {
 			globalLog.Stages = append(globalLog.Stages, s)
 		}
 	}
