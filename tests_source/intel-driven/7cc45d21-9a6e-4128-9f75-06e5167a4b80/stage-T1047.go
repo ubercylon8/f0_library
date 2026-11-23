@@ -386,36 +386,51 @@ func stageVerdict(wmiResult int, transferOK bool) int {
 // is matched against the event XML (locale-independent), never the
 // localized message text.
 func checkASRWmiBlock(windowStart time.Time) (bool, string) {
+	// The script always exits 0 so a non-zero exec error means powershell.exe
+	// itself failed to run. Get-WinEvent's benign "no matching events" error
+	// (FullyQualifiedErrorId NoMatchingEventsFound, locale-independent) is
+	// distinguished from a genuine read failure (e.g. access denied when not
+	// elevated) and surfaced as a separate F0ASRERR line, so the caller can
+	// tell "nothing to find" apart from "could not look".
 	psScript := fmt.Sprintf(
 		`$since=[DateTime]::Parse('%s',$null,[Globalization.DateTimeStyles]::RoundtripKind).ToLocalTime(); `+
-			`$ev=Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; Id=%d,%d; StartTime=$since} -ErrorAction SilentlyContinue | `+
+			`$qerr=$null; `+
+			`$ev=Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; Id=%d,%d; StartTime=$since} -ErrorAction SilentlyContinue -ErrorVariable qerr | `+
 			`Where-Object { $_.ToXml() -match '%s' }; `+
 			`foreach ($e in $ev) { $x=[xml]$e.ToXml(); $d=@{}; foreach ($n in $x.Event.EventData.Data) { $d[$n.Name]=$n.'#text' }; `+
-			`Write-Output ('F0ASR|{0}|{1}|{2}|{3}' -f $e.Id, $e.TimeCreated.ToUniversalTime().ToString('o'), $d['Path'], $d['Process Name']) }`,
+			`Write-Output ('F0ASR|{0}|{1}|{2}|{3}' -f $e.Id, $e.TimeCreated.ToUniversalTime().ToString('o'), $d['Path'], $d['Process Name']) }; `+
+			`if ($qerr -and ($qerr[0].FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*')) { `+
+			`Write-Output ('F0ASRERR|' + ($qerr[0].Exception.Message -replace '[\r\n]+',' ')) }; `+
+			`exit 0`,
 		windowStart.UTC().Format(time.RFC3339), asrEventBlock, asrEventAudit, asrPsexecWmiRuleID)
 
 	sawAudit := ""
+	queryErr := ""
 	for attempt := 1; attempt <= asrPollAttempts; attempt++ {
 		out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript).CombinedOutput()
 		if err != nil {
-			LogMessage("WARNING", "T1047", fmt.Sprintf("ASR event query failed (attempt %d/%d): %v | %s",
+			// Script exits 0 on any query outcome, so this is a real process
+			// failure (powershell missing/unrunnable), not a no-match.
+			LogMessage("WARNING", "T1047", fmt.Sprintf("ASR event query process failed to run (attempt %d/%d): %v | %s",
 				attempt, asrPollAttempts, err, truncateOut(strings.TrimSpace(string(out)))))
 		}
 		for _, line := range strings.Split(string(out), "\n") {
 			line = strings.TrimSpace(line)
-			if !strings.HasPrefix(line, "F0ASR|") {
-				continue
-			}
-			parts := strings.SplitN(line, "|", 5)
-			if len(parts) < 5 {
-				continue
-			}
-			detail := fmt.Sprintf("time=%s path=%s process=%s", parts[2], parts[3], parts[4])
-			switch parts[1] {
-			case fmt.Sprint(asrEventBlock):
-				return true, detail
-			case fmt.Sprint(asrEventAudit):
-				sawAudit = detail
+			switch {
+			case strings.HasPrefix(line, "F0ASR|"):
+				parts := strings.SplitN(line, "|", 5)
+				if len(parts) < 5 {
+					continue
+				}
+				detail := fmt.Sprintf("time=%s path=%s process=%s", parts[2], parts[3], parts[4])
+				switch parts[1] {
+				case fmt.Sprint(asrEventBlock):
+					return true, detail
+				case fmt.Sprint(asrEventAudit):
+					sawAudit = detail
+				}
+			case strings.HasPrefix(line, "F0ASRERR|"):
+				queryErr = strings.TrimPrefix(line, "F0ASRERR|")
 			}
 		}
 		if attempt < asrPollAttempts {
@@ -423,12 +438,23 @@ func checkASRWmiBlock(windowStart time.Time) (bool, string) {
 		}
 	}
 
-	if sawAudit != "" {
+	switch {
+	case sawAudit != "":
 		LogMessage("WARNING", "T1047", fmt.Sprintf(
 			"ASR rule %s fired in AUDIT mode (event %d: %s) - audit is not prevention, not counted as blocked",
 			asrPsexecWmiRuleID, asrEventAudit, sawAudit))
-	} else {
-		LogMessage("INFO", "T1047", fmt.Sprintf("No Defender ASR event %d for rule %s in stage window (since %s)",
+	case queryErr != "":
+		// Could not READ the log (vs. read it and found nothing). Stays
+		// inconclusive (Rule 8) - absence of a readable block is never a block.
+		LogMessage("WARNING", "T1047", fmt.Sprintf(
+			"Could not read Defender Operational log for ASR attribution (needs admin): %s - result stays inconclusive (999), NOT scored as blocked",
+			queryErr))
+	default:
+		// Read the log fine, found no 1121 in window. NB: Defender de-duplicates
+		// identical ASR events, so a rapid re-run of an identical block may not
+		// re-emit 1121 - the first/cooldown-cleared run is the authoritative one.
+		LogMessage("INFO", "T1047", fmt.Sprintf(
+			"No Defender ASR event %d for rule %s found in stage window since %s (log read OK, clean no-match)",
 			asrEventBlock, asrPsexecWmiRuleID, windowStart.UTC().Format(time.RFC3339)))
 	}
 	return false, ""
