@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gzip compression for multi-stage tests**: Embedded `.exe.gz` files decompressed in memory (~35% size reduction without EDR heuristic triggers)
 - **Multi-binary bundle architecture**: Quarantine-resilient bundles for cyber-hygiene tests (baseline, identity-endpoint)
 - **Organization UUID support**: `org_resolver.go` with registry-based UUID resolution for multi-tenant deployments
-- **Dual code signing**: F0RT1KA + organization certificate signing for ASR bypass compatibility
+- **Dual code signing**: F0RT1KA + organization certificate signing for WDAC/App Control signer-trust compatibility (note: signing does not bypass Defender ASR rules)
 - **Elasticsearch catalog sync**: `sync-test-catalog-to-elasticsearch.py` with enrichment pipeline for test result analytics
 - **Bundle results protocol**: `bundle_results.json` for per-control granularity in cyber-hygiene and multi-stage tests
 - **Pentest readiness builder**: DORA/TIBER-EU phase-aligned test suite generation

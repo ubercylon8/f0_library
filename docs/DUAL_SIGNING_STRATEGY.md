@@ -2,10 +2,18 @@
 
 ## Executive Summary
 
-F0RT1KA tests now support **dual signing** - signing binaries with BOTH organization-specific certificates AND the universal F0RT1KA certificate. This solves the ASR blocking issue while maintaining the self-healing vision.
+F0RT1KA tests now support **dual signing** - signing binaries with BOTH organization-specific certificates AND the universal F0RT1KA certificate. This lets test binaries satisfy signer-based trust controls (WDAC/App Control for Business publisher rules, SmartScreen/Mark-of-the-Web prompts) on endpoints that already trust the org certificate, while maintaining the self-healing vision.
+
+> **Important — signing does NOT bypass Defender ASR.** Attack Surface Reduction rules are behavior-based (e.g. "Block process creations originating from PSExec and WMI commands" blocks the *behavior*, whoever signed the binary). An Authenticode signature, even from an org-trusted certificate in `LocalMachine\Root` or `TrustedPublisher`, does not exempt a binary from ASR. Only ASR exclusions (`Add-MpPreference -AttackSurfaceReductionOnlyExclusions`, or per-rule exclusions via Intune/GPO) do that. The reputation-based rule ("Block executable files from running unless they meet a prevalence, age, or trusted list criterion") uses Microsoft cloud reputation, not locally installed certificates.
+>
+> Telling the two apart on an endpoint:
+> - **WDAC / App Control block** (signature/cert related): `Microsoft-Windows-CodeIntegrity/Operational` event **3077** (enforced block) or **3076** (audit). Advanced hunting `ActionType` starts with `AppControl`.
+> - **ASR block** (behavior related, not cert related): `Microsoft-Windows-Windows Defender/Operational` event **1121** (block) or **1122** (audit), with the rule GUID in the event. Advanced hunting `ActionType` starts with `Asr` (e.g. `AsrPsexecWmiChildProcessBlocked`).
+>
+> A test stage blocked by ASR is a genuine prevention result (Protected), not a signing problem.
 
 **Key Benefits:**
-- ✅ **Immediate Execution**: Org certs already trusted by endpoints, bypasses ASR rules
+- ✅ **Immediate Execution under WDAC/App Control**: Org certs already trusted by endpoints satisfy publisher/signer allow rules (ASR still applies — see above)
 - ✅ **Zero Deployment Friction**: No manual certificate installation required
 - ✅ **Self-Healing Enabled**: F0RT1KA cert auto-installs on first test run
 - ✅ **Gradual Migration**: Eventually migrate to F0RT1KA-only signing
@@ -17,14 +25,16 @@ F0RT1KA tests now support **dual signing** - signing binaries with BOTH organiza
 ```
 Test Binary → Signed with F0RT1KA cert
 Windows Endpoint → No F0RT1KA cert installed
-ASR Rules → Block execution (untrusted publisher)
+WDAC/App Control (signer rules) → Block execution (untrusted publisher; CodeIntegrity 3077)
 Result: Binary never runs, cert_installer never executes ❌
 ```
 
 **The Dilemma:**
-- Binary needs F0RT1KA cert to be trusted
+- On endpoints enforcing signer-based App Control, the binary needs a trusted cert to run
 - But binary must run to install F0RT1KA cert
-- ASR rules block execution before cert installation can occur
+- App Control blocks execution before cert installation can occur
+
+(ASR is not part of this dilemma: ASR rules do not evaluate publisher trust.)
 
 ## The Solution (Dual Signing)
 
@@ -32,7 +42,7 @@ Result: Binary never runs, cert_installer never executes ❌
 ```
 Test Binary → Dual-signed (org cert + F0RT1KA cert)
 Windows Endpoint → Has org cert installed (from previous deployments)
-ASR Rules → Allow execution (org cert trusted)
+WDAC/App Control → Allow execution (org cert matches signer rule)
 Binary Executes → cert_installer runs
 F0RT1KA Cert → Installed on endpoint for future use
 Result: Immediate execution + self-healing enabled ✅
@@ -80,7 +90,7 @@ The `-nest` flag preserves the first signature while adding the second.
 
 ### Build & Sign with Dual Signing
 
-**Recommended (Dual Signing for ASR Compatibility):**
+**Recommended (Dual Signing for WDAC/App Control compatibility):**
 ```bash
 # Dual-sign with sb + F0RT1KA
 /build-sign-test 7e93865c-0033-4db3-af3c-a9f4215c1c49 sb
@@ -131,7 +141,7 @@ Using `utils/codesign` directly:
 
 **Benefits:**
 - Zero deployment friction
-- No ASR blocks
+- No signer-based WDAC/App Control blocks (ASR rules still apply and are behavior-based)
 - Gradual F0RT1KA cert adoption
 
 ### Phase 2: Monitoring (Ongoing)
@@ -284,26 +294,32 @@ osslsigncode --help | grep -i nest
 # Should show: -nest - Sign nested signature
 ```
 
-### Issue: Binary Still Blocked by ASR
+### Issue: Dual-Signed Binary Still Blocked
 
-**Symptom:** Dual-signed binary blocked by ASR rules
+**First identify which control blocked it** — the fix is different:
 
-**Possible Causes:**
-1. Org certificate not trusted by endpoint
-2. ASR rule blocking all executable content
-3. Binary delivered via blocked channel (e.g., email attachment)
+| Control | Evidence | Cert-related? | Fix |
+|---------|----------|---------------|-----|
+| WDAC / App Control | CodeIntegrity/Operational **3077** (block) / **3076** (audit) | Yes | Trust the signing cert / add a signer rule to the App Control policy |
+| Defender ASR | Windows Defender/Operational **1121** (block) / **1122** (audit), rule GUID in event | **No** | Expected prevention result; only an ASR exclusion changes it |
+| SmartScreen / MotW | SmartScreen prompt, Zone.Identifier ADS | Partly (reputation) | Deliver without MotW / unblock file |
 
-**Solution:**
+**Diagnostics:**
 ```powershell
-# On endpoint, verify org cert is trusted
-Get-ChildItem -Path Cert:\LocalMachine\Root |
-    Where-Object { $_.Subject -like "*<org>*" }
+# Which control fired?
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-CodeIntegrity/Operational'; Id=3076,3077} -MaxEvents 20
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; Id=1121,1122} -MaxEvents 20
 
-# If not found, manually install org cert:
+# WDAC/App Control: verify org cert is trusted and the policy state
+Get-ChildItem -Path Cert:\LocalMachine\Root, Cert:\LocalMachine\TrustedPublisher |
+    Where-Object { $_.Subject -like "*<org>*" }
+CiTool.exe -lp
+
+# If not found, manually install org cert (affects WDAC/SmartScreen trust, NOT ASR):
 Import-Certificate -FilePath "org_cert.cer" -CertStoreLocation Cert:\LocalMachine\Root
 
-# Check ASR rules
-Get-MpPreference | Select-Object AttackSurfaceReductionRules_*
+# ASR: rule states and exclusions (signing has no effect here)
+Get-MpPreference | Select-Object AttackSurfaceReductionRules_*, AttackSurfaceReductionOnlyExclusions
 
 # Verify binary signature is recognized
 Get-AuthenticodeSignature "test.exe" | Format-List *
@@ -439,6 +455,6 @@ A: No. Signature validation happens at load time (before execution). Once valida
 
 ## Summary
 
-Dual signing solves the ASR blocking issue by combining the immediate compatibility of organization-specific certificates with the long-term scalability of the F0RT1KA universal certificate. This gradual migration strategy ensures zero deployment friction while building toward a fully self-healing security testing infrastructure.
+Dual signing solves the signer-trust (WDAC/App Control, SmartScreen) chicken-and-egg problem by combining the immediate compatibility of organization-specific certificates with the long-term scalability of the F0RT1KA universal certificate. This gradual migration strategy ensures zero deployment friction while building toward a fully self-healing security testing infrastructure. It does not, and is not meant to, bypass Defender ASR rules; ASR blocks of test behavior are legitimate prevention results.
 
 **Recommended Action:** Use dual signing (`/build-sign-test <uuid> <org>`) for all tests until F0RT1KA certificate coverage reaches 80%+ across your endpoint fleet.

@@ -144,7 +144,9 @@ Full guide: `docs/TEST_RESULTS_SCHEMA_GUIDE.md`
 - **tpsgl** (Transact Pay): `b2f8dccb-6d23-492e-aa87-a0a8a6103189`
 - **rga** (RG Associates): `9634119d-fa6b-42b8-9b9b-90ad8f22e482`
 
-**Dual Signing (for ASR compatibility):**
+**Dual Signing (for WDAC/App Control & SmartScreen signer trust — NOT ASR):**
+
+Signing matters for WDAC/App Control (blocks logged as CodeIntegrity 3077 enforced / 3076 audit) and SmartScreen. It does **not** bypass Defender ASR rules: ASR is behavior-based and ignores Authenticode trust; only ASR exclusions exempt a binary. ASR blocks (Defender event 1121; 1122 = audit) are genuine prevention results and should be scored Protected (126), not treated as signing failures.
 ```bash
 /build-sign-test <test-uuid> sb      # Short name
 /build-sign-test <test-uuid> tpsgl   # For tpsgl
