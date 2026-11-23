@@ -104,8 +104,9 @@ jobs:
       run: |
         # Excluded codes are informational/warning, intentional patterns.
         # SC2086 word-splitting, SC2181 dollar-question checks, SC2001 sed-vs-substitution,
-        # SC2317 unreachable, SC2164 cd-failure, SC2155 declare-and-assign,
+        # SC2317 unreachable, SC2329 defined-but-uncalled helper (shellcheck >=0.10 sibling of SC2317),
+        # SC2164 cd-failure, SC2155 declare-and-assign,
         # SC2016 single-quote-no-expand, SC2028 echo-escape, SC2162 read-without-r.
-        shellcheck -e SC2086,SC2181,SC2001,SC2317,SC2164,SC2155,SC2016,SC2028,SC2162 \
+        shellcheck -e SC2086,SC2181,SC2001,SC2317,SC2329,SC2164,SC2155,SC2016,SC2028,SC2162 \
           utils/*.sh \
           limacharlie-iac/scripts/*.sh
