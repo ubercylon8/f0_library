@@ -183,7 +183,7 @@ function Set-AuditVisibility([bool]$Enable) {
 # Control 3: ASR rule — Block process creations originating from PSExec and WMI
 # ---------------------------------------------------------------
 $AsrRules = @{
-    'd1e49aac-8f56-4280-b9ba-993a6d77406a' = 'Block process creations originating from PSExec/WMI (T1047/T1021.002)'
+    'd1e49aac-8f56-4280-b9ba-993a6d77406c' = 'Block process creations originating from PSExec/WMI (T1047/T1021.002)'
 }
 
 function Set-AsrRules([int]$Mode) {  # 1=Block, 2=Audit, 0=Off

@@ -101,7 +101,7 @@ Because nearly every step abuses sanctioned functionality, **signature-based and
 - **Hunting:** chart workstation-to-workstation 445/135/3389 flows for 30 days — in a hardened financial-sector network, that matrix should be nearly empty; any persistent edges are your compromise candidates.
 
 **Prevention:**
-- **ASR rule "Block process creations originating from PSExec and WMI"** (`d1e49aac-8f56-4280-b9ba-993a6d77406a`, M1040) — deploy in audit, then block. It directly breaks the WMI-child and PsExec patterns. Document legitimate exceptions (SCCM, admin tooling) first.
+- **ASR rule "Block process creations originating from PSExec and WMI"** (`d1e49aac-8f56-4280-b9ba-993a6d77406c`, M1040) — deploy in audit, then block. It directly breaks the WMI-child and PsExec patterns. Document legitimate exceptions (SCCM, admin tooling) first.
 - **M1035:** remove default admin shares where feasible (`AutoShareWks`/`AutoShareServer` = 0 on hosts that don't need them) and require SMB signing (M1037 at host level: `RequireSecuritySignature`), disable SMBv1.
 - Restrict remote WMI/DCOM (M1018/M1026): default DCOM remote-launch rights should exclude non-admin principals; block inbound 135 + RPC dynamic range at the host firewall on workstations; never reuse local-admin credentials across systems (LAPS).
 - RDP (M1030/M1032/M1042): disable RDP on workstations by policy, enforce NLA (`UserAuthentication=1`) where it must stay, force RD Gateway for servers, MFA on all remote logins.
@@ -254,7 +254,7 @@ Because nearly every step abuses sanctioned functionality, **signature-based and
 - Check Point Research — *DFIR Report – The Gentlemen & SystemBC* (2026-04): https://research.checkpoint.com/2026/dfir-report-the-gentlemen/
 - ESET WeLiveSecurity — *Killing me gently: Inside Gentlemen's EDR killer framework* (2026-06): https://www.welivesecurity.com/en/eset-research/killing-me-gently-inside-gentlemens-edr-killer-framework/
 - Microsoft — Preventing SMB traffic from lateral connections: https://support.microsoft.com/en-us/help/3185535
-- Microsoft — Attack Surface Reduction rules reference (PSExec/WMI rule `d1e49aac-8f56-4280-b9ba-993a6d77406a`)
+- Microsoft — Attack Surface Reduction rules reference (PSExec/WMI rule `d1e49aac-8f56-4280-b9ba-993a6d77406c`)
 - Microsoft — Advanced security audit policy settings (4698 Other Object Access Events; 7045 Service Installation; 5136 Directory Service Changes; 4720/4732 User Account Management / Security Group Management)
 - Velociraptor documentation — client `client.config.yaml` / `client.writeback` deployment artifacts
 - CIS Benchmarks: Microsoft Windows 10/11 (sections 9.x Scheduled Tasks, 18.x Audit Policy), Windows Server (SMB signing, admin shares), Active Directory (GPO management)
